@@ -1,0 +1,8 @@
+*.env
+*.local.php
+*.local.json
+*.log
+*.tmp
+/storage/
+/vendor/
+/node_modules/
