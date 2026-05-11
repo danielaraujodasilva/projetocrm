@@ -311,7 +311,7 @@ if ($page === 'studios') {
                 echo '<td><span class="badge ' . ($studio['status'] === 'active' ? 'ok' : 'warn') . '">' . h($studio['status']) . '</span></td>';
                 echo '<td>' . h($studio['database_name']) . '<br><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></td>';
                 echo '<td>' . h($studio['owner_name']) . '<br><span class="muted">' . h($studio['owner_email']) . '</span></td>';
-                echo '<td><a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '">Abrir</a></td>';
+                echo '<td><div class="actions"><a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '">Gerenciar</a><a class="btn" href="' . h(app_url('studio_login')) . '">Login do estudio</a></div></td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
@@ -343,7 +343,7 @@ if ($page === 'studio') {
         echo '<div class="panel"><h2>Banco</h2><p>' . h($studio['database_name']) . '</p><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></div>';
         echo '<div class="panel"><h2>Plano</h2><p>' . h($studio['plan_name']) . '</p></div>';
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions"><a class="btn" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a><a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions"><a class="btn" href="' . h(app_url('studio_login')) . '">Acessar login do estudio</a><a class="btn secondary" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a><a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a></div></section>';
         echo '<section class="panel" style="margin-top:16px"><h2>Acesso do estudio</h2>';
         $users = studio_users((int)$studio['id']);
         if ($users) {
@@ -364,7 +364,7 @@ if ($page === 'studio') {
         echo '<div class="field"><label>Email de login</label><input type="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
         echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
         echo '</div><button class="btn" type="submit">Salvar acesso do estudio</button></form>';
-        echo '<p class="muted">Login do estudio: <strong>' . h(app_url('studio_login')) . '</strong></p>';
+        echo '<div class="actions" style="margin-top:12px"><a class="btn" href="' . h(app_url('studio_login')) . '">Ir para tela de login do estudio</a><span class="muted">Use o email e a senha cadastrados acima.</span></div>';
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><h2>CRM alpha</h2><div class="module-list">';
         foreach ([
