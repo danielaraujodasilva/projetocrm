@@ -1,2 +1,0 @@
-Webhook test for projetocrm.
-Created from local workspace to verify GitHub push deploy.

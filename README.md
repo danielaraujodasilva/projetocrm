@@ -1,15 +1,35 @@
 # Projeto CRM
 
-Plataforma multi-estudio em desenvolvimento.
+Alpha da plataforma multi-estudio.
 
-Este projeto sera separado do sistema atual, com codigo unico e isolamento por estudio.
+Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 
-## Estrutura inicial
+## Alpha atual
 
-- `index.php`: tela temporaria de verificacao.
-- `deploy.php`: webhook de deploy do GitHub para este repositorio.
-- `deploy.local.example.php`: exemplo de configuracao local do deploy.
+- Banco central da plataforma.
+- Instalacao do primeiro gerente.
+- Login administrativo.
+- Cadastro de estudios.
+- SQL individual para o banco isolado de cada estudio.
+- Tela base do CRM por estudio.
+
+## SQL
+
+Rode `database/platform_alpha.sql` no phpMyAdmin para criar o banco central.
+
+Depois de cadastrar um estudio no painel, abra "Ver SQL do banco do estudio" e rode o SQL gerado para criar o banco isolado daquele estudio.
+
+## Configuracao local
+
+A configuracao padrao usa:
+
+- host: `localhost`
+- banco: `projetocrm_platform`
+- usuario: `root`
+- senha vazia
+
+Se precisar alterar, copie `config/database.local.example.php` para `config/database.local.php`.
 
 ## Deploy
 
-Crie um arquivo `deploy.local.php` baseado em `deploy.local.example.php` com um segredo proprio para o webhook.
+O `deploy.php` deste projeto recebe o webhook do repositorio `projetocrm`.
