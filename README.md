@@ -17,6 +17,8 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 
 Rode `database/platform_alpha.sql` no phpMyAdmin para criar o banco central.
 
+Se voce ja criou o banco antes da area de login dos estudios, rode tambem `database/platform_alpha_002_studio_users.sql`.
+
 Depois de cadastrar um estudio no painel, abra "Ver SQL do banco do estudio" e rode o SQL gerado para criar o banco isolado daquele estudio.
 
 ## Configuracao local

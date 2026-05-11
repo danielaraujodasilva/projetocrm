@@ -37,6 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('login');
         }
 
+        if ($action === 'studio_login') {
+            if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
+                flash_set('success', 'Login do estudio realizado.');
+                redirect_to('studio_home');
+            }
+            flash_set('error', 'Email ou senha invalidos para o estudio.');
+            redirect_to('studio_login');
+        }
+
         if ($action === 'create_studio') {
             $admin = require_admin();
             if (trim((string)($_POST['name'] ?? '')) === '') {
@@ -57,6 +66,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('success', 'Estudio atualizado.');
             redirect_to('studio', ['id' => (int)$studio['id']]);
         }
+
+        if ($action === 'save_studio_access') {
+            require_admin();
+            $studio = get_studio((int)($_POST['studio_id'] ?? 0));
+            if (!$studio) {
+                throw new RuntimeException('Estudio nao encontrado.');
+            }
+            create_or_update_studio_owner_user(
+                $studio,
+                (string)$_POST['access_name'],
+                (string)$_POST['access_email'],
+                (string)$_POST['access_password']
+            );
+            flash_set('success', 'Acesso do estudio salvo.');
+            redirect_to('studio', ['id' => (int)$studio['id']]);
+        }
     } catch (Throwable $e) {
         flash_set('error', $e->getMessage());
         redirect_to($page);
@@ -67,6 +92,12 @@ if ($page === 'logout') {
     logout_admin();
     flash_set('success', 'Voce saiu da plataforma.');
     redirect_to('login');
+}
+
+if ($page === 'studio_logout') {
+    logout_studio_user();
+    flash_set('success', 'Voce saiu do CRM do estudio.');
+    redirect_to('studio_login');
 }
 
 $flash = flash_get();
@@ -118,6 +149,28 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '</main></div></body></html>';
 }
 
+function render_studio_shell(string $title, string $subtitle, string $active, callable $content, ?array $flash): void
+{
+    $user = current_studio_user();
+    render_head($title);
+    echo '<div class="shell">';
+    echo '<aside class="sidebar">';
+    echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estudio') . '</span></div>';
+    echo '<nav class="nav">';
+    echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Inicio</a>';
+    echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '#leads">Leads</a>';
+    echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '#agenda">Agenda</a>';
+    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
+    echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
+    echo '</nav></aside>';
+    echo '<main class="main">';
+    echo '<div class="topbar"><div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
+    echo '<span class="badge">' . h($user['name'] ?? 'Usuario') . '</span></div>';
+    render_flash($flash);
+    $content();
+    echo '</main></div></body></html>';
+}
+
 if (!$dbStatus['ok'] || !$schemaReady) {
     render_auth_page('Preparar banco central', 'Rode o SQL inicial no phpMyAdmin para habilitar a alpha.', function () use ($dbStatus) {
         echo '<div class="panel">';
@@ -146,6 +199,57 @@ if (admin_count() === 0) {
         echo '<div class="field"><label>Senha</label><input name="password" type="password" minlength="8" required autocomplete="new-password"></div>';
         echo '<button class="btn" type="submit">Criar gerente</button>';
         echo '</form>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_login') {
+    render_auth_page('Entrar no CRM do estudio', 'Acesso operacional do estudio cadastrado.', function () {
+        echo '<form class="form" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="studio_login">';
+        echo '<div class="field"><label>Email</label><input name="email" type="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
+        echo '<button class="btn" type="submit">Entrar no CRM</button>';
+        echo '<a class="btn secondary" href="' . h(app_url('login')) . '">Painel gerente</a>';
+        echo '</form>';
+    }, $flash);
+    exit;
+}
+
+if (in_array($page, ['studio_home', 'studio_settings'], true) && !current_studio_user()) {
+    redirect_to('studio_login');
+}
+
+if ($page === 'studio_home') {
+    $user = current_studio_user();
+    render_studio_shell('Inicio do CRM', 'Primeira tela operacional da instancia ' . (string)$user['studio_name'] . '.', 'home', function () use ($user) {
+        echo '<section class="grid cols-3">';
+        echo '<div class="panel"><h2>Estudio</h2><p class="metric">' . h($user['studio_name']) . '</p><p class="muted">' . h($user['studio_slug']) . '</p></div>';
+        echo '<div class="panel"><h2>Status</h2><span class="badge ' . ($user['studio_status'] === 'active' ? 'ok' : 'warn') . '">' . h($user['studio_status']) . '</span></div>';
+        echo '<div class="panel"><h2>Banco</h2><p>' . h($user['database_name']) . '</p></div>';
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><h2>Atalhos do CRM</h2><div class="module-list">';
+        foreach ([
+            ['Leads', 'Funil e contatos entram aqui na proxima etapa.'],
+            ['WhatsApp', 'Conexao multi-sessao sera gerenciada por estudio.'],
+            ['Agenda', 'Pre-agendamentos e horarios do estudio.'],
+            ['IA', 'Regras e modelo configurados por instancia.'],
+        ] as $module) {
+            echo '<div class="module"><strong>' . h($module[0]) . '</strong><span class="muted">' . h($module[1]) . '</span></div>';
+        }
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_settings') {
+    $user = current_studio_user();
+    render_studio_shell('Configuracoes do estudio', 'Visao inicial das configuracoes isoladas.', 'settings', function () use ($user) {
+        echo '<section class="grid cols-2">';
+        echo '<div class="panel"><h2>IA</h2><p>Modelo configurado: <strong>' . h($user['ai_model']) . '</strong></p><p class="muted">As regras por estudio serao editaveis aqui nas proximas etapas.</p></div>';
+        echo '<div class="panel"><h2>WhatsApp</h2><p>Status: <span class="badge warn">' . h($user['whatsapp_status']) . '</span></p><p class="muted">A conexao via Baileys entrara como servico multi-sessao.</p></div>';
+        echo '</section>';
     }, $flash);
     exit;
 }
@@ -240,6 +344,28 @@ if ($page === 'studio') {
         echo '<div class="panel"><h2>Plano</h2><p>' . h($studio['plan_name']) . '</p></div>';
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions"><a class="btn" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a><a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><h2>Acesso do estudio</h2>';
+        $users = studio_users((int)$studio['id']);
+        if ($users) {
+            echo '<table class="table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Ultimo login</th></tr></thead><tbody>';
+            foreach ($users as $user) {
+                echo '<tr><td>' . h($user['name']) . '</td><td>' . h($user['email']) . '</td><td>' . h($user['role']) . '</td><td>' . h($user['last_login_at'] ?? '-') . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        } else {
+            echo '<p class="muted">Nenhum usuario operacional criado ainda.</p>';
+        }
+        echo '<form class="form" method="post" style="margin-top:14px">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_studio_access">';
+        echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
+        echo '<div class="grid cols-3">';
+        echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
+        echo '<div class="field"><label>Email de login</label><input type="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
+        echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
+        echo '</div><button class="btn" type="submit">Salvar acesso do estudio</button></form>';
+        echo '<p class="muted">Login do estudio: <strong>' . h(app_url('studio_login')) . '</strong></p>';
+        echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><h2>CRM alpha</h2><div class="module-list">';
         foreach ([
             ['Leads', 'Estrutura preparada para funil e contatos.'],

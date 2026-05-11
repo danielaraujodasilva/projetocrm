@@ -113,7 +113,7 @@ function table_exists(string $table): bool
 
 function schema_ready(): bool
 {
-    return table_exists('platform_admins') && table_exists('studios') && table_exists('studio_events');
+    return table_exists('platform_admins') && table_exists('studios') && table_exists('studio_events') && table_exists('studio_users');
 }
 
 function admin_count(): int
@@ -137,6 +137,27 @@ function current_admin(): ?array
     $admin = $stmt->fetch();
 
     return is_array($admin) ? $admin : null;
+}
+
+function current_studio_user(): ?array
+{
+    $id = (int)($_SESSION['studio_user_id'] ?? 0);
+    if ($id <= 0 || !schema_ready()) {
+        return null;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT su.*, s.name AS studio_name, s.slug AS studio_slug, s.status AS studio_status,
+                s.database_name, s.plan_name, s.ai_model, s.whatsapp_status
+         FROM studio_users su
+         INNER JOIN studios s ON s.id = su.studio_id
+         WHERE su.id = ? AND su.is_active = 1
+         LIMIT 1'
+    );
+    $stmt->execute([$id]);
+    $user = $stmt->fetch();
+
+    return is_array($user) ? $user : null;
 }
 
 function require_admin(): array
@@ -204,6 +225,37 @@ function login_admin(string $email, string $password): bool
 function logout_admin(): void
 {
     unset($_SESSION['admin_id']);
+}
+
+function login_studio_user(string $email, string $password): bool
+{
+    $stmt = db()->prepare(
+        'SELECT su.*, s.status AS studio_status
+         FROM studio_users su
+         INNER JOIN studios s ON s.id = su.studio_id
+         WHERE su.email = ? AND su.is_active = 1
+         LIMIT 1'
+    );
+    $stmt->execute([strtolower(trim($email))]);
+    $user = $stmt->fetch();
+
+    if (!is_array($user) || !password_verify($password, (string)$user['password_hash'])) {
+        return false;
+    }
+
+    if (in_array((string)$user['studio_status'], ['disabled', 'paused'], true)) {
+        return false;
+    }
+
+    $_SESSION['studio_user_id'] = (int)$user['id'];
+    db()->prepare('UPDATE studio_users SET last_login_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
+
+    return true;
+}
+
+function logout_studio_user(): void
+{
+    unset($_SESSION['studio_user_id']);
 }
 
 function list_studios(): array
@@ -299,6 +351,47 @@ function studio_events(int $studioId): array
     $stmt = db()->prepare('SELECT * FROM studio_events WHERE studio_id = ? ORDER BY created_at DESC, id DESC LIMIT 8');
     $stmt->execute([$studioId]);
     return $stmt->fetchAll() ?: [];
+}
+
+function studio_users(int $studioId): array
+{
+    $stmt = db()->prepare('SELECT id, studio_id, name, email, role, is_active, last_login_at, created_at FROM studio_users WHERE studio_id = ? ORDER BY created_at DESC, id DESC');
+    $stmt->execute([$studioId]);
+    return $stmt->fetchAll() ?: [];
+}
+
+function create_or_update_studio_owner_user(array $studio, string $name, string $email, string $password): void
+{
+    $name = trim($name);
+    $email = strtolower(trim($email));
+    if ($name === '' || $email === '') {
+        throw new RuntimeException('Informe nome e email do usuario do estudio.');
+    }
+    if (strlen($password) < 8) {
+        throw new RuntimeException('A senha do usuario do estudio precisa ter pelo menos 8 caracteres.');
+    }
+
+    $stmt = db()->prepare('SELECT id FROM studio_users WHERE email = ? LIMIT 1');
+    $stmt->execute([$email]);
+    $existingId = (int)($stmt->fetchColumn() ?: 0);
+
+    if ($existingId > 0) {
+        $stmt = db()->prepare(
+            'UPDATE studio_users
+             SET studio_id = ?, name = ?, password_hash = ?, role = "owner", is_active = 1, updated_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([(int)$studio['id'], $name, password_hash($password, PASSWORD_DEFAULT), $existingId]);
+        studio_event((int)$studio['id'], 'studio_user_updated', 'Acesso principal do estudio atualizado.');
+        return;
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO studio_users (studio_id, name, email, password_hash, role, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, "owner", 1, NOW(), NOW())'
+    );
+    $stmt->execute([(int)$studio['id'], $name, $email, password_hash($password, PASSWORD_DEFAULT)]);
+    studio_event((int)$studio['id'], 'studio_user_created', 'Acesso principal do estudio criado.');
 }
 
 function studio_database_exists(array $studio): bool
