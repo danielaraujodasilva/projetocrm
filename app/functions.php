@@ -98,8 +98,13 @@ function db_status(): array
 function table_exists(string $table): bool
 {
     try {
-        $stmt = db()->prepare('SHOW TABLES LIKE ?');
-        $stmt->execute([$table]);
+        $config = app_config('database');
+        $stmt = db()->prepare(
+            'SELECT COUNT(*)
+             FROM INFORMATION_SCHEMA.TABLES
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+        );
+        $stmt->execute([(string)($config['database'] ?? 'projetocrm_platform'), $table]);
         return (bool)$stmt->fetchColumn();
     } catch (Throwable) {
         return false;
