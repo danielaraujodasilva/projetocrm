@@ -204,6 +204,26 @@ textarea {
     align-items: center;
 }
 
+.inline-form {
+    margin: 0;
+    display: inline-flex;
+}
+
+.checkline {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 11px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--text);
+}
+
+.checkline input {
+    width: auto;
+}
+
 .btn {
     border: 1px solid transparent;
     border-radius: 6px;

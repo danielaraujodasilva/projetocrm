@@ -148,7 +148,7 @@ function current_studio_user(): ?array
 
     $stmt = db()->prepare(
         'SELECT su.*, s.name AS studio_name, s.slug AS studio_slug, s.status AS studio_status,
-                s.database_name, s.plan_name, s.ai_model, s.whatsapp_status
+                s.database_name, s.database_host, s.database_user, s.plan_name, s.ai_model, s.whatsapp_status
          FROM studio_users su
          INNER JOIN studios s ON s.id = su.studio_id
          WHERE su.id = ? AND su.is_active = 1
@@ -217,6 +217,7 @@ function login_admin(string $email, string $password): bool
     }
 
     $_SESSION['admin_id'] = (int)$admin['id'];
+    unset($_SESSION['studio_user_id']);
     db()->prepare('UPDATE platform_admins SET last_login_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([(int)$admin['id']]);
 
     return true;
@@ -248,6 +249,7 @@ function login_studio_user(string $email, string $password): bool
     }
 
     $_SESSION['studio_user_id'] = (int)$user['id'];
+    unset($_SESSION['admin_id']);
     db()->prepare('UPDATE studio_users SET last_login_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([(int)$user['id']]);
 
     return true;
@@ -401,10 +403,25 @@ function studio_database_exists(array $studio): bool
         return false;
     }
 
-    $stmt = db()->prepare('SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1');
-    $stmt->execute([$database]);
+    try {
+        $config = studio_db_config($studio);
+        $dsn = sprintf(
+            'mysql:host=%s;port=%d;charset=%s',
+            $config['host'],
+            $config['port'],
+            $config['charset']
+        );
+        $pdo = new PDO($dsn, $config['username'], $config['password'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+        $stmt = $pdo->prepare('SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ? LIMIT 1');
+        $stmt->execute([$database]);
 
-    return (bool)$stmt->fetchColumn();
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 function studio_sql(array $studio): string
@@ -412,8 +429,10 @@ function studio_sql(array $studio): string
     $template = (string)file_get_contents(APP_BASE_PATH . '/database/studio_alpha_template.sql');
     $replace = [
         '{{DATABASE_NAME}}' => str_replace('`', '', (string)$studio['database_name']),
-        '{{STUDIO_NAME}}' => str_replace("'", "''", (string)$studio['name']),
-        '{{STUDIO_SLUG}}' => str_replace("'", "''", (string)$studio['slug']),
+        '{{STUDIO_NAME}}' => str_replace(["\\", "'"], ["\\\\", "''"], (string)$studio['name']),
+        '{{STUDIO_SLUG}}' => str_replace(["\\", "'"], ["\\\\", "''"], (string)$studio['slug']),
+        '{{BUSINESS_RULES}}' => str_replace(["\\", "'"], ["\\\\", "''"], (string)($studio['business_rules'] ?? '')),
+        '{{AI_MODEL}}' => str_replace(["\\", "'"], ["\\\\", "''"], (string)($studio['ai_model'] ?? 'llama3:8b')),
     ];
 
     return strtr($template, $replace);

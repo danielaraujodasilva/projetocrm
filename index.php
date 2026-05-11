@@ -82,6 +82,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('success', 'Acesso do estudio salvo.');
             redirect_to('studio', ['id' => (int)$studio['id']]);
         }
+
+        if ($action === 'install_studio_database') {
+            require_admin();
+            $studio = get_studio((int)($_POST['studio_id'] ?? 0));
+            if (!$studio) {
+                throw new RuntimeException('Estudio nao encontrado.');
+            }
+            studio_install_database($studio);
+            flash_set('success', 'Banco do estudio instalado/atualizado com sucesso.');
+            redirect_to('studio', ['id' => (int)$studio['id']]);
+        }
+
+        if ($action === 'save_customer') {
+            $studio = require_studio();
+            studio_save_customer($studio, $_POST);
+            flash_set('success', 'Cliente salvo.');
+            redirect_to('studio_customers');
+        }
+
+        if ($action === 'save_lead') {
+            $studio = require_studio();
+            if (trim((string)($_POST['name'] ?? '')) === '' && trim((string)($_POST['phone'] ?? '')) === '') {
+                throw new RuntimeException('Informe pelo menos nome ou telefone do lead.');
+            }
+            studio_save_lead($studio, $_POST);
+            flash_set('success', 'Lead salvo.');
+            redirect_to('studio_leads');
+        }
+
+        if ($action === 'save_appointment') {
+            $studio = require_studio();
+            studio_save_appointment($studio, $_POST);
+            flash_set('success', 'Agenda salva.');
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'save_studio_settings') {
+            $studio = require_studio();
+            studio_save_settings($studio, $_POST);
+            flash_set('success', 'Configuracoes salvas.');
+            redirect_to('studio_settings');
+        }
     } catch (Throwable $e) {
         flash_set('error', $e->getMessage());
         redirect_to($page);
@@ -158,8 +200,9 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estudio') . '</span></div>';
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Inicio</a>';
-    echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '#leads">Leads</a>';
-    echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '#agenda">Agenda</a>';
+    echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_leads')) . '">Leads</a>';
+    echo '<a class="' . ($active === 'customers' ? 'active' : '') . '" href="' . h(app_url('studio_customers')) . '">Clientes</a>';
+    echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
@@ -195,7 +238,7 @@ if (admin_count() === 0) {
         echo csrf_field();
         echo '<input type="hidden" name="action" value="install_admin">';
         echo '<div class="field"><label>Nome</label><input name="name" required autocomplete="name"></div>';
-        echo '<div class="field"><label>Email</label><input name="email" type="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" minlength="8" required autocomplete="new-password"></div>';
         echo '<button class="btn" type="submit">Criar gerente</button>';
         echo '</form>';
@@ -208,7 +251,7 @@ if ($page === 'studio_login') {
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="studio_login">';
-        echo '<div class="field"><label>Email</label><input name="email" type="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
         echo '<button class="btn" type="submit">Entrar no CRM</button>';
         echo '<a class="btn secondary" href="' . h(app_url('login')) . '">Painel gerente</a>';
@@ -217,39 +260,181 @@ if ($page === 'studio_login') {
     exit;
 }
 
-if (in_array($page, ['studio_home', 'studio_settings'], true) && !current_studio_user()) {
+$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_settings'];
+if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
 
 if ($page === 'studio_home') {
     $user = current_studio_user();
-    render_studio_shell('Inicio do CRM', 'Primeira tela operacional da instancia ' . (string)$user['studio_name'] . '.', 'home', function () use ($user) {
-        echo '<section class="grid cols-3">';
-        echo '<div class="panel"><h2>Estudio</h2><p class="metric">' . h($user['studio_name']) . '</p><p class="muted">' . h($user['studio_slug']) . '</p></div>';
-        echo '<div class="panel"><h2>Status</h2><span class="badge ' . ($user['studio_status'] === 'active' ? 'ok' : 'warn') . '">' . h($user['studio_status']) . '</span></div>';
-        echo '<div class="panel"><h2>Banco</h2><p>' . h($user['database_name']) . '</p></div>';
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><h2>Atalhos do CRM</h2><div class="module-list">';
-        foreach ([
-            ['Leads', 'Funil e contatos entram aqui na proxima etapa.'],
-            ['WhatsApp', 'Conexao multi-sessao sera gerenciada por estudio.'],
-            ['Agenda', 'Pre-agendamentos e horarios do estudio.'],
-            ['IA', 'Regras e modelo configurados por instancia.'],
-        ] as $module) {
-            echo '<div class="module"><strong>' . h($module[0]) . '</strong><span class="muted">' . h($module[1]) . '</span></div>';
+    $studio = require_studio();
+    render_studio_shell('Inicio do CRM', 'Resumo operacional da instancia ' . (string)$user['studio_name'] . '.', 'home', function () use ($studio, $user) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
         }
+        $stats = studio_stats($studio);
+        $recentLeads = studio_recent_leads($studio, 6);
+        $appointments = studio_upcoming_appointments($studio, 6);
+
+        echo '<section class="grid cols-3">';
+        echo '<div class="panel"><p class="metric">' . h($stats['leads']) . '</p><p class="muted">Leads no funil</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($stats['customers']) . '</p><p class="muted">Clientes cadastrados</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($stats['appointments']) . '</p><p class="muted">Proximos atendimentos</p></div>';
+        echo '</section>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        if (!$recentLeads) {
+            echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
+        } else {
+            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Nota</th></tr></thead><tbody>';
+            foreach ($recentLeads as $lead) {
+                echo '<tr><td><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td><td><span class="badge">' . h($lead['status']) . '</span></td><td>' . h((string)($lead['lead_score'] ?? '-')) . '/10</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo '</div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda proxima</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div>';
+        if (!$appointments) {
+            echo '<p class="muted">Nenhum horario futuro cadastrado.</p>';
+        } else {
+            echo '<table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Status</th></tr></thead><tbody>';
+            foreach ($appointments as $appointment) {
+                echo '<tr><td><strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date']))) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . '</span></td><td>' . h($appointment['customer_name']) . '<br><span class="muted">' . h($appointment['title']) . '</span></td><td><span class="badge">' . h($appointment['status']) . '</span></td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><h2>Valor em oportunidades abertas</h2><p class="metric">' . h(format_money($stats['open_value'])) . '</p><p class="muted">Soma estimada dos leads ainda nao perdidos ou fechados.</p></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_customers') {
+    $studio = require_studio();
+    render_studio_shell('Clientes', 'Ficha simples de clientes do estudio.', 'customers', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $customers = studio_list_customers($studio);
+        echo '<section class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_customer">';
+        echo '<h2>Novo cliente</h2>';
+        echo '<div class="field"><label>Nome</label><input name="name" required></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Telefone</label><input name="phone"></div><div class="field"><label>Email</label><input type="text" inputmode="email" name="email"></div></div>';
+        echo '<div class="field"><label>Instagram</label><input name="instagram" placeholder="@cliente"></div>';
+        echo '<div class="field"><label>Observacoes</label><textarea name="notes" placeholder="Preferencias, historico, restricoes, ideias de tatuagem..."></textarea></div>';
+        echo '<button class="btn" type="submit">Salvar cliente</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Clientes recentes</h2>';
+        render_customers_table($customers);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_leads') {
+    $studio = require_studio();
+    render_studio_shell('Leads', 'Funil comercial inicial do estudio.', 'leads', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $customers = studio_list_customers($studio);
+        $leads = studio_list_leads($studio);
+        echo '<section class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_lead">';
+        echo '<h2>Novo lead</h2>';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name"></div><div class="field"><label>Telefone</label><input name="phone"></div></div>';
+        echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
+        render_customer_options($customers);
+        echo '</select></div>';
+        echo '<div class="field"><label>Interesse</label><input name="interest" placeholder="Fechamento de braco, piercing, cobertura..."></div>';
+        echo '<div class="grid cols-3">';
+        echo '<div class="field"><label>Status</label><select name="status">';
+        render_options(lead_status_options(), 'novo');
+        echo '</select></div>';
+        echo '<div class="field"><label>Etapa</label><input name="pipeline_stage" value="entrada"></div>';
+        echo '<div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="5"></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" placeholder="450,00"></div><div class="field"><label>Origem</label><input name="source" value="manual"></div></div>';
+        echo '<button class="btn" type="submit">Salvar lead</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Leads cadastrados</h2>';
+        render_leads_table($leads);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_agenda') {
+    $studio = require_studio();
+    render_studio_shell('Agenda', 'Pre-agendamentos e atendimentos do estudio.', 'agenda', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $customers = studio_list_customers($studio);
+        $leads = studio_list_leads($studio);
+        $appointments = studio_list_appointments($studio);
+        echo '<section class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_appointment">';
+        echo '<h2>Novo horario</h2>';
+        echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Cliente</label><select name="customer_id"><option value="">Sem cliente</option>';
+        render_customer_options($customers);
+        echo '</select></div><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
+        render_lead_options($leads);
+        echo '</select></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></div><div class="field"><label>Valor</label><input name="value" placeholder="600,00"></div><div class="field"><label>Sinal</label><input name="deposit_value" placeholder="100,00"></div></div>';
+        echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento, local do corpo, referencia, observacoes..."></textarea></div>';
+        echo '<button class="btn" type="submit">Salvar horario</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Agenda cadastrada</h2>';
+        render_appointments_table($appointments);
         echo '</div></section>';
     }, $flash);
     exit;
 }
 
 if ($page === 'studio_settings') {
-    $user = current_studio_user();
-    render_studio_shell('Configuracoes do estudio', 'Visao inicial das configuracoes isoladas.', 'settings', function () use ($user) {
-        echo '<section class="grid cols-2">';
-        echo '<div class="panel"><h2>IA</h2><p>Modelo configurado: <strong>' . h($user['ai_model']) . '</strong></p><p class="muted">As regras por estudio serao editaveis aqui nas proximas etapas.</p></div>';
-        echo '<div class="panel"><h2>WhatsApp</h2><p>Status: <span class="badge warn">' . h($user['whatsapp_status']) . '</span></p><p class="muted">A conexao via Baileys entrara como servico multi-sessao.</p></div>';
-        echo '</section>';
+    $studio = require_studio();
+    render_studio_shell('Configuracoes do estudio', 'Regras comerciais e preparacao dos modulos de IA/WhatsApp.', 'settings', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $settings = studio_settings($studio);
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_studio_settings">';
+        echo '<h2>Base do estudio</h2>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
+        echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA liberada por padrao</label>';
+        echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado</label>';
+        echo '</div>';
+        echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
+        echo '<div class="actions"><button class="btn" type="submit">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
+        echo '</form>';
     }, $flash);
     exit;
 }
@@ -263,7 +448,7 @@ if ($page === 'login') {
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="login">';
-        echo '<div class="field"><label>Email</label><input name="email" type="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
         echo '<button class="btn" type="submit">Entrar</button>';
         echo '</form>';
@@ -343,7 +528,17 @@ if ($page === 'studio') {
         echo '<div class="panel"><h2>Banco</h2><p>' . h($studio['database_name']) . '</p><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></div>';
         echo '<div class="panel"><h2>Plano</h2><p>' . h($studio['plan_name']) . '</p></div>';
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions"><a class="btn" href="' . h(app_url('studio_login')) . '">Acessar login do estudio</a><a class="btn secondary" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a><a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions">';
+        echo '<a class="btn" href="' . h(app_url('studio_login')) . '">Acessar login do estudio</a>';
+        echo '<form method="post" class="inline-form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="install_studio_database">';
+        echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
+        echo '<button class="btn secondary" type="submit">' . ($dbOk ? 'Atualizar banco do estudio' : 'Instalar banco do estudio') . '</button>';
+        echo '</form>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a>';
+        echo '</div></section>';
         echo '<section class="panel" style="margin-top:16px"><h2>Acesso do estudio</h2>';
         $users = studio_users((int)$studio['id']);
         if ($users) {
@@ -361,7 +556,7 @@ if ($page === 'studio') {
         echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
         echo '<div class="grid cols-3">';
         echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
-        echo '<div class="field"><label>Email de login</label><input type="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
+        echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
         echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
         echo '</div><button class="btn" type="submit">Salvar acesso do estudio</button></form>';
         echo '<div class="actions" style="margin-top:12px"><a class="btn" href="' . h(app_url('studio_login')) . '">Ir para tela de login do estudio</a><span class="muted">Use o email e a senha cadastrados acima.</span></div>';
@@ -445,7 +640,7 @@ function render_studio_form(?array $studio): void
     echo '</select></div>';
     echo '<div class="field"><label>Plano</label><input name="plan_name" value="' . h($studio['plan_name'] ?? 'alpha') . '"></div>';
     echo '<div class="field"><label>Responsavel</label><input name="owner_name" value="' . h($studio['owner_name'] ?? '') . '"></div>';
-    echo '<div class="field"><label>Email do responsavel</label><input type="email" name="owner_email" value="' . h($studio['owner_email'] ?? '') . '"></div>';
+    echo '<div class="field"><label>Email do responsavel</label><input type="text" inputmode="email" name="owner_email" value="' . h($studio['owner_email'] ?? '') . '"></div>';
     echo '<div class="field"><label>Telefone</label><input name="owner_phone" value="' . h($studio['owner_phone'] ?? '') . '"></div>';
     echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($studio['ai_model'] ?? 'llama3:8b') . '"></div>';
     echo '<div class="field"><label>Banco do estudio</label><input name="database_name" value="' . h($studio['database_name'] ?? '') . '" placeholder="projetocrm_nome_do_estudio"></div>';
@@ -455,4 +650,117 @@ function render_studio_form(?array $studio): void
     echo '<div class="field"><label>Regras base da IA deste estudio</label><textarea name="business_rules" placeholder="Endereco, horarios, sinal, politicas, limites da IA...">' . h($studio['business_rules'] ?? '') . '</textarea></div>';
     echo '<div class="actions"><button class="btn" type="submit">' . ($isEdit ? 'Salvar alteracoes' : 'Cadastrar estudio') . '</button><a class="btn secondary" href="' . h(app_url('studios')) . '">Cancelar</a></div>';
     echo '</form>';
+}
+
+function render_studio_db_missing(array $studio, string $error): void
+{
+    echo '<section class="panel">';
+    echo '<h2>Banco do estudio pendente</h2>';
+    echo '<p>O CRM operacional deste estudio ainda precisa do banco isolado instalado ou atualizado.</p>';
+    echo '<p class="muted">Banco configurado: <strong>' . h($studio['database_name'] ?? '') . '</strong></p>';
+    if ($error !== '') {
+        echo '<p class="muted">' . h($error) . '</p>';
+    }
+    echo '<p class="muted">Entre pelo painel gerente, abra este estudio e clique em <strong>Instalar banco do estudio</strong>.</p>';
+    echo '</section>';
+}
+
+function lead_status_options(): array
+{
+    return [
+        'novo' => 'Novo',
+        'em_conversa' => 'Em conversa',
+        'orcamento' => 'Orcamento',
+        'pre_agendado' => 'Pre-agendado',
+        'agendado' => 'Agendado',
+        'fechado' => 'Fechado',
+        'perdido' => 'Perdido',
+    ];
+}
+
+function appointment_status_options(): array
+{
+    return [
+        'pre_agendado' => 'Pre-agendado',
+        'confirmado' => 'Confirmado',
+        'em_atendimento' => 'Em atendimento',
+        'concluido' => 'Concluido',
+        'cancelado' => 'Cancelado',
+    ];
+}
+
+function render_options(array $options, string $selected): void
+{
+    foreach ($options as $value => $label) {
+        $isSelected = $value === $selected ? 'selected' : '';
+        echo '<option value="' . h($value) . '" ' . $isSelected . '>' . h($label) . '</option>';
+    }
+}
+
+function render_customer_options(array $customers): void
+{
+    foreach ($customers as $customer) {
+        echo '<option value="' . h($customer['id']) . '">' . h(($customer['name'] ?: 'Sem nome') . ($customer['phone'] ? ' - ' . $customer['phone'] : '')) . '</option>';
+    }
+}
+
+function render_lead_options(array $leads): void
+{
+    foreach ($leads as $lead) {
+        echo '<option value="' . h($lead['id']) . '">' . h(($lead['name'] ?: 'Sem nome') . ($lead['interest'] ? ' - ' . $lead['interest'] : '')) . '</option>';
+    }
+}
+
+function render_customers_table(array $customers): void
+{
+    if (!$customers) {
+        echo '<p class="muted">Nenhum cliente cadastrado ainda.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th></tr></thead><tbody>';
+    foreach ($customers as $customer) {
+        echo '<tr>';
+        echo '<td><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
+        echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
+        echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_leads_table(array $leads): void
+{
+    if (!$leads) {
+        echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th></tr></thead><tbody>';
+    foreach ($leads as $lead) {
+        echo '<tr>';
+        echo '<td><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
+        echo '<td><span class="badge">' . h($lead['status']) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
+        echo '<td>' . h(format_money($lead['estimated_value'] ?? 0)) . '<br><span class="muted">' . h($lead['source'] ?: '-') . '</span></td>';
+        echo '<td><strong>' . h((string)($lead['lead_score'] ?? '-')) . '/10</strong></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_appointments_table(array $appointments): void
+{
+    if (!$appointments) {
+        echo '<p class="muted">Nenhum horario cadastrado ainda.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
+    foreach ($appointments as $appointment) {
+        $date = date('d/m/Y', strtotime((string)$appointment['appointment_date']));
+        echo '<tr>';
+        echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
+        echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
+        echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '<br><span class="muted">Sinal ' . h(format_money($appointment['deposit_value'] ?? 0)) . '</span></td>';
+        echo '<td><span class="badge">' . h($appointment['status']) . '</span></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
 }

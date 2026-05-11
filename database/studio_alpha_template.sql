@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `studio_settings`
-  (`id`, `studio_name`, `studio_slug`, `business_rules`, `created_at`, `updated_at`)
+  (`id`, `studio_name`, `studio_slug`, `business_rules`, `ai_model`, `created_at`, `updated_at`)
 VALUES
-  (1, '{{STUDIO_NAME}}', '{{STUDIO_SLUG}}', '', NOW(), NOW())
+  (1, '{{STUDIO_NAME}}', '{{STUDIO_SLUG}}', '{{BUSINESS_RULES}}', '{{AI_MODEL}}', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `studio_name` = VALUES(`studio_name`),
   `studio_slug` = VALUES(`studio_slug`),
+  `business_rules` = IF(`business_rules` IS NULL OR `business_rules` = '', VALUES(`business_rules`), `business_rules`),
+  `ai_model` = IF(`ai_model` IS NULL OR `ai_model` = '', VALUES(`ai_model`), `ai_model`),
   `updated_at` = NOW();
 
 CREATE TABLE IF NOT EXISTS `customers` (
