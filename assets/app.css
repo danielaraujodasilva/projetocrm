@@ -330,6 +330,21 @@ textarea {
     line-height: 1.5;
 }
 
+.qr-box {
+    display: inline-flex;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    margin: 10px 0;
+}
+
+.qr-box img {
+    width: 220px;
+    height: 220px;
+    display: block;
+}
+
 .module-list {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));

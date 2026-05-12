@@ -132,6 +132,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_quick_replies');
         }
 
+        if ($action === 'start_whatsapp_session') {
+            $studio = require_studio();
+            $result = studio_start_whatsapp_session($studio);
+            if (empty($result['ok'])) {
+                throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel iniciar o WhatsApp.'));
+            }
+            flash_set('success', 'Sessao WhatsApp solicitada. Se aparecer QR Code, escaneie pelo celular.');
+            redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'disconnect_whatsapp_session') {
+            $studio = require_studio();
+            $result = studio_disconnect_whatsapp_session($studio);
+            if (empty($result['ok'])) {
+                throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel desconectar o WhatsApp.'));
+            }
+            flash_set('success', 'WhatsApp desconectado para este estudio.');
+            redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'send_whatsapp_message') {
+            $studio = require_studio();
+            studio_send_whatsapp_message($studio, $_POST);
+            flash_set('success', 'Mensagem enviada pelo WhatsApp.');
+            redirect_to('studio_whatsapp');
+        }
+
         if ($action === 'save_studio_settings') {
             $studio = require_studio();
             studio_save_settings($studio, $_POST);
@@ -442,20 +469,76 @@ if ($page === 'studio_agenda') {
 
 if ($page === 'studio_whatsapp') {
     $studio = require_studio();
-    render_studio_shell('WhatsApp', 'Primeira camada da central de conversas por estudio.', 'whatsapp', function () use ($studio) {
+    render_studio_shell('WhatsApp', 'Central de conversas e sessao Baileys deste estudio.', 'whatsapp', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
+        $settings = studio_settings($studio);
+        $sessionKey = studio_session_key($studio);
+        $serviceStatus = studio_whatsapp_service_status($studio);
         $summary = studio_whatsapp_summary($studio);
         $conversations = studio_list_whatsapp_conversations($studio);
         echo '<section class="grid cols-3">';
         echo '<div class="panel"><p class="metric">' . h($summary['total']) . '</p><p class="muted">Conversas</p></div>';
         echo '<div class="panel"><p class="metric">' . h($summary['bot']) . '</p><p class="muted">Em modo IA</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($summary['human']) . '</p><p class="muted">Em modo humano</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($summary['needs_human']) . '</p><p class="muted">Pedindo humano</p></div>';
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge warn">Baileys multi-estudio em proxima etapa</span></div>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
+        $status = (string)($serviceStatus['status'] ?? 'offline');
+        $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
+        echo '<span class="badge ' . h($badgeClass) . '">' . h($status) . '</span></div>';
+        echo '<p class="muted">Chave isolada: <strong>' . h($sessionKey) . '</strong></p>';
+        echo '<p class="muted">Servico: <strong>' . h(studio_whatsapp_service_url($studio)) . '</strong></p>';
+        if (empty($serviceStatus['ok'])) {
+            echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
+            echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
+        } elseif (!empty($serviceStatus['qrImage'])) {
+            echo '<div class="qr-box"><img src="' . h((string)$serviceStatus['qrImage']) . '" alt="QR Code WhatsApp"></div>';
+            echo '<p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>';
+        } elseif (!empty($serviceStatus['phone'])) {
+            echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
+        }
+        echo '<div class="actions">';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
+        echo '</div></div>';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_studio_settings">';
+        echo '<h2>Configuracao WhatsApp</h2>';
+        echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
+        echo '<div class="field"><label>Padrao para conversas novas</label><select name="whatsapp_default_mode">';
+        render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
+        echo '</select></div>';
+        echo '<input type="hidden" name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '">';
+        echo '<input type="hidden" name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '">';
+        echo '<input type="hidden" name="business_rules" value="' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '">';
+        if (!empty($settings['ai_enabled'])) {
+            echo '<input type="hidden" name="ai_enabled" value="1">';
+        }
+        echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado neste estudio</label>';
+        echo '<button class="btn" type="submit">Salvar WhatsApp</button>';
+        echo '</form>';
+        echo '</section>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="send_whatsapp_message">';
+        echo '<h2>Enviar mensagem manual</h2>';
+        echo '<div class="field"><label>Telefone</label><input name="phone" placeholder="5511999999999"></div>';
+        echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
+        echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Leitura rapida</h2>';
+        echo '<p><strong>' . h($summary['human']) . '</strong> conversas em humano.</p>';
+        echo '<p><strong>' . h($summary['analyzed']) . '</strong> conversas com alguma analise de IA.</p>';
+        echo '<p><strong>' . h($summary['avg_score'] ?: '-') . '</strong> nota media dos leads importados.</p>';
+        echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         render_whatsapp_table($conversations);
         echo '</section>';
     }, $flash);
@@ -570,6 +653,12 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-2">';
         echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA liberada por padrao</label>';
         echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado</label>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Padrao das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
+        render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
+        echo '</select></div>';
+        echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
         echo '</div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
         echo '<div class="actions"><button class="btn" type="submit">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
@@ -956,17 +1045,18 @@ function render_quick_replies_table(array $replies): void
 function render_whatsapp_table(array $conversations): void
 {
     if (!$conversations) {
-        echo '<p class="muted">Nenhuma conversa importada ainda. Esta tela ja esta preparada para receber as sessoes do Baileys por estudio.</p>';
+        echo '<p class="muted">Nenhuma conversa importada ainda. Inicie a sessao do WhatsApp e envie uma mensagem para este numero aparecer aqui.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Analise IA</th><th>Mensagens</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Lead</th><th>Ultima mensagem</th></tr></thead><tbody>';
     foreach ($conversations as $conversation) {
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
+        $needsHuman = !empty($conversation['needs_human']);
         echo '<tr>';
         echo '<td><strong>' . h($name) . '</strong><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
-        echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span></td>';
-        echo '<td>' . h($conversation['ai_last_status'] ?: '-') . '<br><span class="muted">' . h($conversation['ai_last_message'] ?: '') . '</span></td>';
-        echo '<td>' . h($conversation['message_count'] ?? 0) . '<br><span class="muted">' . h($conversation['last_message_at'] ?: '-') . '</span></td>';
+        echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span><br>' . ($needsHuman ? '<span class="badge warn">quer humano</span>' : '<span class="muted">sem alerta</span>') . '</td>';
+        echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
+        echo '<td>' . h($conversation['last_message_preview'] ?: '-') . '<br><span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens - ' . ($conversation['message_last_at'] ?: '-')) . '</span></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';

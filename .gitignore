@@ -6,3 +6,5 @@
 /storage/
 /vendor/
 /node_modules/
+/services/whatsapp/node_modules/
+/services/whatsapp/sessions/

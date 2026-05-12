@@ -16,7 +16,7 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 - Cadastro simples de clientes.
 - Cadastro simples de leads com status, etapa, origem, valor estimado e nota 0-10.
 - Agenda inicial com cliente, lead, data, horario, valor, sinal e status.
-- Central inicial de WhatsApp por estudio, pronta para receber conversas do Baileys multi-sessao.
+- Central de WhatsApp por estudio com chave de sessao isolada, QR Code, envio manual e webhook do Baileys multi-sessao.
 - Financeiro por estudio com despesas, categorias e resultado simples do mes.
 - Respostas rapidas por estudio para atendimento humano e futura IA.
 - Relatorios de leads, agenda e despesas.
@@ -40,6 +40,21 @@ A configuracao padrao usa:
 - senha vazia
 
 Se precisar alterar, copie `config/database.local.example.php` para `config/database.local.php`.
+
+## Servico WhatsApp multi-estudio
+
+O servico Node fica em `services/whatsapp` e usa uma pasta de sessao por estudio em `services/whatsapp/sessions`.
+
+Primeira execucao:
+
+```bash
+cd services/whatsapp
+npm install
+npm start
+```
+
+Por padrao ele roda em `http://localhost:3010` e envia eventos para `http://localhost/projetocrm/api/whatsapp_webhook.php`.
+No CRM do estudio, abra `WhatsApp`, clique em "Iniciar ou gerar QR" e escaneie o QR Code.
 
 ## Deploy
 

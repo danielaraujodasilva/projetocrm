@@ -148,7 +148,8 @@ function current_studio_user(): ?array
 
     $stmt = db()->prepare(
         'SELECT su.*, s.name AS studio_name, s.slug AS studio_slug, s.status AS studio_status,
-                s.database_name, s.database_host, s.database_user, s.plan_name, s.ai_model, s.whatsapp_status
+                s.database_name, s.database_host, s.database_user, s.plan_name, s.ai_model,
+                s.whatsapp_status, s.whatsapp_session_key
          FROM studio_users su
          INNER JOIN studios s ON s.id = su.studio_id
          WHERE su.id = ? AND su.is_active = 1
@@ -275,6 +276,15 @@ function get_studio(int $id): ?array
     return is_array($studio) ? $studio : null;
 }
 
+function get_studio_by_session_key(string $sessionKey): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM studios WHERE whatsapp_session_key = ? LIMIT 1');
+    $stmt->execute([$sessionKey]);
+    $studio = $stmt->fetch();
+
+    return is_array($studio) ? $studio : null;
+}
+
 function create_studio(array $data, int $adminId): int
 {
     $name = trim((string)($data['name'] ?? ''));
@@ -286,10 +296,11 @@ function create_studio(array $data, int $adminId): int
 
     $stmt = db()->prepare(
         'INSERT INTO studios
-            (name, slug, status, owner_name, owner_email, owner_phone, database_name, database_host, database_user, plan_name, ai_model, business_rules, created_by, created_at, updated_at)
+            (name, slug, status, owner_name, owner_email, owner_phone, database_name, database_host, database_user, plan_name, ai_model, business_rules, whatsapp_session_key, created_by, created_at, updated_at)
          VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
+    $nextId = (int)db()->query("SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'studios'")->fetchColumn();
     $stmt->execute([
         $name,
         $slug,
@@ -303,6 +314,7 @@ function create_studio(array $data, int $adminId): int
         trim((string)($data['plan_name'] ?? 'alpha')),
         trim((string)($data['ai_model'] ?? 'llama3:8b')),
         trim((string)($data['business_rules'] ?? '')),
+        studio_session_key_from_parts($nextId, $slug),
         $adminId,
     ]);
 
@@ -317,9 +329,12 @@ function update_studio(array $studio, array $data): void
     $stmt = db()->prepare(
         'UPDATE studios
          SET name = ?, status = ?, owner_name = ?, owner_email = ?, owner_phone = ?, database_name = ?,
-             database_host = ?, database_user = ?, plan_name = ?, ai_model = ?, business_rules = ?, updated_at = NOW()
+             database_host = ?, database_user = ?, plan_name = ?, ai_model = ?, business_rules = ?,
+             whatsapp_session_key = IF(whatsapp_session_key IS NULL OR whatsapp_session_key = "", ?, whatsapp_session_key),
+             updated_at = NOW()
          WHERE id = ?'
     );
+    $sessionKey = studio_session_key_from_parts((int)$studio['id'], (string)$studio['slug']);
     $stmt->execute([
         trim((string)($data['name'] ?? $studio['name'])),
         trim((string)($data['status'] ?? $studio['status'])),
@@ -332,10 +347,17 @@ function update_studio(array $studio, array $data): void
         trim((string)($data['plan_name'] ?? 'alpha')),
         trim((string)($data['ai_model'] ?? 'llama3:8b')),
         trim((string)($data['business_rules'] ?? '')),
+        $sessionKey,
         (int)$studio['id'],
     ]);
 
     studio_event((int)$studio['id'], 'studio_updated', 'Dados do estudio atualizados.');
+}
+
+function studio_session_key_from_parts(int $studioId, string $slug): string
+{
+    $base = preg_replace('/[^a-z0-9_-]+/', '-', strtolower($slug)) ?: 'studio';
+    return trim($base, '-') . '-' . $studioId;
 }
 
 function studio_event(int $studioId, string $type, string $message): void

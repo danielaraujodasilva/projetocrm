@@ -1,0 +1,19 @@
+{
+  "name": "projetocrm-whatsapp-service",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "axios": "^1.14.0",
+    "express": "^5.2.1",
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.5"
+  }
+}

@@ -183,6 +183,191 @@ function money_to_float(string $value): float
     return is_numeric($value) ? (float)$value : 0.0;
 }
 
+function normalize_phone(string $phone): string
+{
+    return preg_replace('/\D+/', '', $phone) ?? '';
+}
+
+function phones_match(string $left, string $right): bool
+{
+    $left = normalize_phone($left);
+    $right = normalize_phone($right);
+    if ($left === '' || $right === '') {
+        return false;
+    }
+    if ($left === $right) {
+        return true;
+    }
+
+    $min = min(strlen($left), strlen($right));
+    return $min >= 10 && substr($left, -$min) === substr($right, -$min);
+}
+
+function studio_session_key(array $studio): string
+{
+    $sessionKey = trim((string)($studio['whatsapp_session_key'] ?? ''));
+    if ($sessionKey !== '') {
+        return $sessionKey;
+    }
+
+    $sessionKey = studio_session_key_from_parts((int)$studio['id'], (string)$studio['slug']);
+    db()->prepare('UPDATE studios SET whatsapp_session_key = ?, updated_at = NOW() WHERE id = ?')
+        ->execute([$sessionKey, (int)$studio['id']]);
+
+    return $sessionKey;
+}
+
+function studio_whatsapp_service_url(array $studio): string
+{
+    $settings = studio_settings($studio);
+    $url = trim((string)($settings['whatsapp_service_url'] ?? ''));
+    return rtrim($url !== '' ? $url : 'http://localhost:3010', '/');
+}
+
+function studio_whatsapp_webhook_token(array $studio): string
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['whatsapp_webhook_token'] ?? ''));
+    if ($token !== '') {
+        return $token;
+    }
+
+    $token = bin2hex(random_bytes(32));
+    studio_db($studio)->prepare('UPDATE studio_settings SET whatsapp_webhook_token = ?, updated_at = NOW() WHERE id = 1')
+        ->execute([$token]);
+
+    return $token;
+}
+
+function studio_whatsapp_webhook_url(): string
+{
+    $host = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
+    if ($host === '') {
+        return 'http://localhost/projetocrm/api/whatsapp_webhook.php';
+    }
+
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (string)($_SERVER['SERVER_PORT'] ?? '') === '443';
+    $scheme = $https ? 'https' : 'http';
+    $basePath = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/projetocrm/index.php'))), '/');
+    if ($basePath === '' || $basePath === '.') {
+        $basePath = '';
+    }
+
+    return $scheme . '://' . $host . $basePath . '/api/whatsapp_webhook.php';
+}
+
+function studio_whatsapp_request(array $studio, string $method, string $path, array $payload = [], int $timeout = 8): array
+{
+    $url = studio_whatsapp_service_url($studio) . $path;
+    $ch = curl_init($url);
+    $headers = ['Content-Type: application/json'];
+    $method = strtoupper($method);
+
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+    if ($method !== 'GET') {
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+    }
+
+    $response = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno !== 0) {
+        return [
+            'ok' => false,
+            'error' => 'Servico WhatsApp indisponivel: ' . $error,
+            'http_code' => $httpCode,
+            'url' => $url,
+        ];
+    }
+
+    $json = json_decode((string)$response, true);
+    if (!is_array($json)) {
+        return [
+            'ok' => false,
+            'error' => 'Servico WhatsApp retornou resposta invalida.',
+            'http_code' => $httpCode,
+            'raw' => mb_substr((string)$response, 0, 500),
+            'url' => $url,
+        ];
+    }
+
+    $json['http_code'] = $httpCode;
+    return $json;
+}
+
+function studio_whatsapp_service_status(array $studio): array
+{
+    $sessionKey = studio_session_key($studio);
+    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], 5);
+    if (!empty($status['ok']) && !empty($status['status'])) {
+        $platformStatus = match ((string)$status['status']) {
+            'connected' => 'connected',
+            'waiting_qr' => 'waiting_qr',
+            'starting', 'disconnected' => 'disconnected',
+            default => 'error',
+        };
+        studio_update_whatsapp_platform_status($studio, $platformStatus);
+    }
+
+    return $status;
+}
+
+function studio_update_whatsapp_platform_status(array $studio, string $status): void
+{
+    if (!in_array($status, ['not_configured', 'waiting_qr', 'connected', 'disconnected', 'error'], true)) {
+        $status = 'error';
+    }
+    db()->prepare('UPDATE studios SET whatsapp_status = ?, updated_at = NOW() WHERE id = ?')
+        ->execute([$status, (int)$studio['id']]);
+}
+
+function studio_start_whatsapp_session(array $studio): array
+{
+    $sessionKey = studio_session_key($studio);
+    $payload = [
+        'studioId' => (int)$studio['id'],
+        'studioSlug' => (string)$studio['slug'],
+        'studioName' => (string)$studio['name'],
+        'webhookUrl' => studio_whatsapp_webhook_url(),
+        'webhookToken' => studio_whatsapp_webhook_token($studio),
+    ];
+
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/start', $payload, 15);
+    if (empty($result['ok'])) {
+        studio_update_whatsapp_platform_status($studio, 'error');
+        return $result;
+    }
+
+    $status = (string)($result['status'] ?? 'disconnected');
+    $platformStatus = match ($status) {
+        'connected' => 'connected',
+        'waiting_qr' => 'waiting_qr',
+        'starting', 'disconnected' => 'disconnected',
+        default => 'error',
+    };
+    studio_update_whatsapp_platform_status($studio, $platformStatus);
+    studio_event((int)$studio['id'], 'whatsapp_session_started', 'Sessao WhatsApp solicitada no servico multi-estudio.');
+    return $result;
+}
+
+function studio_disconnect_whatsapp_session(array $studio): array
+{
+    $sessionKey = studio_session_key($studio);
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/logout', [], 12);
+    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
+    studio_event((int)$studio['id'], 'whatsapp_session_disconnected', 'Sessao WhatsApp desconectada pelo painel.');
+
+    return $result;
+}
+
 function studio_stats(array $studio): array
 {
     $pdo = studio_db($studio);
@@ -361,7 +546,9 @@ function studio_whatsapp_summary(array $studio): array
             COUNT(*) AS total,
             SUM(CASE WHEN attendance_mode = 'bot' THEN 1 ELSE 0 END) AS bot,
             SUM(CASE WHEN attendance_mode = 'human' THEN 1 ELSE 0 END) AS human,
-            SUM(CASE WHEN ai_last_status IS NOT NULL AND ai_last_status <> '' THEN 1 ELSE 0 END) AS analyzed
+            SUM(CASE WHEN ai_last_status IS NOT NULL AND ai_last_status <> '' THEN 1 ELSE 0 END) AS analyzed,
+            SUM(CASE WHEN needs_human = 1 THEN 1 ELSE 0 END) AS needs_human,
+            ROUND(AVG(NULLIF(lead_score, 0)), 1) AS avg_score
          FROM whatsapp_conversations"
     )->fetch() ?: [];
 
@@ -370,21 +557,299 @@ function studio_whatsapp_summary(array $studio): array
         'bot' => (int)($row['bot'] ?? 0),
         'human' => (int)($row['human'] ?? 0),
         'analyzed' => (int)($row['analyzed'] ?? 0),
+        'needs_human' => (int)($row['needs_human'] ?? 0),
+        'avg_score' => (float)($row['avg_score'] ?? 0),
     ];
 }
 
 function studio_list_whatsapp_conversations(array $studio): array
 {
     return studio_db($studio)->query(
-        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count, MAX(wm.sent_at) AS last_message_at
+        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count, COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
          LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
          GROUP BY wc.id
-         ORDER BY COALESCE(MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
+         ORDER BY COALESCE(wc.last_message_at, MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
          LIMIT 120"
     )->fetchAll() ?: [];
+}
+
+function studio_find_customer_by_phone(array $studio, string $phone): ?array
+{
+    $stmt = studio_db($studio)->query('SELECT * FROM customers WHERE phone IS NOT NULL AND phone <> "" ORDER BY updated_at DESC, id DESC LIMIT 500');
+    foreach ($stmt->fetchAll() ?: [] as $customer) {
+        if (phones_match((string)$customer['phone'], $phone)) {
+            return $customer;
+        }
+    }
+
+    return null;
+}
+
+function studio_find_lead_by_phone(array $studio, string $phone): ?array
+{
+    $stmt = studio_db($studio)->query('SELECT * FROM leads WHERE phone IS NOT NULL AND phone <> "" ORDER BY updated_at DESC, id DESC LIMIT 500');
+    foreach ($stmt->fetchAll() ?: [] as $lead) {
+        if (phones_match((string)$lead['phone'], $phone)) {
+            return $lead;
+        }
+    }
+
+    return null;
+}
+
+function studio_find_whatsapp_conversation_by_phone(array $studio, string $phone): ?array
+{
+    $stmt = studio_db($studio)->query('SELECT * FROM whatsapp_conversations ORDER BY updated_at DESC, id DESC LIMIT 800');
+    foreach ($stmt->fetchAll() ?: [] as $conversation) {
+        if (phones_match((string)$conversation['phone'], $phone)) {
+            return $conversation;
+        }
+    }
+
+    return null;
+}
+
+function studio_whatsapp_default_mode(array $studio): string
+{
+    $settings = studio_settings($studio);
+    return (string)($settings['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
+}
+
+function studio_whatsapp_lead_score(string $text, bool $hasMedia): int
+{
+    $text = strtolower($text);
+    $score = 4;
+    foreach (['agenda', 'agendar', 'horario', 'sinal', 'pix', 'fechar', 'disponivel'] as $word) {
+        if (str_contains($text, $word)) {
+            $score += 1;
+        }
+    }
+    foreach (['preco', 'valor', 'quanto', 'orcamento'] as $word) {
+        if (str_contains($text, $word)) {
+            $score += 1;
+        }
+    }
+    if ($hasMedia) {
+        $score += 1;
+    }
+
+    return max(1, min(10, $score));
+}
+
+function studio_whatsapp_needs_human(string $text): bool
+{
+    $text = strtolower($text);
+    foreach (['humano', 'atendente', 'pessoa', 'alguem', 'responsavel', 'falar com voce'] as $needle) {
+        if (str_contains($text, $needle)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function studio_upsert_whatsapp_conversation(array $studio, array $payload): array
+{
+    $pdo = studio_db($studio);
+    $phone = normalize_phone((string)($payload['numero'] ?? $payload['phone'] ?? ''));
+    if ($phone === '') {
+        throw new RuntimeException('Telefone do WhatsApp nao informado.');
+    }
+
+    $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));
+    $fromMe = !empty($payload['fromMe']);
+    $text = trim((string)($payload['mensagem'] ?? $payload['body'] ?? ''));
+    $messageType = trim((string)($payload['tipoMensagem'] ?? $payload['messageType'] ?? 'texto')) ?: 'texto';
+    $hasMedia = !empty($payload['mediaBase64']) || !empty($payload['mediaUrl']);
+    $score = studio_whatsapp_lead_score($text, $hasMedia);
+    $needsHuman = studio_whatsapp_needs_human($text);
+
+    $conversation = studio_find_whatsapp_conversation_by_phone($studio, $phone);
+    if ($conversation) {
+        return $conversation;
+    }
+
+    $customer = studio_find_customer_by_phone($studio, $phone);
+    $lead = studio_find_lead_by_phone($studio, $phone);
+    if (!$lead && !$fromMe) {
+        $leadId = studio_save_lead($studio, [
+            'name' => $customer['name'] ?? 'Cliente WhatsApp',
+            'phone' => $phone,
+            'interest' => $text !== '' ? mb_substr($text, 0, 180) : 'Contato WhatsApp',
+            'status' => 'novo',
+            'pipeline_stage' => 'entrada',
+            'lead_score' => $score,
+            'estimated_value' => '0',
+            'source' => 'WhatsApp',
+        ]);
+        $lead = ['id' => $leadId, 'name' => $customer['name'] ?? 'Cliente WhatsApp'];
+    }
+
+    $name = trim((string)($payload['name'] ?? $payload['nome'] ?? ''));
+    if ($name === '') {
+        $name = (string)($customer['name'] ?? $lead['name'] ?? 'Cliente WhatsApp');
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO whatsapp_conversations
+            (lead_id, customer_id, phone, name, remote_jid, attendance_mode, needs_human, lead_score, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+    );
+    $stmt->execute([
+        (int)($lead['id'] ?? 0) ?: null,
+        (int)($customer['id'] ?? 0) ?: null,
+        $phone,
+        $name,
+        $remoteJid,
+        studio_whatsapp_default_mode($studio),
+        $needsHuman ? 1 : 0,
+        $score,
+    ]);
+
+    $id = (int)$pdo->lastInsertId();
+    $stmt = $pdo->prepare('SELECT * FROM whatsapp_conversations WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+
+    return $stmt->fetch() ?: [];
+}
+
+function studio_whatsapp_update_message_status(array $studio, array $payload): array
+{
+    $pdo = studio_db($studio);
+    $messageId = trim((string)($payload['messageId'] ?? ''));
+    $remoteJid = trim((string)($payload['remoteJid'] ?? ''));
+    $status = trim((string)($payload['status'] ?? ''));
+    if ($messageId === '' || $status === '') {
+        return ['ok' => false, 'error' => 'Status sem messageId ou estado.'];
+    }
+
+    $stmt = $pdo->prepare('UPDATE whatsapp_messages SET status = ? WHERE message_id = ?');
+    $stmt->execute([$status, $messageId]);
+    if ($stmt->rowCount() === 0 && $remoteJid !== '') {
+        $stmt = $pdo->prepare('UPDATE whatsapp_messages SET status = ? WHERE remote_jid = ? AND direction = "out" ORDER BY id DESC LIMIT 1');
+        $stmt->execute([$status, $remoteJid]);
+    }
+
+    return ['ok' => true, 'updated' => $stmt->rowCount()];
+}
+
+function studio_record_whatsapp_message(array $studio, array $payload): array
+{
+    if (!empty($payload['statusUpdate'])) {
+        return studio_whatsapp_update_message_status($studio, $payload);
+    }
+
+    $pdo = studio_db($studio);
+    $conversation = studio_upsert_whatsapp_conversation($studio, $payload);
+    if (!$conversation) {
+        throw new RuntimeException('Nao foi possivel abrir conversa WhatsApp.');
+    }
+
+    $messageId = trim((string)($payload['messageId'] ?? ''));
+    if ($messageId !== '') {
+        $stmt = $pdo->prepare('SELECT id FROM whatsapp_messages WHERE message_id = ? LIMIT 1');
+        $stmt->execute([$messageId]);
+        if ($stmt->fetchColumn()) {
+            return ['ok' => true, 'duplicate' => true, 'conversation_id' => (int)$conversation['id']];
+        }
+    }
+
+    $fromMe = !empty($payload['fromMe']);
+    $direction = $fromMe ? 'out' : 'in';
+    $senderType = trim((string)($payload['senderType'] ?? ''));
+    if (!in_array($senderType, ['customer', 'human', 'bot', 'system'], true)) {
+        $senderType = $fromMe ? 'human' : 'customer';
+    }
+    $body = trim((string)($payload['mensagem'] ?? $payload['body'] ?? ''));
+    $messageType = trim((string)($payload['tipoMensagem'] ?? $payload['messageType'] ?? 'texto')) ?: 'texto';
+    $timestamp = (int)($payload['timestamp'] ?? time());
+    if ($timestamp > 2000000000) {
+        $timestamp = (int)floor($timestamp / 1000);
+    }
+    $sentAt = date('Y-m-d H:i:s', $timestamp > 0 ? $timestamp : time());
+    $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));
+    $needsHuman = studio_whatsapp_needs_human($body);
+    $hasMedia = !empty($payload['mediaBase64']) || !empty($payload['mediaUrl']);
+    $score = studio_whatsapp_lead_score($body, $hasMedia);
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO whatsapp_messages
+            (conversation_id, direction, sender_type, body, media_url, media_mime, message_type, message_id, remote_jid, from_me, status, sent_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+    );
+    $stmt->execute([
+        (int)$conversation['id'],
+        $direction,
+        $senderType,
+        $body,
+        trim((string)($payload['mediaUrl'] ?? '')),
+        trim((string)($payload['mediaMime'] ?? '')),
+        $messageType,
+        $messageId !== '' ? $messageId : null,
+        $remoteJid,
+        $fromMe ? 1 : 0,
+        $fromMe ? 'sent' : null,
+        $sentAt,
+    ]);
+
+    $preview = $body !== '' ? mb_substr($body, 0, 250) : '[' . $messageType . ']';
+    $stmt = $pdo->prepare(
+        'UPDATE whatsapp_conversations
+         SET remote_jid = COALESCE(NULLIF(?, ""), remote_jid),
+             needs_human = GREATEST(needs_human, ?),
+             lead_score = GREATEST(COALESCE(lead_score, 0), ?),
+             last_message_preview = ?,
+             last_message_direction = ?,
+             last_message_at = ?,
+             updated_at = NOW()
+         WHERE id = ?'
+    );
+    $stmt->execute([$remoteJid, $needsHuman ? 1 : 0, $score, $preview, $direction, $sentAt, (int)$conversation['id']]);
+
+    if (!empty($conversation['lead_id'])) {
+        $pdo->prepare('UPDATE leads SET lead_score = GREATEST(COALESCE(lead_score, 0), ?), last_contact_at = ?, updated_at = NOW() WHERE id = ?')
+            ->execute([$score, $sentAt, (int)$conversation['lead_id']]);
+    }
+
+    return ['ok' => true, 'conversation_id' => (int)$conversation['id']];
+}
+
+function studio_send_whatsapp_message(array $studio, array $data): array
+{
+    $phone = normalize_phone((string)($data['phone'] ?? $data['numero'] ?? ''));
+    $message = trim((string)($data['message'] ?? $data['mensagem'] ?? ''));
+    if ($phone === '' || $message === '') {
+        throw new RuntimeException('Informe telefone e mensagem.');
+    }
+
+    $conversation = studio_find_whatsapp_conversation_by_phone($studio, $phone);
+    $jid = trim((string)($conversation['remote_jid'] ?? ''));
+    $sessionKey = studio_session_key($studio);
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/send', [
+        'numero' => $phone,
+        'jid' => $jid,
+        'mensagem' => $message,
+    ], 25);
+
+    if (empty($result['ok'])) {
+        throw new RuntimeException((string)($result['error'] ?? $result['erro'] ?? 'Nao foi possivel enviar pelo WhatsApp.'));
+    }
+
+    studio_record_whatsapp_message($studio, [
+        'numero' => $phone,
+        'mensagem' => $message,
+        'fromMe' => true,
+        'senderType' => 'human',
+        'messageId' => $result['messageId'] ?? null,
+        'remoteJid' => $result['remoteJid'] ?? $jid,
+        'timestamp' => time(),
+        'tipoMensagem' => 'texto',
+    ]);
+
+    return $result;
 }
 
 function studio_report_data(array $studio): array
@@ -515,10 +980,13 @@ function studio_save_settings(array $studio, array $data): void
     $aiModel = trim((string)($data['ai_model'] ?? 'llama3:8b'));
     $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
+    $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
+    $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
 
     $stmt = studio_db($studio)->prepare(
         'UPDATE studio_settings
-         SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?, updated_at = NOW()
+         SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -527,7 +995,14 @@ function studio_save_settings(array $studio, array $data): void
         $aiEnabled,
         $aiModel,
         $whatsappEnabled,
+        $whatsappDefaultMode,
+        $whatsappServiceUrl,
     ]);
+
+    $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
+    $nextWhatsappStatus = $whatsappEnabled
+        ? (in_array($currentWhatsappStatus, ['connected', 'waiting_qr'], true) ? $currentWhatsappStatus : 'disconnected')
+        : 'not_configured';
 
     db()->prepare(
         'UPDATE studios SET name = ?, business_rules = ?, ai_model = ?, whatsapp_status = ?, updated_at = NOW() WHERE id = ?'
@@ -535,7 +1010,7 @@ function studio_save_settings(array $studio, array $data): void
         $studioName,
         $businessRules,
         $aiModel,
-        $whatsappEnabled ? 'disconnected' : 'not_configured',
+        $nextWhatsappStatus,
         (int)$studio['id'],
     ]);
 

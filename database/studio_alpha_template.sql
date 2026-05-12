@@ -12,10 +12,18 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
   `ai_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `ai_model` VARCHAR(120) NOT NULL DEFAULT 'llama3:8b',
   `whatsapp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human',
+  `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010',
+  `whatsapp_webhook_token` VARCHAR(120) NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `studio_settings`
+  ADD COLUMN IF NOT EXISTS `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human' AFTER `whatsapp_enabled`,
+  ADD COLUMN IF NOT EXISTS `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010' AFTER `whatsapp_default_mode`,
+  ADD COLUMN IF NOT EXISTS `whatsapp_webhook_token` VARCHAR(120) NULL AFTER `whatsapp_service_url`;
 
 INSERT INTO `studio_settings`
   (`id`, `studio_name`, `studio_slug`, `business_rules`, `ai_model`, `created_at`, `updated_at`)
@@ -160,14 +168,21 @@ CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
   `customer_id` BIGINT UNSIGNED NULL,
   `phone` VARCHAR(40) NOT NULL,
   `name` VARCHAR(160) NULL,
+  `remote_jid` VARCHAR(180) NULL,
   `attendance_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human',
+  `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
+  `lead_score` TINYINT UNSIGNED NULL,
   `ai_last_status` VARCHAR(80) NULL,
   `ai_last_message` TEXT NULL,
   `ai_last_at` DATETIME NULL,
+  `last_message_preview` VARCHAR(260) NULL,
+  `last_message_direction` ENUM('in', 'out') NULL,
+  `last_message_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_whatsapp_conversations_phone` (`phone`),
+  KEY `idx_whatsapp_conversations_last` (`last_message_at`, `updated_at`),
   CONSTRAINT `fk_whatsapp_conversations_lead`
     FOREIGN KEY (`lead_id`) REFERENCES `leads` (`id`)
     ON DELETE SET NULL,
@@ -175,6 +190,15 @@ CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
     FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `whatsapp_conversations`
+  ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `name`,
+  ADD COLUMN IF NOT EXISTS `needs_human` TINYINT(1) NOT NULL DEFAULT 0 AFTER `attendance_mode`,
+  ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`,
+  ADD COLUMN IF NOT EXISTS `last_message_preview` VARCHAR(260) NULL AFTER `ai_last_at`,
+  ADD COLUMN IF NOT EXISTS `last_message_direction` ENUM('in', 'out') NULL AFTER `last_message_preview`,
+  ADD COLUMN IF NOT EXISTS `last_message_at` DATETIME NULL AFTER `last_message_direction`,
+  ADD INDEX IF NOT EXISTS `idx_whatsapp_conversations_last` (`last_message_at`, `updated_at`);
 
 CREATE TABLE IF NOT EXISTS `whatsapp_messages` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -184,12 +208,24 @@ CREATE TABLE IF NOT EXISTS `whatsapp_messages` (
   `body` MEDIUMTEXT NULL,
   `media_url` VARCHAR(500) NULL,
   `media_mime` VARCHAR(120) NULL,
+  `message_type` VARCHAR(40) NOT NULL DEFAULT 'texto',
   `message_id` VARCHAR(180) NULL,
+  `remote_jid` VARCHAR(180) NULL,
+  `from_me` TINYINT(1) NOT NULL DEFAULT 0,
+  `status` VARCHAR(40) NULL,
   `sent_at` DATETIME NOT NULL,
   `created_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_whatsapp_messages_conversation` (`conversation_id`, `sent_at`),
+  KEY `idx_whatsapp_messages_message_id` (`message_id`),
   CONSTRAINT `fk_whatsapp_messages_conversation`
     FOREIGN KEY (`conversation_id`) REFERENCES `whatsapp_conversations` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `whatsapp_messages`
+  ADD COLUMN IF NOT EXISTS `message_type` VARCHAR(40) NOT NULL DEFAULT 'texto' AFTER `media_mime`,
+  ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `message_id`,
+  ADD COLUMN IF NOT EXISTS `from_me` TINYINT(1) NOT NULL DEFAULT 0 AFTER `remote_jid`,
+  ADD COLUMN IF NOT EXISTS `status` VARCHAR(40) NULL AFTER `from_me`,
+  ADD INDEX IF NOT EXISTS `idx_whatsapp_messages_message_id` (`message_id`);
