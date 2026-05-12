@@ -118,6 +118,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'save_expense') {
+            $studio = require_studio();
+            studio_save_expense($studio, $_POST);
+            flash_set('success', 'Despesa salva.');
+            redirect_to('studio_finance');
+        }
+
+        if ($action === 'save_quick_reply') {
+            $studio = require_studio();
+            studio_save_quick_reply($studio, $_POST);
+            flash_set('success', 'Resposta rapida salva.');
+            redirect_to('studio_quick_replies');
+        }
+
         if ($action === 'save_studio_settings') {
             $studio = require_studio();
             studio_save_settings($studio, $_POST);
@@ -203,6 +217,10 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_leads')) . '">Leads</a>';
     echo '<a class="' . ($active === 'customers' ? 'active' : '') . '" href="' . h(app_url('studio_customers')) . '">Clientes</a>';
     echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
+    echo '<a class="' . ($active === 'whatsapp' ? 'active' : '') . '" href="' . h(app_url('studio_whatsapp')) . '">WhatsApp</a>';
+    echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
+    echo '<a class="' . ($active === 'quick_replies' ? 'active' : '') . '" href="' . h(app_url('studio_quick_replies')) . '">Respostas</a>';
+    echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatorios</a>';
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
@@ -260,7 +278,7 @@ if ($page === 'studio_login') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_settings'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -282,6 +300,9 @@ if ($page === 'studio_home') {
         echo '<div class="panel"><p class="metric">' . h($stats['leads']) . '</p><p class="muted">Leads no funil</p></div>';
         echo '<div class="panel"><p class="metric">' . h($stats['customers']) . '</p><p class="muted">Clientes cadastrados</p></div>';
         echo '<div class="panel"><p class="metric">' . h($stats['appointments']) . '</p><p class="muted">Proximos atendimentos</p></div>';
+        echo '<div class="panel"><p class="metric">' . h(format_money($stats['month_revenue'])) . '</p><p class="muted">Agenda no mes</p></div>';
+        echo '<div class="panel"><p class="metric">' . h(format_money($stats['month_expenses'])) . '</p><p class="muted">Despesas no mes</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($stats['whatsapp_conversations']) . '</p><p class="muted">Conversas WhatsApp</p></div>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
@@ -306,7 +327,10 @@ if ($page === 'studio_home') {
             echo '</tbody></table>';
         }
         echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px"><h2>Valor em oportunidades abertas</h2><p class="metric">' . h(format_money($stats['open_value'])) . '</p><p class="muted">Soma estimada dos leads ainda nao perdidos ou fechados.</p></section>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><h2>Valor em oportunidades abertas</h2><p class="metric">' . h(format_money($stats['open_value'])) . '</p><p class="muted">Soma estimada dos leads ainda nao perdidos ou fechados.</p></div>';
+        echo '<div class="panel"><h2>Resultado simples do mes</h2><p class="metric">' . h(format_money($stats['month_revenue'] - $stats['month_expenses'])) . '</p><p class="muted">Agenda do mes menos despesas cadastradas.</p></div>';
+        echo '</section>';
     }, $flash);
     exit;
 }
@@ -347,6 +371,7 @@ if ($page === 'studio_leads') {
             return;
         }
         $customers = studio_list_customers($studio);
+        $stages = studio_list_pipeline_stages($studio);
         $leads = studio_list_leads($studio);
         echo '<section class="grid cols-2">';
         echo '<form class="form panel" method="post">';
@@ -362,7 +387,11 @@ if ($page === 'studio_leads') {
         echo '<div class="field"><label>Status</label><select name="status">';
         render_options(lead_status_options(), 'novo');
         echo '</select></div>';
-        echo '<div class="field"><label>Etapa</label><input name="pipeline_stage" value="entrada"></div>';
+        echo '<div class="field"><label>Etapa</label><select name="pipeline_stage">';
+        foreach ($stages as $stage) {
+            echo '<option value="' . h($stage['name']) . '">' . h($stage['name']) . '</option>';
+        }
+        echo '</select></div>';
         echo '<div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="5"></div>';
         echo '</div>';
         echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" placeholder="450,00"></div><div class="field"><label>Origem</label><input name="source" value="manual"></div></div>';
@@ -406,6 +435,116 @@ if ($page === 'studio_agenda') {
         echo '</form>';
         echo '<div class="panel"><h2>Agenda cadastrada</h2>';
         render_appointments_table($appointments);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_whatsapp') {
+    $studio = require_studio();
+    render_studio_shell('WhatsApp', 'Primeira camada da central de conversas por estudio.', 'whatsapp', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $summary = studio_whatsapp_summary($studio);
+        $conversations = studio_list_whatsapp_conversations($studio);
+        echo '<section class="grid cols-3">';
+        echo '<div class="panel"><p class="metric">' . h($summary['total']) . '</p><p class="muted">Conversas</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($summary['bot']) . '</p><p class="muted">Em modo IA</p></div>';
+        echo '<div class="panel"><p class="metric">' . h($summary['human']) . '</p><p class="muted">Em modo humano</p></div>';
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge warn">Baileys multi-estudio em proxima etapa</span></div>';
+        render_whatsapp_table($conversations);
+        echo '</section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_finance') {
+    $studio = require_studio();
+    render_studio_shell('Financeiro', 'Despesas e leitura simples do resultado mensal.', 'finance', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $summary = studio_finance_summary($studio);
+        $expenses = studio_list_expenses($studio);
+        echo '<section class="grid cols-3">';
+        echo '<div class="panel"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p></div>';
+        echo '<div class="panel"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p></div>';
+        echo '<div class="panel"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p></div>';
+        echo '</section>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_expense">';
+        echo '<h2>Nova despesa</h2>';
+        echo '<div class="grid cols-2"><div class="field"><label>Categoria</label><input name="category" value="Geral"></div><div class="field"><label>Data</label><input type="date" name="expense_date" value="' . h(date('Y-m-d')) . '" required></div></div>';
+        echo '<div class="field"><label>Descricao</label><input name="description" required placeholder="Material, aluguel, trafego, insumo..."></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="amount" required placeholder="120,00"></div><div class="field"><label>Pagamento</label><input name="payment_method" placeholder="Pix, cartao, dinheiro..."></div></div>';
+        echo '<div class="field"><label>Observacoes</label><textarea name="notes"></textarea></div>';
+        echo '<button class="btn" type="submit">Salvar despesa</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Despesas por categoria</h2>';
+        render_category_totals($summary['by_category']);
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><h2>Despesas recentes</h2>';
+        render_expenses_table($expenses);
+        echo '</section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_quick_replies') {
+    $studio = require_studio();
+    render_studio_shell('Respostas rapidas', 'Textos prontos para atendimento e futura IA do WhatsApp.', 'quick_replies', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $replies = studio_list_quick_replies($studio);
+        echo '<section class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_quick_reply">';
+        echo '<h2>Nova resposta</h2>';
+        echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required></div><div class="field"><label>Atalho</label><input name="shortcut" placeholder="/atalho"></div></div>';
+        echo '<div class="field"><label>Categoria</label><input name="category" value="Geral"></div>';
+        echo '<div class="field"><label>Texto</label><textarea name="body" required placeholder="Mensagem pronta para usar no atendimento..."></textarea></div>';
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Resposta ativa</label>';
+        echo '<button class="btn" type="submit">Salvar resposta</button>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Biblioteca</h2>';
+        render_quick_replies_table($replies);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_reports') {
+    $studio = require_studio();
+    render_studio_shell('Relatorios', 'Leitura gerencial do funil, agenda e financeiro.', 'reports', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $reports = studio_report_data($studio);
+        echo '<section class="grid cols-2">';
+        echo '<div class="panel"><h2>Leads por status</h2>';
+        render_report_table($reports['leads_by_status'], 'status');
+        echo '</div><div class="panel"><h2>Leads por origem</h2>';
+        render_report_table($reports['leads_by_source'], 'source');
+        echo '</div><div class="panel"><h2>Agenda por status</h2>';
+        render_report_table($reports['appointments_by_status'], 'status');
+        echo '</div><div class="panel"><h2>Agenda por mes</h2>';
+        render_report_table($reports['appointments_by_month'], 'month');
+        echo '</div><div class="panel"><h2>Despesas por categoria</h2>';
+        render_report_table($reports['expenses_by_category'], 'category');
         echo '</div></section>';
     }, $flash);
     exit;
@@ -760,6 +899,91 @@ function render_appointments_table(array $appointments): void
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
         echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '<br><span class="muted">Sinal ' . h(format_money($appointment['deposit_value'] ?? 0)) . '</span></td>';
         echo '<td><span class="badge">' . h($appointment['status']) . '</span></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_expenses_table(array $expenses): void
+{
+    if (!$expenses) {
+        echo '<p class="muted">Nenhuma despesa cadastrada ainda.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>';
+    foreach ($expenses as $expense) {
+        $date = date('d/m/Y', strtotime((string)$expense['expense_date']));
+        echo '<tr>';
+        echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h($expense['payment_method'] ?: '-') . '</span></td>';
+        echo '<td><strong>' . h($expense['description']) . '</strong><br><span class="muted">' . h($expense['notes'] ?: '-') . '</span></td>';
+        echo '<td><span class="badge">' . h($expense['category']) . '</span></td>';
+        echo '<td><strong>' . h(format_money($expense['amount'])) . '</strong></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_category_totals(array $rows): void
+{
+    if (!$rows) {
+        echo '<p class="muted">Sem despesas para agrupar.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Categoria</th><th>Qtd</th><th>Total</th></tr></thead><tbody>';
+    foreach ($rows as $row) {
+        echo '<tr><td>' . h(($row['category'] ?? '') ?: 'Geral') . '</td><td>' . h($row['qtd'] ?? 0) . '</td><td><strong>' . h(format_money($row['total'] ?? 0)) . '</strong></td></tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_quick_replies_table(array $replies): void
+{
+    if (!$replies) {
+        echo '<p class="muted">Nenhuma resposta rapida cadastrada.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Resposta</th><th>Categoria</th><th>Status</th></tr></thead><tbody>';
+    foreach ($replies as $reply) {
+        echo '<tr>';
+        echo '<td><strong>' . h($reply['title']) . '</strong><br><span class="muted">' . h($reply['shortcut'] ?: '-') . '</span><br>' . h($reply['body']) . '</td>';
+        echo '<td><span class="badge">' . h($reply['category']) . '</span></td>';
+        echo '<td><span class="badge ' . (!empty($reply['is_active']) ? 'ok' : 'warn') . '">' . (!empty($reply['is_active']) ? 'ativa' : 'inativa') . '</span></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_whatsapp_table(array $conversations): void
+{
+    if (!$conversations) {
+        echo '<p class="muted">Nenhuma conversa importada ainda. Esta tela ja esta preparada para receber as sessoes do Baileys por estudio.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Analise IA</th><th>Mensagens</th></tr></thead><tbody>';
+    foreach ($conversations as $conversation) {
+        $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
+        echo '<tr>';
+        echo '<td><strong>' . h($name) . '</strong><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
+        echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span></td>';
+        echo '<td>' . h($conversation['ai_last_status'] ?: '-') . '<br><span class="muted">' . h($conversation['ai_last_message'] ?: '') . '</span></td>';
+        echo '<td>' . h($conversation['message_count'] ?? 0) . '<br><span class="muted">' . h($conversation['last_message_at'] ?: '-') . '</span></td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_report_table(array $rows, string $labelKey): void
+{
+    if (!$rows) {
+        echo '<p class="muted">Sem dados para este relatorio.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Grupo</th><th>Qtd</th><th>Total</th></tr></thead><tbody>';
+    foreach ($rows as $row) {
+        echo '<tr>';
+        echo '<td>' . h(($row[$labelKey] ?? '') ?: 'sem_informacao') . '</td>';
+        echo '<td>' . h($row['qtd'] ?? 0) . '</td>';
+        echo '<td><strong>' . h(format_money($row['total'] ?? 0)) . '</strong></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';

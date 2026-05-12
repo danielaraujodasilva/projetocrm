@@ -63,6 +63,32 @@ CREATE TABLE IF NOT EXISTS `leads` (
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `pipeline_stages` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(90) NOT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `color` VARCHAR(20) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_pipeline_stages_name` (`name`),
+  KEY `idx_pipeline_stages_order` (`sort_order`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `pipeline_stages` (`name`, `sort_order`, `color`, `created_at`, `updated_at`)
+VALUES
+  ('entrada', 10, '#2d8992', NOW(), NOW()),
+  ('em_conversa', 20, '#1f6f78', NOW(), NOW()),
+  ('orcamento', 30, '#a86300', NOW(), NOW()),
+  ('pre_agendado', 40, '#7c3aed', NOW(), NOW()),
+  ('agendado', 50, '#1d7f48', NOW(), NOW()),
+  ('perdido', 90, '#a33b3b', NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  `sort_order` = VALUES(`sort_order`),
+  `color` = VALUES(`color`),
+  `updated_at` = NOW();
+
 CREATE TABLE IF NOT EXISTS `appointments` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `customer_id` BIGINT UNSIGNED NULL,
@@ -87,6 +113,46 @@ CREATE TABLE IF NOT EXISTS `appointments` (
     FOREIGN KEY (`lead_id`) REFERENCES `leads` (`id`)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `expenses` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `category` VARCHAR(90) NOT NULL DEFAULT 'Geral',
+  `description` VARCHAR(220) NOT NULL,
+  `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `expense_date` DATE NOT NULL,
+  `payment_method` VARCHAR(80) NULL,
+  `notes` TEXT NULL,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_expenses_date` (`expense_date`),
+  KEY `idx_expenses_category` (`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `quick_replies` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `title` VARCHAR(140) NOT NULL,
+  `shortcut` VARCHAR(80) NULL,
+  `category` VARCHAR(80) NOT NULL DEFAULT 'Geral',
+  `body` TEXT NOT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_quick_replies_shortcut` (`shortcut`),
+  KEY `idx_quick_replies_category` (`category`, `is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `quick_replies` (`title`, `shortcut`, `category`, `body`, `is_active`, `created_at`, `updated_at`)
+VALUES
+  ('Pedir referencia', '/referencia', 'Orcamento', 'Pode me mandar uma referencia da ideia, o tamanho aproximado em cm e o local do corpo?', 1, NOW(), NOW()),
+  ('Sinal para reserva', '/sinal', 'Agendamento', 'Para reservar o horario trabalhamos com sinal. Depois eu confirmo tudo certinho com voce.', 1, NOW(), NOW()),
+  ('Chamar humano', '/humano', 'Atendimento', 'Vou chamar uma pessoa do estudio para continuar com voce. Pode demorar um pouquinho, mas ja deixei sinalizado aqui.', 1, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  `title` = VALUES(`title`),
+  `category` = VALUES(`category`),
+  `body` = VALUES(`body`),
+  `updated_at` = NOW();
 
 CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
