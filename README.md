@@ -89,10 +89,10 @@ Primeira execucao:
 ```bash
 cd tools/whatsapp_web_collector
 npm install
-npm run collect -- --limit=5 --messageScrolls=8 --loginTimeoutSeconds=1200 --keepOpen
+node collect_whatsapp_web.js --limit=50 --messageScrolls=15 --loginTimeoutSeconds=1200 --keepOpen
 ```
 
-Depois de validar a amostra, aumente `--limit` e `--messageScrolls` para coletar mais conversas e mais historico visivel.
+Depois de validar a amostra, aumente `--limit` e `--messageScrolls` para coletar mais conversas e mais historico visivel. No Windows, prefira chamar `node collect_whatsapp_web.js ...` diretamente para evitar que o PowerShell/npm ignore argumentos extras.
 
 ## Deploy
 

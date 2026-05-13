@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "collect": "node collect_whatsapp_web.js"
+    "collect": "node collect_whatsapp_web.js",
+    "collect:small": "node collect_whatsapp_web.js --limit=5 --messageScrolls=5 --loginTimeoutSeconds=1200 --keepOpen",
+    "collect:medium": "node collect_whatsapp_web.js --limit=50 --messageScrolls=15 --loginTimeoutSeconds=1200 --keepOpen"
   },
   "dependencies": {
     "puppeteer-core": "^24.26.1"

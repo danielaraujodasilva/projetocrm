@@ -11,8 +11,8 @@ const profileDir = path.join(storageDir, "chrome-profile");
 const outputDir = path.join(storageDir, "exports");
 
 const options = parseArgs(process.argv.slice(2));
-const limit = Number(options.limit || 5);
-const messageScrolls = Number(options.messageScrolls || options.scrolls || 8);
+const limit = Number(options.limit || process.env.WHATSAPP_COLLECT_LIMIT || 50);
+const messageScrolls = Number(options.messageScrolls || options.scrolls || process.env.WHATSAPP_COLLECT_MESSAGE_SCROLLS || 15);
 const chatScrolls = Number(options.chatScrolls || 0);
 const loginTimeoutMs = Number(options.loginTimeoutSeconds || 1200) * 1000;
 const headless = options.headless === "1" || options.headless === "true";
@@ -144,14 +144,14 @@ async function collectChatList(page, limit, chatScrolls) {
   return page.evaluate((limitValue) => {
     const rows = Array.from(document.querySelectorAll('#pane-side [role="gridcell"], #pane-side [role="listitem"], [aria-label*="Lista de conversas"] [role="gridcell"], [aria-label*="Lista de conversas"] [role="listitem"]'))
       .filter((row) => {
-        const text = (row.innerText || "").split("\n").map((line) => line.trim()).filter(Boolean);
+        const text = cleanChatLines(row.innerText || "");
         if (text.length < 2) return false;
         if (text.length === 1 && /^\d+$/.test(text[0])) return false;
         const className = String(row.className || "");
         return !className.includes("_ak8o") && !className.includes("_ak8i");
       });
     return rows.slice(0, limitValue).map((row, index) => {
-      const text = (row.innerText || "").split("\n").map((line) => line.trim()).filter(Boolean);
+      const text = cleanChatLines(row.innerText || "");
       return {
         index,
         title: text[0] || "",
@@ -159,6 +159,14 @@ async function collectChatList(page, limit, chatScrolls) {
         text
       };
     }).filter((chat) => chat.title !== "");
+
+    function cleanChatLines(value) {
+      return value.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !/^\d+\s+mensagens?\s+n[ãa]o\s+lidas?$/i.test(line))
+        .filter((line) => !/^\d+\s+messages?\s+unread$/i.test(line));
+    }
   }, limit);
 }
 
@@ -166,7 +174,7 @@ async function clickChatByIndex(page, index) {
   const rect = await page.evaluate((chatIndex) => {
     const rows = Array.from(document.querySelectorAll('#pane-side [role="gridcell"], #pane-side [role="listitem"], [aria-label*="Lista de conversas"] [role="gridcell"], [aria-label*="Lista de conversas"] [role="listitem"]'))
       .filter((row) => {
-        const text = (row.innerText || "").split("\n").map((line) => line.trim()).filter(Boolean);
+        const text = cleanChatLines(row.innerText || "");
         if (text.length < 2) return false;
         if (text.length === 1 && /^\d+$/.test(text[0])) return false;
         const className = String(row.className || "");
@@ -179,6 +187,14 @@ async function clickChatByIndex(page, index) {
     row.scrollIntoView({ block: "center" });
     const box = row.getBoundingClientRect();
     return { x: box.left + Math.min(120, box.width / 2), y: box.top + box.height / 2 };
+
+    function cleanChatLines(value) {
+      return value.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !/^\d+\s+mensagens?\s+n[ãa]o\s+lidas?$/i.test(line))
+        .filter((line) => !/^\d+\s+messages?\s+unread$/i.test(line));
+    }
   }, index);
   await page.mouse.click(rect.x, rect.y);
 }
