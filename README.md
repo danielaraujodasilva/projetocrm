@@ -94,6 +94,15 @@ node collect_whatsapp_web.js --limit=50 --messageScrolls=15 --loginTimeoutSecond
 
 Depois de validar a amostra, aumente `--limit` e `--messageScrolls` para coletar mais conversas e mais historico visivel. No Windows, prefira chamar `node collect_whatsapp_web.js ...` diretamente para evitar que o PowerShell/npm ignore argumentos extras.
 
+Para importar o ultimo JSON coletado para o banco do estudio:
+
+```bash
+php tools/import_whatsapp_web_json.php --studio=1 --file=latest --mode=preview
+php tools/import_whatsapp_web_json.php --studio=1 --file=latest --mode=import
+```
+
+O importador limpa mensagens automaticas do WhatsApp/Meta, ignora algumas conversas internas conhecidas, cria clientes/leads/conversas e usa o id/hash das mensagens para evitar duplicidade em reimportacoes.
+
 ## Deploy
 
 O `deploy.php` deste projeto recebe o webhook do repositorio `projetocrm`.
