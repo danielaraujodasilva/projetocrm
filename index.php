@@ -106,8 +106,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (trim((string)($_POST['name'] ?? '')) === '' && trim((string)($_POST['phone'] ?? '')) === '') {
                 throw new RuntimeException('Informe pelo menos nome ou telefone do lead.');
             }
-            studio_save_lead($studio, $_POST);
+            $leadId = studio_save_lead($studio, $_POST);
             flash_set('success', 'Lead salvo.');
+            if (!empty($_POST['return_to_detail'])) {
+                redirect_to('studio_lead', ['id' => $leadId]);
+            }
+            redirect_to('studio_leads');
+        }
+
+        if ($action === 'move_lead') {
+            $studio = require_studio();
+            $leadId = (int)($_POST['lead_id'] ?? 0);
+            studio_update_lead_stage($studio, $leadId, (string)($_POST['pipeline_stage'] ?? ''), (string)($_POST['status'] ?? ''));
+            flash_set('success', 'Lead movido no funil.');
+            if (!empty($_POST['return_to_detail'])) {
+                redirect_to('studio_lead', ['id' => $leadId]);
+            }
             redirect_to('studio_leads');
         }
 
@@ -163,7 +177,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $studio = require_studio();
             studio_send_whatsapp_message($studio, $_POST);
             flash_set('success', 'Mensagem enviada pelo WhatsApp.');
+            if (!empty($_POST['conversation_id'])) {
+                redirect_to('studio_whatsapp_conversation', ['id' => (int)$_POST['conversation_id']]);
+            }
             redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'update_whatsapp_conversation') {
+            $studio = require_studio();
+            studio_update_whatsapp_conversation($studio, $_POST);
+            flash_set('success', 'Conversa atualizada.');
+            redirect_to('studio_whatsapp_conversation', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
         }
 
         if ($action === 'ask_studio_data_assistant') {
@@ -319,7 +343,7 @@ if ($page === 'studio_login') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -405,7 +429,7 @@ if ($page === 'studio_customers') {
 
 if ($page === 'studio_leads') {
     $studio = require_studio();
-    render_studio_shell('Leads', 'Funil comercial inicial do estudio.', 'leads', function () use ($studio) {
+    render_studio_shell('Leads', 'Funil comercial visual, prioridades e oportunidades do estudio.', 'leads', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -414,6 +438,11 @@ if ($page === 'studio_leads') {
         $customers = studio_list_customers($studio);
         $stages = studio_list_pipeline_stages($studio);
         $leads = studio_list_leads($studio);
+        $board = studio_pipeline_board($studio);
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Funil visual</h2><p class="muted">Acompanhe as oportunidades por etapa e mova o lead conforme a conversa evolui.</p></div><span class="badge">' . h((string)count($leads)) . ' leads</span></div>';
+        render_pipeline_board($board, $stages);
+        echo '</section>';
+
         echo '<section class="grid cols-2">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
@@ -440,6 +469,73 @@ if ($page === 'studio_leads') {
         echo '</form>';
         echo '<div class="panel"><h2>Leads cadastrados</h2>';
         render_leads_table($leads);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_lead') {
+    $studio = require_studio();
+    render_studio_shell('Detalhe do lead', 'Historico, funil e proximas acoes.', 'leads', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $leadId = (int)($_GET['id'] ?? 0);
+        $lead = studio_find_lead($studio, $leadId);
+        if (!$lead) {
+            echo '<section class="panel"><h2>Lead nao encontrado</h2><p class="muted">Volte para o funil e escolha outro lead.</p><a class="btn" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></section>';
+            return;
+        }
+        $customers = studio_list_customers($studio);
+        $stages = studio_list_pipeline_stages($studio);
+        $activity = studio_lead_activity($studio, $leadId);
+
+        echo '<section class="lead-detail-head">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($lead['name'] ?: 'Lead sem nome') . '</h2><p class="muted">' . h(($lead['phone'] ?: 'Sem telefone') . ' | ' . ($lead['source'] ?: 'sem origem')) . '</p></div><strong class="score-pill">' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
+        echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
+        echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa</small></span></div>';
+        echo '</div>';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
+        echo '<h2>Mover no funil</h2>';
+        echo '<div class="field"><label>Etapa</label><select name="pipeline_stage">';
+        foreach ($stages as $stage) {
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+        }
+        echo '</select></div><div class="field"><label>Status</label><select name="status">';
+        render_options(lead_status_options(), (string)$lead['status']);
+        echo '</select></div><button class="btn" type="submit">Atualizar etapa</button>';
+        echo '</form></section>';
+
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
+        echo '<h2>Editar lead</h2>';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($lead['name'] ?? '') . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($lead['phone'] ?? '') . '"></div></div>';
+        echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
+        render_customer_options($customers, (int)($lead['customer_id'] ?? 0));
+        echo '</select></div>';
+        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h($lead['interest'] ?? '') . '"></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
+        render_options(lead_status_options(), (string)$lead['status']);
+        echo '</select></div><div class="field"><label>Etapa</label><select name="pipeline_stage">';
+        foreach ($stages as $stage) {
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+        }
+        echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($lead['lead_score'] ?? 0)) . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($lead['estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="' . h($lead['source'] ?? '') . '"></div></div>';
+        echo '<button class="btn" type="submit">Salvar alteracoes</button>';
+        echo '</form>';
+
+        echo '<div class="panel"><h2>Historico rapido</h2>';
+        echo '<h3>Conversas WhatsApp</h3>';
+        render_lead_conversations($activity['conversations']);
+        echo '<h3>Agendamentos</h3>';
+        render_appointments_table($activity['appointments']);
         echo '</div></section>';
     }, $flash);
     exit;
@@ -599,6 +695,58 @@ if ($page === 'studio_whatsapp') {
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         render_whatsapp_table($conversations);
         echo '</section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_whatsapp_conversation') {
+    $studio = require_studio();
+    render_studio_shell('Conversa WhatsApp', 'Historico, atendimento e envio direto.', 'whatsapp', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $conversationId = (int)($_GET['id'] ?? 0);
+        $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
+        if (!$conversation) {
+            echo '<section class="panel"><h2>Conversa nao encontrada</h2><p class="muted">Volte para a central e escolha outra conversa.</p><a class="btn" href="' . h(app_url('studio_whatsapp')) . '">Abrir WhatsApp</a></section>';
+            return;
+        }
+        $messages = studio_whatsapp_messages($studio, $conversationId);
+        $displayName = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'));
+
+        echo '<section class="conversation-layout">';
+        echo '<div class="panel conversation-main">';
+        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div>';
+        render_chat_messages($messages);
+        echo '<form class="form send-box" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
+        echo '<div class="field"><label>Responder</label><textarea name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
+        echo '<button class="btn" type="submit">Enviar mensagem</button>';
+        echo '</form></div>';
+
+        echo '<aside class="panel conversation-side">';
+        echo '<h2>Controle da conversa</h2>';
+        echo '<form class="form" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="update_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
+        echo '<div class="field"><label>Modo de atendimento</label><select name="attendance_mode">';
+        render_options(['human' => 'Humano', 'bot' => 'IA'], (string)$conversation['attendance_mode']);
+        echo '</select></div>';
+        echo '<div class="field"><label>Nota do lead</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></div>';
+        echo '<div class="field"><label>Status da analise</label><input name="ai_last_status" value="' . h($conversation['ai_last_status'] ?? '') . '" placeholder="ex: precisa retorno"></div>';
+        echo '<label class="checkline"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label>';
+        echo '<button class="btn" type="submit">Salvar controle</button>';
+        echo '</form>';
+
+        echo '<div class="info-list">';
+        echo '<p><strong>Lead:</strong> ' . ($conversation['lead_id'] ? '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">' . h($conversation['lead_name'] ?: 'Abrir lead') . '</a>' : '<span class="muted">sem lead vinculado</span>') . '</p>';
+        echo '<p><strong>Interesse:</strong> ' . h($conversation['lead_interest'] ?: '-') . '</p>';
+        echo '<p><strong>Funil:</strong> ' . h(($conversation['lead_status'] ?: '-') . ' / ' . ($conversation['lead_pipeline_stage'] ?: '-')) . '</p>';
+        echo '<p><strong>Ultima mensagem:</strong> ' . h($conversation['last_message_at'] ?: '-') . '</p>';
+        echo '</div></aside></section>';
     }, $flash);
     exit;
 }
@@ -1063,24 +1211,27 @@ function render_options(array $options, string $selected): void
     }
 }
 
-function render_customer_options(array $customers): void
+function render_customer_options(array $customers, int $selectedId = 0): void
 {
     foreach ($customers as $customer) {
-        echo '<option value="' . h($customer['id']) . '">' . h(($customer['name'] ?: 'Sem nome') . ($customer['phone'] ? ' - ' . $customer['phone'] : '')) . '</option>';
+        $selected = (int)$customer['id'] === $selectedId ? ' selected' : '';
+        echo '<option value="' . h($customer['id']) . '"' . $selected . '>' . h(($customer['name'] ?: 'Sem nome') . ($customer['phone'] ? ' - ' . $customer['phone'] : '')) . '</option>';
     }
 }
 
-function render_lead_options(array $leads): void
+function render_lead_options(array $leads, int $selectedId = 0): void
 {
     foreach ($leads as $lead) {
-        echo '<option value="' . h($lead['id']) . '">' . h(($lead['name'] ?: 'Sem nome') . ($lead['interest'] ? ' - ' . $lead['interest'] : '')) . '</option>';
+        $selected = (int)$lead['id'] === $selectedId ? ' selected' : '';
+        echo '<option value="' . h($lead['id']) . '"' . $selected . '>' . h(($lead['name'] ?: 'Sem nome') . ($lead['interest'] ? ' - ' . $lead['interest'] : '')) . '</option>';
     }
 }
 
-function render_artist_options(array $artists): void
+function render_artist_options(array $artists, int $selectedId = 0): void
 {
     foreach ($artists as $artist) {
-        echo '<option value="' . h($artist['id']) . '">' . h($artist['name'] . ($artist['specialty'] ? ' - ' . $artist['specialty'] : '')) . '</option>';
+        $selected = (int)$artist['id'] === $selectedId ? ' selected' : '';
+        echo '<option value="' . h($artist['id']) . '"' . $selected . '>' . h($artist['name'] . ($artist['specialty'] ? ' - ' . $artist['specialty'] : '')) . '</option>';
     }
 }
 
@@ -1261,6 +1412,60 @@ function render_artists_table(array $artists): void
     echo '</tbody></table>';
 }
 
+function render_pipeline_board(array $board, array $stages): void
+{
+    if (!$board) {
+        echo '<p class="muted">Nenhuma etapa de funil configurada.</p>';
+        return;
+    }
+
+    $stageNames = array_values(array_map(static fn(array $stage): string => (string)$stage['name'], $stages));
+    echo '<div class="pipeline-board">';
+    foreach ($board as $stageName => $column) {
+        $stage = $column['stage'];
+        $leads = $column['leads'];
+        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($stage['color'] ?? '')) ? $stage['color'] : '#667085';
+        echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '">';
+        echo '<div class="pipeline-column-head"><strong>' . h($stageName) . '</strong><span class="badge">' . h((string)count($leads)) . '</span></div>';
+        echo '<p class="muted">' . h(format_money($column['total_value'] ?? 0)) . '</p>';
+        if (!$leads) {
+            echo '<p class="muted">Sem leads nesta etapa.</p>';
+        }
+        foreach ($leads as $lead) {
+            render_pipeline_card($lead, $stageNames);
+        }
+        echo '</div>';
+    }
+    echo '</div>';
+}
+
+function render_pipeline_card(array $lead, array $stageNames): void
+{
+    $currentStage = (string)($lead['pipeline_stage'] ?? '');
+    $currentIndex = array_search($currentStage, $stageNames, true);
+    $prevStage = $currentIndex !== false && $currentIndex > 0 ? $stageNames[$currentIndex - 1] : '';
+    $nextStage = $currentIndex !== false && $currentIndex < count($stageNames) - 1 ? $stageNames[$currentIndex + 1] : '';
+    $leadId = (int)$lead['id'];
+
+    echo '<article class="lead-card">';
+    echo '<a class="lead-card-title" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">' . h($lead['name'] ?: 'Lead sem nome') . '</a>';
+    echo '<p class="muted">' . h($lead['phone'] ?: ($lead['interest'] ?: 'Sem telefone')) . '</p>';
+    echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
+    echo '<div class="lead-card-meta"><span>' . h(format_money($lead['estimated_value'] ?? 0)) . '</span><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
+    echo '<div class="lead-card-actions">';
+    foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
+        if ($move['stage'] === '') {
+            continue;
+        }
+        echo '<form method="post" class="inline-form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="pipeline_stage" value="' . h($move['stage']) . '"><input type="hidden" name="status" value="' . h($lead['status']) . '">';
+        echo '<button class="btn tiny secondary" type="submit">' . h($move['label']) . '</button>';
+        echo '</form>';
+    }
+    echo '</div></article>';
+}
+
 function render_leads_table(array $leads): void
 {
     if (!$leads) {
@@ -1270,13 +1475,32 @@ function render_leads_table(array $leads): void
     echo '<table class="table"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th></tr></thead><tbody>';
     foreach ($leads as $lead) {
         echo '<tr>';
-        echo '<td><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
+        echo '<td><a href="' . h(app_url('studio_lead', ['id' => (int)$lead['id']])) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
         echo '<td><span class="badge">' . h($lead['status']) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
         echo '<td>' . h(format_money($lead['estimated_value'] ?? 0)) . '<br><span class="muted">' . h($lead['source'] ?: '-') . '</span></td>';
         echo '<td><strong>' . h((string)($lead['lead_score'] ?? '-')) . '/10</strong></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
+}
+
+function render_lead_conversations(array $conversations): void
+{
+    if (!$conversations) {
+        echo '<p class="muted">Nenhuma conversa vinculada a este lead.</p>';
+        return;
+    }
+
+    echo '<div class="stack-list">';
+    foreach ($conversations as $conversation) {
+        $name = $conversation['name'] ?: $conversation['phone'];
+        echo '<a class="activity-card" href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '">';
+        echo '<strong>' . h($name) . '</strong>';
+        echo '<span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens | ' . ($conversation['message_last_at'] ?: '-')) . '</span>';
+        echo '<span>' . h($conversation['last_message_preview'] ?: '-') . '</span>';
+        echo '</a>';
+    }
+    echo '</div>';
 }
 
 function render_appointments_table(array $appointments): void
@@ -1359,13 +1583,36 @@ function render_whatsapp_table(array $conversations): void
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
         echo '<tr>';
-        echo '<td><strong>' . h($name) . '</strong><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
+        echo '<td><a href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
         echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span><br>' . ($needsHuman ? '<span class="badge warn">quer humano</span>' : '<span class="muted">sem alerta</span>') . '</td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
         echo '<td>' . h($conversation['last_message_preview'] ?: '-') . '<br><span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens - ' . ($conversation['message_last_at'] ?: '-')) . '</span></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
+}
+
+function render_chat_messages(array $messages): void
+{
+    echo '<div class="chat-thread">';
+    if (!$messages) {
+        echo '<p class="muted">Ainda nao ha mensagens registradas nesta conversa.</p>';
+    }
+    foreach ($messages as $message) {
+        $direction = (string)($message['direction'] ?? 'in');
+        $class = $direction === 'out' ? 'out' : 'in';
+        $body = (string)($message['body'] ?? '');
+        $type = (string)($message['message_type'] ?? 'texto');
+        echo '<div class="chat-message ' . h($class) . '">';
+        echo '<div class="chat-bubble">';
+        echo '<p>' . nl2br(h($body !== '' ? $body : '[' . $type . ']')) . '</p>';
+        if (!empty($message['media_url'])) {
+            echo '<a class="muted" href="' . h($message['media_url']) . '" target="_blank" rel="noopener">Abrir midia</a>';
+        }
+        echo '<span>' . h(($message['sender_type'] ?? '-') . ' | ' . ($message['sent_at'] ?? '-') . (($message['status'] ?? '') ? ' | ' . $message['status'] : '')) . '</span>';
+        echo '</div></div>';
+    }
+    echo '</div>';
 }
 
 function render_report_table(array $rows, string $labelKey): void

@@ -14,10 +14,10 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 - Login operacional por estudio.
 - Inicio do CRM por estudio com metricas iniciais.
 - Cadastro simples de clientes.
-- Cadastro simples de leads com status, etapa, origem, valor estimado e nota 0-10.
+- Leads com funil visual, detalhe do lead, status, etapa, origem, valor estimado e nota 0-10.
 - Agenda com visualizacao em mes, semana, dia e blocos dos proximos agendamentos.
 - Cadastro de tatuadores por estudio e escolha do tatuador responsavel em cada agendamento.
-- Central de WhatsApp por estudio com chave de sessao isolada, QR Code, envio manual e webhook do Baileys multi-sessao.
+- Central de WhatsApp por estudio com chave de sessao isolada, QR Code, envio manual, historico de conversa e webhook do Baileys multi-sessao.
 - Financeiro por estudio com despesas, categorias e resultado simples do mes.
 - Respostas rapidas por estudio para atendimento humano e futura IA.
 - Relatorios de leads, agenda e despesas.
