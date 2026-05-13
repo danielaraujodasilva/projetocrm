@@ -1,0 +1,12 @@
+{
+  "name": "projetocrm-whatsapp-web-collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "collect": "node collect_whatsapp_web.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.26.1"
+  }
+}

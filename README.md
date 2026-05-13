@@ -80,6 +80,20 @@ Importacao:
 php tools/import_google_calendar.php --studio=1 --file=C:/caminho/agenda.ics --mode=import
 ```
 
+## Coletor experimental WhatsApp Web
+
+O coletor em `tools/whatsapp_web_collector` abre o WhatsApp Web em um perfil isolado, permite escanear o QR Code e salva uma amostra local em `storage/whatsapp-web-collector/exports`. Ele e somente leitura: nao envia mensagens e nao importa nada no banco.
+
+Primeira execucao:
+
+```bash
+cd tools/whatsapp_web_collector
+npm install
+npm run collect -- --limit=5 --messageScrolls=8 --loginTimeoutSeconds=1200 --keepOpen
+```
+
+Depois de validar a amostra, aumente `--limit` e `--messageScrolls` para coletar mais conversas e mais historico visivel.
+
 ## Deploy
 
 O `deploy.php` deste projeto recebe o webhook do repositorio `projetocrm`.
