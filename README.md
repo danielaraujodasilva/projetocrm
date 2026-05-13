@@ -64,6 +64,22 @@ npm start
 Por padrao ele roda em `http://localhost:3010` e envia eventos para `http://localhost/projetocrm/api/whatsapp_webhook.php`.
 No CRM do estudio, abra `WhatsApp`, clique em "Iniciar ou gerar QR" e escaneie o QR Code.
 
+## Importacao Google Agenda
+
+O importador de ICS fica em `tools/import_google_calendar.php`. Ele le arquivos exportados do Google Agenda, filtra compromissos pessoais, interpreta nome, valor e observacoes do titulo, cria clientes/leads/agendamentos e grava o UID do Google para evitar duplicidade em reimportacoes.
+
+Preview:
+
+```bash
+php tools/import_google_calendar.php --studio=1 --file=C:/caminho/agenda.ics --mode=preview
+```
+
+Importacao:
+
+```bash
+php tools/import_google_calendar.php --studio=1 --file=C:/caminho/agenda.ics --mode=import
+```
+
 ## Deploy
 
 O `deploy.php` deste projeto recebe o webhook do repositorio `projetocrm`.

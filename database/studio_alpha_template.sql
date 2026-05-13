@@ -60,16 +60,26 @@ CREATE TABLE IF NOT EXISTS `leads` (
   `lead_score` TINYINT UNSIGNED NULL,
   `estimated_value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `source` VARCHAR(80) NULL,
+  `import_source` VARCHAR(40) NULL,
+  `import_uid` VARCHAR(190) NULL,
+  `raw_title` VARCHAR(260) NULL,
   `last_contact_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_leads_status` (`status`),
   KEY `idx_leads_phone` (`phone`),
+  UNIQUE KEY `uk_leads_import_uid` (`import_source`, `import_uid`),
   CONSTRAINT `fk_leads_customer`
     FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `leads`
+  ADD COLUMN IF NOT EXISTS `import_source` VARCHAR(40) NULL AFTER `source`,
+  ADD COLUMN IF NOT EXISTS `import_uid` VARCHAR(190) NULL AFTER `import_source`,
+  ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `import_uid`,
+  ADD UNIQUE KEY IF NOT EXISTS `uk_leads_import_uid` (`import_source`, `import_uid`);
 
 CREATE TABLE IF NOT EXISTS `tattoo_artists` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -129,12 +139,16 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `status` VARCHAR(60) NOT NULL DEFAULT 'pre_agendado',
   `value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `deposit_value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `import_source` VARCHAR(40) NULL,
+  `import_uid` VARCHAR(190) NULL,
+  `raw_title` VARCHAR(260) NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_appointments_date` (`appointment_date`, `start_time`),
   KEY `idx_appointments_status` (`status`),
   KEY `idx_appointments_artist` (`artist_id`),
+  UNIQUE KEY `uk_appointments_import_uid` (`import_source`, `import_uid`),
   CONSTRAINT `fk_appointments_customer`
     FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
     ON DELETE SET NULL,
@@ -148,6 +162,10 @@ CREATE TABLE IF NOT EXISTS `appointments` (
 
 ALTER TABLE `appointments`
   ADD COLUMN IF NOT EXISTS `artist_id` INT UNSIGNED NULL AFTER `lead_id`,
+  ADD COLUMN IF NOT EXISTS `import_source` VARCHAR(40) NULL AFTER `deposit_value`,
+  ADD COLUMN IF NOT EXISTS `import_uid` VARCHAR(190) NULL AFTER `import_source`,
+  ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `import_uid`,
+  ADD UNIQUE KEY IF NOT EXISTS `uk_appointments_import_uid` (`import_source`, `import_uid`),
   ADD INDEX IF NOT EXISTS `idx_appointments_artist` (`artist_id`);
 
 CREATE TABLE IF NOT EXISTS `expenses` (
