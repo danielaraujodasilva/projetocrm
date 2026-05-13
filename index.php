@@ -118,6 +118,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'save_artist') {
+            $studio = require_studio();
+            studio_save_artist($studio, $_POST);
+            flash_set('success', 'Tatuador salvo.');
+            redirect_to('studio_agenda');
+        }
+
         if ($action === 'save_expense') {
             $studio = require_studio();
             studio_save_expense($studio, $_POST);
@@ -157,6 +164,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             studio_send_whatsapp_message($studio, $_POST);
             flash_set('success', 'Mensagem enviada pelo WhatsApp.');
             redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'ask_studio_data_assistant') {
+            $studio = require_studio();
+            $_SESSION['studio_data_assistant_result'] = studio_data_assistant_answer($studio, (string)($_POST['question'] ?? ''));
+            redirect_to('studio_data_assistant');
         }
 
         if ($action === 'save_studio_settings') {
@@ -248,6 +261,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
     echo '<a class="' . ($active === 'quick_replies' ? 'active' : '') . '" href="' . h(app_url('studio_quick_replies')) . '">Respostas</a>';
     echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatorios</a>';
+    echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
@@ -305,7 +319,7 @@ if ($page === 'studio_login') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_leads', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -433,7 +447,7 @@ if ($page === 'studio_leads') {
 
 if ($page === 'studio_agenda') {
     $studio = require_studio();
-    render_studio_shell('Agenda', 'Pre-agendamentos e atendimentos do estudio.', 'agenda', function () use ($studio) {
+    render_studio_shell('Agenda', 'Calendario, tatuadores e proximos atendimentos.', 'agenda', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -441,17 +455,51 @@ if ($page === 'studio_agenda') {
         }
         $customers = studio_list_customers($studio);
         $leads = studio_list_leads($studio);
+        $artists = studio_list_artists($studio);
         $appointments = studio_list_appointments($studio);
+        $view = (string)($_GET['cal_view'] ?? 'month');
+        if (!in_array($view, ['month', 'week', 'day', 'list'], true)) {
+            $view = 'month';
+        }
+        $focus = parse_calendar_date((string)($_GET['date'] ?? date('Y-m-d')));
+        [$startDate, $endDate] = calendar_range_for($view, $focus);
+        $calendarAppointments = studio_calendar_appointments($studio, $startDate, $endDate);
+
+        echo '<section class="panel"><div class="actions calendar-toolbar">';
+        echo '<h2>Calendario</h2>';
+        foreach (['month' => 'Mes', 'week' => 'Semana', 'day' => 'Dia', 'list' => 'Blocos'] as $key => $label) {
+            echo '<a class="btn ' . ($view === $key ? '' : 'secondary') . '" href="' . h(app_url('studio_agenda', ['cal_view' => $key, 'date' => $focus->format('Y-m-d')])) . '">' . h($label) . '</a>';
+        }
+        $prev = calendar_shift_date($view, $focus, -1);
+        $next = calendar_shift_date($view, $focus, 1);
+        echo '<span class="calendar-spacer"></span>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
+        echo '</div>';
+        if ($view === 'month') {
+            render_calendar_month($calendarAppointments, $focus);
+        } elseif ($view === 'week') {
+            render_calendar_week($calendarAppointments, $focus);
+        } elseif ($view === 'day') {
+            render_calendar_day($calendarAppointments, $focus);
+        } else {
+            render_calendar_list($calendarAppointments);
+        }
+        echo '</section>';
+
         echo '<section class="grid cols-2">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment">';
         echo '<h2>Novo horario</h2>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Cliente</label><select name="customer_id"><option value="">Sem cliente</option>';
+        echo '<div class="grid cols-3"><div class="field"><label>Cliente</label><select name="customer_id"><option value="">Sem cliente</option>';
         render_customer_options($customers);
         echo '</select></div><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
         render_lead_options($leads);
+        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
+        render_artist_options($artists);
         echo '</select></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
@@ -460,9 +508,19 @@ if ($page === 'studio_agenda') {
         echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento, local do corpo, referencia, observacoes..."></textarea></div>';
         echo '<button class="btn" type="submit">Salvar horario</button>';
         echo '</form>';
-        echo '<div class="panel"><h2>Agenda cadastrada</h2>';
+        echo '<div class="panel"><h2>Tatuadores</h2>';
+        render_artists_table($artists);
+        echo '<form class="form" method="post" style="margin-top:14px">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_artist">';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do tatuador" required></div><div class="field"><label>Cor</label><input type="color" name="color" value="#1f6f78"></div></div>';
+        echo '<div class="field"><label>Especialidade</label><input name="specialty" placeholder="Fine line, blackwork, realismo..."></div>';
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Tatuador ativo</label>';
+        echo '<button class="btn secondary" type="submit">Adicionar tatuador</button>';
+        echo '</form></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><h2>Agenda cadastrada</h2>';
         render_appointments_table($appointments);
-        echo '</div></section>';
+        echo '</section>';
     }, $flash);
     exit;
 }
@@ -633,6 +691,55 @@ if ($page === 'studio_reports') {
     exit;
 }
 
+if ($page === 'studio_data_assistant') {
+    $studio = require_studio();
+    render_studio_shell('Assistente IA de dados', 'Perguntas internas sobre CRM, agenda, WhatsApp e financeiro.', 'assistant', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $result = $_SESSION['studio_data_assistant_result'] ?? null;
+        unset($_SESSION['studio_data_assistant_result']);
+        $suggestions = studio_data_assistant_suggestions();
+        echo '<section class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="ask_studio_data_assistant">';
+        echo '<h2>Perguntar aos dados</h2>';
+        echo '<div class="field"><label>Pergunta</label><textarea name="question" required placeholder="Ex: Quais leads merecem prioridade hoje?">' . h($result['question'] ?? '') . '</textarea></div>';
+        echo '<button class="btn" type="submit">Perguntar</button>';
+        echo '<p class="muted">Este assistente e somente leitura: ele consulta resumos do banco isolado do estudio e nao altera dados.</p>';
+        echo '</form>';
+        echo '<div class="panel"><h2>Sugestoes por assunto</h2>';
+        foreach ($suggestions as $group => $items) {
+            echo '<details class="suggestion-group"><summary>' . h($group) . '</summary><div class="suggestion-list">';
+            foreach ($items as $item) {
+                echo '<form method="post" class="inline-form">';
+                echo csrf_field();
+                echo '<input type="hidden" name="action" value="ask_studio_data_assistant">';
+                echo '<input type="hidden" name="question" value="' . h($item) . '">';
+                echo '<button class="btn secondary" type="submit">' . h($item) . '</button>';
+                echo '</form>';
+            }
+            echo '</div></details>';
+        }
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Resposta</h2>';
+        if ($result) {
+            echo '<span class="badge">Gerado em ' . h($result['generated_at']) . '</span>';
+        }
+        echo '</div>';
+        if (!$result) {
+            echo '<p class="muted">Faca uma pergunta ou use uma sugestao para gerar uma leitura do negocio.</p>';
+        } else {
+            echo '<pre class="answer-box">' . h($result['answer']) . '</pre>';
+        }
+        echo '</section>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_settings') {
     $studio = require_studio();
     render_studio_shell('Configuracoes do estudio', 'Regras comerciais e preparacao dos modulos de IA/WhatsApp.', 'settings', function () use ($studio) {
@@ -651,8 +758,8 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA liberada por padrao</label>';
-        echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado</label>';
+        echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> Permitir IA responder clientes quando a conversa estiver em modo IA</label>';
+        echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Permitir conexao WhatsApp/Baileys neste estudio</label>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Padrao das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
@@ -661,6 +768,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
         echo '</div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
+        echo '<p class="muted">Resumo: a primeira opcao libera a IA para responder somente conversas marcadas como IA. A segunda libera a conexao do numero WhatsApp deste estudio. O padrao das novas conversas define se um novo cliente entra com humano ou IA primeiro.</p>';
         echo '<div class="actions"><button class="btn" type="submit">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
         echo '</form>';
     }, $flash);
@@ -917,6 +1025,36 @@ function appointment_status_options(): array
     ];
 }
 
+function studio_data_assistant_suggestions(): array
+{
+    return [
+        'Agenda' => [
+            'Quais sao os proximos agendamentos e com qual tatuador?',
+            'Quais dias da agenda parecem mais cheios?',
+            'Quais agendamentos ainda estao pre-agendados?',
+            'Qual tatuador tem mais horarios futuros?',
+        ],
+        'Leads e funil' => [
+            'Quais leads merecem prioridade hoje?',
+            'Resumo dos leads por status e origem.',
+            'Quais leads tem maior nota e maior valor estimado?',
+            'Onde o funil parece estar travando?',
+        ],
+        'WhatsApp' => [
+            'Quais conversas do WhatsApp precisam de atencao?',
+            'Quais conversas pediram atendimento humano?',
+            'Compare conversas em IA e em humano.',
+            'Quais conversas recentes parecem mais importantes?',
+        ],
+        'Financeiro' => [
+            'Qual o resultado simples do mes?',
+            'Compare faturamento da agenda com despesas.',
+            'Quais categorias de despesa pesam mais?',
+            'Qual leitura rapida do financeiro atual?',
+        ],
+    ];
+}
+
 function render_options(array $options, string $selected): void
 {
     foreach ($options as $value => $label) {
@@ -939,6 +1077,155 @@ function render_lead_options(array $leads): void
     }
 }
 
+function render_artist_options(array $artists): void
+{
+    foreach ($artists as $artist) {
+        echo '<option value="' . h($artist['id']) . '">' . h($artist['name'] . ($artist['specialty'] ? ' - ' . $artist['specialty'] : '')) . '</option>';
+    }
+}
+
+function parse_calendar_date(string $date): DateTimeImmutable
+{
+    $parsed = DateTimeImmutable::createFromFormat('Y-m-d', $date);
+    if (!$parsed) {
+        return new DateTimeImmutable(date('Y-m-d'));
+    }
+
+    return $parsed;
+}
+
+function calendar_range_for(string $view, DateTimeImmutable $focus): array
+{
+    if ($view === 'week') {
+        $start = $focus->modify('monday this week');
+        return [$start->format('Y-m-d'), $start->modify('+6 days')->format('Y-m-d')];
+    }
+    if ($view === 'day') {
+        return [$focus->format('Y-m-d'), $focus->format('Y-m-d')];
+    }
+    if ($view === 'list') {
+        return [date('Y-m-d'), (new DateTimeImmutable(date('Y-m-d')))->modify('+45 days')->format('Y-m-d')];
+    }
+
+    return [$focus->modify('first day of this month')->format('Y-m-d'), $focus->modify('last day of this month')->format('Y-m-d')];
+}
+
+function calendar_shift_date(string $view, DateTimeImmutable $focus, int $direction): DateTimeImmutable
+{
+    $operator = $direction >= 0 ? '+' : '-';
+    return match ($view) {
+        'week' => $focus->modify($operator . '1 week'),
+        'day' => $focus->modify($operator . '1 day'),
+        'list' => $focus->modify($operator . '45 days'),
+        default => $focus->modify($operator . '1 month'),
+    };
+}
+
+function appointments_by_day(array $appointments): array
+{
+    $grouped = [];
+    foreach ($appointments as $appointment) {
+        $day = (string)$appointment['appointment_date'];
+        $grouped[$day][] = $appointment;
+    }
+
+    return $grouped;
+}
+
+function render_calendar_month(array $appointments, DateTimeImmutable $focus): void
+{
+    $byDay = appointments_by_day($appointments);
+    $first = $focus->modify('first day of this month');
+    $last = $focus->modify('last day of this month');
+    $cursor = $first->modify('-' . ((int)$first->format('N') - 1) . ' days');
+    $end = $last->modify('+' . (7 - (int)$last->format('N')) . ' days');
+    echo '<h3 class="calendar-title">' . h($focus->format('m/Y')) . '</h3>';
+    echo '<div class="calendar-grid month">';
+    foreach (['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'] as $label) {
+        echo '<div class="calendar-head">' . h($label) . '</div>';
+    }
+    while ($cursor <= $end) {
+        $date = $cursor->format('Y-m-d');
+        $outside = $cursor->format('m') !== $focus->format('m') ? ' muted-day' : '';
+        echo '<div class="calendar-cell' . h($outside) . '"><div class="calendar-date">' . h($cursor->format('d')) . '</div>';
+        foreach (array_slice($byDay[$date] ?? [], 0, 4) as $appointment) {
+            render_calendar_event($appointment);
+        }
+        $extra = count($byDay[$date] ?? []) - 4;
+        if ($extra > 0) {
+            echo '<span class="muted">+' . h($extra) . ' horarios</span>';
+        }
+        echo '</div>';
+        $cursor = $cursor->modify('+1 day');
+    }
+    echo '</div>';
+}
+
+function render_calendar_week(array $appointments, DateTimeImmutable $focus): void
+{
+    $byDay = appointments_by_day($appointments);
+    $start = $focus->modify('monday this week');
+    echo '<div class="calendar-grid week">';
+    for ($i = 0; $i < 7; $i++) {
+        $day = $start->modify('+' . $i . ' days');
+        $date = $day->format('Y-m-d');
+        echo '<div class="calendar-cell"><div class="calendar-date"><strong>' . h($day->format('d/m')) . '</strong><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
+        foreach ($byDay[$date] ?? [] as $appointment) {
+            render_calendar_event($appointment);
+        }
+        if (empty($byDay[$date])) {
+            echo '<span class="muted">Livre</span>';
+        }
+        echo '</div>';
+    }
+    echo '</div>';
+}
+
+function render_calendar_day(array $appointments, DateTimeImmutable $focus): void
+{
+    echo '<h3 class="calendar-title">' . h($focus->format('d/m/Y')) . '</h3>';
+    if (!$appointments) {
+        echo '<p class="muted">Nenhum agendamento neste dia.</p>';
+        return;
+    }
+    echo '<div class="stack-list">';
+    foreach ($appointments as $appointment) {
+        render_calendar_block($appointment);
+    }
+    echo '</div>';
+}
+
+function render_calendar_list(array $appointments): void
+{
+    if (!$appointments) {
+        echo '<p class="muted">Nenhum agendamento futuro nos proximos 45 dias.</p>';
+        return;
+    }
+    echo '<div class="stack-list">';
+    foreach ($appointments as $appointment) {
+        render_calendar_block($appointment);
+    }
+    echo '</div>';
+}
+
+function render_calendar_event(array $appointment): void
+{
+    $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
+    $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
+    echo '<div class="calendar-event" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '</div>';
+}
+
+function render_calendar_block(array $appointment): void
+{
+    $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
+    $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
+    echo '<div class="appointment-block" style="border-left-color:' . h($color) . '">';
+    echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5)) . '</strong>';
+    echo '<span>' . h($name) . ' - ' . h($appointment['title']) . '</span>';
+    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . $appointment['status'] . ' | ' . format_money($appointment['value'] ?? 0)) . '</span>';
+    echo '</div>';
+}
+
 function render_customers_table(array $customers): void
 {
     if (!$customers) {
@@ -951,6 +1238,24 @@ function render_customers_table(array $customers): void
         echo '<td><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
+        echo '</tr>';
+    }
+    echo '</tbody></table>';
+}
+
+function render_artists_table(array $artists): void
+{
+    if (!$artists) {
+        echo '<p class="muted">Nenhum tatuador cadastrado ainda.</p>';
+        return;
+    }
+    echo '<table class="table"><thead><tr><th>Tatuador</th><th>Especialidade</th><th>Status</th></tr></thead><tbody>';
+    foreach ($artists as $artist) {
+        $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($artist['color'] ?? '')) ? $artist['color'] : '#1f6f78';
+        echo '<tr>';
+        echo '<td><span class="color-dot" style="background:' . h($color) . '"></span><strong>' . h($artist['name']) . '</strong></td>';
+        echo '<td>' . h($artist['specialty'] ?: '-') . '</td>';
+        echo '<td><span class="badge ' . (!empty($artist['is_active']) ? 'ok' : 'warn') . '">' . (!empty($artist['is_active']) ? 'ativo' : 'inativo') . '</span></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
@@ -980,12 +1285,13 @@ function render_appointments_table(array $appointments): void
         echo '<p class="muted">Nenhum horario cadastrado ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Tatuador</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
     foreach ($appointments as $appointment) {
         $date = date('d/m/Y', strtotime((string)$appointment['appointment_date']));
         echo '<tr>';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
+        echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
         echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '<br><span class="muted">Sinal ' . h(format_money($appointment['deposit_value'] ?? 0)) . '</span></td>';
         echo '<td><span class="badge">' . h($appointment['status']) . '</span></td>';
         echo '</tr>';

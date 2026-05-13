@@ -15,12 +15,20 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 - Inicio do CRM por estudio com metricas iniciais.
 - Cadastro simples de clientes.
 - Cadastro simples de leads com status, etapa, origem, valor estimado e nota 0-10.
-- Agenda inicial com cliente, lead, data, horario, valor, sinal e status.
+- Agenda com visualizacao em mes, semana, dia e blocos dos proximos agendamentos.
+- Cadastro de tatuadores por estudio e escolha do tatuador responsavel em cada agendamento.
 - Central de WhatsApp por estudio com chave de sessao isolada, QR Code, envio manual e webhook do Baileys multi-sessao.
 - Financeiro por estudio com despesas, categorias e resultado simples do mes.
 - Respostas rapidas por estudio para atendimento humano e futura IA.
 - Relatorios de leads, agenda e despesas.
 - Configuracoes por estudio para regras de IA, modelo e WhatsApp.
+- Assistente IA de dados em modo somente leitura para consultar clientes, leads, agenda, WhatsApp e financeiro do estudio.
+
+## Configuracoes do estudio
+
+- `Permitir IA responder clientes quando a conversa estiver em modo IA`: libera a IA para responder apenas conversas marcadas como atendimento por IA.
+- `Permitir conexao WhatsApp/Baileys neste estudio`: libera o uso da sessao WhatsApp daquele estudio no servico multi-estudio.
+- `Atendimento padrao para novas conversas`: define se um cliente novo entra primeiro com humano ou com IA.
 
 ## SQL
 

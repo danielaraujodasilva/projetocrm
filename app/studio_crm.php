@@ -62,11 +62,11 @@ function studio_schema_ready(array $studio): bool
             'SELECT COUNT(*)
              FROM INFORMATION_SCHEMA.TABLES
              WHERE TABLE_SCHEMA = ?
-               AND TABLE_NAME IN ("studio_settings", "customers", "leads", "pipeline_stages", "appointments", "expenses", "quick_replies", "whatsapp_conversations", "whatsapp_messages")'
+               AND TABLE_NAME IN ("studio_settings", "customers", "leads", "tattoo_artists", "pipeline_stages", "appointments", "expenses", "quick_replies", "whatsapp_conversations", "whatsapp_messages")'
         );
         $stmt->execute([$config['database']]);
 
-        return (int)$stmt->fetchColumn() === 9;
+        return (int)$stmt->fetchColumn() === 10;
     } catch (Throwable) {
         return false;
     }
@@ -408,9 +408,10 @@ function studio_recent_leads(array $studio, int $limit = 8): array
 function studio_upcoming_appointments(array $studio, int $limit = 8): array
 {
     $stmt = studio_db($studio)->prepare(
-        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name
+        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name, ta.color AS artist_color
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
          WHERE a.appointment_date >= CURDATE() AND a.status NOT IN ('cancelado')
          ORDER BY a.appointment_date ASC, a.start_time ASC
          LIMIT ?"
@@ -426,6 +427,44 @@ function studio_list_customers(array $studio): array
     return studio_db($studio)->query('SELECT * FROM customers ORDER BY updated_at DESC, id DESC LIMIT 100')->fetchAll() ?: [];
 }
 
+function studio_list_artists(array $studio, bool $activeOnly = true): array
+{
+    $sql = 'SELECT * FROM tattoo_artists';
+    if ($activeOnly) {
+        $sql .= ' WHERE is_active = 1';
+    }
+    $sql .= ' ORDER BY is_active DESC, name ASC, id ASC';
+
+    return studio_db($studio)->query($sql)->fetchAll() ?: [];
+}
+
+function studio_save_artist(array $studio, array $data): int
+{
+    $pdo = studio_db($studio);
+    $id = (int)($data['id'] ?? 0);
+    $values = [
+        trim((string)($data['name'] ?? '')),
+        trim((string)($data['specialty'] ?? '')),
+        trim((string)($data['color'] ?? '#1f6f78')) ?: '#1f6f78',
+        !empty($data['is_active']) ? 1 : 0,
+    ];
+
+    if ($values[0] === '') {
+        throw new RuntimeException('Informe o nome do tatuador.');
+    }
+
+    if ($id > 0) {
+        $stmt = $pdo->prepare('UPDATE tattoo_artists SET name = ?, specialty = ?, color = ?, is_active = ?, updated_at = NOW() WHERE id = ?');
+        $stmt->execute([...$values, $id]);
+        return $id;
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO tattoo_artists (name, specialty, color, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())');
+    $stmt->execute($values);
+
+    return (int)$pdo->lastInsertId();
+}
+
 function studio_list_leads(array $studio): array
 {
     return studio_db($studio)->query('SELECT * FROM leads ORDER BY updated_at DESC, id DESC LIMIT 120')->fetchAll() ?: [];
@@ -434,13 +473,30 @@ function studio_list_leads(array $studio): array
 function studio_list_appointments(array $studio): array
 {
     $stmt = studio_db($studio)->query(
-        "SELECT a.*, c.name AS customer_name, l.name AS lead_name
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
+         LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
          ORDER BY a.appointment_date DESC, a.start_time DESC, a.id DESC
          LIMIT 120"
     );
+
+    return $stmt->fetchAll() ?: [];
+}
+
+function studio_calendar_appointments(array $studio, string $startDate, string $endDate): array
+{
+    $stmt = studio_db($studio)->prepare(
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+         FROM appointments a
+         LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
+         LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+         WHERE a.appointment_date BETWEEN ? AND ?
+         ORDER BY a.appointment_date ASC, a.start_time ASC, a.id ASC"
+    );
+    $stmt->execute([$startDate, $endDate]);
 
     return $stmt->fetchAll() ?: [];
 }
@@ -865,6 +921,96 @@ function studio_report_data(array $studio): array
     ];
 }
 
+function studio_data_assistant_context(array $studio): array
+{
+    $pdo = studio_db($studio);
+    return [
+        'stats' => studio_stats($studio),
+        'settings' => studio_settings($studio),
+        'artists' => studio_list_artists($studio),
+        'leads_by_status' => $pdo->query('SELECT status, COUNT(*) AS qtd, COALESCE(SUM(estimated_value), 0) AS total FROM leads GROUP BY status ORDER BY qtd DESC')->fetchAll() ?: [],
+        'leads_by_source' => $pdo->query('SELECT source, COUNT(*) AS qtd, COALESCE(SUM(estimated_value), 0) AS total FROM leads GROUP BY source ORDER BY qtd DESC LIMIT 12')->fetchAll() ?: [],
+        'hot_leads' => $pdo->query('SELECT name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source FROM leads ORDER BY COALESCE(lead_score, 0) DESC, updated_at DESC LIMIT 10')->fetchAll() ?: [],
+        'upcoming_appointments' => studio_upcoming_appointments($studio, 12),
+        'appointments_by_artist' => $pdo->query(
+            "SELECT COALESCE(ta.name, 'Sem tatuador') AS artist, COUNT(*) AS qtd, COALESCE(SUM(a.value), 0) AS total
+             FROM appointments a
+             LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+             WHERE a.appointment_date >= CURDATE()
+             GROUP BY COALESCE(ta.name, 'Sem tatuador')
+             ORDER BY qtd DESC"
+        )->fetchAll() ?: [],
+        'finance' => studio_finance_summary($studio),
+        'whatsapp' => studio_whatsapp_summary($studio),
+        'whatsapp_conversations' => array_slice(studio_list_whatsapp_conversations($studio), 0, 12),
+    ];
+}
+
+function studio_data_assistant_answer(array $studio, string $question): array
+{
+    $question = trim($question);
+    if ($question === '') {
+        throw new RuntimeException('Digite uma pergunta para o assistente.');
+    }
+
+    $context = studio_data_assistant_context($studio);
+    $lower = function_exists('mb_strtolower') ? mb_strtolower($question, 'UTF-8') : strtolower($question);
+    $lines = [];
+    $lines[] = 'Com base nos dados atuais do estudio:';
+
+    if (str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'calendario')) {
+        $appointments = $context['upcoming_appointments'];
+        $lines[] = '- Existem ' . count($appointments) . ' proximos agendamentos no recorte rapido.';
+        foreach (array_slice($appointments, 0, 6) as $appointment) {
+            $lines[] = '- ' . date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ': ' . (($appointment['customer_name'] ?? '') ?: $appointment['title']) . ' com ' . (($appointment['artist_name'] ?? '') ?: 'tatuador nao definido') . ' (' . $appointment['status'] . ').';
+        }
+        if ($context['appointments_by_artist']) {
+            $lines[] = 'Por tatuador nos proximos horarios:';
+            foreach ($context['appointments_by_artist'] as $row) {
+                $lines[] = '- ' . $row['artist'] . ': ' . (int)$row['qtd'] . ' agendamentos, ' . format_money($row['total'] ?? 0) . '.';
+            }
+        }
+    } elseif (str_contains($lower, 'finance') || str_contains($lower, 'fatur') || str_contains($lower, 'despesa') || str_contains($lower, 'resultado')) {
+        $finance = $context['finance'];
+        $lines[] = '- Agenda do mes: ' . format_money($finance['appointments_month']);
+        $lines[] = '- Despesas do mes: ' . format_money($finance['expenses_month']);
+        $lines[] = '- Resultado simples do mes: ' . format_money($finance['balance_month']);
+        foreach (array_slice($finance['by_category'], 0, 6) as $row) {
+            $lines[] = '- Despesa em ' . (($row['category'] ?? '') ?: 'Geral') . ': ' . format_money($row['total'] ?? 0) . '.';
+        }
+    } elseif (str_contains($lower, 'whatsapp') || str_contains($lower, 'conversa') || str_contains($lower, 'atencao') || str_contains($lower, 'humano')) {
+        $wa = $context['whatsapp'];
+        $lines[] = '- WhatsApp tem ' . $wa['total'] . ' conversas, ' . $wa['bot'] . ' em IA e ' . $wa['human'] . ' em humano.';
+        $lines[] = '- ' . $wa['needs_human'] . ' conversas estao marcadas como pedindo humano.';
+        foreach (array_slice($context['whatsapp_conversations'], 0, 6) as $conversation) {
+            $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: $conversation['phone']));
+            $lines[] = '- ' . $name . ': nota ' . (($conversation['lead_score'] ?? '-') ?: '-') . '/10, modo ' . $conversation['attendance_mode'] . ', ultima mensagem: ' . (($conversation['last_message_preview'] ?? '') ?: '-');
+        }
+    } else {
+        $stats = $context['stats'];
+        $lines[] = '- Leads no funil: ' . $stats['leads'] . ', clientes cadastrados: ' . $stats['customers'] . '.';
+        $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($stats['open_value']) . '.';
+        $lines[] = '- Proximos atendimentos: ' . $stats['appointments'] . '.';
+        $lines[] = '- Resultado simples do mes: ' . format_money($stats['month_revenue'] - $stats['month_expenses']) . '.';
+        if ($context['hot_leads']) {
+            $lines[] = 'Leads mais promissores pelo score:';
+            foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
+                $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+            }
+        }
+    }
+
+    $lines[] = '';
+    $lines[] = 'Sugestao pratica: use essa leitura para priorizar contatos com maior nota, horarios proximos e conversas que pediram humano.';
+
+    return [
+        'question' => $question,
+        'answer' => implode("\n", $lines),
+        'context' => $context,
+        'generated_at' => date('Y-m-d H:i:s'),
+    ];
+}
+
 function studio_save_customer(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
@@ -932,6 +1078,7 @@ function studio_save_appointment(array $studio, array $data): int
     $values = [
         (int)($data['customer_id'] ?? 0) ?: null,
         (int)($data['lead_id'] ?? 0) ?: null,
+        (int)($data['artist_id'] ?? 0) ?: null,
         trim((string)($data['title'] ?? 'Atendimento')),
         trim((string)($data['description'] ?? '')),
         trim((string)($data['appointment_date'] ?? date('Y-m-d'))),
@@ -941,14 +1088,14 @@ function studio_save_appointment(array $studio, array $data): int
         money_to_float((string)($data['value'] ?? '0')),
         money_to_float((string)($data['deposit_value'] ?? '0')),
     ];
-    if ($values[6] === '') {
-        $values[6] = null;
+    if ($values[7] === '') {
+        $values[7] = null;
     }
 
     if ($id > 0) {
         $stmt = $pdo->prepare(
             'UPDATE appointments
-             SET customer_id = ?, lead_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, updated_at = NOW()
+             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, updated_at = NOW()
              WHERE id = ?'
         );
         $stmt->execute([...$values, $id]);
@@ -957,8 +1104,8 @@ function studio_save_appointment(array $studio, array $data): int
 
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
-            (customer_id, lead_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute($values);
 

@@ -71,6 +71,25 @@ CREATE TABLE IF NOT EXISTS `leads` (
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `tattoo_artists` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(140) NOT NULL,
+  `specialty` VARCHAR(160) NULL,
+  `color` VARCHAR(20) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_tattoo_artists_active` (`is_active`, `name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `tattoo_artists` (`id`, `name`, `specialty`, `color`, `is_active`, `created_at`, `updated_at`)
+VALUES
+  (1, '{{STUDIO_NAME}}', 'Tatuagem', '#1f6f78', 1, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  `name` = IF(`name` IS NULL OR `name` = '', VALUES(`name`), `name`),
+  `updated_at` = NOW();
+
 CREATE TABLE IF NOT EXISTS `pipeline_stages` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(90) NOT NULL,
@@ -101,6 +120,7 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `customer_id` BIGINT UNSIGNED NULL,
   `lead_id` BIGINT UNSIGNED NULL,
+  `artist_id` INT UNSIGNED NULL,
   `title` VARCHAR(180) NOT NULL,
   `description` TEXT NULL,
   `appointment_date` DATE NOT NULL,
@@ -114,13 +134,21 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   PRIMARY KEY (`id`),
   KEY `idx_appointments_date` (`appointment_date`, `start_time`),
   KEY `idx_appointments_status` (`status`),
+  KEY `idx_appointments_artist` (`artist_id`),
   CONSTRAINT `fk_appointments_customer`
     FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
     ON DELETE SET NULL,
   CONSTRAINT `fk_appointments_lead`
     FOREIGN KEY (`lead_id`) REFERENCES `leads` (`id`)
+    ON DELETE SET NULL,
+  CONSTRAINT `fk_appointments_artist`
+    FOREIGN KEY (`artist_id`) REFERENCES `tattoo_artists` (`id`)
     ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `appointments`
+  ADD COLUMN IF NOT EXISTS `artist_id` INT UNSIGNED NULL AFTER `lead_id`,
+  ADD INDEX IF NOT EXISTS `idx_appointments_artist` (`artist_id`);
 
 CREATE TABLE IF NOT EXISTS `expenses` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
