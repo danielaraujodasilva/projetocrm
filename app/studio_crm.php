@@ -422,9 +422,62 @@ function studio_upcoming_appointments(array $studio, int $limit = 8): array
     return $stmt->fetchAll() ?: [];
 }
 
-function studio_list_customers(array $studio): array
+function studio_list_customers(array $studio, int $limit = 180): array
 {
-    return studio_db($studio)->query('SELECT * FROM customers ORDER BY updated_at DESC, id DESC LIMIT 100')->fetchAll() ?: [];
+    $stmt = studio_db($studio)->prepare('SELECT * FROM customers ORDER BY updated_at DESC, id DESC LIMIT ?');
+    $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll() ?: [];
+}
+
+function studio_find_customer(array $studio, int $id): ?array
+{
+    if ($id <= 0) {
+        return null;
+    }
+
+    $stmt = studio_db($studio)->prepare('SELECT * FROM customers WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    $customer = $stmt->fetch();
+
+    return is_array($customer) ? $customer : null;
+}
+
+function studio_customer_activity(array $studio, int $customerId): array
+{
+    $pdo = studio_db($studio);
+    $leadStmt = $pdo->prepare('SELECT * FROM leads WHERE customer_id = ? ORDER BY updated_at DESC, id DESC LIMIT 40');
+    $leadStmt->execute([$customerId]);
+
+    $appointmentStmt = $pdo->prepare(
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+         FROM appointments a
+         LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
+         LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+         WHERE a.customer_id = ?
+         ORDER BY a.appointment_date DESC, a.start_time DESC, a.id DESC
+         LIMIT 40"
+    );
+    $appointmentStmt->execute([$customerId]);
+
+    $conversationStmt = $pdo->prepare(
+        "SELECT wc.*, COUNT(wm.id) AS message_count, COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at
+         FROM whatsapp_conversations wc
+         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
+         WHERE wc.customer_id = ?
+         GROUP BY wc.id
+         ORDER BY COALESCE(wc.last_message_at, MAX(wm.sent_at), wc.updated_at) DESC
+         LIMIT 20"
+    );
+    $conversationStmt->execute([$customerId]);
+
+    return [
+        'leads' => $leadStmt->fetchAll() ?: [],
+        'appointments' => $appointmentStmt->fetchAll() ?: [],
+        'conversations' => $conversationStmt->fetchAll() ?: [],
+    ];
 }
 
 function studio_list_artists(array $studio, bool $activeOnly = true): array
@@ -465,9 +518,46 @@ function studio_save_artist(array $studio, array $data): int
     return (int)$pdo->lastInsertId();
 }
 
-function studio_list_leads(array $studio): array
+function studio_list_leads(array $studio, array $filters = [], int $limit = 180): array
 {
-    return studio_db($studio)->query('SELECT * FROM leads ORDER BY updated_at DESC, id DESC LIMIT 120')->fetchAll() ?: [];
+    $where = [];
+    $params = [];
+    $q = trim((string)($filters['q'] ?? ''));
+    if ($q !== '') {
+        $where[] = '(name LIKE ? OR phone LIKE ? OR interest LIKE ? OR source LIKE ?)';
+        $like = '%' . $q . '%';
+        array_push($params, $like, $like, $like, $like);
+    }
+    $status = trim((string)($filters['status'] ?? ''));
+    if ($status !== '') {
+        $where[] = 'status = ?';
+        $params[] = $status;
+    }
+    $source = trim((string)($filters['source'] ?? ''));
+    if ($source !== '') {
+        $where[] = 'source = ?';
+        $params[] = $source;
+    }
+    $minScore = (int)($filters['min_score'] ?? 0);
+    if ($minScore > 0) {
+        $where[] = 'COALESCE(lead_score, 0) >= ?';
+        $params[] = min(10, $minScore);
+    }
+
+    $sql = 'SELECT * FROM leads';
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+    $sql .= ' ORDER BY updated_at DESC, id DESC LIMIT ?';
+
+    $stmt = studio_db($studio)->prepare($sql);
+    foreach ($params as $index => $param) {
+        $stmt->bindValue($index + 1, $param);
+    }
+    $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll() ?: [];
 }
 
 function studio_find_lead(array $studio, int $id): ?array
@@ -489,7 +579,7 @@ function studio_find_lead(array $studio, int $id): ?array
     return is_array($lead) ? $lead : null;
 }
 
-function studio_pipeline_board(array $studio): array
+function studio_pipeline_board(array $studio, array $filters = []): array
 {
     $stages = studio_list_pipeline_stages($studio);
     $board = [];
@@ -501,7 +591,7 @@ function studio_pipeline_board(array $studio): array
         ];
     }
 
-    $leads = studio_list_leads($studio);
+    $leads = studio_list_leads($studio, $filters);
     foreach ($leads as $lead) {
         $stageName = (string)($lead['pipeline_stage'] ?: 'entrada');
         if (!isset($board[$stageName])) {
@@ -728,18 +818,51 @@ function studio_whatsapp_summary(array $studio): array
     ];
 }
 
-function studio_list_whatsapp_conversations(array $studio): array
+function studio_list_whatsapp_conversations(array $studio, array $filters = [], int $limit = 160): array
 {
-    return studio_db($studio)->query(
+    $where = [];
+    $params = [];
+    $q = trim((string)($filters['q'] ?? ''));
+    if ($q !== '') {
+        $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ?)';
+        $like = '%' . $q . '%';
+        array_push($params, $like, $like, $like, $like, $like, $like);
+    }
+    $mode = trim((string)($filters['mode'] ?? ''));
+    if (in_array($mode, ['human', 'bot'], true)) {
+        $where[] = 'wc.attendance_mode = ?';
+        $params[] = $mode;
+    }
+    if (!empty($filters['needs_human'])) {
+        $where[] = 'wc.needs_human = 1';
+    }
+    $minScore = (int)($filters['min_score'] ?? 0);
+    if ($minScore > 0) {
+        $where[] = 'COALESCE(wc.lead_score, 0) >= ?';
+        $params[] = min(10, $minScore);
+    }
+
+    $sql =
         "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count, COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
-         GROUP BY wc.id
+         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id";
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+    $sql .= " GROUP BY wc.id
          ORDER BY COALESCE(wc.last_message_at, MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
-         LIMIT 120"
-    )->fetchAll() ?: [];
+         LIMIT ?";
+
+    $stmt = studio_db($studio)->prepare($sql);
+    foreach ($params as $index => $param) {
+        $stmt->bindValue($index + 1, $param);
+    }
+    $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll() ?: [];
 }
 
 function studio_find_whatsapp_conversation(array $studio, int $id): ?array
@@ -749,7 +872,8 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
     }
 
     $stmt = studio_db($studio)->prepare(
-        "SELECT wc.*, c.name AS customer_name, c.instagram AS customer_instagram, l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value
+        "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
+                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
@@ -800,6 +924,74 @@ function studio_update_whatsapp_conversation(array $studio, array $data): void
          WHERE id = ?'
     );
     $stmt->execute([$mode, $needsHuman, $score, $aiStatus, $id]);
+}
+
+function studio_update_whatsapp_profile(array $studio, array $data): array
+{
+    $pdo = studio_db($studio);
+    $conversationId = (int)($data['conversation_id'] ?? 0);
+    $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
+    if (!$conversation) {
+        throw new RuntimeException('Conversa invalida.');
+    }
+
+    $phone = normalize_phone((string)($data['phone'] ?? $conversation['phone'] ?? ''));
+    if ($phone === '') {
+        $phone = (string)($conversation['phone'] ?? '');
+    }
+    $entityPhone = str_starts_with($phone, 'web_') ? '' : $phone;
+
+    $name = trim((string)($data['name'] ?? ''));
+    if ($name === '') {
+        $name = (string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Cliente WhatsApp')));
+    }
+
+    $customerId = (int)($data['customer_id'] ?? $conversation['customer_id'] ?? 0);
+    $customerPayload = [
+        'id' => $customerId,
+        'name' => $name,
+        'phone' => $entityPhone,
+        'email' => (string)($data['email'] ?? $conversation['customer_email'] ?? ''),
+        'instagram' => (string)($data['instagram'] ?? $conversation['customer_instagram'] ?? ''),
+        'notes' => (string)($data['notes'] ?? $conversation['customer_notes'] ?? ''),
+    ];
+    if ($customerId > 0 || !empty($data['create_customer'])) {
+        $customerId = studio_save_customer($studio, $customerPayload);
+    }
+
+    $leadId = (int)($data['lead_id'] ?? $conversation['lead_id'] ?? 0);
+    $leadPayload = [
+        'id' => $leadId,
+        'customer_id' => $customerId,
+        'name' => $name,
+        'phone' => $entityPhone,
+        'interest' => trim((string)($data['interest'] ?? $conversation['lead_interest'] ?? 'Conversa WhatsApp')),
+        'status' => trim((string)($data['status'] ?? $conversation['lead_status'] ?? 'em_conversa')),
+        'pipeline_stage' => trim((string)($data['pipeline_stage'] ?? $conversation['lead_pipeline_stage'] ?? 'em_conversa')),
+        'lead_score' => (int)($data['lead_score'] ?? $conversation['lead_score'] ?? 0),
+        'estimated_value' => (string)($data['estimated_value'] ?? $conversation['lead_estimated_value'] ?? '0'),
+        'source' => trim((string)($data['source'] ?? 'WhatsApp')),
+    ];
+    if ($leadId > 0 || !empty($data['create_lead'])) {
+        $leadId = studio_save_lead($studio, $leadPayload);
+    }
+
+    $mode = (string)($data['attendance_mode'] ?? $conversation['attendance_mode'] ?? 'human');
+    if (!in_array($mode, ['human', 'bot'], true)) {
+        $mode = 'human';
+    }
+    $needsHuman = !empty($data['needs_human']) ? 1 : 0;
+    $score = max(0, min(10, (int)($data['lead_score'] ?? $conversation['lead_score'] ?? 0)));
+    $aiStatus = trim((string)($data['ai_last_status'] ?? $conversation['ai_last_status'] ?? ''));
+
+    $stmt = $pdo->prepare(
+        'UPDATE whatsapp_conversations
+         SET customer_id = ?, lead_id = ?, phone = ?, name = ?, attendance_mode = ?, needs_human = ?, lead_score = ?, ai_last_status = NULLIF(?, ""), updated_at = NOW()
+         WHERE id = ?'
+    );
+    $stmt->execute([$customerId ?: null, $leadId ?: null, $phone, $name, $mode, $needsHuman, $score, $aiStatus, $conversationId]);
+
+    return ['customer_id' => $customerId, 'lead_id' => $leadId, 'conversation_id' => $conversationId];
 }
 
 function studio_find_customer_by_phone(array $studio, string $phone): ?array
@@ -1250,9 +1442,15 @@ function studio_save_appointment(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
     $id = (int)($data['id'] ?? 0);
+    $leadId = (int)($data['lead_id'] ?? 0);
+    $customerId = (int)($data['customer_id'] ?? 0);
+    if ($customerId <= 0 && $leadId > 0) {
+        $lead = studio_find_lead($studio, $leadId);
+        $customerId = (int)($lead['customer_id'] ?? 0);
+    }
     $values = [
-        (int)($data['customer_id'] ?? 0) ?: null,
-        (int)($data['lead_id'] ?? 0) ?: null,
+        $customerId ?: null,
+        $leadId ?: null,
         (int)($data['artist_id'] ?? 0) ?: null,
         trim((string)($data['title'] ?? 'Atendimento')),
         trim((string)($data['description'] ?? '')),
@@ -1274,6 +1472,7 @@ function studio_save_appointment(array $studio, array $data): int
              WHERE id = ?'
         );
         $stmt->execute([...$values, $id]);
+        studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
         return $id;
     }
 
@@ -1284,7 +1483,35 @@ function studio_save_appointment(array $studio, array $data): int
     );
     $stmt->execute($values);
 
-    return (int)$pdo->lastInsertId();
+    $appointmentId = (int)$pdo->lastInsertId();
+    studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
+
+    return $appointmentId;
+}
+
+function studio_sync_lead_from_appointment(array $studio, int $leadId, string $appointmentStatus, float $value, string $lastContactAt): void
+{
+    if ($leadId <= 0) {
+        return;
+    }
+
+    $leadStatus = match ($appointmentStatus) {
+        'confirmado', 'em_atendimento' => 'agendado',
+        'concluido' => 'fechado',
+        'cancelado' => 'perdido',
+        default => 'pre_agendado',
+    };
+    $stage = match ($leadStatus) {
+        'fechado' => 'agendado',
+        'perdido' => 'entrada',
+        default => $leadStatus,
+    };
+
+    studio_db($studio)->prepare(
+        'UPDATE leads
+         SET status = ?, pipeline_stage = ?, estimated_value = GREATEST(COALESCE(estimated_value, 0), ?), last_contact_at = ?, updated_at = NOW()
+         WHERE id = ?'
+    )->execute([$leadStatus, $stage, $value, $lastContactAt, $leadId]);
 }
 
 function studio_settings(array $studio): array

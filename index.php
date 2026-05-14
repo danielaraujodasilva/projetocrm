@@ -96,8 +96,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($action === 'save_customer') {
             $studio = require_studio();
-            studio_save_customer($studio, $_POST);
+            $customerId = studio_save_customer($studio, $_POST);
             flash_set('success', 'Cliente salvo.');
+            if (!empty($_POST['return_to_detail'])) {
+                redirect_to('studio_customer', ['id' => $customerId]);
+            }
             redirect_to('studio_customers');
         }
 
@@ -129,6 +132,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $studio = require_studio();
             studio_save_appointment($studio, $_POST);
             flash_set('success', 'Agenda salva.');
+            if (!empty($_POST['return_to_conversation'])) {
+                redirect_to('studio_whatsapp_conversation', ['id' => (int)$_POST['return_to_conversation']]);
+            }
+            if (!empty($_POST['return_to_lead'])) {
+                redirect_to('studio_lead', ['id' => (int)$_POST['return_to_lead']]);
+            }
+            if (!empty($_POST['return_to_customer'])) {
+                redirect_to('studio_customer', ['id' => (int)$_POST['return_to_customer']]);
+            }
             redirect_to('studio_agenda');
         }
 
@@ -190,6 +202,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_whatsapp_conversation', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
         }
 
+        if ($action === 'update_whatsapp_profile') {
+            $studio = require_studio();
+            studio_update_whatsapp_profile($studio, $_POST);
+            flash_set('success', 'Cadastro, lead e conversa atualizados.');
+            redirect_to('studio_whatsapp_conversation', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
+        }
+
         if ($action === 'ask_studio_data_assistant') {
             $studio = require_studio();
             $_SESSION['studio_data_assistant_result'] = studio_data_assistant_answer($studio, (string)($_POST['question'] ?? ''));
@@ -238,6 +257,20 @@ function render_flash(?array $flash): void
     echo '<div class="flash ' . h($flash['type'] ?? '') . '">' . h($flash['message'] ?? '') . '</div>';
 }
 
+function render_scripts(): void
+{
+    echo '<script>
+document.addEventListener("click", function (event) {
+    var button = event.target.closest(".quick-reply-copy");
+    if (!button) return;
+    var textarea = document.getElementById("reply-message");
+    if (!textarea) return;
+    textarea.value = button.getAttribute("data-reply") || "";
+    textarea.focus();
+});
+</script>';
+}
+
 function render_auth_page(string $title, string $subtitle, callable $content, ?array $flash): void
 {
     render_head($title);
@@ -245,7 +278,9 @@ function render_auth_page(string $title, string $subtitle, callable $content, ?a
     echo '<h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p>';
     render_flash($flash);
     $content();
-    echo '</main></div></body></html>';
+    echo '</main></div>';
+    render_scripts();
+    echo '</body></html>';
 }
 
 function render_app_shell(string $title, string $subtitle, string $active, callable $content, ?array $flash): void
@@ -266,7 +301,9 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<span class="badge">' . h($admin['name'] ?? 'Gerente') . '</span></div>';
     render_flash($flash);
     $content();
-    echo '</main></div></body></html>';
+    echo '</main></div>';
+    render_scripts();
+    echo '</body></html>';
 }
 
 function render_studio_shell(string $title, string $subtitle, string $active, callable $content, ?array $flash): void
@@ -294,7 +331,9 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<span class="badge">' . h($user['name'] ?? 'Usuario') . '</span></div>';
     render_flash($flash);
     $content();
-    echo '</main></div></body></html>';
+    echo '</main></div>';
+    render_scripts();
+    echo '</body></html>';
 }
 
 if (!$dbStatus['ok'] || !$schemaReady) {
@@ -343,7 +382,7 @@ if ($page === 'studio_login') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -402,7 +441,7 @@ if ($page === 'studio_home') {
 
 if ($page === 'studio_customers') {
     $studio = require_studio();
-    render_studio_shell('Clientes', 'Ficha simples de clientes do estudio.', 'customers', function () use ($studio) {
+    render_studio_shell('Clientes', 'Fichas de clientes, historico e proximos passos.', 'customers', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -427,6 +466,72 @@ if ($page === 'studio_customers') {
     exit;
 }
 
+if ($page === 'studio_customer') {
+    $studio = require_studio();
+    render_studio_shell('Ficha do cliente', 'Historico completo de lead, WhatsApp e agenda.', 'customers', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $customerId = (int)($_GET['id'] ?? 0);
+        $customer = studio_find_customer($studio, $customerId);
+        if (!$customer) {
+            echo '<section class="panel"><h2>Cliente nao encontrado</h2><p class="muted">Volte para a lista e escolha outro cliente.</p><a class="btn" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></section>';
+            return;
+        }
+        $activity = studio_customer_activity($studio, $customerId);
+        $leads = studio_list_leads($studio);
+        $artists = studio_list_artists($studio);
+
+        echo '<section class="lead-detail-head">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($customer['name'] ?: 'Cliente sem nome') . '</h2><p class="muted">' . h(($customer['phone'] ?: 'Sem telefone') . ' | ' . ($customer['instagram'] ?: 'sem Instagram')) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Voltar</a></div>';
+        echo '<p>' . h($customer['notes'] ?: 'Sem observacoes cadastradas.') . '</p>';
+        echo '<div class="mini-metrics"><span><strong>' . h((string)count($activity['leads'])) . '</strong><small>Leads</small></span><span><strong>' . h((string)count($activity['appointments'])) . '</strong><small>Agendamentos</small></span><span><strong>' . h((string)count($activity['conversations'])) . '</strong><small>Conversas</small></span></div>';
+        echo '</div>';
+
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_customer"><input type="hidden" name="id" value="' . h((string)$customerId) . '"><input type="hidden" name="return_to_detail" value="1">';
+        echo '<h2>Editar ficha</h2>';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" required value="' . h($customer['name'] ?? '') . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($customer['phone'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($customer['email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($customer['instagram'] ?? '') . '"></div></div>';
+        echo '<div class="field"><label>Observacoes</label><textarea name="notes">' . h($customer['notes'] ?? '') . '</textarea></div>';
+        echo '<button class="btn" type="submit">Salvar ficha</button>';
+        echo '</form></section>';
+
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><h2>Leads deste cliente</h2>';
+        render_leads_table($activity['leads']);
+        echo '</div>';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)$customerId) . '"><input type="hidden" name="return_to_customer" value="' . h((string)$customerId) . '">';
+        echo '<h2>Novo agendamento</h2>';
+        echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
+        render_lead_options($leads);
+        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
+        render_artist_options($artists);
+        echo '</select></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></div><div class="field"><label>Valor</label><input name="value"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
+        echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento..."></textarea></div>';
+        echo '<button class="btn" type="submit">Agendar cliente</button>';
+        echo '</form></section>';
+
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><h2>Conversas WhatsApp</h2>';
+        render_lead_conversations($activity['conversations']);
+        echo '</div><div class="panel"><h2>Agendamentos</h2>';
+        render_appointments_table($activity['appointments']);
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_leads') {
     $studio = require_studio();
     render_studio_shell('Leads', 'Funil comercial visual, prioridades e oportunidades do estudio.', 'leads', function () use ($studio) {
@@ -437,9 +542,26 @@ if ($page === 'studio_leads') {
         }
         $customers = studio_list_customers($studio);
         $stages = studio_list_pipeline_stages($studio);
-        $leads = studio_list_leads($studio);
-        $board = studio_pipeline_board($studio);
+        $filters = [
+            'q' => (string)($_GET['q'] ?? ''),
+            'status' => (string)($_GET['status'] ?? ''),
+            'source' => (string)($_GET['source'] ?? ''),
+            'min_score' => (int)($_GET['min_score'] ?? 0),
+        ];
+        $leads = studio_list_leads($studio, $filters);
+        $board = studio_pipeline_board($studio, $filters);
         echo '<section class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Funil visual</h2><p class="muted">Acompanhe as oportunidades por etapa e mova o lead conforme a conversa evolui.</p></div><span class="badge">' . h((string)count($leads)) . ' leads</span></div>';
+        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_leads">';
+        echo '<input name="q" placeholder="Buscar nome, telefone, interesse..." value="' . h($filters['q']) . '">';
+        echo '<select name="status"><option value="">Todos os status</option>';
+        render_options(lead_status_options(), $filters['status']);
+        echo '</select>';
+        echo '<input name="source" placeholder="Origem" value="' . h($filters['source']) . '">';
+        echo '<select name="min_score"><option value="0">Qualquer nota</option>';
+        foreach ([5, 7, 9] as $score) {
+            echo '<option value="' . h((string)$score) . '" ' . ((int)$filters['min_score'] === $score ? 'selected' : '') . '>Nota ' . h((string)$score) . '+</option>';
+        }
+        echo '</select><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Limpar</a></form>';
         render_pipeline_board($board, $stages);
         echo '</section>';
 
@@ -490,6 +612,7 @@ if ($page === 'studio_lead') {
         }
         $customers = studio_list_customers($studio);
         $stages = studio_list_pipeline_stages($studio);
+        $artists = studio_list_artists($studio);
         $activity = studio_lead_activity($studio, $leadId);
 
         echo '<section class="lead-detail-head">';
@@ -531,6 +654,23 @@ if ($page === 'studio_lead') {
         echo '<button class="btn" type="submit">Salvar alteracoes</button>';
         echo '</form>';
 
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
+        echo '<h2>Agendar este lead</h2>';
+        echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($lead['interest'] ?: 'Atendimento') . '"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
+        render_artist_options($artists);
+        echo '</select></div><div class="field"><label>Status</label><select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="value" value="' . h((string)($lead['estimated_value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
+        echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes combinados com o cliente...">' . h($lead['interest'] ?? '') . '</textarea></div>';
+        echo '<button class="btn" type="submit">Criar agendamento</button>';
+        echo '</form></section>';
+
+        echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><h2>Historico rapido</h2>';
         echo '<h3>Conversas WhatsApp</h3>';
         render_lead_conversations($activity['conversations']);
@@ -633,7 +773,13 @@ if ($page === 'studio_whatsapp') {
         $sessionKey = studio_session_key($studio);
         $serviceStatus = studio_whatsapp_service_status($studio);
         $summary = studio_whatsapp_summary($studio);
-        $conversations = studio_list_whatsapp_conversations($studio);
+        $filters = [
+            'q' => (string)($_GET['q'] ?? ''),
+            'mode' => (string)($_GET['mode'] ?? ''),
+            'needs_human' => !empty($_GET['needs_human']),
+            'min_score' => (int)($_GET['min_score'] ?? 0),
+        ];
+        $conversations = studio_list_whatsapp_conversations($studio, $filters);
         echo '<section class="grid cols-3">';
         echo '<div class="panel"><p class="metric">' . h($summary['total']) . '</p><p class="muted">Conversas</p></div>';
         echo '<div class="panel"><p class="metric">' . h($summary['bot']) . '</p><p class="muted">Em modo IA</p></div>';
@@ -693,6 +839,18 @@ if ($page === 'studio_whatsapp') {
         echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
         echo '</div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_whatsapp">';
+        echo '<input name="q" placeholder="Buscar contato, telefone ou mensagem..." value="' . h($filters['q']) . '">';
+        echo '<select name="mode"><option value="">Todos os modos</option>';
+        render_options(['human' => 'Humano', 'bot' => 'IA'], $filters['mode']);
+        echo '</select>';
+        echo '<select name="min_score"><option value="0">Qualquer nota</option>';
+        foreach ([5, 7, 9] as $score) {
+            echo '<option value="' . h((string)$score) . '" ' . ((int)$filters['min_score'] === $score ? 'selected' : '') . '>Nota ' . h((string)$score) . '+</option>';
+        }
+        echo '</select>';
+        echo '<label class="checkline compact"><input type="checkbox" name="needs_human" value="1" ' . ($filters['needs_human'] ? 'checked' : '') . '> Quer humano</label>';
+        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Limpar</a></form>';
         render_whatsapp_table($conversations);
         echo '</section>';
     }, $flash);
@@ -715,33 +873,81 @@ if ($page === 'studio_whatsapp_conversation') {
         }
         $messages = studio_whatsapp_messages($studio, $conversationId);
         $displayName = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'));
+        $customers = studio_list_customers($studio);
+        $leads = studio_list_leads($studio);
+        $artists = studio_list_artists($studio);
+        $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
 
         echo '<section class="conversation-layout">';
         echo '<div class="panel conversation-main">';
-        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div>';
+        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
+        echo '<div class="mini-metrics conversation-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span></div>';
         render_chat_messages($messages);
+        if ($quickReplies) {
+            echo '<details class="suggestion-group"><summary>Respostas rapidas</summary><div class="quick-reply-list">';
+            foreach (array_slice($quickReplies, 0, 12) as $reply) {
+                echo '<button class="btn tiny secondary quick-reply-copy" type="button" data-reply="' . h($reply['body']) . '">' . h($reply['title']) . '</button>';
+            }
+            echo '</div></details>';
+        }
         echo '<form class="form send-box" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
-        echo '<div class="field"><label>Responder</label><textarea name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
+        echo '<div class="field"><label>Responder</label><textarea id="reply-message" name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
         echo '<button class="btn" type="submit">Enviar mensagem</button>';
         echo '</form></div>';
 
         echo '<aside class="panel conversation-side">';
-        echo '<h2>Controle da conversa</h2>';
+        echo '<h2>Cadastro e lead</h2>';
         echo '<form class="form" method="post">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="update_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
-        echo '<div class="field"><label>Modo de atendimento</label><select name="attendance_mode">';
-        render_options(['human' => 'Humano', 'bot' => 'IA'], (string)$conversation['attendance_mode']);
+        echo '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($displayName) . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($conversation['phone']) . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($conversation['customer_email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($conversation['customer_instagram'] ?? '') . '"></div></div>';
+        echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Criar/sem cliente</option>';
+        render_customer_options($customers, (int)($conversation['customer_id'] ?? 0));
         echo '</select></div>';
-        echo '<div class="field"><label>Nota do lead</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></div>';
+        echo '<div class="field"><label>Lead vinculado</label><select name="lead_id"><option value="">Criar/sem lead</option>';
+        render_lead_options($leads, (int)($conversation['lead_id'] ?? 0));
+        echo '</select></div>';
+        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h($conversation['lead_interest'] ?: $conversation['last_message_preview'] ?: '') . '"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Status</label><select name="status">';
+        render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
+        echo '</select></div><div class="field"><label>Etapa</label><select name="pipeline_stage">';
+        foreach (studio_list_pipeline_stages($studio) as $stage) {
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+        }
+        echo '</select></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($conversation['lead_estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="WhatsApp"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Modo de atendimento</label><select name="attendance_mode">';
+        render_options(['human' => 'Humano', 'bot' => 'IA'], (string)$conversation['attendance_mode']);
+        echo '</select></div><div class="field"><label>Nota do lead</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></div></div>';
         echo '<div class="field"><label>Status da analise</label><input name="ai_last_status" value="' . h($conversation['ai_last_status'] ?? '') . '" placeholder="ex: precisa retorno"></div>';
+        echo '<div class="field"><label>Observacoes do cliente</label><textarea name="notes">' . h($conversation['customer_notes'] ?? '') . '</textarea></div>';
         echo '<label class="checkline"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label>';
-        echo '<button class="btn" type="submit">Salvar controle</button>';
+        echo '<label class="checkline"><input type="checkbox" name="create_customer" value="1" ' . (empty($conversation['customer_id']) ? 'checked' : '') . '> Criar/atualizar ficha de cliente</label>';
+        echo '<label class="checkline"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label>';
+        echo '<button class="btn" type="submit">Salvar cadastro</button>';
+        echo '</form>';
+
+        echo '<form class="form action-card" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
+        echo '<h3>Criar agendamento</h3>';
+        echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
+        render_artist_options($artists);
+        echo '</select></div><div class="field"><label>Status</label><select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="value" value="' . h((string)($conversation['lead_estimated_value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
+        echo '<div class="field"><label>Descricao</label><textarea name="description">' . h($conversation['last_message_preview'] ?? '') . '</textarea></div>';
+        echo '<button class="btn secondary" type="submit">Criar horario</button>';
         echo '</form>';
 
         echo '<div class="info-list">';
+        echo '<p><strong>Cliente:</strong> ' . ($conversation['customer_id'] ? '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '">' . h($conversation['customer_name'] ?: 'Abrir cliente') . '</a>' : '<span class="muted">sem cliente vinculado</span>') . '</p>';
         echo '<p><strong>Lead:</strong> ' . ($conversation['lead_id'] ? '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">' . h($conversation['lead_name'] ?: 'Abrir lead') . '</a>' : '<span class="muted">sem lead vinculado</span>') . '</p>';
         echo '<p><strong>Interesse:</strong> ' . h($conversation['lead_interest'] ?: '-') . '</p>';
         echo '<p><strong>Funil:</strong> ' . h(($conversation['lead_status'] ?: '-') . ' / ' . ($conversation['lead_pipeline_stage'] ?: '-')) . '</p>';
@@ -1386,7 +1592,7 @@ function render_customers_table(array $customers): void
     echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th></tr></thead><tbody>';
     foreach ($customers as $customer) {
         echo '<tr>';
-        echo '<td><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
+        echo '<td><a href="' . h(app_url('studio_customer', ['id' => (int)$customer['id']])) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
         echo '</tr>';
@@ -1578,7 +1784,7 @@ function render_whatsapp_table(array $conversations): void
         echo '<p class="muted">Nenhuma conversa importada ainda. Inicie a sessao do WhatsApp e envie uma mensagem para este numero aparecer aqui.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Lead</th><th>Ultima mensagem</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Lead</th><th>Ultima mensagem</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($conversations as $conversation) {
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
@@ -1587,6 +1793,11 @@ function render_whatsapp_table(array $conversations): void
         echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span><br>' . ($needsHuman ? '<span class="badge warn">quer humano</span>' : '<span class="muted">sem alerta</span>') . '</td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
         echo '<td>' . h($conversation['last_message_preview'] ?: '-') . '<br><span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens - ' . ($conversation['message_last_at'] ?: '-')) . '</span></td>';
+        echo '<td><div class="actions"><a class="btn tiny" href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '">Abrir</a>';
+        if (!empty($conversation['lead_id'])) {
+            echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">Lead</a>';
+        }
+        echo '</div></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';

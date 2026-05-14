@@ -263,6 +263,8 @@ function import_wa_is_noise_line(string $line): bool
         'mostrar detalhes',
         'mensagem de saudacao automatica',
         'nao foi possivel carregar a mensagem',
+        'voce recebeu uma mensagem no seu celular',
+        'nao e compativel com sua versao do whatsapp web',
         'use seu celular para acessa-la',
         'clique para atualizar',
         'criptografia de ponta a ponta',

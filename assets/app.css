@@ -217,6 +217,14 @@ textarea {
     display: inline-flex;
 }
 
+.filter-bar {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.4fr) minmax(150px, .7fr) minmax(130px, .6fr) auto auto;
+    gap: 10px;
+    align-items: center;
+    margin: 14px 0;
+}
+
 .checkline {
     display: flex;
     align-items: center;
@@ -226,6 +234,11 @@ textarea {
     border-radius: 6px;
     background: #fff;
     color: var(--text);
+}
+
+.checkline.compact {
+    padding: 9px 10px;
+    white-space: nowrap;
 }
 
 .checkline input {
@@ -548,11 +561,21 @@ textarea {
     font-size: 18px;
 }
 
+.score-pill.small {
+    min-width: 62px;
+    height: 38px;
+    font-size: 14px;
+}
+
 .mini-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
     margin-top: 12px;
+}
+
+.conversation-metrics {
+    margin-bottom: 12px;
 }
 
 .mini-metrics span,
@@ -624,6 +647,19 @@ textarea {
     margin-top: 14px;
 }
 
+.action-card {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+.quick-reply-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
 @media (max-width: 900px) {
     .shell {
         grid-template-columns: 1fr;
@@ -635,6 +671,7 @@ textarea {
 
     .grid.cols-3,
     .grid.cols-2,
+    .filter-bar,
     .module-list,
     .lead-detail-head,
     .conversation-layout,
