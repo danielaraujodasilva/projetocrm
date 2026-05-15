@@ -465,7 +465,15 @@ function studio_reset_whatsapp_session_locally(array $studio): array
         return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso limpar arquivos de sessao remotos.'];
     }
 
+    if (!studio_shell_exec_available()) {
+        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para limpar a sessao WhatsApp.'];
+    }
+
     $servicePath = APP_BASE_PATH . '/services/whatsapp';
+    if (!is_dir($servicePath) || !is_file($servicePath . '/package.json')) {
+        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
+    }
+
     $sessionsRoot = $servicePath . '/sessions';
     if (!is_dir($sessionsRoot)) {
         mkdir($sessionsRoot, 0775, true);
@@ -473,16 +481,32 @@ function studio_reset_whatsapp_session_locally(array $studio): array
 
     $sessionKey = studio_whatsapp_safe_session_key(studio_session_key($studio));
     $sessionPath = $sessionsRoot . '/' . $sessionKey;
+    $port = preg_replace('/\D+/', '', (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010)) ?: '3010';
+    $logDir = APP_BASE_PATH . '/storage/logs';
+    if (!is_dir($logDir)) {
+        mkdir($logDir, 0775, true);
+    }
+    $logFile = $logDir . '/whatsapp_service.log';
+    $needsInstall = !is_dir($servicePath . '/node_modules');
 
-    studio_whatsapp_stop_local_service($studio);
-    $deleted = studio_delete_directory($sessionPath, $sessionsRoot);
-    $start = studio_whatsapp_start_local_service($studio);
+    if (PHP_OS_FAMILY === 'Windows') {
+        $launcher = studio_write_windows_whatsapp_reset_launcher($servicePath, $sessionPath, $logFile, $port, $needsInstall);
+        shell_exec('start "" ' . studio_windows_cmd_arg($launcher) . ' 2>&1');
+    } else {
+        $install = $needsInstall ? 'npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1 && ' : '';
+        $command = '(lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill; rm -rf ' . escapeshellarg($sessionPath)
+            . '; cd ' . escapeshellarg($servicePath) . ' && ' . $install
+            . ' WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' nohup npm start >> ' . escapeshellarg($logFile) . ' 2>&1 &) 2>&1';
+        shell_exec($command);
+    }
 
     return [
-        'ok' => $deleted,
-        'error' => $deleted ? '' : 'Nao consegui apagar a pasta local da sessao WhatsApp.',
+        'ok' => true,
+        'pending' => true,
+        'message' => 'Limpeza da sessao WhatsApp disparada em background.',
         'deleted_path' => $sessionPath,
-        'restart' => $start,
+        'log_file' => $logFile,
     ];
 }
 
@@ -508,6 +532,28 @@ function studio_write_windows_whatsapp_launcher(string $servicePath, string $log
     $launcher = $servicePath . '/whatsapp_service_start.cmd';
     $lines = [
         '@echo off',
+        'cd /d "' . str_replace('"', '', $servicePath) . '"',
+        'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
+    ];
+
+    if ($install) {
+        $lines[] = 'npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    }
+
+    $lines[] = 'npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
+
+    return $launcher;
+}
+
+function studio_write_windows_whatsapp_reset_launcher(string $servicePath, string $sessionPath, string $logFile, string $port, bool $install): string
+{
+    $launcher = $servicePath . '/whatsapp_service_reset.cmd';
+    $lines = [
+        '@echo off',
+        'echo [%date% %time%] Reset WhatsApp session started >> "' . str_replace('"', '', $logFile) . '"',
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids = @(Get-NetTCPConnection -LocalPort ' . preg_replace('/\D+/', '', $port) . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output \"Stopped PID $pid\" }" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
+        'rmdir /S /Q "' . str_replace('"', '', $sessionPath) . '" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
         'cd /d "' . str_replace('"', '', $servicePath) . '"',
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
     ];
@@ -602,24 +648,7 @@ function studio_disconnect_whatsapp_session(array $studio): array
 
 function studio_reset_whatsapp_session(array $studio): array
 {
-    $sessionKey = studio_session_key($studio);
-    $payload = [
-        'studioId' => (int)$studio['id'],
-        'studioSlug' => (string)$studio['slug'],
-        'studioName' => (string)$studio['name'],
-        'webhookUrl' => studio_whatsapp_webhook_url(),
-        'webhookToken' => studio_whatsapp_webhook_token($studio),
-    ];
-
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/reset', $payload, 12);
-    if (empty($result['ok'])) {
-        $localReset = studio_reset_whatsapp_session_locally($studio);
-        if (!empty($localReset['ok'])) {
-            $result = ['ok' => true, 'status' => 'disconnected', 'local_reset' => $localReset];
-        } else {
-            $result['local_reset'] = $localReset;
-        }
-    }
+    $result = studio_reset_whatsapp_session_locally($studio);
 
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
     studio_event((int)$studio['id'], 'whatsapp_session_reset', 'Sessao WhatsApp limpa para gerar novo QR Code.');
