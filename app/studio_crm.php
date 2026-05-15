@@ -560,17 +560,17 @@ function studio_windows_cmd_arg(string $value): string
 function studio_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
 {
     $launcher = $servicePath . '/whatsapp_service_start.cmd';
+    $log = str_replace('"', '', $logFile);
     $lines = [
         '@echo off',
         'cd /d "' . str_replace('"', '', $servicePath) . '"',
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
+        'echo. >> "' . $log . '"',
+        'echo [%date% %time%] Starting WhatsApp service launcher >> "' . $log . '"',
     ];
 
-    if ($install) {
-        $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-    }
-
-    $lines[] = 'call npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    $lines[] = 'call npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
+    $lines[] = 'call npm.cmd start >> "' . $log . '" 2>&1';
     if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
         throw new RuntimeException('Nao consegui gravar o iniciador do servico WhatsApp.');
     }
@@ -623,13 +623,21 @@ function studio_write_windows_whatsapp_action_launcher(
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
     ];
 
-    if ($action === 'start') {
-        $lines[] = 'if not exist node_modules call npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
+    if (in_array($action, ['start', 'restart', 'pairing_code'], true)) {
+        $lines[] = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids = @(Get-NetTCPConnection -LocalPort ' . preg_replace('/\D+/', '', $port) . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output \"Stopped PID $procId\" }" >> "' . $log . '" 2>&1';
+        $lines[] = 'call npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
         $lines[] = 'start "" /B cmd /C call npm.cmd start ^>^> "' . $log . '" 2^>^&1';
-        $lines[] = 'timeout /T 5 /NOBREAK > nul';
-        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/start' -ContentType 'application/json' -Body '" . $payloadJson . "' -TimeoutSec 20 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
+        $lines[] = 'timeout /T 8 /NOBREAK > nul';
+    }
+
+    if ($action === 'start') {
+        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/start' -ContentType 'application/json' -Body '" . $payloadJson . "' -TimeoutSec 25 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
+    } elseif ($action === 'pairing_code') {
+        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/pairing-code' -ContentType 'application/json' -Body '" . $payloadJson . "' -TimeoutSec 25 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
     } elseif ($action === 'disconnect') {
         $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/logout' -ContentType 'application/json' -Body '{}' -TimeoutSec 8 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
+    } elseif ($action === 'restart') {
+        $lines[] = 'echo [%date% %time%] Restart requested; service start command dispatched. >> "' . $log . '"';
     }
 
     if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
@@ -651,9 +659,7 @@ function studio_write_windows_whatsapp_reset_launcher(string $servicePath, strin
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
     ];
 
-    if ($install) {
-        $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-    }
+    $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
 
     $lines[] = 'start "" /B cmd /C call npm.cmd start ^>^> "' . str_replace('"', '', $logFile) . '" 2^>^&1';
     if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
@@ -693,9 +699,9 @@ function studio_whatsapp_background_context(array $studio): array
     ];
 }
 
-function studio_queue_whatsapp_action(array $studio, string $action): array
+function studio_queue_whatsapp_action(array $studio, string $action, ?array $payload = null): array
 {
-    if (!in_array($action, ['start', 'disconnect', 'reset'], true)) {
+    if (!in_array($action, ['start', 'disconnect', 'reset', 'restart', 'pairing_code'], true)) {
         return ['ok' => false, 'error' => 'Acao WhatsApp invalida.'];
     }
 
@@ -718,7 +724,7 @@ function studio_queue_whatsapp_action(array $studio, string $action): array
         if ($action === 'reset') {
             $launcher = studio_write_windows_whatsapp_reset_launcher($ctx['servicePath'], $ctx['sessionPath'], $ctx['logFile'], $ctx['port'], $ctx['needsInstall']);
         } else {
-            $launcher = studio_write_windows_whatsapp_action_launcher($ctx['servicePath'], $ctx['logFile'], $ctx['port'], $action, $ctx['sessionKey'], $ctx['payload']);
+            $launcher = studio_write_windows_whatsapp_action_launcher($ctx['servicePath'], $ctx['logFile'], $ctx['port'], $action, $ctx['sessionKey'], $payload ?? $ctx['payload']);
         }
 
         studio_run_windows_launcher($launcher);
@@ -823,32 +829,14 @@ function studio_restart_whatsapp_service(array $studio): array
 {
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM forced WhatsApp service restart requested.');
-    studio_whatsapp_stop_local_service($studio);
-    usleep(1200000);
-    $launch = studio_launch_whatsapp_service($studio, $ctx);
-    if (empty($launch['ok'])) {
-        return $launch;
-    }
-
-    $health = studio_wait_whatsapp_health($studio, 15);
-    if (!studio_whatsapp_health_is_current($health)) {
-        return [
-            'ok' => false,
-            'error' => 'Reiniciei o servico, mas ele nao respondeu na versao esperada.',
-            'current_version' => (string)($health['version'] ?? 'sem-versao'),
-            'expected_version' => studio_expected_whatsapp_service_version(),
-            'health_error' => (string)($health['error'] ?? ''),
-            'log_tail' => studio_whatsapp_service_log_tail(2500),
-        ];
-    }
-
-    return ['ok' => true, 'health' => $health, 'message' => 'Servico WhatsApp reiniciado.'];
+    $result = studio_queue_whatsapp_action($studio, 'restart');
+    return $result + ['message' => 'Reinicio do servico WhatsApp disparado em background.'];
 }
 
-function studio_whatsapp_service_status(array $studio): array
+function studio_whatsapp_service_status(array $studio, int $timeout = 2): array
 {
     $sessionKey = studio_session_key($studio);
-    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], 2);
+    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], $timeout);
     $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
     $status['service_health'] = $health;
     $status['service_version'] = (string)($health['version'] ?? '');
@@ -882,20 +870,7 @@ function studio_start_whatsapp_session(array $studio): array
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM start requested for session ' . $ctx['sessionKey']);
 
-    $ready = studio_ensure_whatsapp_service($studio, $ctx);
-    if (empty($ready['ok'])) {
-        studio_update_whatsapp_platform_status($studio, 'error');
-        return $ready;
-    }
-
-    $result = studio_whatsapp_request(
-        $studio,
-        'POST',
-        '/studios/' . rawurlencode($ctx['sessionKey']) . '/start',
-        $ctx['payload'],
-        25
-    );
-
+    $result = studio_queue_whatsapp_action($studio, 'start');
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
     studio_event((int)$studio['id'], 'whatsapp_session_started', 'Sessao WhatsApp solicitada no servico multi-estudio.');
     return $result;
@@ -911,21 +886,10 @@ function studio_request_whatsapp_pairing_code(array $studio, string $phone): arr
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM pairing code requested for session ' . $ctx['sessionKey'] . ' phone ' . $phone);
 
-    $ready = studio_ensure_whatsapp_service($studio, $ctx);
-    if (empty($ready['ok'])) {
-        studio_update_whatsapp_platform_status($studio, 'error');
-        return $ready;
-    }
-
     $payload = $ctx['payload'];
     $payload['numero'] = $phone;
-    $result = studio_whatsapp_request(
-        $studio,
-        'POST',
-        '/studios/' . rawurlencode($ctx['sessionKey']) . '/pairing-code',
-        $payload,
-        25
-    );
+
+    $result = studio_queue_whatsapp_action($studio, 'pairing_code', $payload);
 
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
     studio_event((int)$studio['id'], 'whatsapp_pairing_code_requested', 'Codigo de pareamento WhatsApp solicitado pelo painel.');
@@ -937,10 +901,7 @@ function studio_disconnect_whatsapp_session(array $studio): array
 {
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM disconnect requested for session ' . $ctx['sessionKey']);
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/logout', [], 8);
-    if (empty($result['ok']) && str_contains((string)($result['error'] ?? ''), 'Servico WhatsApp indisponivel')) {
-        $result = ['ok' => true, 'message' => 'Servico ja estava indisponivel; sessao marcada como desconectada.'];
-    }
+    $result = studio_queue_whatsapp_action($studio, 'disconnect');
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
     studio_event((int)$studio['id'], 'whatsapp_session_disconnected', 'Sessao WhatsApp desconectada pelo painel.');
 
@@ -952,17 +913,7 @@ function studio_reset_whatsapp_session(array $studio): array
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM reset requested for session ' . $ctx['sessionKey']);
 
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/reset', $ctx['payload'], 8);
-    if (empty($result['ok'])) {
-        $deleted = studio_delete_directory($ctx['sessionPath'], $ctx['servicePath'] . '/sessions');
-        $result = [
-            'ok' => $deleted,
-            'message' => $deleted ? 'Sessao local removida.' : '',
-            'error' => $deleted ? '' : 'Nao consegui remover a pasta local da sessao WhatsApp.',
-            'service_error' => (string)($result['error'] ?? ''),
-        ];
-    }
-
+    $result = studio_queue_whatsapp_action($studio, 'reset');
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
     studio_event((int)$studio['id'], 'whatsapp_session_reset', 'Sessao WhatsApp limpa para gerar novo QR Code.');
 

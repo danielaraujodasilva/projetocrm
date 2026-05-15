@@ -193,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', !empty($result['qrImage']) ? 'QR Code gerado. Escaneie pelo celular.' : 'Sessao WhatsApp solicitada. A tela vai atualizar ate o QR aparecer.');
+            flash_set('success', 'Sessao WhatsApp solicitada. O painel vai atualizar o QR e o log ao vivo.');
             redirect_to('studio_whatsapp');
         }
 
@@ -203,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($result['ok'])) {
                 throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel desconectar o WhatsApp.'));
             }
-            flash_set('success', 'WhatsApp desconectado para este estudio.');
+            flash_set('success', 'Desconexao do WhatsApp solicitada.');
             redirect_to('studio_whatsapp');
         }
 
@@ -223,7 +223,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', 'Servico WhatsApp reiniciado.');
+            flash_set('success', 'Reinicio do servico WhatsApp solicitado.');
             redirect_to('studio_whatsapp');
         }
 
@@ -243,7 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', !empty($result['pairingCode']) ? 'Codigo de pareamento gerado.' : 'WhatsApp ja esta conectado ou a sessao esta ativa.');
+            flash_set('success', 'Codigo de pareamento solicitado. O painel vai atualizar o resultado ao vivo.');
             redirect_to('studio_whatsapp');
         }
 
@@ -260,7 +260,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', 'Sessao WhatsApp limpa. Clique em iniciar para gerar um QR Code novo.');
+            flash_set('success', 'Limpeza da sessao WhatsApp solicitada. Acompanhe pelo log ao vivo.');
             redirect_to('studio_whatsapp');
         }
 
@@ -316,6 +316,27 @@ if ($page === 'studio_logout') {
     logout_studio_user();
     flash_set('success', 'Voce saiu do CRM do estudio.');
     redirect_to('studio_login');
+}
+
+if ($page === 'studio_whatsapp_live') {
+    $studio = require_studio();
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        echo json_encode([
+            'ok' => true,
+            'status' => studio_whatsapp_service_status($studio, 1),
+            'log' => studio_whatsapp_service_log_tail(24000),
+            'expectedVersion' => studio_expected_whatsapp_service_version(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    } catch (Throwable $e) {
+        echo json_encode([
+            'ok' => false,
+            'error' => $e->getMessage(),
+            'log' => studio_whatsapp_service_log_tail(24000),
+            'expectedVersion' => studio_expected_whatsapp_service_version(),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+    exit;
 }
 
 $flash = flash_get();
@@ -869,35 +890,33 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
         $status = (string)($serviceStatus['status'] ?? 'offline');
         $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
-        echo '<span class="badge ' . h($badgeClass) . '">' . h($status) . '</span></div>';
+        echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($status) . '</span></div>';
         echo '<p class="muted">Chave isolada: <strong>' . h($sessionKey) . '</strong></p>';
         echo '<p class="muted">Servico: <strong>' . h(studio_whatsapp_service_url($studio)) . '</strong></p>';
-        echo '<p class="muted">Versao do servico: <strong>' . h((string)($serviceStatus['service_version'] ?: 'sem resposta')) . '</strong> / esperada <strong>' . h((string)($serviceStatus['expected_service_version'] ?? '')) . '</strong></p>';
+        echo '<p class="muted">Versao do servico: <strong id="waServiceVersion">' . h((string)($serviceStatus['service_version'] ?: 'sem resposta')) . '</strong> / esperada <strong id="waExpectedVersion">' . h((string)($serviceStatus['expected_service_version'] ?? '')) . '</strong></p>';
         if (!empty($serviceStatus['service_stale'])) {
-            echo '<p class="muted">O servico WhatsApp parece estar antigo ou travado. Clique em reiniciar servico.</p>';
+            echo '<p id="waServiceWarning" class="muted">O servico WhatsApp parece estar antigo ou travado. Clique em reiniciar servico.</p>';
         }
+        echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
             echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
         } elseif (!empty($serviceStatus['qrImage'])) {
             echo '<div class="qr-box"><img src="' . h((string)$serviceStatus['qrImage']) . '" alt="QR Code WhatsApp"></div>';
             echo '<p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>';
-            echo '<script>setTimeout(function(){ window.location.reload(); }, 15000);</script>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
             echo '<p class="metric">' . h((string)$serviceStatus['pairingCode']) . '</p>';
             echo '<p class="muted">Codigo para parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . '.</p>';
-            echo '<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>';
         } elseif (!empty($serviceStatus['phone'])) {
             echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
         } elseif ($status === 'starting') {
-            echo '<p class="muted">Gerando QR Code. Esta tela atualiza automaticamente em alguns segundos.</p>';
-            echo '<script>setTimeout(function(){ window.location.reload(); }, 3000);</script>';
+            echo '<p class="muted">Gerando QR Code.</p>';
         } elseif ($status === 'waiting_qr') {
-            echo '<p class="muted">QR Code solicitado, aguardando imagem do servico. Esta tela atualiza automaticamente.</p>';
-            echo '<script>setTimeout(function(){ window.location.reload(); }, 3000);</script>';
+            echo '<p class="muted">QR Code solicitado, aguardando imagem do servico.</p>';
         } elseif (!empty($serviceStatus['lastError'])) {
             echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
         }
+        echo '</div>';
         echo '<div class="actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
@@ -912,7 +931,7 @@ if ($page === 'studio_whatsapp') {
         if (!empty($serviceStatus['lastEvents']) && is_array($serviceStatus['lastEvents'])) {
             $events = array_slice($serviceStatus['lastEvents'], -6);
             echo '<div style="margin-top:12px"><p class="muted"><strong>Ultimos eventos:</strong></p>';
-            echo '<pre style="white-space:pre-wrap;max-height:150px;overflow:auto;background:#111827;color:#e5e7eb;padding:10px;border-radius:8px;font-size:12px">';
+            echo '<pre id="waEventsLog" style="white-space:pre-wrap;max-height:150px;overflow:auto;background:#111827;color:#e5e7eb;padding:10px;border-radius:8px;font-size:12px">';
             foreach ($events as $event) {
                 if (!is_array($event)) {
                     continue;
@@ -927,6 +946,8 @@ if ($page === 'studio_whatsapp') {
                 echo h($line . ($parts ? ' | ' . implode(' ', $parts) : '')) . "\n";
             }
             echo '</pre></div>';
+        } else {
+            echo '<div style="margin-top:12px"><p class="muted"><strong>Ultimos eventos:</strong></p><pre id="waEventsLog" style="white-space:pre-wrap;max-height:150px;overflow:auto;background:#111827;color:#e5e7eb;padding:10px;border-radius:8px;font-size:12px">Sem eventos ainda.</pre></div>';
         }
         echo '</div>';
         echo '<form class="form panel" method="post">';
@@ -949,7 +970,81 @@ if ($page === 'studio_whatsapp') {
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><h2>Log do servico WhatsApp</h2>';
         echo '<pre id="whatsappServiceLog" style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog !== '' ? $serviceLog : 'Sem entradas de log ainda.') . '</pre>';
-        echo '<script>const waLog=document.getElementById("whatsappServiceLog"); if(waLog){ waLog.scrollTop=waLog.scrollHeight; }</script>';
+        echo '<script>
+(function(){
+  const logBox = document.getElementById("whatsappServiceLog");
+  const stateBox = document.getElementById("waSessionState");
+  const eventsBox = document.getElementById("waEventsLog");
+  const statusBadge = document.getElementById("waStatusBadge");
+  const versionBox = document.getElementById("waServiceVersion");
+  const expectedBox = document.getElementById("waExpectedVersion");
+  const liveUrl = "index.php?page=studio_whatsapp_live";
+  const esc = (value) => String(value ?? "").replace(/[&<>"\']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\'":"&#039;"}[char]));
+  function renderState(status) {
+    if (!stateBox) return;
+    if (!status || !status.ok) {
+      stateBox.innerHTML = `<p class="muted">Servico Node sem resposta.</p><p class="muted">${esc(status?.error || "")}</p>`;
+      return;
+    }
+    if (status.qrImage) {
+      stateBox.innerHTML = `<div class="qr-box"><img src="${esc(status.qrImage)}" alt="QR Code WhatsApp"></div><p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>`;
+      return;
+    }
+    if (status.pairingCode) {
+      stateBox.innerHTML = `<p class="metric">${esc(status.pairingCode)}</p><p class="muted">Codigo para parear o numero ${esc(status.pairingPhone || "")}.</p>`;
+      return;
+    }
+    if (status.phone) {
+      stateBox.innerHTML = `<p>Numero conectado: <strong>${esc(status.phone)}</strong></p>`;
+      return;
+    }
+    if (status.lastError) {
+      stateBox.innerHTML = `<p class="muted">Ultimo erro do servico: ${esc(status.lastError)}</p>`;
+      return;
+    }
+    stateBox.innerHTML = `<p class="muted">${esc(status.status || "Aguardando acao do servico.")}</p>`;
+  }
+  function renderEvents(events) {
+    if (!eventsBox) return;
+    if (!Array.isArray(events) || events.length === 0) {
+      eventsBox.textContent = "Sem eventos ainda.";
+      return;
+    }
+    eventsBox.textContent = events.slice(-8).map((event) => {
+      const parts = ["connection","hasQr","code","reason","detail","error","phone"].filter((key) => event[key] !== undefined && event[key] !== "").map((key) => `${key}=${event[key]}`);
+      return `${event.at || ""} ${event.event || event.message || ""}${parts.length ? " | " + parts.join(" ") : ""}`;
+    }).join("\\n");
+    eventsBox.scrollTop = eventsBox.scrollHeight;
+  }
+  function updateBadge(status) {
+    if (!statusBadge) return;
+    const value = status?.status || (status?.ok ? "online" : "offline");
+    statusBadge.textContent = value;
+    statusBadge.classList.remove("ok", "warn", "danger");
+    statusBadge.classList.add(value === "connected" ? "ok" : (value === "waiting_qr" || value === "starting" ? "warn" : "danger"));
+  }
+  async function refreshLive() {
+    try {
+      const response = await fetch(`${liveUrl}&_=${Date.now()}`, { headers: { "Accept": "application/json" } });
+      const data = await response.json();
+      if (logBox) {
+        logBox.textContent = data.log || "Sem entradas de log ainda.";
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+      if (versionBox) versionBox.textContent = data.status?.service_version || "sem resposta";
+      if (expectedBox) expectedBox.textContent = data.status?.expected_service_version || data.expectedVersion || "";
+      updateBadge(data.status);
+      renderState(data.status);
+      renderEvents(data.status?.lastEvents || []);
+    } catch (error) {
+      if (logBox && !logBox.textContent.trim()) logBox.textContent = "Falha ao atualizar log ao vivo: " + error.message;
+    }
+  }
+  if (logBox) logBox.scrollTop = logBox.scrollHeight;
+  refreshLive();
+  setInterval(refreshLive, 2000);
+})();
+</script>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<form class="form panel" method="post">';

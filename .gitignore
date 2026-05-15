@@ -12,4 +12,6 @@
 /services/whatsapp/whatsapp_service_start.cmd
 /services/whatsapp/whatsapp_service_reset.cmd
 /services/whatsapp/whatsapp_service_disconnect.cmd
+/services/whatsapp/whatsapp_service_pairing_code.cmd
+/services/whatsapp/whatsapp_service_restart.cmd
 /tools/whatsapp_web_collector/node_modules/
