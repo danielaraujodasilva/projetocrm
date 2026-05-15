@@ -11,4 +11,5 @@
 /services/whatsapp/whatsapp_service.pid
 /services/whatsapp/whatsapp_service_start.cmd
 /services/whatsapp/whatsapp_service_reset.cmd
+/services/whatsapp/whatsapp_service_disconnect.cmd
 /tools/whatsapp_web_collector/node_modules/

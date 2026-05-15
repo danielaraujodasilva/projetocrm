@@ -862,7 +862,8 @@ if ($page === 'studio_whatsapp') {
         echo '</section>';
         if ($serviceLog !== '') {
             echo '<section class="panel" style="margin-top:16px"><h2>Log do servico WhatsApp</h2>';
-            echo '<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog) . '</pre>';
+            echo '<pre id="whatsappServiceLog" style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog) . '</pre>';
+            echo '<script>const waLog=document.getElementById("whatsappServiceLog"); if(waLog){ waLog.scrollTop=waLog.scrollHeight; }</script>';
             echo '</section>';
         }
         echo '<section class="grid cols-2" style="margin-top:16px">';
