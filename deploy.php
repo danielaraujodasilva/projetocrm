@@ -122,7 +122,7 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
 
     if (PHP_OS_FAMILY === 'Windows') {
         $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && set WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' && set "WHATSAPP_PORT=' . projetocrm_windows_env_value($port) . '"'
             . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
         $lines[] = '$ ' . $startCommand;
         $lines[] = trim((string)shell_exec($startCommand));
@@ -143,4 +143,9 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     }
 
     return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
+}
+
+function projetocrm_windows_env_value(string $value): string
+{
+    return str_replace(['"', "\r", "\n"], '', $value);
 }

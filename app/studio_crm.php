@@ -352,7 +352,7 @@ function studio_whatsapp_start_local_service(array $studio): array
 
     if (PHP_OS_FAMILY === 'Windows') {
         $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && set WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' && set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"'
             . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
         $startOutput = trim((string)shell_exec($startCommand));
     } else {
@@ -395,6 +395,11 @@ function studio_whatsapp_start_local_service(array $studio): array
         'log_tail' => $logTail,
         'log_file' => $logFile,
     ];
+}
+
+function studio_windows_env_value(string $value): string
+{
+    return str_replace(['"', "\r", "\n"], '', $value);
 }
 
 function studio_whatsapp_service_status(array $studio): array
