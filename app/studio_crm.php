@@ -303,6 +303,76 @@ function studio_whatsapp_request(array $studio, string $method, string $path, ar
     return $json;
 }
 
+function studio_whatsapp_service_is_local(array $studio): bool
+{
+    $host = strtolower((string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_HOST) ?: ''));
+    return in_array($host, ['localhost', '127.0.0.1', '::1'], true);
+}
+
+function studio_shell_exec_available(): bool
+{
+    if (!function_exists('shell_exec')) {
+        return false;
+    }
+
+    $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+    return !in_array('shell_exec', $disabled, true);
+}
+
+function studio_whatsapp_start_local_service(array $studio): array
+{
+    if (!studio_whatsapp_service_is_local($studio)) {
+        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; inicie o servico manualmente neste endereco.'];
+    }
+
+    if (!studio_shell_exec_available()) {
+        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para iniciar o servico WhatsApp.'];
+    }
+
+    $servicePath = APP_BASE_PATH . '/services/whatsapp';
+    if (!is_dir($servicePath) || !is_file($servicePath . '/package.json')) {
+        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
+    }
+
+    $port = (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010);
+    $logDir = APP_BASE_PATH . '/storage/logs';
+    if (!is_dir($logDir)) {
+        mkdir($logDir, 0775, true);
+    }
+
+    $logFile = $logDir . '/whatsapp_service.log';
+    $pidFile = $servicePath . '/whatsapp_service.pid';
+    $installOutput = '';
+
+    if (!is_dir($servicePath . '/node_modules')) {
+        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev 2>&1';
+        $installOutput = trim((string)shell_exec($installCommand));
+    }
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        $startCommand = 'cd ' . escapeshellarg($servicePath)
+            . ' && set WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
+        $startOutput = trim((string)shell_exec($startCommand));
+    } else {
+        $startCommand = 'cd ' . escapeshellarg($servicePath)
+            . ' && WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' nohup npm start > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
+        $startOutput = trim((string)shell_exec($startCommand));
+        if ($startOutput !== '') {
+            file_put_contents($pidFile, $startOutput);
+        }
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'Servico WhatsApp iniciado automaticamente.',
+        'install_output' => mb_substr($installOutput, 0, 1000),
+        'start_output' => mb_substr($startOutput ?? '', 0, 500),
+        'log_file' => $logFile,
+    ];
+}
+
 function studio_whatsapp_service_status(array $studio): array
 {
     $sessionKey = studio_session_key($studio);
@@ -341,6 +411,19 @@ function studio_start_whatsapp_session(array $studio): array
     ];
 
     $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/start', $payload, 15);
+    if (empty($result['ok'])) {
+        $autoStart = studio_whatsapp_start_local_service($studio);
+        if (!empty($autoStart['ok'])) {
+            usleep(1800000);
+            $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/start', $payload, 15);
+            if (empty($result['ok'])) {
+                $result['auto_start'] = $autoStart;
+            }
+        } else {
+            $result['auto_start'] = $autoStart;
+        }
+    }
+
     if (empty($result['ok'])) {
         studio_update_whatsapp_platform_status($studio, 'error');
         return $result;

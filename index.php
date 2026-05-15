@@ -169,7 +169,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $studio = require_studio();
             $result = studio_start_whatsapp_session($studio);
             if (empty($result['ok'])) {
-                throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel iniciar o WhatsApp.'));
+                $error = (string)($result['error'] ?? 'Nao foi possivel iniciar o WhatsApp.');
+                if (!empty($result['auto_start']['error'])) {
+                    $error .= ' Tentativa automatica: ' . (string)$result['auto_start']['error'];
+                }
+                throw new RuntimeException($error);
             }
             flash_set('success', 'Sessao WhatsApp solicitada. Se aparecer QR Code, escaneie pelo celular.');
             redirect_to('studio_whatsapp');
