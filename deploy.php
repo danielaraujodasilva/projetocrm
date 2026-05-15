@@ -121,6 +121,7 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     }
 
     if (PHP_OS_FAMILY === 'Windows') {
+        $lines[] = trim(projetocrm_stop_windows_port($port));
         $launcher = projetocrm_write_windows_whatsapp_launcher($servicePath, $logFile, $port, false);
         $startCommand = 'start "" ' . projetocrm_windows_cmd_arg($launcher);
         $lines[] = '$ ' . $startCommand;
@@ -152,6 +153,15 @@ function projetocrm_windows_env_value(string $value): string
 function projetocrm_windows_cmd_arg(string $value): string
 {
     return '"' . str_replace('"', '', $value) . '"';
+}
+
+function projetocrm_stop_windows_port(string $port): string
+{
+    $port = preg_replace('/\D+/', '', $port) ?: '3010';
+    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+        . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output "Stopped WhatsApp service PID $pid"; }');
+
+    return (string)shell_exec($command);
 }
 
 function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string

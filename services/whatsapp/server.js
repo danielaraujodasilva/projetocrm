@@ -346,6 +346,22 @@ function sessionPublicState(session) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForSessionStartResult(session, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (session.status === "waiting_qr" || session.status === "connected" || session.qrImage || session.lastError) {
+      break;
+    }
+    await sleep(500);
+  }
+
+  return session;
+}
+
 app.get("/health", (req, res) => {
   res.json({ ok: true, service: "projetocrm-whatsapp", sessions: sessions.size });
 });
@@ -358,7 +374,7 @@ app.get("/studios/:sessionKey/status", (req, res) => {
 
 app.post("/studios/:sessionKey/start", async (req, res) => {
   try {
-    const session = await startSession(req.params.sessionKey, req.body || {});
+    const session = await waitForSessionStartResult(await startSession(req.params.sessionKey, req.body || {}));
     res.json(sessionPublicState(session));
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message || "Erro ao iniciar sessao." });

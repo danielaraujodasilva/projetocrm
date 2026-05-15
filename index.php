@@ -813,6 +813,14 @@ if ($page === 'studio_whatsapp') {
             echo '<p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>';
         } elseif (!empty($serviceStatus['phone'])) {
             echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
+        } elseif ($status === 'starting') {
+            echo '<p class="muted">Gerando QR Code. Esta tela atualiza automaticamente em alguns segundos.</p>';
+            echo '<script>setTimeout(function(){ window.location.reload(); }, 3000);</script>';
+        } elseif ($status === 'waiting_qr') {
+            echo '<p class="muted">QR Code solicitado, aguardando imagem do servico. Esta tela atualiza automaticamente.</p>';
+            echo '<script>setTimeout(function(){ window.location.reload(); }, 3000);</script>';
+        } elseif (!empty($serviceStatus['lastError'])) {
+            echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
         }
         echo '<div class="actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
