@@ -9,4 +9,5 @@
 /services/whatsapp/node_modules/
 /services/whatsapp/sessions/
 /services/whatsapp/whatsapp_service.pid
+/services/whatsapp/whatsapp_service_start.cmd
 /tools/whatsapp_web_collector/node_modules/

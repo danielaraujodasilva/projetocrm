@@ -342,20 +342,26 @@ function studio_whatsapp_start_local_service(array $studio): array
 
     $logFile = $logDir . '/whatsapp_service.log';
     $pidFile = $servicePath . '/whatsapp_service.pid';
-    $installOutput = '';
     $startOutput = '';
-
-    if (!is_dir($servicePath . '/node_modules')) {
-        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev 2>&1';
-        $installOutput = trim((string)shell_exec($installCommand));
-    }
+    $needsInstall = !is_dir($servicePath . '/node_modules');
 
     if (PHP_OS_FAMILY === 'Windows') {
-        $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"'
-            . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
-        $startOutput = trim((string)shell_exec($startCommand));
+        $launcher = studio_write_windows_whatsapp_launcher($servicePath, $logFile, $port, $needsInstall);
+        $startCommand = 'start "" ' . studio_windows_cmd_arg($launcher);
+        shell_exec($startCommand . ' 2>&1');
+        $startOutput = $needsInstall ? 'Instalacao/inicio disparados em background.' : 'Inicio disparado em background.';
     } else {
+        if ($needsInstall) {
+            $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1';
+            shell_exec($installCommand . ' &');
+            return [
+                'ok' => false,
+                'pending' => true,
+                'error' => 'Dependencias do servico WhatsApp estao sendo instaladas em background. Aguarde alguns segundos e clique novamente.',
+                'log_file' => $logFile,
+            ];
+        }
+
         $startCommand = 'cd ' . escapeshellarg($servicePath)
             . ' && WHATSAPP_PORT=' . escapeshellarg($port)
             . ' nohup npm start > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
@@ -373,7 +379,6 @@ function studio_whatsapp_start_local_service(array $studio): array
             return [
                 'ok' => true,
                 'message' => 'Servico WhatsApp iniciado automaticamente.',
-                'install_output' => mb_substr($installOutput, 0, 1000),
                 'start_output' => mb_substr($startOutput, 0, 500),
                 'health' => $health,
                 'log_file' => $logFile,
@@ -388,8 +393,10 @@ function studio_whatsapp_start_local_service(array $studio): array
 
     return [
         'ok' => false,
-        'error' => 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
-        'install_output' => mb_substr($installOutput, 0, 1000),
+        'pending' => $needsInstall,
+        'error' => $needsInstall
+            ? 'O servico WhatsApp foi disparado e esta instalando dependencias em background. Aguarde alguns segundos e clique novamente.'
+            : 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
         'start_output' => mb_substr($startOutput, 0, 500),
         'health_error' => (string)($health['error'] ?? ''),
         'log_tail' => $logTail,
@@ -400,6 +407,30 @@ function studio_whatsapp_start_local_service(array $studio): array
 function studio_windows_env_value(string $value): string
 {
     return str_replace(['"', "\r", "\n"], '', $value);
+}
+
+function studio_windows_cmd_arg(string $value): string
+{
+    return '"' . str_replace('"', '', $value) . '"';
+}
+
+function studio_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
+{
+    $launcher = $servicePath . '/whatsapp_service_start.cmd';
+    $lines = [
+        '@echo off',
+        'cd /d "' . str_replace('"', '', $servicePath) . '"',
+        'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
+    ];
+
+    if ($install) {
+        $lines[] = 'npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    }
+
+    $lines[] = 'npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
+
+    return $launcher;
 }
 
 function studio_whatsapp_service_status(array $studio): array

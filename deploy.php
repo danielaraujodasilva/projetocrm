@@ -121,9 +121,8 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     }
 
     if (PHP_OS_FAMILY === 'Windows') {
-        $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && set "WHATSAPP_PORT=' . projetocrm_windows_env_value($port) . '"'
-            . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
+        $launcher = projetocrm_write_windows_whatsapp_launcher($servicePath, $logFile, $port, false);
+        $startCommand = 'start "" ' . projetocrm_windows_cmd_arg($launcher);
         $lines[] = '$ ' . $startCommand;
         $lines[] = trim((string)shell_exec($startCommand));
     } else {
@@ -148,4 +147,28 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
 function projetocrm_windows_env_value(string $value): string
 {
     return str_replace(['"', "\r", "\n"], '', $value);
+}
+
+function projetocrm_windows_cmd_arg(string $value): string
+{
+    return '"' . str_replace('"', '', $value) . '"';
+}
+
+function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
+{
+    $launcher = $servicePath . '/whatsapp_service_start.cmd';
+    $lines = [
+        '@echo off',
+        'cd /d "' . str_replace('"', '', $servicePath) . '"',
+        'set "WHATSAPP_PORT=' . projetocrm_windows_env_value($port) . '"',
+    ];
+
+    if ($install) {
+        $lines[] = 'npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    }
+
+    $lines[] = 'npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
+
+    return $launcher;
 }
