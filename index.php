@@ -170,6 +170,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = studio_start_whatsapp_session($studio);
             if (empty($result['ok'])) {
                 $error = (string)($result['error'] ?? 'Nao foi possivel iniciar o WhatsApp.');
+                if (!empty($result['health_error'])) {
+                    $error .= ' Health: ' . (string)$result['health_error'];
+                }
+                if (!empty($result['log_tail'])) {
+                    $error .= ' Log: ' . mb_substr((string)$result['log_tail'], -500);
+                }
                 if (!empty($result['auto_start']['error'])) {
                     $error .= ' Tentativa automatica: ' . (string)$result['auto_start']['error'];
                     if (!empty($result['auto_start']['health_error'])) {
@@ -184,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', 'Sessao WhatsApp solicitada. Se aparecer QR Code, escaneie pelo celular.');
+            flash_set('success', !empty($result['qrImage']) ? 'QR Code gerado. Escaneie pelo celular.' : 'Sessao WhatsApp solicitada. A tela vai atualizar ate o QR aparecer.');
             redirect_to('studio_whatsapp');
         }
 
@@ -205,6 +211,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = (string)($result['error'] ?? 'Nao foi possivel limpar a sessao do WhatsApp.');
                 if (!empty($result['local_reset']['error'])) {
                     $error .= ' Limpeza local: ' . (string)$result['local_reset']['error'];
+                }
+                if (!empty($result['service_error'])) {
+                    $error .= ' Servico: ' . (string)$result['service_error'];
                 }
                 throw new RuntimeException($error);
             }
@@ -861,12 +870,10 @@ if ($page === 'studio_whatsapp') {
         echo '<button class="btn" type="submit">Salvar WhatsApp</button>';
         echo '</form>';
         echo '</section>';
-        if ($serviceLog !== '') {
-            echo '<section class="panel" style="margin-top:16px"><h2>Log do servico WhatsApp</h2>';
-            echo '<pre id="whatsappServiceLog" style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog) . '</pre>';
-            echo '<script>const waLog=document.getElementById("whatsappServiceLog"); if(waLog){ waLog.scrollTop=waLog.scrollHeight; }</script>';
-            echo '</section>';
-        }
+        echo '<section class="panel" style="margin-top:16px"><h2>Log do servico WhatsApp</h2>';
+        echo '<pre id="whatsappServiceLog" style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog !== '' ? $serviceLog : 'Sem entradas de log ainda.') . '</pre>';
+        echo '<script>const waLog=document.getElementById("whatsappServiceLog"); if(waLog){ waLog.scrollTop=waLog.scrollHeight; }</script>';
+        echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();

@@ -123,7 +123,7 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     if (PHP_OS_FAMILY === 'Windows') {
         $lines[] = trim(projetocrm_stop_windows_port($port));
         $launcher = projetocrm_write_windows_whatsapp_launcher($servicePath, $logFile, $port, false);
-        $startCommand = 'start "" ' . projetocrm_windows_cmd_arg($launcher);
+        $startCommand = 'cmd /D /C start "" /MIN ' . projetocrm_windows_cmd_arg($launcher);
         $lines[] = '$ ' . $startCommand;
         $lines[] = trim((string)shell_exec($startCommand));
     } else {
@@ -174,10 +174,10 @@ function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string 
     ];
 
     if ($install) {
-        $lines[] = 'npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+        $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
     }
 
-    $lines[] = 'npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    $lines[] = 'call npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
     file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
 
     return $launcher;

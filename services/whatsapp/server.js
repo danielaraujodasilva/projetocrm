@@ -16,6 +16,7 @@ const QRCode = require("qrcode");
 const app = express();
 app.use(express.json({ limit: "30mb" }));
 
+const serviceVersion = "2026-05-15-direct-start";
 const port = Number(process.env.WHATSAPP_PORT || 3010);
 const defaultWebhookUrl = process.env.WHATSAPP_WEBHOOK_URL || "http://localhost/projetocrm/api/whatsapp_webhook.php";
 const sessionsDir = path.join(__dirname, "sessions");
@@ -423,7 +424,7 @@ async function waitForSessionStartResult(session, timeoutMs = 12000) {
 }
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true, service: "projetocrm-whatsapp", sessions: sessions.size });
+  res.json({ ok: true, service: "projetocrm-whatsapp", version: serviceVersion, sessions: sessions.size });
 });
 
 app.get("/studios/:sessionKey/status", (req, res) => {
