@@ -59,5 +59,88 @@ $command = 'cd ' . escapeshellarg($realDeployPath)
 $output = shell_exec($command) ?: '';
 file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $output . "\n", FILE_APPEND);
 
+$whatsappConfig = $deployConfig['whatsapp_service'] ?? [];
+if (!is_array($whatsappConfig)) {
+    $whatsappConfig = [];
+}
+
+$whatsappEnabled = array_key_exists('enabled', $whatsappConfig)
+    ? (bool)$whatsappConfig['enabled']
+    : true;
+
+if ($whatsappEnabled) {
+    $servicePath = (string)($whatsappConfig['path'] ?? ($realDeployPath . '/services/whatsapp'));
+    $realServicePath = realpath($servicePath);
+
+    $serviceInsideDeploy = $realServicePath !== false
+        && ($realServicePath === $realDeployPath || str_starts_with($realServicePath, $realDeployPath . DIRECTORY_SEPARATOR));
+
+    if (!$serviceInsideDeploy) {
+        $whatsappOutput = "Servico WhatsApp: caminho invalido ou nao encontrado.\n";
+    } else {
+        $whatsappOutput = projetocrm_deploy_whatsapp_service($realServicePath, $whatsappConfig);
+    }
+
+    file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $whatsappOutput . "\n", FILE_APPEND);
+    $output .= "\n" . $whatsappOutput;
+}
+
 header('Content-Type: text/plain; charset=utf-8');
 echo $output;
+
+function projetocrm_deploy_whatsapp_service(string $servicePath, array $config): string
+{
+    $lines = ["Servico WhatsApp:"];
+    $pidFile = $servicePath . '/whatsapp_service.pid';
+    $logFile = $servicePath . '/whatsapp_service.log';
+    $port = (string)($config['port'] ?? getenv('WHATSAPP_PORT') ?: '3010');
+    $install = array_key_exists('install', $config) ? (bool)$config['install'] : true;
+    $restart = array_key_exists('restart', $config) ? (bool)$config['restart'] : true;
+
+    if ($install) {
+        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev 2>&1';
+        $lines[] = '$ ' . $installCommand;
+        $lines[] = trim((string)shell_exec($installCommand));
+    }
+
+    if (!$restart) {
+        $lines[] = 'Reinicio automatico desativado.';
+        return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
+    }
+
+    if (is_file($pidFile)) {
+        $pid = preg_replace('/\D+/', '', (string)file_get_contents($pidFile));
+        if ($pid !== '') {
+            if (PHP_OS_FAMILY === 'Windows') {
+                shell_exec('taskkill /PID ' . escapeshellarg($pid) . ' /F 2>&1');
+            } else {
+                shell_exec('kill ' . escapeshellarg($pid) . ' 2>&1');
+            }
+        }
+        @unlink($pidFile);
+    }
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        $startCommand = 'cd ' . escapeshellarg($servicePath)
+            . ' && set WHATSAPP_PORT=' . escapeshellarg($port)
+            . ' && start /B npm start > ' . escapeshellarg($logFile) . ' 2>&1';
+        $lines[] = '$ ' . $startCommand;
+        $lines[] = trim((string)shell_exec($startCommand));
+    } else {
+        $env = 'WHATSAPP_PORT=' . escapeshellarg($port);
+        if (!empty($config['webhook_url'])) {
+            $env .= ' WHATSAPP_WEBHOOK_URL=' . escapeshellarg((string)$config['webhook_url']);
+        }
+        $startCommand = 'cd ' . escapeshellarg($servicePath)
+            . ' && ' . $env
+            . ' nohup npm start > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
+        $lines[] = '$ ' . $startCommand;
+        $pid = trim((string)shell_exec($startCommand));
+        if ($pid !== '') {
+            file_put_contents($pidFile, $pid);
+            $lines[] = 'PID: ' . $pid;
+        }
+    }
+
+    return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
+}
