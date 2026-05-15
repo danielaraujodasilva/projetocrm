@@ -173,6 +173,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($result['health_error'])) {
                     $error .= ' Health: ' . (string)$result['health_error'];
                 }
+                if (!empty($result['current_version']) || !empty($result['expected_version'])) {
+                    $error .= ' Versao atual: ' . (string)($result['current_version'] ?? '') . ' Esperada: ' . (string)($result['expected_version'] ?? '');
+                }
                 if (!empty($result['log_tail'])) {
                     $error .= ' Log: ' . mb_substr((string)$result['log_tail'], -500);
                 }
@@ -204,6 +207,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_whatsapp');
         }
 
+        if ($action === 'restart_whatsapp_service') {
+            $studio = require_studio();
+            $result = studio_restart_whatsapp_service($studio);
+            if (empty($result['ok'])) {
+                $error = (string)($result['error'] ?? 'Nao foi possivel reiniciar o servico WhatsApp.');
+                if (!empty($result['current_version']) || !empty($result['expected_version'])) {
+                    $error .= ' Versao atual: ' . (string)($result['current_version'] ?? '') . ' Esperada: ' . (string)($result['expected_version'] ?? '');
+                }
+                if (!empty($result['health_error'])) {
+                    $error .= ' Health: ' . (string)$result['health_error'];
+                }
+                if (!empty($result['log_tail'])) {
+                    $error .= ' Log: ' . mb_substr((string)$result['log_tail'], -500);
+                }
+                throw new RuntimeException($error);
+            }
+            flash_set('success', 'Servico WhatsApp reiniciado.');
+            redirect_to('studio_whatsapp');
+        }
+
         if ($action === 'request_whatsapp_pairing_code') {
             $studio = require_studio();
             $result = studio_request_whatsapp_pairing_code($studio, (string)($_POST['pairing_phone'] ?? ''));
@@ -211,6 +234,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = (string)($result['error'] ?? 'Nao foi possivel gerar o codigo de pareamento.');
                 if (!empty($result['health_error'])) {
                     $error .= ' Health: ' . (string)$result['health_error'];
+                }
+                if (!empty($result['current_version']) || !empty($result['expected_version'])) {
+                    $error .= ' Versao atual: ' . (string)($result['current_version'] ?? '') . ' Esperada: ' . (string)($result['expected_version'] ?? '');
                 }
                 if (!empty($result['log_tail'])) {
                     $error .= ' Log: ' . mb_substr((string)$result['log_tail'], -500);
@@ -846,6 +872,10 @@ if ($page === 'studio_whatsapp') {
         echo '<span class="badge ' . h($badgeClass) . '">' . h($status) . '</span></div>';
         echo '<p class="muted">Chave isolada: <strong>' . h($sessionKey) . '</strong></p>';
         echo '<p class="muted">Servico: <strong>' . h(studio_whatsapp_service_url($studio)) . '</strong></p>';
+        echo '<p class="muted">Versao do servico: <strong>' . h((string)($serviceStatus['service_version'] ?: 'sem resposta')) . '</strong> / esperada <strong>' . h((string)($serviceStatus['expected_service_version'] ?? '')) . '</strong></p>';
+        if (!empty($serviceStatus['service_stale'])) {
+            echo '<p class="muted">O servico WhatsApp parece estar antigo ou travado. Clique em reiniciar servico.</p>';
+        }
         if (empty($serviceStatus['ok'])) {
             echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
@@ -872,6 +902,7 @@ if ($page === 'studio_whatsapp') {
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessao</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar servico</button></form>';
         echo '</div>';
         echo '<form method="post" class="inline-form" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';

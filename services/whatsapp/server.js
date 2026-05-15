@@ -17,11 +17,21 @@ const QRCode = require("qrcode");
 const app = express();
 app.use(express.json({ limit: "30mb" }));
 
-const serviceVersion = "2026-05-15-pairing-code";
+const serviceVersion = "2026-05-15-force-restart";
 const port = Number(process.env.WHATSAPP_PORT || 3010);
 const defaultWebhookUrl = process.env.WHATSAPP_WEBHOOK_URL || "http://localhost/projetocrm/api/whatsapp_webhook.php";
 const sessionsDir = path.join(__dirname, "sessions");
+const serviceLogFile = path.join(__dirname, "whatsapp_service.log");
 const sessions = new Map();
+
+function appendServiceLog(message, data = {}) {
+  const line = `[${new Date().toISOString()}] ${message}${Object.keys(data).length ? " " + JSON.stringify(data) : ""}\n`;
+  try {
+    fs.appendFileSync(serviceLogFile, line);
+  } catch {
+    // File logging is best-effort; console output is still captured by the launcher.
+  }
+}
 
 function safeSessionKey(value) {
   const key = String(value || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -174,6 +184,7 @@ function logSession(session, message, data = {}) {
   };
   session.lastEvents.push(event);
   session.lastEvents = session.lastEvents.slice(-20);
+  appendServiceLog(`[${session.key}] ${message}`, data);
   console.log(`[${session.key}] ${message}`, data);
 }
 
@@ -496,12 +507,28 @@ app.post("/studios/:sessionKey/start", async (req, res) => {
 
 app.post("/studios/:sessionKey/pairing-code", async (req, res) => {
   try {
+    const key = safeSessionKey(req.params.sessionKey);
     const number = String(req.body?.numero || req.body?.phone || "").replace(/\D/g, "");
     if (number.length < 10) {
       return res.status(422).json({ ok: false, error: "Informe o telefone com DDI e DDD, somente numeros." });
     }
 
-    const session = await startSession(req.params.sessionKey, req.body || {});
+    const previousSession = sessions.get(key) || createSession(key);
+    if (previousSession.sock && previousSession.status !== "connected") {
+      previousSession.shouldReconnect = false;
+      previousSession.sock.end?.();
+      previousSession.sock = null;
+    }
+
+    if (previousSession.status !== "connected") {
+      sessions.delete(key);
+      fs.rmSync(path.join(sessionsDir, key), { recursive: true, force: true });
+    }
+
+    const session = await startSession(key, {
+      ...sessionStartConfig(previousSession),
+      ...(req.body || {})
+    });
     if (!session.sock) {
       return res.status(409).json({ ok: false, error: "Sessao WhatsApp ainda nao iniciou." });
     }
@@ -616,5 +643,6 @@ app.post("/studios/:sessionKey/send", async (req, res) => {
 
 app.listen(port, () => {
   fs.mkdirSync(sessionsDir, { recursive: true });
+  appendServiceLog("Servico WhatsApp iniciado", { port, version: serviceVersion });
   console.log(`Servico WhatsApp multi-estudio rodando na porta ${port}`);
 });

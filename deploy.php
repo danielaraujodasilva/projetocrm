@@ -159,7 +159,7 @@ function projetocrm_stop_windows_port(string $port): string
 {
     $port = preg_replace('/\D+/', '', $port) ?: '3010';
     $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
-        . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output "Stopped WhatsApp service PID $pid"; }');
+        . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output "Stopped WhatsApp service PID $procId"; }');
 
     return (string)shell_exec($command);
 }

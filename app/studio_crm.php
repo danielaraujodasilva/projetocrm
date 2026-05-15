@@ -309,6 +309,11 @@ function studio_whatsapp_service_is_local(array $studio): bool
     return in_array($host, ['localhost', '127.0.0.1', '::1'], true);
 }
 
+function studio_expected_whatsapp_service_version(): string
+{
+    return '2026-05-15-force-restart';
+}
+
 function studio_shell_exec_available(): bool
 {
     $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
@@ -442,7 +447,7 @@ function studio_whatsapp_stop_local_service(array $studio): array
     $port = preg_replace('/\D+/', '', (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010)) ?: '3010';
     if (PHP_OS_FAMILY === 'Windows') {
         $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
-            . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output "Stopped PID $pid"; }');
+            . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output "Stopped PID $procId"; }');
         $output = trim((string)shell_exec($command));
     } else {
         $command = 'lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill 2>&1';
@@ -640,7 +645,7 @@ function studio_write_windows_whatsapp_reset_launcher(string $servicePath, strin
     $lines = [
         '@echo off',
         'echo [%date% %time%] Reset WhatsApp session started >> "' . str_replace('"', '', $logFile) . '"',
-        'powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids = @(Get-NetTCPConnection -LocalPort ' . preg_replace('/\D+/', '', $port) . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output \"Stopped PID $pid\" }" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
+        'powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids = @(Get-NetTCPConnection -LocalPort ' . preg_replace('/\D+/', '', $port) . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output \"Stopped PID $procId\" }" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
         'rmdir /S /Q "' . str_replace('"', '', $sessionPath) . '" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
         'cd /d "' . str_replace('"', '', $servicePath) . '"',
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
@@ -739,6 +744,11 @@ function studio_wait_whatsapp_health(array $studio, int $seconds = 10): array
     return $last ?: ['ok' => false, 'error' => 'Servico WhatsApp nao respondeu dentro do tempo esperado.'];
 }
 
+function studio_whatsapp_health_is_current(array $health): bool
+{
+    return !empty($health['ok']) && (string)($health['version'] ?? '') === studio_expected_whatsapp_service_version();
+}
+
 function studio_launch_whatsapp_service(array $studio, array $ctx): array
 {
     if (!studio_whatsapp_service_is_local($studio)) {
@@ -771,10 +781,80 @@ function studio_launch_whatsapp_service(array $studio, array $ctx): array
     return ['ok' => true, 'command' => $command, 'log_file' => $ctx['logFile']];
 }
 
+function studio_ensure_whatsapp_service(array $studio, array $ctx): array
+{
+    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
+    if (studio_whatsapp_health_is_current($health)) {
+        return ['ok' => true, 'health' => $health, 'restarted' => false];
+    }
+
+    if (!empty($health['ok'])) {
+        studio_append_whatsapp_service_log(
+            'CRM restarting stale WhatsApp service. Current version: '
+            . (string)($health['version'] ?? 'sem-versao')
+            . ' expected: '
+            . studio_expected_whatsapp_service_version()
+        );
+        studio_whatsapp_stop_local_service($studio);
+        usleep(1200000);
+    }
+
+    $launch = studio_launch_whatsapp_service($studio, $ctx);
+    if (empty($launch['ok'])) {
+        return $launch;
+    }
+
+    $health = studio_wait_whatsapp_health($studio, 15);
+    if (!studio_whatsapp_health_is_current($health)) {
+        return [
+            'ok' => false,
+            'error' => 'O servico WhatsApp iniciou, mas esta em versao antiga ou nao respondeu corretamente.',
+            'health_error' => (string)($health['error'] ?? ''),
+            'current_version' => (string)($health['version'] ?? 'sem-versao'),
+            'expected_version' => studio_expected_whatsapp_service_version(),
+            'log_tail' => studio_whatsapp_service_log_tail(2500),
+        ];
+    }
+
+    return ['ok' => true, 'health' => $health, 'restarted' => true];
+}
+
+function studio_restart_whatsapp_service(array $studio): array
+{
+    $ctx = studio_whatsapp_background_context($studio);
+    studio_append_whatsapp_service_log('CRM forced WhatsApp service restart requested.');
+    studio_whatsapp_stop_local_service($studio);
+    usleep(1200000);
+    $launch = studio_launch_whatsapp_service($studio, $ctx);
+    if (empty($launch['ok'])) {
+        return $launch;
+    }
+
+    $health = studio_wait_whatsapp_health($studio, 15);
+    if (!studio_whatsapp_health_is_current($health)) {
+        return [
+            'ok' => false,
+            'error' => 'Reiniciei o servico, mas ele nao respondeu na versao esperada.',
+            'current_version' => (string)($health['version'] ?? 'sem-versao'),
+            'expected_version' => studio_expected_whatsapp_service_version(),
+            'health_error' => (string)($health['error'] ?? ''),
+            'log_tail' => studio_whatsapp_service_log_tail(2500),
+        ];
+    }
+
+    return ['ok' => true, 'health' => $health, 'message' => 'Servico WhatsApp reiniciado.'];
+}
+
 function studio_whatsapp_service_status(array $studio): array
 {
     $sessionKey = studio_session_key($studio);
     $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], 2);
+    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
+    $status['service_health'] = $health;
+    $status['service_version'] = (string)($health['version'] ?? '');
+    $status['expected_service_version'] = studio_expected_whatsapp_service_version();
+    $status['service_stale'] = !studio_whatsapp_health_is_current($health);
+
     if (!empty($status['ok']) && !empty($status['status'])) {
         $platformStatus = match ((string)$status['status']) {
             'connected' => 'connected',
@@ -802,24 +882,10 @@ function studio_start_whatsapp_session(array $studio): array
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM start requested for session ' . $ctx['sessionKey']);
 
-    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
-    if (empty($health['ok'])) {
-        $launch = studio_launch_whatsapp_service($studio, $ctx);
-        if (empty($launch['ok'])) {
-            studio_update_whatsapp_platform_status($studio, 'error');
-            return $launch;
-        }
-
-        $health = studio_wait_whatsapp_health($studio, 12);
-        if (empty($health['ok'])) {
-            studio_update_whatsapp_platform_status($studio, 'error');
-            return [
-                'ok' => false,
-                'error' => 'Tentei iniciar o servico WhatsApp, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
-                'health_error' => (string)($health['error'] ?? ''),
-                'log_tail' => studio_whatsapp_service_log_tail(2000),
-            ];
-        }
+    $ready = studio_ensure_whatsapp_service($studio, $ctx);
+    if (empty($ready['ok'])) {
+        studio_update_whatsapp_platform_status($studio, 'error');
+        return $ready;
     }
 
     $result = studio_whatsapp_request(
@@ -845,24 +911,10 @@ function studio_request_whatsapp_pairing_code(array $studio, string $phone): arr
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM pairing code requested for session ' . $ctx['sessionKey'] . ' phone ' . $phone);
 
-    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
-    if (empty($health['ok'])) {
-        $launch = studio_launch_whatsapp_service($studio, $ctx);
-        if (empty($launch['ok'])) {
-            studio_update_whatsapp_platform_status($studio, 'error');
-            return $launch;
-        }
-
-        $health = studio_wait_whatsapp_health($studio, 12);
-        if (empty($health['ok'])) {
-            studio_update_whatsapp_platform_status($studio, 'error');
-            return [
-                'ok' => false,
-                'error' => 'Tentei iniciar o servico WhatsApp, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
-                'health_error' => (string)($health['error'] ?? ''),
-                'log_tail' => studio_whatsapp_service_log_tail(2000),
-            ];
-        }
+    $ready = studio_ensure_whatsapp_service($studio, $ctx);
+    if (empty($ready['ok'])) {
+        studio_update_whatsapp_platform_status($studio, 'error');
+        return $ready;
     }
 
     $payload = $ctx['payload'];
