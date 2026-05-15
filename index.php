@@ -198,6 +198,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_whatsapp');
         }
 
+        if ($action === 'reset_whatsapp_session') {
+            $studio = require_studio();
+            $result = studio_reset_whatsapp_session($studio);
+            if (empty($result['ok'])) {
+                throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel limpar a sessao do WhatsApp.'));
+            }
+            flash_set('success', 'Sessao WhatsApp limpa. Clique em iniciar para gerar um QR Code novo.');
+            redirect_to('studio_whatsapp');
+        }
+
         if ($action === 'send_whatsapp_message') {
             $studio = require_studio();
             studio_send_whatsapp_message($studio, $_POST);
@@ -785,6 +795,7 @@ if ($page === 'studio_whatsapp') {
         $settings = studio_settings($studio);
         $sessionKey = studio_session_key($studio);
         $serviceStatus = studio_whatsapp_service_status($studio);
+        $serviceLog = studio_whatsapp_service_log_tail();
         $summary = studio_whatsapp_summary($studio);
         $filters = [
             'q' => (string)($_GET['q'] ?? ''),
@@ -825,6 +836,7 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessao</button></form>';
         echo '</div></div>';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
@@ -844,6 +856,11 @@ if ($page === 'studio_whatsapp') {
         echo '<button class="btn" type="submit">Salvar WhatsApp</button>';
         echo '</form>';
         echo '</section>';
+        if ($serviceLog !== '') {
+            echo '<section class="panel" style="margin-top:16px"><h2>Log do servico WhatsApp</h2>';
+            echo '<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;background:#0b1020;color:#dbeafe;padding:12px;border-radius:8px;font-size:12px">' . h($serviceLog) . '</pre>';
+            echo '</section>';
+        }
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();

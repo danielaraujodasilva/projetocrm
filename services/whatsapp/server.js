@@ -211,6 +211,16 @@ async function startSession(sessionKey, config = {}) {
 
   session.sock.ev.on("connection.update", async (update) => {
     const { connection, qr, lastDisconnect } = update;
+    const disconnectCode = lastDisconnect?.error?.output?.statusCode;
+    const disconnectMessage = lastDisconnect?.error?.message || "";
+
+    console.log(`[${session.key}] connection.update`, {
+      connection: connection || "",
+      hasQr: !!qr,
+      disconnectCode: disconnectCode || "",
+      disconnectMessage
+    });
+
     if (qr) {
       session.qr = qr;
       session.qrImage = await QRCode.toDataURL(qr, { margin: 1, scale: 5 });
@@ -228,11 +238,13 @@ async function startSession(sessionKey, config = {}) {
     }
 
     if (connection === "close") {
-      const code = lastDisconnect?.error?.output?.statusCode;
+      const code = disconnectCode;
       const loggedOut = code === DisconnectReason.loggedOut;
       session.status = loggedOut ? "disconnected" : "disconnected";
       session.sock = null;
-      session.lastError = lastDisconnect?.error?.message || "";
+      session.qr = "";
+      session.qrImage = "";
+      session.lastError = [disconnectMessage, code ? `codigo ${code}` : ""].filter(Boolean).join(" | ");
       await notifyStatus(session, session.status, loggedOut ? "Sessao encerrada." : "Conexao fechada; reconecte pelo painel se necessario.");
     }
   });
@@ -397,6 +409,31 @@ app.post("/studios/:sessionKey/logout", async (req, res) => {
     res.json(sessionPublicState(session));
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message || "Erro ao desconectar sessao." });
+  }
+});
+
+app.post("/studios/:sessionKey/reset", async (req, res) => {
+  try {
+    const key = safeSessionKey(req.params.sessionKey);
+    const session = sessions.get(key) || createSession(key);
+    if (session.sock) {
+      await session.sock.logout().catch(() => null);
+      session.sock.end?.();
+    }
+
+    sessions.delete(key);
+    fs.rmSync(path.join(sessionsDir, key), { recursive: true, force: true });
+
+    const freshSession = createSession(key);
+    freshSession.webhookUrl = req.body?.webhookUrl || session.webhookUrl || defaultWebhookUrl;
+    freshSession.webhookToken = req.body?.webhookToken || session.webhookToken || "";
+    freshSession.studioId = req.body?.studioId || session.studioId || null;
+    freshSession.studioSlug = req.body?.studioSlug || session.studioSlug || "";
+    freshSession.studioName = req.body?.studioName || session.studioName || "";
+
+    res.json(sessionPublicState(freshSession));
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message || "Erro ao limpar sessao." });
   }
 });
 

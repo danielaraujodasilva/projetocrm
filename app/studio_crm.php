@@ -511,6 +511,44 @@ function studio_disconnect_whatsapp_session(array $studio): array
     return $result;
 }
 
+function studio_reset_whatsapp_session(array $studio): array
+{
+    $sessionKey = studio_session_key($studio);
+    $payload = [
+        'studioId' => (int)$studio['id'],
+        'studioSlug' => (string)$studio['slug'],
+        'studioName' => (string)$studio['name'],
+        'webhookUrl' => studio_whatsapp_webhook_url(),
+        'webhookToken' => studio_whatsapp_webhook_token($studio),
+    ];
+
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/reset', $payload, 12);
+    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
+    studio_event((int)$studio['id'], 'whatsapp_session_reset', 'Sessao WhatsApp limpa para gerar novo QR Code.');
+
+    return $result;
+}
+
+function studio_whatsapp_service_log_tail(int $maxBytes = 5000): string
+{
+    $paths = [
+        APP_BASE_PATH . '/storage/logs/whatsapp_service.log',
+        APP_BASE_PATH . '/services/whatsapp/whatsapp_service.log',
+    ];
+
+    $chunks = [];
+    foreach ($paths as $path) {
+        if (!is_file($path) || !is_readable($path)) {
+            continue;
+        }
+
+        $content = (string)file_get_contents($path);
+        $chunks[] = basename(dirname($path)) . '/' . basename($path) . "\n" . mb_substr($content, -$maxBytes);
+    }
+
+    return implode("\n\n", $chunks);
+}
+
 function studio_stats(array $studio): array
 {
     $pdo = studio_db($studio);
