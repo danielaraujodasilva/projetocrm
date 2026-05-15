@@ -835,6 +835,52 @@ function studio_start_whatsapp_session(array $studio): array
     return $result;
 }
 
+function studio_request_whatsapp_pairing_code(array $studio, string $phone): array
+{
+    $phone = preg_replace('/\D+/', '', $phone) ?: '';
+    if (strlen($phone) < 10) {
+        return ['ok' => false, 'error' => 'Informe o telefone com DDI e DDD, somente numeros. Exemplo: 5521999999999.'];
+    }
+
+    $ctx = studio_whatsapp_background_context($studio);
+    studio_append_whatsapp_service_log('CRM pairing code requested for session ' . $ctx['sessionKey'] . ' phone ' . $phone);
+
+    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
+    if (empty($health['ok'])) {
+        $launch = studio_launch_whatsapp_service($studio, $ctx);
+        if (empty($launch['ok'])) {
+            studio_update_whatsapp_platform_status($studio, 'error');
+            return $launch;
+        }
+
+        $health = studio_wait_whatsapp_health($studio, 12);
+        if (empty($health['ok'])) {
+            studio_update_whatsapp_platform_status($studio, 'error');
+            return [
+                'ok' => false,
+                'error' => 'Tentei iniciar o servico WhatsApp, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
+                'health_error' => (string)($health['error'] ?? ''),
+                'log_tail' => studio_whatsapp_service_log_tail(2000),
+            ];
+        }
+    }
+
+    $payload = $ctx['payload'];
+    $payload['numero'] = $phone;
+    $result = studio_whatsapp_request(
+        $studio,
+        'POST',
+        '/studios/' . rawurlencode($ctx['sessionKey']) . '/pairing-code',
+        $payload,
+        25
+    );
+
+    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
+    studio_event((int)$studio['id'], 'whatsapp_pairing_code_requested', 'Codigo de pareamento WhatsApp solicitado pelo painel.');
+
+    return $result;
+}
+
 function studio_disconnect_whatsapp_session(array $studio): array
 {
     $ctx = studio_whatsapp_background_context($studio);

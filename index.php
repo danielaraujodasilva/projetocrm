@@ -204,6 +204,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_whatsapp');
         }
 
+        if ($action === 'request_whatsapp_pairing_code') {
+            $studio = require_studio();
+            $result = studio_request_whatsapp_pairing_code($studio, (string)($_POST['pairing_phone'] ?? ''));
+            if (empty($result['ok'])) {
+                $error = (string)($result['error'] ?? 'Nao foi possivel gerar o codigo de pareamento.');
+                if (!empty($result['health_error'])) {
+                    $error .= ' Health: ' . (string)$result['health_error'];
+                }
+                if (!empty($result['log_tail'])) {
+                    $error .= ' Log: ' . mb_substr((string)$result['log_tail'], -500);
+                }
+                throw new RuntimeException($error);
+            }
+            flash_set('success', !empty($result['pairingCode']) ? 'Codigo de pareamento gerado.' : 'WhatsApp ja esta conectado ou a sessao esta ativa.');
+            redirect_to('studio_whatsapp');
+        }
+
         if ($action === 'reset_whatsapp_session') {
             $studio = require_studio();
             $result = studio_reset_whatsapp_session($studio);
@@ -836,6 +853,10 @@ if ($page === 'studio_whatsapp') {
             echo '<div class="qr-box"><img src="' . h((string)$serviceStatus['qrImage']) . '" alt="QR Code WhatsApp"></div>';
             echo '<p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>';
             echo '<script>setTimeout(function(){ window.location.reload(); }, 15000);</script>';
+        } elseif (!empty($serviceStatus['pairingCode'])) {
+            echo '<p class="metric">' . h((string)$serviceStatus['pairingCode']) . '</p>';
+            echo '<p class="muted">Codigo para parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . '.</p>';
+            echo '<script>setTimeout(function(){ window.location.reload(); }, 5000);</script>';
         } elseif (!empty($serviceStatus['phone'])) {
             echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
         } elseif ($status === 'starting') {
@@ -851,7 +872,32 @@ if ($page === 'studio_whatsapp') {
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar ou gerar QR</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessao</button></form>';
-        echo '</div></div>';
+        echo '</div>';
+        echo '<form method="post" class="inline-form" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
+        echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
+        echo '<div class="field" style="margin:0;min-width:220px"><label>Codigo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
+        echo '<button class="btn secondary" type="submit">Gerar codigo</button>';
+        echo '</form>';
+        if (!empty($serviceStatus['lastEvents']) && is_array($serviceStatus['lastEvents'])) {
+            $events = array_slice($serviceStatus['lastEvents'], -6);
+            echo '<div style="margin-top:12px"><p class="muted"><strong>Ultimos eventos:</strong></p>';
+            echo '<pre style="white-space:pre-wrap;max-height:150px;overflow:auto;background:#111827;color:#e5e7eb;padding:10px;border-radius:8px;font-size:12px">';
+            foreach ($events as $event) {
+                if (!is_array($event)) {
+                    continue;
+                }
+                $line = trim((string)($event['at'] ?? '') . ' ' . (string)($event['event'] ?? $event['message'] ?? ''));
+                $parts = [];
+                foreach (['connection', 'hasQr', 'code', 'reason', 'detail', 'error', 'phone'] as $key) {
+                    if (isset($event[$key]) && $event[$key] !== '') {
+                        $parts[] = $key . '=' . (is_bool($event[$key]) ? ($event[$key] ? 'true' : 'false') : (string)$event[$key]);
+                    }
+                }
+                echo h($line . ($parts ? ' | ' . implode(' ', $parts) : '')) . "\n";
+            }
+            echo '</pre></div>';
+        }
+        echo '</div>';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';

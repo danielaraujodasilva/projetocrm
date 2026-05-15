@@ -3,7 +3,8 @@ const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
-  DisconnectReason
+  DisconnectReason,
+  Browsers
 } = require("@whiskeysockets/baileys");
 
 const axios = require("axios");
@@ -16,7 +17,7 @@ const QRCode = require("qrcode");
 const app = express();
 app.use(express.json({ limit: "30mb" }));
 
-const serviceVersion = "2026-05-15-direct-start";
+const serviceVersion = "2026-05-15-pairing-code";
 const port = Number(process.env.WHATSAPP_PORT || 3010);
 const defaultWebhookUrl = process.env.WHATSAPP_WEBHOOK_URL || "http://localhost/projetocrm/api/whatsapp_webhook.php";
 const sessionsDir = path.join(__dirname, "sessions");
@@ -145,8 +146,11 @@ function createSession(sessionKey) {
     sock: null,
     qr: "",
     qrImage: "",
+    pairingCode: "",
+    pairingPhone: "",
     phone: "",
     lastError: "",
+    lastEvents: [],
     webhookUrl: defaultWebhookUrl,
     webhookToken: "",
     studioId: null,
@@ -160,6 +164,17 @@ function createSession(sessionKey) {
   };
   sessions.set(key, session);
   return session;
+}
+
+function logSession(session, message, data = {}) {
+  const event = {
+    at: new Date().toISOString(),
+    event: message,
+    ...data
+  };
+  session.lastEvents.push(event);
+  session.lastEvents = session.lastEvents.slice(-20);
+  console.log(`[${session.key}] ${message}`, data);
 }
 
 function sessionStartConfig(session) {
@@ -193,6 +208,12 @@ async function notifyStatus(session, status, message = "") {
   await postWebhook(session, { statusEvent: true, status, message });
 }
 
+function notifyStatusAsync(session, status, message = "") {
+  notifyStatus(session, status, message).catch((error) => {
+    logSession(session, "Falha ao notificar status no webhook", { error: error.message });
+  });
+}
+
 async function startSession(sessionKey, config = {}) {
   const session = createSession(sessionKey);
   session.webhookUrl = config.webhookUrl || session.webhookUrl || defaultWebhookUrl;
@@ -212,6 +233,7 @@ async function startSession(sessionKey, config = {}) {
 
   session.status = "starting";
   session.lastError = "";
+  session.pairingCode = "";
   session.startedAt = Math.floor(Date.now() / 1000);
   fs.mkdirSync(path.join(sessionsDir, session.key, "auth_info"), { recursive: true });
 
@@ -222,8 +244,14 @@ async function startSession(sessionKey, config = {}) {
     version,
     auth: state,
     printQRInTerminal: false,
+    browser: Browsers.windows("ProjetoCRM"),
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    keepAliveIntervalMs: 20000,
+    qrTimeout: 120000,
     logger: pino({ level: "silent" }),
-    markOnlineOnConnect: true
+    markOnlineOnConnect: false,
+    syncFullHistory: false
   });
   session.sock = sock;
 
@@ -234,7 +262,7 @@ async function startSession(sessionKey, config = {}) {
     const disconnectCode = lastDisconnect?.error?.output?.statusCode;
     const disconnectMessage = lastDisconnect?.error?.message || "";
 
-    console.log(`[${session.key}] connection.update`, {
+    logSession(session, "connection.update", {
       connection: connection || "",
       hasQr: !!qr,
       disconnectCode: disconnectCode || "",
@@ -244,38 +272,59 @@ async function startSession(sessionKey, config = {}) {
     if (qr) {
       session.qr = qr;
       session.qrImage = await QRCode.toDataURL(qr, { margin: 1, scale: 5 });
+      session.pairingCode = "";
       session.status = "waiting_qr";
-      await notifyStatus(session, "waiting_qr", "QR Code gerado para vincular WhatsApp.");
+      notifyStatusAsync(session, "waiting_qr", "QR Code gerado para vincular WhatsApp.");
     }
 
     if (connection === "open") {
       session.status = "connected";
       session.qr = "";
       session.qrImage = "";
+      session.pairingCode = "";
+      session.pairingPhone = "";
       session.restartAttempts = 0;
       session.shouldReconnect = true;
       session.phone = jidToDigits(sock.user?.id || "");
-      await notifyStatus(session, "connected", "WhatsApp conectado.");
-      console.log(`[${session.key}] WhatsApp conectado ${session.phone || ""}`);
+      notifyStatusAsync(session, "connected", "WhatsApp conectado.");
+      logSession(session, "WhatsApp conectado", { phone: session.phone || "" });
     }
 
     if (connection === "close") {
       const code = disconnectCode;
       const loggedOut = code === DisconnectReason.loggedOut;
-      const shouldReconnect = session.shouldReconnect !== false && !loggedOut;
+      const badSession = [
+        DisconnectReason.badSession,
+        DisconnectReason.multideviceMismatch,
+        DisconnectReason.forbidden
+      ].includes(code);
+      const shouldReconnect = session.shouldReconnect !== false && !loggedOut && !badSession;
       if (session.sock === sock) {
         session.sock = null;
       }
       session.qr = "";
       session.qrImage = "";
+      session.pairingCode = "";
       session.lastError = [disconnectMessage, code ? `codigo ${code}` : ""].filter(Boolean).join(" | ");
+      logSession(session, "connection.closed", {
+        code: code || "",
+        reason: DisconnectReason[code] || "",
+        detail: disconnectMessage || ""
+      });
+
+      if (badSession) {
+        fs.rmSync(path.join(sessionsDir, session.key), { recursive: true, force: true });
+        session.status = "disconnected";
+        notifyStatusAsync(session, "disconnected", "Sessao invalida removida. Gere um novo QR Code.");
+        return;
+      }
 
       if (shouldReconnect) {
         session.status = "starting";
         session.restartAttempts = (session.restartAttempts || 0) + 1;
         const delay = Math.min(1000 * session.restartAttempts, 5000);
-        console.log(`[${session.key}] Conexao fechada; tentando reconectar em ${delay}ms`);
-        notifyStatus(session, "starting", "Conexao fechada; tentando reconectar automaticamente.").catch(() => null);
+        logSession(session, "Conexao fechada; tentando reconectar", { delay });
+        notifyStatusAsync(session, "starting", "Conexao fechada; tentando reconectar automaticamente.");
         if (session.reconnectTimer) {
           clearTimeout(session.reconnectTimer);
         }
@@ -284,8 +333,8 @@ async function startSession(sessionKey, config = {}) {
           startSession(session.key, sessionStartConfig(session)).catch((error) => {
             session.status = "disconnected";
             session.lastError = error.message || "Falha ao reconectar.";
-            console.error(`[${session.key}] Falha ao reconectar:`, session.lastError);
-            notifyStatus(session, "disconnected", session.lastError).catch(() => null);
+            logSession(session, "Falha ao reconectar", { error: session.lastError });
+            notifyStatusAsync(session, "disconnected", session.lastError);
           });
         }, delay);
         timer.unref?.();
@@ -294,7 +343,7 @@ async function startSession(sessionKey, config = {}) {
       }
 
       session.status = "disconnected";
-      await notifyStatus(session, session.status, loggedOut ? "Sessao encerrada." : "Conexao fechada; reconecte pelo painel se necessario.");
+      notifyStatusAsync(session, session.status, loggedOut ? "Sessao encerrada." : "Conexao fechada; reconecte pelo painel se necessario.");
     }
   });
 
@@ -400,7 +449,10 @@ function sessionPublicState(session) {
     phone: session.phone,
     qrImage: session.qrImage,
     hasQr: !!session.qr,
+    pairingCode: session.pairingCode,
+    pairingPhone: session.pairingPhone,
     lastError: session.lastError,
+    lastEvents: session.lastEvents,
     webhookUrl: session.webhookUrl,
     studioId: session.studioId,
     studioName: session.studioName
@@ -442,6 +494,35 @@ app.post("/studios/:sessionKey/start", async (req, res) => {
   }
 });
 
+app.post("/studios/:sessionKey/pairing-code", async (req, res) => {
+  try {
+    const number = String(req.body?.numero || req.body?.phone || "").replace(/\D/g, "");
+    if (number.length < 10) {
+      return res.status(422).json({ ok: false, error: "Informe o telefone com DDI e DDD, somente numeros." });
+    }
+
+    const session = await startSession(req.params.sessionKey, req.body || {});
+    if (!session.sock) {
+      return res.status(409).json({ ok: false, error: "Sessao WhatsApp ainda nao iniciou." });
+    }
+
+    if (session.sock.authState?.creds?.registered) {
+      return res.json(sessionPublicState(session));
+    }
+
+    const code = await session.sock.requestPairingCode(number);
+    session.pairingCode = String(code || "").replace(/(.{4})/g, "$1-").replace(/-$/, "");
+    session.pairingPhone = number;
+    session.status = "waiting_qr";
+    session.qr = "";
+    session.qrImage = "";
+    logSession(session, "Codigo de pareamento gerado", { phone: number });
+    res.json(sessionPublicState(session));
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message || "Erro ao gerar codigo de pareamento." });
+  }
+});
+
 app.post("/studios/:sessionKey/logout", async (req, res) => {
   try {
     const key = safeSessionKey(req.params.sessionKey);
@@ -459,7 +540,9 @@ app.post("/studios/:sessionKey/logout", async (req, res) => {
     session.status = "disconnected";
     session.qr = "";
     session.qrImage = "";
-    await notifyStatus(session, "disconnected", "Sessao desconectada.");
+    session.pairingCode = "";
+    session.pairingPhone = "";
+    notifyStatusAsync(session, "disconnected", "Sessao desconectada.");
     res.json(sessionPublicState(session));
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message || "Erro ao desconectar sessao." });
@@ -489,6 +572,8 @@ app.post("/studios/:sessionKey/reset", async (req, res) => {
     freshSession.studioId = req.body?.studioId || session.studioId || null;
     freshSession.studioSlug = req.body?.studioSlug || session.studioSlug || "";
     freshSession.studioName = req.body?.studioName || session.studioName || "";
+    freshSession.lastEvents = session.lastEvents || [];
+    logSession(freshSession, "Sessao limpa pelo painel");
 
     res.json(sessionPublicState(freshSession));
   } catch (error) {
