@@ -404,6 +404,95 @@ function studio_whatsapp_start_local_service(array $studio): array
     ];
 }
 
+function studio_whatsapp_stop_local_service(array $studio): array
+{
+    if (!studio_whatsapp_service_is_local($studio)) {
+        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local.'];
+    }
+
+    if (!studio_shell_exec_available()) {
+        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para parar o servico WhatsApp.'];
+    }
+
+    $port = preg_replace('/\D+/', '', (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010)) ?: '3010';
+    if (PHP_OS_FAMILY === 'Windows') {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
+            . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($pid in $pids) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue; Write-Output "Stopped PID $pid"; }');
+        $output = trim((string)shell_exec($command));
+    } else {
+        $command = 'lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill 2>&1';
+        $output = trim((string)shell_exec($command));
+    }
+
+    return ['ok' => true, 'output' => mb_substr($output, 0, 1000)];
+}
+
+function studio_delete_directory(string $target, string $allowedRoot): bool
+{
+    $root = realpath($allowedRoot);
+    if ($root === false) {
+        return false;
+    }
+
+    if (!is_dir($target)) {
+        return true;
+    }
+
+    $realTarget = realpath($target);
+    if ($realTarget === false || !str_starts_with($realTarget, $root . DIRECTORY_SEPARATOR)) {
+        return false;
+    }
+
+    $items = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($realTarget, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+
+    foreach ($items as $item) {
+        if ($item->isDir()) {
+            rmdir($item->getPathname());
+        } else {
+            unlink($item->getPathname());
+        }
+    }
+
+    return rmdir($realTarget);
+}
+
+function studio_reset_whatsapp_session_locally(array $studio): array
+{
+    if (!studio_whatsapp_service_is_local($studio)) {
+        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso limpar arquivos de sessao remotos.'];
+    }
+
+    $servicePath = APP_BASE_PATH . '/services/whatsapp';
+    $sessionsRoot = $servicePath . '/sessions';
+    if (!is_dir($sessionsRoot)) {
+        mkdir($sessionsRoot, 0775, true);
+    }
+
+    $sessionKey = studio_whatsapp_safe_session_key(studio_session_key($studio));
+    $sessionPath = $sessionsRoot . '/' . $sessionKey;
+
+    studio_whatsapp_stop_local_service($studio);
+    $deleted = studio_delete_directory($sessionPath, $sessionsRoot);
+    $start = studio_whatsapp_start_local_service($studio);
+
+    return [
+        'ok' => $deleted,
+        'error' => $deleted ? '' : 'Nao consegui apagar a pasta local da sessao WhatsApp.',
+        'deleted_path' => $sessionPath,
+        'restart' => $start,
+    ];
+}
+
+function studio_whatsapp_safe_session_key(string $value): string
+{
+    $key = strtolower((string)preg_replace('/[^a-z0-9_-]+/i', '-', $value));
+    $key = trim($key, '-');
+    return $key !== '' ? mb_substr($key, 0, 120) : 'studio-session';
+}
+
 function studio_windows_env_value(string $value): string
 {
     return str_replace(['"', "\r", "\n"], '', $value);
@@ -523,6 +612,15 @@ function studio_reset_whatsapp_session(array $studio): array
     ];
 
     $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/reset', $payload, 12);
+    if (empty($result['ok'])) {
+        $localReset = studio_reset_whatsapp_session_locally($studio);
+        if (!empty($localReset['ok'])) {
+            $result = ['ok' => true, 'status' => 'disconnected', 'local_reset' => $localReset];
+        } else {
+            $result['local_reset'] = $localReset;
+        }
+    }
+
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
     studio_event((int)$studio['id'], 'whatsapp_session_reset', 'Sessao WhatsApp limpa para gerar novo QR Code.');
 

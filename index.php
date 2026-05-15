@@ -202,7 +202,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $studio = require_studio();
             $result = studio_reset_whatsapp_session($studio);
             if (empty($result['ok'])) {
-                throw new RuntimeException((string)($result['error'] ?? 'Nao foi possivel limpar a sessao do WhatsApp.'));
+                $error = (string)($result['error'] ?? 'Nao foi possivel limpar a sessao do WhatsApp.');
+                if (!empty($result['local_reset']['error'])) {
+                    $error .= ' Limpeza local: ' . (string)$result['local_reset']['error'];
+                }
+                throw new RuntimeException($error);
             }
             flash_set('success', 'Sessao WhatsApp limpa. Clique em iniciar para gerar um QR Code novo.');
             redirect_to('studio_whatsapp');
