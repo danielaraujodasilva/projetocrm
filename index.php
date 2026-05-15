@@ -172,6 +172,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = (string)($result['error'] ?? 'Nao foi possivel iniciar o WhatsApp.');
                 if (!empty($result['auto_start']['error'])) {
                     $error .= ' Tentativa automatica: ' . (string)$result['auto_start']['error'];
+                    if (!empty($result['auto_start']['health_error'])) {
+                        $error .= ' Health: ' . (string)$result['auto_start']['health_error'];
+                    }
+                    if (!empty($result['auto_start']['install_output'])) {
+                        $error .= ' Install: ' . mb_substr((string)$result['auto_start']['install_output'], 0, 250);
+                    }
+                    if (!empty($result['auto_start']['log_tail'])) {
+                        $error .= ' Log: ' . mb_substr((string)$result['auto_start']['log_tail'], -500);
+                    }
                 }
                 throw new RuntimeException($error);
             }

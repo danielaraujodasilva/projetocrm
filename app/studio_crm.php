@@ -343,6 +343,7 @@ function studio_whatsapp_start_local_service(array $studio): array
     $logFile = $logDir . '/whatsapp_service.log';
     $pidFile = $servicePath . '/whatsapp_service.pid';
     $installOutput = '';
+    $startOutput = '';
 
     if (!is_dir($servicePath . '/node_modules')) {
         $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev 2>&1';
@@ -364,11 +365,34 @@ function studio_whatsapp_start_local_service(array $studio): array
         }
     }
 
+    $health = [];
+    for ($attempt = 0; $attempt < 6; $attempt++) {
+        usleep(700000);
+        $health = studio_whatsapp_request($studio, 'GET', '/health', [], 2);
+        if (!empty($health['ok'])) {
+            return [
+                'ok' => true,
+                'message' => 'Servico WhatsApp iniciado automaticamente.',
+                'install_output' => mb_substr($installOutput, 0, 1000),
+                'start_output' => mb_substr($startOutput, 0, 500),
+                'health' => $health,
+                'log_file' => $logFile,
+            ];
+        }
+    }
+
+    $logTail = '';
+    if (is_file($logFile)) {
+        $logTail = mb_substr((string)file_get_contents($logFile), -1500);
+    }
+
     return [
-        'ok' => true,
-        'message' => 'Servico WhatsApp iniciado automaticamente.',
+        'ok' => false,
+        'error' => 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
         'install_output' => mb_substr($installOutput, 0, 1000),
-        'start_output' => mb_substr($startOutput ?? '', 0, 500),
+        'start_output' => mb_substr($startOutput, 0, 500),
+        'health_error' => (string)($health['error'] ?? ''),
+        'log_tail' => $logTail,
         'log_file' => $logFile,
     ];
 }
