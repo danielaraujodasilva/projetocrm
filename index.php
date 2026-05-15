@@ -826,6 +826,7 @@ if ($page === 'studio_whatsapp') {
         } elseif (!empty($serviceStatus['qrImage'])) {
             echo '<div class="qr-box"><img src="' . h((string)$serviceStatus['qrImage']) . '" alt="QR Code WhatsApp"></div>';
             echo '<p class="muted">Escaneie este QR Code no WhatsApp do estudio.</p>';
+            echo '<script>setTimeout(function(){ window.location.reload(); }, 15000);</script>';
         } elseif (!empty($serviceStatus['phone'])) {
             echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
         } elseif ($status === 'starting') {

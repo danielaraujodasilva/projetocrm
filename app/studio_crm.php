@@ -311,12 +311,10 @@ function studio_whatsapp_service_is_local(array $studio): bool
 
 function studio_shell_exec_available(): bool
 {
-    if (!function_exists('shell_exec') && !function_exists('popen')) {
-        return false;
-    }
-
     $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
-    return !in_array('shell_exec', $disabled, true) || !in_array('popen', $disabled, true);
+
+    return (function_exists('shell_exec') && !in_array('shell_exec', $disabled, true))
+        || (function_exists('popen') && !in_array('popen', $disabled, true));
 }
 
 function studio_whatsapp_start_local_service(array $studio): array
@@ -594,9 +592,9 @@ function studio_write_windows_whatsapp_action_launcher(
         $lines[] = 'if not exist node_modules npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
         $lines[] = 'start "" /B cmd /C npm.cmd start ^>^> "' . $log . '" 2^>^&1';
         $lines[] = 'timeout /T 5 /NOBREAK > nul';
-        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/start' -ContentType 'application/json' -Body '" . $payloadJson . "' | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
+        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/start' -ContentType 'application/json' -Body '" . $payloadJson . "' -TimeoutSec 20 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
     } elseif ($action === 'disconnect') {
-        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/logout' -ContentType 'application/json' -Body '{}' | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
+        $lines[] = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -Method Post -Uri '" . $baseUrl . "/logout' -ContentType 'application/json' -Body '{}' -TimeoutSec 8 | ConvertTo-Json -Compress\" >> \"" . $log . "\" 2>&1";
     }
 
     file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
@@ -658,6 +656,10 @@ function studio_whatsapp_background_context(array $studio): array
 
 function studio_queue_whatsapp_action(array $studio, string $action): array
 {
+    if (!in_array($action, ['start', 'disconnect', 'reset'], true)) {
+        return ['ok' => false, 'error' => 'Acao WhatsApp invalida.'];
+    }
+
     if (!studio_whatsapp_service_is_local($studio)) {
         return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso disparar acao em background.'];
     }
@@ -670,6 +672,12 @@ function studio_queue_whatsapp_action(array $studio, string $action): array
     if (!is_dir($ctx['servicePath']) || !is_file($ctx['servicePath'] . '/package.json')) {
         return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
     }
+
+    @file_put_contents(
+        $ctx['logFile'],
+        '[' . date('Y-m-d H:i:s') . '] CRM queued WhatsApp action: ' . $action . PHP_EOL,
+        FILE_APPEND
+    );
 
     if (PHP_OS_FAMILY === 'Windows') {
         if ($action === 'reset') {
@@ -688,7 +696,7 @@ function studio_queue_whatsapp_action(array $studio, string $action): array
 function studio_whatsapp_service_status(array $studio): array
 {
     $sessionKey = studio_session_key($studio);
-    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], 5);
+    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], 2);
     if (!empty($status['ok']) && !empty($status['status'])) {
         $platformStatus = match ((string)$status['status']) {
             'connected' => 'connected',

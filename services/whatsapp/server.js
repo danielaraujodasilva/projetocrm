@@ -152,10 +152,23 @@ function createSession(sessionKey) {
     studioSlug: "",
     studioName: "",
     startedAt: Math.floor(Date.now() / 1000),
+    restartAttempts: 0,
+    shouldReconnect: false,
+    reconnectTimer: null,
     lidToPhone: new Map()
   };
   sessions.set(key, session);
   return session;
+}
+
+function sessionStartConfig(session) {
+  return {
+    webhookUrl: session.webhookUrl,
+    webhookToken: session.webhookToken,
+    studioId: session.studioId,
+    studioSlug: session.studioSlug,
+    studioName: session.studioName
+  };
 }
 
 async function postWebhook(session, payload) {
@@ -186,6 +199,11 @@ async function startSession(sessionKey, config = {}) {
   session.studioId = config.studioId || session.studioId || null;
   session.studioSlug = config.studioSlug || session.studioSlug || "";
   session.studioName = config.studioName || session.studioName || "";
+  session.shouldReconnect = true;
+  if (session.reconnectTimer) {
+    clearTimeout(session.reconnectTimer);
+    session.reconnectTimer = null;
+  }
 
   if (session.sock && ["connected", "waiting_qr", "starting"].includes(session.status)) {
     return session;
@@ -199,17 +217,18 @@ async function startSession(sessionKey, config = {}) {
   const { state, saveCreds } = await useMultiFileAuthState(path.join(sessionsDir, session.key, "auth_info"));
   const { version } = await fetchLatestBaileysVersion();
 
-  session.sock = makeWASocket({
+  const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
     logger: pino({ level: "silent" }),
     markOnlineOnConnect: true
   });
+  session.sock = sock;
 
-  session.sock.ev.on("creds.update", saveCreds);
+  sock.ev.on("creds.update", saveCreds);
 
-  session.sock.ev.on("connection.update", async (update) => {
+  sock.ev.on("connection.update", async (update) => {
     const { connection, qr, lastDisconnect } = update;
     const disconnectCode = lastDisconnect?.error?.output?.statusCode;
     const disconnectMessage = lastDisconnect?.error?.message || "";
@@ -232,7 +251,9 @@ async function startSession(sessionKey, config = {}) {
       session.status = "connected";
       session.qr = "";
       session.qrImage = "";
-      session.phone = jidToDigits(session.sock?.user?.id || "");
+      session.restartAttempts = 0;
+      session.shouldReconnect = true;
+      session.phone = jidToDigits(sock.user?.id || "");
       await notifyStatus(session, "connected", "WhatsApp conectado.");
       console.log(`[${session.key}] WhatsApp conectado ${session.phone || ""}`);
     }
@@ -240,16 +261,43 @@ async function startSession(sessionKey, config = {}) {
     if (connection === "close") {
       const code = disconnectCode;
       const loggedOut = code === DisconnectReason.loggedOut;
-      session.status = loggedOut ? "disconnected" : "disconnected";
-      session.sock = null;
+      const shouldReconnect = session.shouldReconnect !== false && !loggedOut;
+      if (session.sock === sock) {
+        session.sock = null;
+      }
       session.qr = "";
       session.qrImage = "";
       session.lastError = [disconnectMessage, code ? `codigo ${code}` : ""].filter(Boolean).join(" | ");
+
+      if (shouldReconnect) {
+        session.status = "starting";
+        session.restartAttempts = (session.restartAttempts || 0) + 1;
+        const delay = Math.min(1000 * session.restartAttempts, 5000);
+        console.log(`[${session.key}] Conexao fechada; tentando reconectar em ${delay}ms`);
+        notifyStatus(session, "starting", "Conexao fechada; tentando reconectar automaticamente.").catch(() => null);
+        if (session.reconnectTimer) {
+          clearTimeout(session.reconnectTimer);
+        }
+        const timer = setTimeout(() => {
+          session.reconnectTimer = null;
+          startSession(session.key, sessionStartConfig(session)).catch((error) => {
+            session.status = "disconnected";
+            session.lastError = error.message || "Falha ao reconectar.";
+            console.error(`[${session.key}] Falha ao reconectar:`, session.lastError);
+            notifyStatus(session, "disconnected", session.lastError).catch(() => null);
+          });
+        }, delay);
+        timer.unref?.();
+        session.reconnectTimer = timer;
+        return;
+      }
+
+      session.status = "disconnected";
       await notifyStatus(session, session.status, loggedOut ? "Sessao encerrada." : "Conexao fechada; reconecte pelo painel se necessario.");
     }
   });
 
-  session.sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (!["notify", "append"].includes(type)) return;
 
     for (const msg of messages) {
@@ -303,7 +351,7 @@ async function startSession(sessionKey, config = {}) {
     }
   });
 
-  session.sock.ev.on("messages.update", async (updates) => {
+  sock.ev.on("messages.update", async (updates) => {
     for (const item of updates) {
       const messageId = item.key?.id;
       const status = normalizeBaileysStatus(item.update?.status);
@@ -317,7 +365,7 @@ async function startSession(sessionKey, config = {}) {
     }
   });
 
-  session.sock.ev.on("message-receipt.update", async (updates) => {
+  sock.ev.on("message-receipt.update", async (updates) => {
     for (const item of updates) {
       const messageId = item.key?.id;
       const receipt = item.receipt || {};
@@ -397,6 +445,11 @@ app.post("/studios/:sessionKey/logout", async (req, res) => {
   try {
     const key = safeSessionKey(req.params.sessionKey);
     const session = sessions.get(key) || createSession(key);
+    session.shouldReconnect = false;
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
+    }
     if (session.sock) {
       await session.sock.logout().catch(() => null);
       session.sock.end?.();
@@ -416,6 +469,11 @@ app.post("/studios/:sessionKey/reset", async (req, res) => {
   try {
     const key = safeSessionKey(req.params.sessionKey);
     const session = sessions.get(key) || createSession(key);
+    session.shouldReconnect = false;
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
+    }
     if (session.sock) {
       await session.sock.logout().catch(() => null);
       session.sock.end?.();
