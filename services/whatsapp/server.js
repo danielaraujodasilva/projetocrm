@@ -12,7 +12,6 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const pino = require("pino");
-const QRCode = require("qrcode");
 
 const app = express();
 app.use(express.json({ limit: "30mb" }));
@@ -145,6 +144,14 @@ function extractContactNumber(session, key) {
   return { numero: "", source: "not_found" };
 }
 
+function fallbackContactNumberFromJid(jid) {
+  const digits = jidToDigits(jid);
+  if (digits.length >= 10) {
+    return digits;
+  }
+  return "";
+}
+
 function createSession(sessionKey) {
   const key = safeSessionKey(sessionKey);
   const existing = sessions.get(key);
@@ -155,7 +162,6 @@ function createSession(sessionKey) {
     status: "disconnected",
     sock: null,
     qr: "",
-    qrImage: "",
     pairingCode: "",
     pairingPhone: "",
     phone: "",
@@ -237,29 +243,50 @@ async function startSession(sessionKey, config = {}) {
     clearTimeout(session.reconnectTimer);
     session.reconnectTimer = null;
   }
-
   if (session.sock && ["connected", "waiting_qr", "starting"].includes(session.status)) {
     return session;
+  }
+
+  const authDir = path.join(sessionsDir, session.key, "auth_info");
+  const credsPath = path.join(authDir, "creds.json");
+  let shouldResetAuth = String(session.lastError || "").includes("401") || String(session.lastError || "").toLowerCase().includes("loggedout");
+  if (!shouldResetAuth && fs.existsSync(credsPath)) {
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+      shouldResetAuth = creds?.registered === false;
+    } catch {
+      shouldResetAuth = true;
+    }
+  }
+  if (shouldResetAuth && fs.existsSync(authDir)) {
+    try {
+      fs.rmSync(authDir, { recursive: true, force: true });
+      logSession(session, "Auth antiga removida para forcar novo pareamento");
+      session.lastError = "";
+      session.pairingCode = "";
+      session.pairingPhone = "";
+    } catch (error) {
+      logSession(session, "Falha ao remover auth antiga", { error: error.message });
+    }
   }
 
   session.status = "starting";
   session.lastError = "";
   session.pairingCode = "";
   session.startedAt = Math.floor(Date.now() / 1000);
-  fs.mkdirSync(path.join(sessionsDir, session.key, "auth_info"), { recursive: true });
+  fs.mkdirSync(authDir, { recursive: true });
 
-  const { state, saveCreds } = await useMultiFileAuthState(path.join(sessionsDir, session.key, "auth_info"));
+  const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.windows("ProjetoCRM"),
+    browser: Browsers.windows("Chrome"),
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
     keepAliveIntervalMs: 20000,
-    qrTimeout: 120000,
     logger: pino({ level: "silent" }),
     markOnlineOnConnect: false,
     syncFullHistory: false
@@ -269,29 +296,18 @@ async function startSession(sessionKey, config = {}) {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
-    const { connection, qr, lastDisconnect } = update;
+    const { connection, lastDisconnect } = update;
     const disconnectCode = lastDisconnect?.error?.output?.statusCode;
     const disconnectMessage = lastDisconnect?.error?.message || "";
 
     logSession(session, "connection.update", {
       connection: connection || "",
-      hasQr: !!qr,
       disconnectCode: disconnectCode || "",
       disconnectMessage
     });
 
-    if (qr) {
-      session.qr = qr;
-      session.qrImage = await QRCode.toDataURL(qr, { margin: 1, scale: 5 });
-      session.pairingCode = "";
-      session.status = "waiting_qr";
-      notifyStatusAsync(session, "waiting_qr", "QR Code gerado para vincular WhatsApp.");
-    }
-
     if (connection === "open") {
       session.status = "connected";
-      session.qr = "";
-      session.qrImage = "";
       session.pairingCode = "";
       session.pairingPhone = "";
       session.restartAttempts = 0;
@@ -313,8 +329,6 @@ async function startSession(sessionKey, config = {}) {
       if (session.sock === sock) {
         session.sock = null;
       }
-      session.qr = "";
-      session.qrImage = "";
       session.pairingCode = "";
       session.lastError = [disconnectMessage, code ? `codigo ${code}` : ""].filter(Boolean).join(" | ");
       logSession(session, "connection.closed", {
@@ -326,7 +340,7 @@ async function startSession(sessionKey, config = {}) {
       if (badSession) {
         fs.rmSync(path.join(sessionsDir, session.key), { recursive: true, force: true });
         session.status = "disconnected";
-        notifyStatusAsync(session, "disconnected", "Sessao invalida removida. Gere um novo QR Code.");
+        notifyStatusAsync(session, "disconnected", "Sessao invalida removida. Gere um novo codigo de pareamento.");
         return;
       }
 
@@ -370,6 +384,13 @@ async function startSession(sessionKey, config = {}) {
       if (!jid || jid.endsWith("@g.us") || jid.endsWith("@broadcast")) continue;
 
       const identity = extractContactNumber(session, key);
+      if (!identity.numero) {
+        const fallbackPhone = fallbackContactNumberFromJid(jid);
+        if (fallbackPhone) {
+          identity.numero = fallbackPhone;
+          identity.source = "jid_fallback";
+        }
+      }
       if (!identity.numero) continue;
       if (jid.endsWith("@lid") && identity.source !== "lid_fallback") {
         session.lidToPhone.set(jidToDigits(jid), identity.numero);
@@ -395,7 +416,13 @@ async function startSession(sessionKey, config = {}) {
         }
       }
 
-      if (!String(texto || "").trim() && !mediaInfo) continue;
+      if (!String(texto || "").trim() && !mediaInfo) {
+        logSession(session, "Mensagem recebida sem texto/midia descartada", {
+          remoteJid: jid,
+          fromMe: !!key.fromMe
+        });
+        continue;
+      }
 
       await postWebhook(session, {
         numero: identity.numero,
@@ -458,8 +485,6 @@ function sessionPublicState(session) {
     sessionKey: session.key,
     status: session.status,
     phone: session.phone,
-    qrImage: session.qrImage,
-    hasQr: !!session.qr,
     pairingCode: session.pairingCode,
     pairingPhone: session.pairingPhone,
     lastError: session.lastError,
@@ -477,7 +502,7 @@ function sleep(ms) {
 async function waitForSessionStartResult(session, timeoutMs = 12000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (session.status === "waiting_qr" || session.status === "connected" || session.qrImage || session.lastError) {
+    if (session.status === "waiting_qr" || session.status === "connected" || session.lastError) {
       break;
     }
     await sleep(500);
@@ -498,7 +523,23 @@ app.get("/studios/:sessionKey/status", (req, res) => {
 
 app.post("/studios/:sessionKey/start", async (req, res) => {
   try {
-    const session = await waitForSessionStartResult(await startSession(req.params.sessionKey, req.body || {}));
+    const key = safeSessionKey(req.params.sessionKey);
+    const current = sessions.get(key) || createSession(key);
+    current.shouldReconnect = false;
+    if (current.reconnectTimer) {
+      clearTimeout(current.reconnectTimer);
+      current.reconnectTimer = null;
+    }
+    if (current.sock) {
+      await current.sock.logout().catch(() => null);
+      current.sock.end?.();
+      current.sock = null;
+    }
+
+    sessions.delete(key);
+    fs.rmSync(path.join(sessionsDir, key), { recursive: true, force: true });
+
+    const session = await waitForSessionStartResult(await startSession(key, req.body || {}));
     res.json(sessionPublicState(session));
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message || "Erro ao iniciar sessao." });
@@ -514,16 +555,19 @@ app.post("/studios/:sessionKey/pairing-code", async (req, res) => {
     }
 
     const previousSession = sessions.get(key) || createSession(key);
-    if (previousSession.sock && previousSession.status !== "connected") {
-      previousSession.shouldReconnect = false;
+    previousSession.shouldReconnect = false;
+    if (previousSession.reconnectTimer) {
+      clearTimeout(previousSession.reconnectTimer);
+      previousSession.reconnectTimer = null;
+    }
+    if (previousSession.sock) {
+      await previousSession.sock.logout().catch(() => null);
       previousSession.sock.end?.();
       previousSession.sock = null;
     }
 
-    if (previousSession.status !== "connected") {
-      sessions.delete(key);
-      fs.rmSync(path.join(sessionsDir, key), { recursive: true, force: true });
-    }
+    sessions.delete(key);
+    fs.rmSync(path.join(sessionsDir, key), { recursive: true, force: true });
 
     const session = await startSession(key, {
       ...sessionStartConfig(previousSession),
@@ -537,15 +581,31 @@ app.post("/studios/:sessionKey/pairing-code", async (req, res) => {
       return res.json(sessionPublicState(session));
     }
 
-    const code = await session.sock.requestPairingCode(number);
-    session.pairingCode = String(code || "").replace(/(.{4})/g, "$1-").replace(/-$/, "");
-    session.pairingPhone = number;
-    session.status = "waiting_qr";
-    session.qr = "";
-    session.qrImage = "";
-    logSession(session, "Codigo de pareamento gerado", { phone: number });
-    res.json(sessionPublicState(session));
+    logSession(session, "Solicitando codigo de pareamento", { phone: number });
+    const requestCode = async () => {
+      const code = await session.sock.requestPairingCode(number);
+      session.pairingCode = String(code || "").replace(/\s+/g, "").trim();
+      session.pairingPhone = number;
+      session.status = "waiting_qr";
+      session.lastError = "";
+      logSession(session, "Codigo de pareamento gerado", { phone: number });
+      return sessionPublicState(session);
+    };
+
+    await sleep(1500);
+    try {
+      return res.json(await requestCode());
+    } catch (firstError) {
+      logSession(session, "Falha inicial ao gerar codigo; tentando novamente", { error: firstError.message || String(firstError) });
+      await sleep(2500);
+      try {
+        return res.json(await requestCode());
+      } catch (secondError) {
+        throw secondError;
+      }
+    }
   } catch (error) {
+    console.error(`[${safeSessionKey(req.params.sessionKey)}] Falha ao gerar codigo de pareamento:`, error);
     res.status(500).json({ ok: false, error: error.message || "Erro ao gerar codigo de pareamento." });
   }
 });
@@ -565,8 +625,6 @@ app.post("/studios/:sessionKey/logout", async (req, res) => {
     }
     session.sock = null;
     session.status = "disconnected";
-    session.qr = "";
-    session.qrImage = "";
     session.pairingCode = "";
     session.pairingPhone = "";
     notifyStatusAsync(session, "disconnected", "Sessao desconectada.");

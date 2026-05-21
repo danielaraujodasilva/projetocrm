@@ -376,10 +376,11 @@ function studio_whatsapp_start_local_service(array $studio): array
     $needsInstall = !is_dir($servicePath . '/node_modules');
 
     if (PHP_OS_FAMILY === 'Windows') {
-        $launcher = studio_write_windows_whatsapp_launcher($servicePath, $logFile, $port, $needsInstall);
-        $startCommand = 'start "" ' . studio_windows_cmd_arg($launcher);
-        shell_exec($startCommand . ' 2>&1');
-        $startOutput = $needsInstall ? 'Instalacao/inicio disparados em background.' : 'Inicio disparado em background.';
+        $log = str_replace('"', '', $logFile);
+        $nodeExe = trim((string)(getenv('NODE_EXE') ?: 'node'));
+        $startCommand = 'Start-Process -WindowStyle Hidden -WorkingDirectory "' . str_replace('"', '', $servicePath) . '" -FilePath ' . studio_windows_cmd_arg($nodeExe) . ' -ArgumentList ' . studio_windows_cmd_arg('server.js');
+        studio_windows_start_process($startCommand);
+        $startOutput = 'Inicio disparado em background.';
     } else {
         if ($needsInstall) {
             $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1';
@@ -520,8 +521,9 @@ function studio_reset_whatsapp_session_locally(array $studio): array
     $needsInstall = !is_dir($servicePath . '/node_modules');
 
     if (PHP_OS_FAMILY === 'Windows') {
-        $launcher = studio_write_windows_whatsapp_reset_launcher($servicePath, $sessionPath, $logFile, $port, $needsInstall);
-        shell_exec('start "" ' . studio_windows_cmd_arg($launcher) . ' 2>&1');
+        $nodeExe = trim((string)(getenv('NODE_EXE') ?: 'node'));
+        $resetCommand = 'Remove-Item -Recurse -Force "' . str_replace('"', '', $sessionPath) . '"; Start-Process -WindowStyle Hidden -WorkingDirectory "' . str_replace('"', '', $servicePath) . '" -FilePath ' . studio_windows_cmd_arg($nodeExe) . ' -ArgumentList ' . studio_windows_cmd_arg('server.js');
+        studio_windows_start_process($resetCommand);
     } else {
         $install = $needsInstall ? 'npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1 && ' : '';
         $command = '(lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill; rm -rf ' . escapeshellarg($sessionPath)
@@ -557,43 +559,23 @@ function studio_windows_cmd_arg(string $value): string
     return '"' . str_replace('"', '', $value) . '"';
 }
 
-function studio_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
-{
-    $launcher = $servicePath . '/whatsapp_service_start.cmd';
-    $log = str_replace('"', '', $logFile);
-    $lines = [
-        '@echo off',
-        'cd /d "' . str_replace('"', '', $servicePath) . '"',
-        'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
-        'echo. >> "' . $log . '"',
-        'echo [%date% %time%] Starting WhatsApp service launcher >> "' . $log . '"',
-    ];
-
-    $lines[] = 'call npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
-    $lines[] = 'call npm.cmd start >> "' . $log . '" 2>&1';
-    if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
-        throw new RuntimeException('Nao consegui gravar o iniciador do servico WhatsApp.');
-    }
-
-    return $launcher;
-}
-
 function studio_windows_json_string(array $payload): string
 {
     return str_replace("'", "''", json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}');
 }
 
-function studio_run_windows_launcher(string $launcher): void
+function studio_windows_start_process(string $command): void
 {
-    $command = 'cmd /D /C start "" /MIN ' . studio_windows_cmd_arg($launcher);
+    $escaped = escapeshellarg('Start-Process -WindowStyle Hidden -WorkingDirectory ' . studio_windows_cmd_arg(getcwd() ?: '.') . ' -FilePath powershell.exe -ArgumentList ' . studio_windows_cmd_arg('-NoProfile -ExecutionPolicy Bypass -Command ' . $command));
+    $shell = 'powershell -NoProfile -ExecutionPolicy Bypass -Command ' . $escaped;
 
     if (function_exists('shell_exec')) {
-        @shell_exec($command . ' 2>&1');
+        @shell_exec($shell . ' 2>&1');
         return;
     }
 
     if (function_exists('popen')) {
-        $handle = @popen($command, 'r');
+        $handle = @popen($shell, 'r');
         if (is_resource($handle)) {
             @pclose($handle);
         }
@@ -609,7 +591,7 @@ function studio_write_windows_whatsapp_action_launcher(
     array $payload = []
 ): string {
     $safeAction = preg_replace('/[^a-z0-9_-]+/i', '-', $action) ?: 'action';
-    $launcher = $servicePath . '/whatsapp_service_' . $safeAction . '.cmd';
+    $launcher = sys_get_temp_dir() . '/projetocrm_whatsapp_' . $safeAction . '_' . uniqid() . '.cmd';
     $baseUrl = 'http://localhost:' . studio_windows_env_value($port) . '/studios/' . rawurlencode($sessionKey);
     $payloadJson = studio_windows_json_string($payload);
     $log = str_replace('"', '', $logFile);
@@ -649,7 +631,7 @@ function studio_write_windows_whatsapp_action_launcher(
 
 function studio_write_windows_whatsapp_reset_launcher(string $servicePath, string $sessionPath, string $logFile, string $port, bool $install): string
 {
-    $launcher = $servicePath . '/whatsapp_service_reset.cmd';
+    $launcher = sys_get_temp_dir() . '/projetocrm_whatsapp_reset_' . uniqid() . '.cmd';
     $lines = [
         '@echo off',
         'echo [%date% %time%] Reset WhatsApp session started >> "' . str_replace('"', '', $logFile) . '"',
@@ -721,14 +703,24 @@ function studio_queue_whatsapp_action(array $studio, string $action, ?array $pay
     studio_append_whatsapp_service_log('CRM queued WhatsApp action: ' . $action);
 
     if (PHP_OS_FAMILY === 'Windows') {
+        $baseLog = str_replace('"', '', $ctx['logFile']);
+        $servicePath = str_replace('"', '', $ctx['servicePath']);
+        $port = studio_windows_env_value($ctx['port']);
+        $sessionKey = $ctx['sessionKey'];
+        $payloadJson = studio_windows_json_string($payload ?? $ctx['payload']);
+
         if ($action === 'reset') {
-            $launcher = studio_write_windows_whatsapp_reset_launcher($ctx['servicePath'], $ctx['sessionPath'], $ctx['logFile'], $ctx['port'], $ctx['needsInstall']);
+            $command = 'cd /d "' . $servicePath . '" && rmdir /S /Q "' . str_replace('"', '', $ctx['sessionPath']) . '" && set "WHATSAPP_PORT=' . $port . '" && call npm.cmd install --omit=dev >> "' . $baseLog . '" 2>&1 && call npm.cmd start >> "' . $baseLog . '" 2>&1';
         } else {
-            $launcher = studio_write_windows_whatsapp_action_launcher($ctx['servicePath'], $ctx['logFile'], $ctx['port'], $action, $ctx['sessionKey'], $payload ?? $ctx['payload']);
+            $command = 'cd /d "' . $servicePath . '" && set "WHATSAPP_PORT=' . $port . '"';
+            if ($action === 'start' || $action === 'restart' || $action === 'pairing_code') {
+                $command .= ' && call npm.cmd install --omit=dev >> "' . $baseLog . '" 2>&1';
+            }
+            $command .= ' && call npm.cmd start >> "' . $baseLog . '" 2>&1';
         }
 
-        studio_run_windows_launcher($launcher);
-        return ['ok' => true, 'pending' => true, 'message' => 'Acao WhatsApp disparada em background.', 'launcher' => $launcher];
+        studio_windows_start_process($command);
+        return ['ok' => true, 'pending' => true, 'message' => 'Acao WhatsApp disparada em background.', 'payload' => $payloadJson, 'sessionKey' => $sessionKey];
     }
 
     return ['ok' => false, 'error' => 'Disparo em background ainda nao configurado para este sistema operacional.'];
@@ -772,9 +764,13 @@ function studio_launch_whatsapp_service(array $studio, array $ctx): array
     studio_append_whatsapp_service_log('CRM trying to launch WhatsApp service on port ' . $ctx['port']);
 
     if (PHP_OS_FAMILY === 'Windows') {
-        $launcher = studio_write_windows_whatsapp_launcher($ctx['servicePath'], $ctx['logFile'], $ctx['port'], $ctx['needsInstall']);
-        studio_run_windows_launcher($launcher);
-        return ['ok' => true, 'launcher' => $launcher, 'log_file' => $ctx['logFile']];
+        $command = 'cd /d "' . str_replace('"', '', $ctx['servicePath']) . '" && set "WHATSAPP_PORT=' . studio_windows_env_value($ctx['port']) . '"';
+        if ($ctx['needsInstall']) {
+            $command .= ' && call npm.cmd install --omit=dev >> "' . str_replace('"', '', $ctx['logFile']) . '" 2>&1';
+        }
+        $command .= ' && call npm.cmd start >> "' . str_replace('"', '', $ctx['logFile']) . '" 2>&1';
+        studio_windows_start_process($command);
+        return ['ok' => true, 'log_file' => $ctx['logFile']];
     }
 
     $install = $ctx['needsInstall'] ? 'npm install --omit=dev >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 && ' : '';
@@ -870,8 +866,19 @@ function studio_start_whatsapp_session(array $studio): array
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM start requested for session ' . $ctx['sessionKey']);
 
-    $result = studio_queue_whatsapp_action($studio, 'start');
-    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
+    $service = studio_ensure_whatsapp_service($studio, $ctx);
+    if (empty($service['ok'])) {
+        studio_update_whatsapp_platform_status($studio, 'error');
+        return $service;
+    }
+
+    $payload = $ctx['payload'];
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/start', $payload, 20);
+    if (empty($result['ok'])) {
+        $result = studio_queue_whatsapp_action($studio, 'start');
+    }
+
+    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
     studio_event((int)$studio['id'], 'whatsapp_session_started', 'Sessao WhatsApp solicitada no servico multi-estudio.');
     return $result;
 }
@@ -886,10 +893,18 @@ function studio_request_whatsapp_pairing_code(array $studio, string $phone): arr
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM pairing code requested for session ' . $ctx['sessionKey'] . ' phone ' . $phone);
 
+    $service = studio_ensure_whatsapp_service($studio, $ctx);
+    if (empty($service['ok'])) {
+        studio_update_whatsapp_platform_status($studio, 'error');
+        return $service;
+    }
+
     $payload = $ctx['payload'];
     $payload['numero'] = $phone;
-
-    $result = studio_queue_whatsapp_action($studio, 'pairing_code', $payload);
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/pairing-code', $payload, 20);
+    if (empty($result['ok'])) {
+        $result = studio_queue_whatsapp_action($studio, 'pairing_code', $payload);
+    }
 
     studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
     studio_event((int)$studio['id'], 'whatsapp_pairing_code_requested', 'Codigo de pareamento WhatsApp solicitado pelo painel.');

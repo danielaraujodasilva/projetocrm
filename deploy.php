@@ -166,7 +166,7 @@ function projetocrm_stop_windows_port(string $port): string
 
 function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
 {
-    $launcher = $servicePath . '/whatsapp_service_start.cmd';
+    $launcher = sys_get_temp_dir() . '/projetocrm_whatsapp_start_' . uniqid() . '.cmd';
     $lines = [
         '@echo off',
         'cd /d "' . str_replace('"', '', $servicePath) . '"',
@@ -178,6 +178,7 @@ function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string 
     }
 
     $lines[] = 'call npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    $lines[] = 'del "%~f0"';
     file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
 
     return $launcher;
