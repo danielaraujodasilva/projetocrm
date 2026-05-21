@@ -144,6 +144,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'import_calendar_ics') {
+            $studio = require_studio();
+            if (empty($_FILES['ics_file']['tmp_name'])) {
+                throw new RuntimeException('Envie um arquivo .ics valido.');
+            }
+            $result = studio_import_calendar_ics($studio, (string)$_FILES['ics_file']['tmp_name']);
+            flash_set('success', 'ICS importado: ' . (int)$result['inserted'] . ' novos, ' . (int)$result['updated'] . ' atualizados, ' . (int)$result['skipped'] . ' ignorados.');
+            redirect_to('studio_agenda');
+        }
+
         if ($action === 'save_artist') {
             $studio = require_studio();
             studio_save_artist($studio, $_POST);
@@ -799,6 +809,12 @@ if ($page === 'studio_agenda') {
 
         echo '<section class="panel"><div class="actions calendar-toolbar">';
         echo '<h2>Calendario</h2>';
+        echo '<form class="inline-form" method="post" enctype="multipart/form-data">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="import_calendar_ics">';
+        echo '<input type="file" name="ics_file" accept=".ics,text/calendar" required>';
+        echo '<button class="btn secondary" type="submit">Importar ICS</button>';
+        echo '</form>';
         foreach (['month' => 'Mes', 'week' => 'Semana', 'day' => 'Dia', 'list' => 'Blocos'] as $key => $label) {
             echo '<a class="btn ' . ($view === $key ? '' : 'secondary') . '" href="' . h(app_url('studio_agenda', ['cal_view' => $key, 'date' => $focus->format('Y-m-d')])) . '">' . h($label) . '</a>';
         }
@@ -1038,12 +1054,25 @@ if ($page === 'studio_whatsapp_conversation') {
         $leads = studio_list_leads($studio);
         $artists = studio_list_artists($studio);
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
+        $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
 
         echo '<section class="conversation-layout">';
         echo '<div class="panel conversation-main">';
-        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
+        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button><button class="btn secondary" type="button" data-mode-toggle="human">Humano</button><button class="btn secondary" type="button" data-status-set="novo">Novo</button><button class="btn secondary" type="button" data-status-set="agendado">Agendado</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
         echo '<div class="mini-metrics conversation-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span></div>';
         render_chat_messages($messages);
+        if ($scheduleSuggestion) {
+            echo '<div class="panel" style="margin-top:12px;padding:12px">';
+            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start">';
+            echo '<div><strong>Sugestao de agendamento</strong><div class="muted text-sm">' . h($scheduleSuggestion['reason']) . '</div></div>';
+            echo '<button class="btn secondary" type="button" id="applyScheduleSuggestionButton">Usar sugestao</button>';
+            echo '</div>';
+            echo '<div class="mini-metrics" style="margin-top:10px">';
+            echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
+            echo '</div></div>';
+        }
         if ($quickReplies) {
             echo '<details class="suggestion-group"><summary>Respostas rapidas</summary><div class="quick-reply-list">';
             foreach (array_slice($quickReplies, 0, 12) as $reply) {
@@ -1051,10 +1080,17 @@ if ($page === 'studio_whatsapp_conversation') {
             }
             echo '</div></details>';
         }
-        echo '<form class="form send-box" method="post">';
+        echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
         echo '<div class="field"><label>Responder</label><textarea id="reply-message" name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
+        echo '<div class="chat-attach-row">';
+        echo '<input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
+        echo '<button class="btn secondary" type="button" id="chatAttachmentButton">Anexar</button>';
+        echo '<button class="btn secondary" type="button" id="chatRecordButton">Gravar audio</button>';
+        echo '<span id="chatRecordingState" class="muted"></span>';
+        echo '</div>';
+        echo '<div id="chatAttachmentPreview" class="chat-attachment-preview hidden"></div>';
         echo '<button class="btn" type="submit">Enviar mensagem</button>';
         echo '</form></div>';
 
@@ -1114,6 +1150,41 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<p><strong>Funil:</strong> ' . h(($conversation['lead_status'] ?: '-') . ' / ' . ($conversation['lead_pipeline_stage'] ?: '-')) . '</p>';
         echo '<p><strong>Ultima mensagem:</strong> ' . h($conversation['last_message_at'] ?: '-') . '</p>';
         echo '</div></aside></section>';
+        echo '<div id="mediaOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:900px"><div class="crm-panel-header"><div><h3 id="mediaOverlayTitle" class="crm-panel-title">Midia</h3></div><button type="button" id="closeMediaOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="mediaOverlayBody" class="p-4 flex items-center justify-center"></div></div></div>';
+        echo '<script>';
+        echo '(() => {';
+        echo 'const form = document.getElementById("chatComposer");';
+        echo 'const input = document.getElementById("chatAttachment");';
+        echo 'const preview = document.getElementById("chatAttachmentPreview");';
+        echo 'const attachBtn = document.getElementById("chatAttachmentButton");';
+        echo 'const recordBtn = document.getElementById("chatRecordButton");';
+        echo 'const recordState = document.getElementById("chatRecordingState");';
+        echo 'const textarea = document.getElementById("reply-message");';
+        echo 'const applyScheduleSuggestionButton = document.getElementById("applyScheduleSuggestionButton");';
+        echo 'const mediaOverlay = document.getElementById("mediaOverlay");';
+        echo 'const mediaOverlayTitle = document.getElementById("mediaOverlayTitle");';
+        echo 'const mediaOverlayBody = document.getElementById("mediaOverlayBody");';
+        echo 'const closeMediaOverlay = document.getElementById("closeMediaOverlay");';
+        echo 'let recorder = null; let stream = null; let chunks = []; let recordedFile = null; let recordingTimer = null; let startedAt = 0;';
+        echo 'function clearAttachment(){ input.value = ""; recordedFile = null; preview.classList.add("hidden"); preview.innerHTML = ""; recordState.textContent = ""; if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; } if (recorder && recorder.state !== "inactive") recorder.stop(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } recordBtn.textContent = "Gravar audio"; }';
+        echo 'function renderPreview(){ const file = recordedFile || (input.files && input.files[0]); if (!file) { preview.classList.add("hidden"); preview.innerHTML = ""; return; } const url = URL.createObjectURL(file); let content = `<div class=\"flex items-center gap-3 flex-wrap\">`; if (file.type.startsWith("image/")) { content += `<img src=\"${url}\" style=\"max-width:180px;max-height:140px;border-radius:8px\">`; } else if (file.type.startsWith("audio/")) { content += `<audio src=\"${url}\" controls style=\"width:280px;max-width:100%\"></audio>`; } else if (file.type.startsWith("video/")) { content += `<video src=\"${url}\" controls style=\"max-width:220px;max-height:160px\"></video>`; } content += `<div><strong>${file.name}</strong><div class=\"muted text-sm\">${file.type || "arquivo"}</div></div><button type=\"button\" class=\"btn tiny secondary\" id=\"clearAttachmentBtn\">Remover</button></div>`; preview.classList.remove("hidden"); preview.innerHTML = content; const clearBtn = document.getElementById("clearAttachmentBtn"); if (clearBtn) clearBtn.addEventListener("click", clearAttachment); }';
+        echo 'attachBtn.addEventListener("click", () => input.click());';
+        echo 'input.addEventListener("change", () => { recordedFile = null; renderPreview(); });';
+        echo 'document.querySelectorAll(".quick-reply-copy").forEach(button => button.addEventListener("click", () => { const reply = button.dataset.reply || ""; textarea.value = textarea.value ? textarea.value + "\\n" + reply : reply; textarea.focus(); }));';
+        echo 'document.querySelectorAll(".chat-media-thumb").forEach(button => button.addEventListener("click", () => { const src = button.dataset.mediaSrc || ""; const title = button.dataset.mediaTitle || "Midia"; if (!src || !mediaOverlay || !mediaOverlayBody || !mediaOverlayTitle) return; mediaOverlayTitle.textContent = title; mediaOverlayBody.innerHTML = `<img src="${src}" style="max-width:100%;max-height:78vh;border-radius:10px">`; mediaOverlay.classList.remove("hidden"); }));';
+        echo 'if (closeMediaOverlay && mediaOverlay) { closeMediaOverlay.addEventListener("click", () => mediaOverlay.classList.add("hidden")); mediaOverlay.addEventListener("click", event => { if (event.target === mediaOverlay) mediaOverlay.classList.add("hidden"); }); }';
+        echo 'if (applyScheduleSuggestionButton) { applyScheduleSuggestionButton.addEventListener("click", () => { const title = ' . json_encode($scheduleSuggestion['title'] ?? '') . '; const date = ' . json_encode($scheduleSuggestion['date'] ?? '') . '; const time = ' . json_encode($scheduleSuggestion['time'] ?? '') . '; const desc = ' . json_encode($scheduleSuggestion['description'] ?? '') . '; const artist = ' . json_encode($scheduleSuggestion['artist_id'] ?? '') . '; const titleInput = document.querySelector(\'[name="title"]\'); const dateInput = document.querySelector(\'[name="appointment_date"]\'); const startTimeInput = document.querySelector(\'[name="start_time"]\'); const descInput = document.querySelector(\'[name="description"]\'); const artistInput = document.querySelector(\'[name="artist_id"]\'); if (titleInput) titleInput.value = title; if (dateInput) dateInput.value = date; if (startTimeInput) startTimeInput.value = time; if (descInput) descInput.value = desc; if (artistInput && artist) artistInput.value = artist; document.getElementById("scheduleButton").click(); }); }';
+        echo 'function refreshConversationState(cliente) { if (!cliente) return; updateActiveFromPayload(cliente); renderActiveConversation(); }';
+        echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button => button.addEventListener("click", () => { const action = button.dataset.modeToggle === "bot" ? "bot" : "assumir"; postAttendanceAction({ action, id: ' . json_encode($conversationId) . ' }).then(data => { if (!data.ok) throw new Error(data.message || "Erro ao alterar atendimento"); if (data.cliente) { refreshConversationState(data.cliente); } return data; }).catch(error => alert(error.message)); }));';
+        echo 'document.querySelectorAll("[data-status-set]").forEach(button => button.addEventListener("click", () => { postAttendanceAction({ action: "status", id: ' . json_encode($conversationId) . ', status: button.dataset.statusSet || "novo" }).then(data => { if (!data.ok) throw new Error(data.message || "Erro ao atualizar status"); if (data.cliente) { refreshConversationState(data.cliente); } }).catch(error => alert(error.message)); }));';
+        echo 'async function toggleRecording(){ if (recorder && recorder.state === "recording") { recorder.stop(); return; } if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { alert("Seu navegador nao liberou gravacao de audio aqui."); return; } try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? { mimeType: "audio/webm;codecs=opus" } : {}; recorder = new MediaRecorder(stream, options); chunks = []; startedAt = Date.now(); recordBtn.textContent = "Parar"; recordState.textContent = "Gravando..."; recordingTimer = setInterval(() => { const elapsed = Math.floor((Date.now() - startedAt) / 1000); recordState.textContent = `Gravando ${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`; }, 500); recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); }; recorder.onstop = () => { if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; } if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } const mime = recorder.mimeType || "audio/webm"; const blob = new Blob(chunks, { type: mime }); recordedFile = new File([blob], `audio_${Date.now()}.webm`, { type: mime }); const dt = new DataTransfer(); dt.items.add(recordedFile); input.files = dt.files; renderPreview(); recordBtn.textContent = "Gravar audio"; recordState.textContent = "Audio pronto para envio"; }; recorder.start(); } catch (error) { alert("Nao foi possivel iniciar a gravacao."); } }';
+        echo 'recordBtn.addEventListener("click", toggleRecording);';
+        echo 'if (form) form.addEventListener("submit", async (event) => { event.preventDefault(); event.stopPropagation(); const hasText = !!textarea.value.trim(); const hasFile = !!(input.files && input.files.length); if (!hasText && !hasFile) return; const formData = new FormData(form); try { const response = await fetch(window.location.pathname + window.location.search, { method: "POST", body: formData }); if (!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); textarea.value = ""; clearAttachment(); const refresh = await fetch(`api_chat.php?id=${encodeURIComponent(' . json_encode($conversationId) . ')}`, { cache: "no-store" }); const data = await refresh.json().catch(() => null); if (data?.ok) { const item = getActive(); if (item) { item.mensagens = data.mensagens || []; renderConversationList(); renderActiveConversation(); } } } catch (error) { alert(error.message || "Erro ao enviar mensagem"); } });';
+        echo 'const pollConversation = async () => { const item = getActive(); if (!item) return; try { const response = await fetch(`api_chat.php?id=${encodeURIComponent(item.id)}`, { cache: "no-store" }); const data = await response.json().catch(() => null); if (!data?.ok) return; const before = (item.mensagens || []).length; item.mensagens = data.mensagens || []; renderConversationList(); renderActiveConversation(); if ((item.mensagens || []).length !== before) { const thread = document.getElementById("chatMessages"); if (thread) thread.scrollTop = thread.scrollHeight; } if (unreadCount(item) > 0) markConversationRead(item); } catch (error) {} };';
+        echo 'setInterval(pollConversation, 3000);';
+        echo 'document.addEventListener("click", async (event) => { const btn = event.target.closest("[data-transcribe-audio]"); if (!btn) return; event.preventDefault(); if (btn.dataset.busy === "1") return; btn.dataset.busy = "1"; const oldLabel = btn.textContent; btn.textContent = "Transcrevendo..."; try { const response = await fetch("api/whatsapp_transcribe_audio.php", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ conversation_id: ' . (int)$conversationId . ', message_id: btn.dataset.transcribeAudio || "", media_url: btn.dataset.mediaUrl || "" }) }); const data = await response.json().catch(() => null); if (!data?.ok) throw new Error(data?.error || "Nao foi possivel transcrever o audio"); const bubble = btn.closest(".chat-bubble"); if (bubble) { let box = bubble.querySelector(".chat-transcription-result"); if (!box) { box = document.createElement("div"); box.className = "chat-transcription-result"; box.style.cssText = "margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,.2);font-size:.9rem"; bubble.appendChild(box); } box.textContent = "Transcricao: " + data.text; } btn.textContent = "Transcrito"; } catch (error) { alert(error.message); btn.textContent = oldLabel; } finally { btn.dataset.busy = "0"; } });';
+        echo '})();';
+        echo '</script>';
     }, $flash);
     exit;
 }
@@ -1966,6 +2037,23 @@ function render_whatsapp_table(array $conversations): void
 
 function render_chat_messages(array $messages): void
 {
+    $inferMediaType = static function (string $mime, string $mediaUrl, string $type): string {
+        $mime = strtolower(trim($mime));
+        $ext = strtolower(pathinfo((string)(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl), PATHINFO_EXTENSION));
+        if ($mime !== '') {
+            if (str_starts_with($mime, 'image/')) return 'image';
+            if (str_starts_with($mime, 'video/')) return 'video';
+            if (str_starts_with($mime, 'audio/')) return 'audio';
+        }
+        $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        $videoExts = ['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv'];
+        $audioExts = ['mp3', 'wav', 'ogg', 'oga', 'opus', 'webm', 'm4a', 'aac'];
+        if (in_array($ext, $imageExts, true) || $type === 'image') return 'image';
+        if (in_array($ext, $videoExts, true) || $type === 'video') return 'video';
+        if (in_array($ext, $audioExts, true) || $type === 'audio') return 'audio';
+        return $type ?: 'document';
+    };
+
     echo '<div class="chat-thread">';
     if (!$messages) {
         echo '<p class="muted">Ainda nao ha mensagens registradas nesta conversa.</p>';
@@ -1975,11 +2063,37 @@ function render_chat_messages(array $messages): void
         $class = $direction === 'out' ? 'out' : 'in';
         $body = (string)($message['body'] ?? '');
         $type = (string)($message['message_type'] ?? 'texto');
+        $mime = (string)($message['media_mime'] ?? '');
+        $mediaUrl = (string)($message['media_url'] ?? '');
+        $mediaName = (string)($message['media_file_name'] ?? '');
+        $kind = $inferMediaType($mime, $mediaUrl, $type);
+        if ($mediaName === '' && $mediaUrl !== '') {
+            $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl);
+        }
         echo '<div class="chat-message ' . h($class) . '">';
         echo '<div class="chat-bubble">';
-        echo '<p>' . nl2br(h($body !== '' ? $body : '[' . $type . ']')) . '</p>';
-        if (!empty($message['media_url'])) {
-            echo '<a class="muted" href="' . h($message['media_url']) . '" target="_blank" rel="noopener">Abrir midia</a>';
+        if ($mediaUrl !== '') {
+            if ($kind === 'image') {
+                echo '<button type="button" class="chat-media-thumb" data-media-src="' . h($mediaUrl) . '" data-media-title="' . h($mediaName ?: 'mídia') . '"><img src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'mídia') . '" style="max-width:260px;max-height:220px;border-radius:8px"></button>';
+            } elseif ($kind === 'video') {
+                echo '<video src="' . h($mediaUrl) . '" controls style="max-width:280px;max-height:220px;border-radius:8px"></video>';
+            } elseif ($kind === 'audio') {
+                echo '<audio src="' . h($mediaUrl) . '" controls style="width:280px;max-width:100%"></audio>';
+                echo '<button class="btn tiny secondary" type="button" data-transcribe-audio="' . h($message['message_id'] ?? '') . '" data-media-url="' . h($mediaUrl) . '">Transcrever audio</button>';
+            } else {
+                echo '<a class="muted" href="' . h($mediaUrl) . '" target="_blank" rel="noopener">Abrir anexo' . ($mediaName !== '' ? ': ' . h($mediaName) : '') . '</a>';
+            }
+        }
+        if ($body !== '') {
+            echo '<p>' . nl2br(h($body)) . '</p>';
+        } elseif ($type !== 'texto' && $mediaUrl === '') {
+            echo '<p>' . h('[' . $type . ']') . '</p>';
+        }
+        if (!empty($message['transcricao'])) {
+            echo '<div class="chat-transcription-result">' . h((string)$message['transcricao']) . '</div>';
+        }
+        if (!empty($message['transcricao_erro'])) {
+            echo '<div class="chat-transcription-error">' . h((string)$message['transcricao_erro']) . '</div>';
         }
         echo '<span>' . h(($message['sender_type'] ?? '-') . ' | ' . ($message['sent_at'] ?? '-') . (($message['status'] ?? '') ? ' | ' . $message['status'] : '')) . '</span>';
         echo '</div></div>';

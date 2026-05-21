@@ -409,8 +409,9 @@ async function startSession(sessionKey, config = {}) {
             { logger: pino({ level: "silent" }) }
           );
           mediaPayload.mediaBase64 = buffer.toString("base64");
-          mediaPayload.mediaMime = mediaInfo.payload.mimetype || "";
-          mediaPayload.mediaFileName = mediaInfo.payload.fileName || `${mediaInfo.type}_${key.id || Date.now()}`;
+          mediaPayload.mediaMime = mediaInfo.payload.mimetype || mediaInfo.payload.mimeType || mediaInfo.payload.mime || "";
+          mediaPayload.mediaFileName = mediaInfo.payload.fileName || mediaInfo.payload.filename || `${mediaInfo.type}_${key.id || Date.now()}`;
+          mediaPayload.mediaCaption = mediaInfo.payload.caption || "";
         } catch (error) {
           console.error(`[${session.key}] Erro ao baixar midia:`, error.message);
         }
@@ -676,23 +677,32 @@ app.post("/studios/:sessionKey/send", async (req, res) => {
 
     const numero = String(req.body?.numero || "").replace(/\D/g, "");
     const jid = String(req.body?.jid || "").trim();
-    const mensagem = String(req.body?.mensagem || "").trim();
-    const media = req.body?.media || null;
-    if ((!numero && !jid) || (!mensagem && !media?.base64)) {
-      return res.status(422).json({ ok: false, error: "Numero e mensagem obrigatorios." });
+  const mensagem = String(req.body?.mensagem || "").trim();
+  const media = req.body?.media || null;
+  if ((!numero && !jid) || (!mensagem && !media?.base64)) {
+    return res.status(422).json({ ok: false, error: "Numero e mensagem obrigatorios." });
+  }
+
+  const destinoJid = jid || `${numero}@s.whatsapp.net`;
+  let payload = { text: mensagem };
+  if (media?.base64) {
+    const buffer = Buffer.from(media.base64, "base64");
+    const mime = String(media.mime || "application/octet-stream");
+    const fileName = String(media.fileName || "arquivo");
+    const kind = String(media.kind || "").toLowerCase();
+    if (kind === "image" || mime.startsWith("image/")) {
+      payload = { image: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
+    } else if (kind === "video" || mime.startsWith("video/")) {
+      payload = { video: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
+    } else if (kind === "audio" || mime.startsWith("audio/")) {
+      payload = { audio: buffer, mimetype: mime, fileName, ptt: false };
+      if (mensagem) payload.caption = mensagem;
+    } else {
+      payload = { document: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
     }
+  }
 
-    const destinoJid = jid || `${numero}@s.whatsapp.net`;
-    const payload = media?.base64
-      ? {
-          document: Buffer.from(media.base64, "base64"),
-          mimetype: media.mime || "application/octet-stream",
-          fileName: media.fileName || "arquivo",
-          caption: mensagem || undefined
-        }
-      : { text: mensagem };
-
-    const result = await session.sock.sendMessage(destinoJid, payload);
+  const result = await session.sock.sendMessage(destinoJid, payload);
     res.json({ ok: true, messageId: result?.key?.id || "", remoteJid: result?.key?.remoteJid || destinoJid });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message || "Erro ao enviar mensagem." });

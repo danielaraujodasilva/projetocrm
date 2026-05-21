@@ -1653,6 +1653,72 @@ function studio_whatsapp_needs_human(string $text): bool
     return false;
 }
 
+function studio_whatsapp_schedule_suggestion(array $conversation, array $messages, array $artists): array
+{
+    $text = strtolower(trim((string)($conversation['last_message_preview'] ?? '')));
+    foreach (array_slice(array_reverse($messages), 0, 6) as $message) {
+        $text .= ' ' . strtolower(trim((string)($message['body'] ?? '')));
+    }
+
+    $reason = 'Conversa com sinais de agendamento.';
+    $title = 'Atendimento';
+    if (str_contains($text, 'fech') || str_contains($text, 'agenda') || str_contains($text, 'horario') || str_contains($text, 'sinal')) {
+        $reason = 'A conversa cita agenda, sinal ou fechamento.';
+        $title = 'Agendamento de tatuagem';
+    } elseif (str_contains($text, 'cobertura')) {
+        $reason = 'A conversa cita cobertura, bom para uma reserva dedicada.';
+        $title = 'Cobertura';
+    } elseif (str_contains($text, 'feminina') || str_contains($text, 'masculina')) {
+        $reason = 'A conversa sugere estilo/pedido especifico.';
+        $title = 'Orcamento / atendimento';
+    }
+
+    $artistId = '';
+    foreach ($artists as $artist) {
+        $specialty = strtolower((string)($artist['specialty'] ?? ''));
+        $name = strtolower((string)($artist['name'] ?? ''));
+        if ($specialty !== '' && (str_contains($text, $specialty) || str_contains($title, $specialty))) {
+            $artistId = (string)$artist['id'];
+            break;
+        }
+        if ($artistId === '' && $name !== '' && str_contains($text, $name)) {
+            $artistId = (string)$artist['id'];
+        }
+    }
+    if ($artistId === '' && $artists) {
+        $artistId = (string)($artists[0]['id'] ?? '');
+    }
+
+    $date = date('Y-m-d');
+    if (str_contains($text, 'amanha')) {
+        $date = date('Y-m-d', strtotime('+1 day'));
+    } elseif (str_contains($text, 'sabado')) {
+        $date = date('Y-m-d', strtotime('next saturday'));
+    } elseif (str_contains($text, 'segunda')) {
+        $date = date('Y-m-d', strtotime('next monday'));
+    }
+
+    $time = '10:00';
+    if (preg_match('/\b(1[0-9]|2[0-1]):[0-5][0-9]\b/', $text, $match)) {
+        $time = $match[0];
+    } elseif (str_contains($text, 'tarde')) {
+        $time = '14:00';
+    } elseif (str_contains($text, 'manha')) {
+        $time = '09:00';
+    } elseif (str_contains($text, 'noite')) {
+        $time = '18:00';
+    }
+
+    return [
+        'title' => $title,
+        'reason' => $reason,
+        'date' => $date,
+        'time' => $time,
+        'description' => (string)($conversation['last_message_preview'] ?? ''),
+        'artist_id' => $artistId,
+    ];
+}
+
 function studio_upsert_whatsapp_conversation(array $studio, array $payload): array
 {
     $pdo = studio_db($studio);
@@ -1767,6 +1833,18 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     }
     $body = trim((string)($payload['mensagem'] ?? $payload['body'] ?? ''));
     $messageType = trim((string)($payload['tipoMensagem'] ?? $payload['messageType'] ?? 'texto')) ?: 'texto';
+    $mediaMime = trim((string)($payload['mediaMime'] ?? $payload['media_mime'] ?? ''));
+    if ($messageType === 'texto' && $mediaMime !== '') {
+        if (str_starts_with($mediaMime, 'image/')) {
+            $messageType = 'image';
+        } elseif (str_starts_with($mediaMime, 'video/')) {
+            $messageType = 'video';
+        } elseif (str_starts_with($mediaMime, 'audio/')) {
+            $messageType = 'audio';
+        } else {
+            $messageType = 'document';
+        }
+    }
     $timestamp = (int)($payload['timestamp'] ?? time());
     if ($timestamp > 2000000000) {
         $timestamp = (int)floor($timestamp / 1000);
@@ -1788,7 +1866,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         $senderType,
         $body,
         trim((string)($payload['mediaUrl'] ?? '')),
-        trim((string)($payload['mediaMime'] ?? '')),
+        $mediaMime,
         $messageType,
         $messageId !== '' ? $messageId : null,
         $remoteJid,
@@ -1819,6 +1897,42 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     return ['ok' => true, 'conversation_id' => (int)$conversation['id']];
 }
 
+function studio_update_whatsapp_message_transcription(array $studio, array $payload): array
+{
+    $pdo = studio_db($studio);
+    $messageId = trim((string)($payload['messageId'] ?? $payload['message_id'] ?? ''));
+    $mediaUrl = trim((string)($payload['mediaUrl'] ?? $payload['media_url'] ?? ''));
+    $text = trim((string)($payload['text'] ?? ''));
+    $error = trim((string)($payload['error'] ?? ''));
+    if ($text === '' && $error === '') {
+        throw new RuntimeException('Transcricao vazia.');
+    }
+
+    $sql = 'UPDATE whatsapp_messages SET ';
+    $params = [];
+    if ($text !== '') {
+        $sql .= 'transcricao = ?, transcricao_erro = NULL, ';
+        $params[] = $text;
+    } else {
+        $sql .= 'transcricao_erro = ?, ';
+        $params[] = $error;
+    }
+    $sql .= 'updated_at = NOW() WHERE ';
+    if ($messageId !== '') {
+        $sql .= 'message_id = ?';
+        $params[] = $messageId;
+    } elseif ($mediaUrl !== '') {
+        $sql .= 'media_url = ?';
+        $params[] = $mediaUrl;
+    } else {
+        throw new RuntimeException('Mensagem de audio invalida.');
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return ['ok' => true, 'updated' => $stmt->rowCount()];
+}
+
 function studio_send_whatsapp_message(array $studio, array $data): array
 {
     $phone = normalize_phone((string)($data['phone'] ?? $data['numero'] ?? ''));
@@ -1828,18 +1942,29 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         $phone = normalize_phone((string)($conversationById['phone'] ?? ''));
     }
     $message = trim((string)($data['message'] ?? $data['mensagem'] ?? ''));
-    if ($phone === '' || $message === '') {
-        throw new RuntimeException('Informe telefone e mensagem.');
+    $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
+    if ($phone === '' || ($message === '' && empty($upload['base64']))) {
+        throw new RuntimeException('Informe telefone, mensagem ou anexo.');
     }
 
     $conversation = studio_find_whatsapp_conversation_by_phone($studio, $phone);
     $jid = trim((string)($conversation['remote_jid'] ?? ''));
     $sessionKey = studio_session_key($studio);
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/send', [
+    $payload = [
         'numero' => $phone,
         'jid' => $jid,
         'mensagem' => $message,
-    ], 25);
+    ];
+    if (!empty($upload['base64'])) {
+        $payload['media'] = [
+            'base64' => $upload['base64'],
+            'mime' => $upload['mime'],
+            'fileName' => $upload['fileName'],
+            'kind' => $upload['kind'],
+        ];
+    }
+
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/send', $payload, 25);
 
     if (empty($result['ok'])) {
         throw new RuntimeException((string)($result['error'] ?? $result['erro'] ?? 'Nao foi possivel enviar pelo WhatsApp.'));
@@ -1853,10 +1978,79 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         'messageId' => $result['messageId'] ?? null,
         'remoteJid' => $result['remoteJid'] ?? $jid,
         'timestamp' => time(),
-        'tipoMensagem' => 'texto',
+        'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
+        'mediaUrl' => $upload['relativePath'] ?? '',
+        'mediaMime' => $upload['mime'] ?? '',
+        'mediaFileName' => $upload['fileName'] ?? '',
     ]);
 
     return $result;
+}
+
+function studio_prepare_whatsapp_attachment(array $studio, array $data, array $files, int $conversationId = 0): array
+{
+    $file = $files['media_file'] ?? null;
+    if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        return ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
+    }
+
+    if (!empty($file['error'])) {
+        throw new RuntimeException('Nao foi possivel ler o anexo enviado.');
+    }
+
+    $maxSize = 20 * 1024 * 1024;
+    if (!empty($file['size']) && (int)$file['size'] > $maxSize) {
+        throw new RuntimeException('Anexo muito grande. Use um arquivo de ate 20MB.');
+    }
+
+    $mime = trim((string)($file['type'] ?? ''));
+    if ($mime === '' && function_exists('mime_content_type')) {
+        $mime = (string)@mime_content_type($file['tmp_name']);
+    }
+    $mime = $mime !== '' ? $mime : 'application/octet-stream';
+    $fileName = trim((string)($file['name'] ?? 'arquivo'));
+    $fileName = $fileName !== '' ? $fileName : 'arquivo';
+    $ext = strtolower((string)pathinfo($fileName, PATHINFO_EXTENSION));
+    $kind = 'document';
+    if (str_starts_with($mime, 'image/')) {
+        $kind = 'image';
+    } elseif (str_starts_with($mime, 'video/')) {
+        $kind = 'video';
+    } elseif (str_starts_with($mime, 'audio/')) {
+        $kind = 'audio';
+    }
+
+    $root = realpath(__DIR__ . '/../');
+    if (!$root) {
+        throw new RuntimeException('Nao consegui localizar o diretório do projeto.');
+    }
+
+    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
+    $safeConversation = $conversationId > 0 ? 'conv_' . $conversationId : 'conv';
+    $folder = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'whatsapp-attachments' . DIRECTORY_SEPARATOR . $safeStudio . DIRECTORY_SEPARATOR . $safeConversation;
+    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
+        throw new RuntimeException('Nao foi possivel criar a pasta de anexos.');
+    }
+
+    $base = pathinfo($fileName, PATHINFO_FILENAME);
+    $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $base) ?: 'arquivo';
+    $stamp = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+    $storedName = $stamp . '_' . $base . ($ext !== '' ? '.' . $ext : '');
+    $dest = $folder . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+        throw new RuntimeException('Nao foi possivel salvar o anexo.');
+    }
+
+    $relativePath = 'storage/whatsapp-attachments/' . $safeStudio . '/' . $safeConversation . '/' . $storedName;
+    $base64 = base64_encode((string)file_get_contents($dest));
+
+    return [
+        'base64' => $base64,
+        'mime' => $mime,
+        'fileName' => $fileName,
+        'kind' => $kind,
+        'relativePath' => $relativePath,
+    ];
 }
 
 function studio_report_data(array $studio): array
@@ -2071,6 +2265,185 @@ function studio_save_appointment(array $studio, array $data): int
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
 
     return $appointmentId;
+}
+
+function studio_import_calendar_ics(array $studio, string $icsPath): array
+{
+    if (!is_file($icsPath)) {
+        throw new RuntimeException('Arquivo ICS nao encontrado.');
+    }
+
+    $raw = (string)file_get_contents($icsPath);
+    if ($raw === '') {
+        throw new RuntimeException('Arquivo ICS vazio.');
+    }
+
+    $events = studio_parse_ics_events($raw);
+    $pdo = studio_db($studio);
+    $inserted = 0;
+    $updated = 0;
+    $skipped = 0;
+
+    foreach ($events as $event) {
+        $uid = trim((string)($event['UID'] ?? $event['uid'] ?? ''));
+        $start = (string)($event['DTSTART'] ?? $event['dtstart'] ?? '');
+        $end = (string)($event['DTEND'] ?? $event['dtend'] ?? '');
+        $summary = trim((string)($event['SUMMARY'] ?? $event['summary'] ?? ''));
+        if ($summary === '' || $start === '') {
+            $skipped++;
+            continue;
+        }
+
+        $startDt = studio_ics_datetime_to_local($start);
+        $endDt = $end !== '' ? studio_ics_datetime_to_local($end) : null;
+        if (!$startDt) {
+            $skipped++;
+            continue;
+        }
+
+        $title = mb_substr($summary, 0, 180);
+        $description = trim((string)($event['DESCRIPTION'] ?? $event['description'] ?? ''));
+        $date = $startDt->format('Y-m-d');
+        $startTime = $startDt->format('H:i:s');
+        $endTime = $endDt ? $endDt->format('H:i:s') : null;
+        $importUid = $uid !== '' ? $uid : sha1($title . '|' . $date . '|' . $startTime . '|' . $endTime);
+
+        $stmt = $pdo->prepare('SELECT id FROM appointments WHERE import_source = ? AND import_uid = ? LIMIT 1');
+        $stmt->execute(['google_ics', $importUid]);
+        $existingId = (int)($stmt->fetchColumn() ?: 0);
+
+        $payload = [
+            'title' => $title,
+            'description' => $description,
+            'appointment_date' => $date,
+            'start_time' => $startTime,
+            'end_time' => $endTime ?: '',
+            'status' => 'confirmado',
+            'value' => 0,
+            'deposit_value' => 0,
+            'customer_id' => 0,
+            'lead_id' => 0,
+            'artist_id' => 0,
+        ];
+
+        if ($existingId > 0) {
+            $stmt = $pdo->prepare(
+                'UPDATE appointments
+                 SET title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, updated_at = NOW()
+                 WHERE id = ?'
+            );
+            $stmt->execute([
+                $payload['title'],
+                $payload['description'],
+                $payload['appointment_date'],
+                $payload['start_time'],
+                $payload['end_time'] ?: null,
+                $payload['status'],
+                $existingId,
+            ]);
+            $updated++;
+            continue;
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO appointments
+                (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, import_source, import_uid, raw_title, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+        );
+        $stmt->execute([
+            null,
+            null,
+            null,
+            $payload['title'],
+            $payload['description'],
+            $payload['appointment_date'],
+            $payload['start_time'],
+            $payload['end_time'] ?: null,
+            $payload['status'],
+            0,
+            0,
+            'google_ics',
+            $importUid,
+            $summary,
+        ]);
+        $inserted++;
+    }
+
+    return [
+        'ok' => true,
+        'inserted' => $inserted,
+        'updated' => $updated,
+        'skipped' => $skipped,
+        'total' => count($events),
+    ];
+}
+
+function studio_parse_ics_events(string $raw): array
+{
+    $raw = str_replace(["\r\n", "\r"], "\n", $raw);
+    $lines = explode("\n", $raw);
+    $unfolded = [];
+    foreach ($lines as $line) {
+        if ($line === '') {
+            continue;
+        }
+        if (isset($unfolded[count($unfolded) - 1]) && ($line[0] === ' ' || $line[0] === "\t")) {
+            $unfolded[count($unfolded) - 1] .= ltrim($line);
+            continue;
+        }
+        $unfolded[] = $line;
+    }
+
+    $events = [];
+    $current = null;
+    foreach ($unfolded as $line) {
+        if (trim($line) === 'BEGIN:VEVENT') {
+            $current = [];
+            continue;
+        }
+        if (trim($line) === 'END:VEVENT') {
+            if (is_array($current)) {
+                $events[] = $current;
+            }
+            $current = null;
+            continue;
+        }
+        if (!is_array($current)) {
+            continue;
+        }
+
+        [$name, $value] = array_pad(explode(':', $line, 2), 2, '');
+        $name = strtoupper(trim((string)explode(';', $name, 2)[0]));
+        $current[$name] = trim((string)$value);
+    }
+
+    return $events;
+}
+
+function studio_ics_datetime_to_local(string $value): ?DateTimeImmutable
+{
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    if (preg_match('/^\d{8}T\d{6}Z$/', $value)) {
+        $dt = DateTimeImmutable::createFromFormat('Ymd\THis\Z', $value, new DateTimeZone('UTC'));
+        return $dt ? $dt->setTimezone($tz) : null;
+    }
+
+    if (preg_match('/^\d{8}T\d{6}$/', $value)) {
+        $dt = DateTimeImmutable::createFromFormat('Ymd\THis', $value, $tz);
+        return $dt ?: null;
+    }
+
+    if (preg_match('/^\d{8}$/', $value)) {
+        $dt = DateTimeImmutable::createFromFormat('Ymd', $value, $tz);
+        return $dt ?: null;
+    }
+
+    return null;
 }
 
 function studio_sync_lead_from_appointment(array $studio, int $leadId, string $appointmentStatus, float $value, string $lastContactAt): void
