@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual de Uso | Projeto CRM</title>
+  <meta name="description" content="Manual online do Projeto CRM para usuários que receberam login e senha.">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#08090d;--surface:#11131a;--surface-2:#171a23;--line:rgba(255,255,255,.10);
+      --txt:#f5f7fb;--muted:#a8b1c4;--brand:#ff365f;--brand2:#7c3cff;--ok:#27d39f;--warn:#ffd166;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:
+      radial-gradient(circle at 12% 8%,rgba(255,54,95,.22),transparent 26rem),
+      radial-gradient(circle at 90% 20%,rgba(124,60,255,.18),transparent 28rem),
+      linear-gradient(180deg,#08090d 0%,#0c0e14 45%,#08090d 100%); color:var(--txt);}
+    .glass{background:linear-gradient(180deg,rgba(255,255,255,.075),rgba(255,255,255,.035));border:1px solid var(--line);box-shadow:0 24px 80px rgba(0,0,0,.35);backdrop-filter:blur(14px)}
+    .hero{min-height:72vh;display:grid;place-items:center;padding:88px 0 48px;position:relative;overflow:hidden}
+    .hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,#000,transparent 80%);pointer-events:none}
+    .brand-badge{display:inline-flex;gap:.6rem;align-items:center;padding:.55rem .85rem;border:1px solid rgba(255,54,95,.35);border-radius:999px;background:rgba(255,54,95,.12);color:#ffdce4;font-weight:700}
+    .hero h1{font-size:clamp(2.4rem,7vw,5.8rem);line-height:.95;letter-spacing:-.07em;font-weight:900;margin:.8rem 0 1rem}
+    .gradient-text{background:linear-gradient(90deg,#fff,#ffdce4 38%,#b9a3ff 74%,#fff);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .lead-xl{font-size:clamp(1.05rem,2.1vw,1.35rem);color:var(--muted);max-width:820px}
+    .btn-brand{--bs-btn-bg:var(--brand);--bs-btn-border-color:var(--brand);--bs-btn-hover-bg:#ff1748;--bs-btn-hover-border-color:#ff1748;--bs-btn-color:#fff;box-shadow:0 14px 40px rgba(255,54,95,.28)}
+    .btn-ghost{border-color:var(--line);background:rgba(255,255,255,.04);color:#fff}.btn-ghost:hover{border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.08);color:#fff}
+    .sticky-nav{position:sticky;top:0;z-index:1000;background:rgba(8,9,13,.72);backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+    .nav-pills .nav-link{color:var(--muted);border:1px solid transparent}.nav-pills .nav-link:hover,.nav-pills .nav-link.active{color:#fff;background:rgba(255,54,95,.12);border-color:rgba(255,54,95,.35)}
+    section{scroll-margin-top:96px}.section-title{font-weight:900;letter-spacing:-.035em}.section-kicker{color:var(--brand);font-weight:800;text-transform:uppercase;letter-spacing:.12em;font-size:.78rem}
+    .step-card{height:100%;transition:.18s transform,.18s border-color}.step-card:hover{transform:translateY(-4px);border-color:rgba(255,54,95,.35)}
+    .step-number{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--brand),var(--brand2));font-weight:900;color:#fff;box-shadow:0 12px 26px rgba(255,54,95,.24)}
+    .accordion-item{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:18px!important;overflow:hidden;margin-bottom:12px}.accordion-button{background:rgba(255,255,255,.035);color:#fff;font-weight:800}.accordion-button:not(.collapsed){background:rgba(255,54,95,.12);color:#fff;box-shadow:none}.accordion-button:focus{box-shadow:0 0 0 .2rem rgba(255,54,95,.22)}
+    .callout{border-left:4px solid var(--brand);background:rgba(255,54,95,.09);border-radius:16px;padding:1rem 1.15rem}.callout.ok{border-left-color:var(--ok);background:rgba(39,211,159,.09)}.callout.warn{border-left-color:var(--warn);background:rgba(255,209,102,.09)}
+    .feature-icon{width:44px;height:44px;border-radius:14px;background:rgba(255,255,255,.08);display:grid;place-items:center;color:#ffdce4;font-size:1.25rem}
+    .timeline{position:relative}.timeline:before{content:"";position:absolute;left:21px;top:0;bottom:0;width:2px;background:linear-gradient(var(--brand),transparent)}.timeline-item{position:relative;padding-left:64px;margin-bottom:22px}.timeline-dot{position:absolute;left:0;top:0;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);border:1px solid rgba(255,54,95,.45);color:#fff}
+    .mini{font-size:.92rem;color:var(--muted)}.tag{display:inline-flex;gap:.4rem;align-items:center;padding:.3rem .55rem;border:1px solid var(--line);border-radius:999px;color:#cdd5e7;background:rgba(255,255,255,.035);font-size:.78rem;font-weight:700}
+    .table-darkish{--bs-table-bg:rgba(255,255,255,.035);--bs-table-border-color:var(--line);--bs-table-color:#eef2ff;--bs-table-striped-bg:rgba(255,255,255,.055)}
+    .copy-box{position:relative}.copy-btn{position:absolute;right:10px;top:10px}.form-control,.form-select{background:rgba(255,255,255,.06);border-color:var(--line);color:#fff}.form-control::placeholder{color:#78839a}
+    .floating-tools{position:fixed;right:18px;bottom:18px;z-index:999;display:flex;flex-direction:column;gap:10px}.floating-tools .btn{border-radius:999px;width:48px;height:48px;display:grid;place-items:center}
+    @media print{.sticky-nav,.floating-tools,.btn,.accordion-button:after{display:none!important}.accordion-collapse{display:block!important}.glass{box-shadow:none}body{background:#fff;color:#111}.text-white,.gradient-text{color:#111!important}.mini,.text-secondary{color:#444!important}}
+  </style>
+</head>
+<body>
+  <div class="sticky-nav py-2">
+    <div class="container d-flex gap-2 align-items-center justify-content-between flex-wrap">
+      <a href="#topo" class="text-white text-decoration-none fw-black d-flex align-items-center gap-2"><span class="step-number" style="width:34px;height:34px;border-radius:10px">CRM</span><strong>Manual do Projeto CRM</strong></a>
+      <ul class="nav nav-pills gap-1 small" id="manualNav">
+        <li class="nav-item"><a class="nav-link" href="#roteiro">Roteiro</a></li>
+        <li class="nav-item"><a class="nav-link" href="#primeiro-acesso">Primeiro acesso</a></li>
+        <li class="nav-item"><a class="nav-link" href="#modulos">Módulos</a></li>
+        <li class="nav-item"><a class="nav-link" href="#rotina">Rotina</a></li>
+        <li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <header id="topo" class="hero">
+    <div class="container position-relative">
+      <div class="glass rounded-5 p-4 p-md-5">
+        <span class="brand-badge"><i class="bi bi-stars"></i> Manual online para usuário demo</span>
+        <h1 class="gradient-text">Projeto CRM<br>sem se perder no painel.</h1>
+        <p class="lead-xl mb-4">Guia linear para quem acabou de receber login e senha do CRM do estúdio: entrar, entender a home, cadastrar pessoas, mexer no funil, usar agenda, WhatsApp, financeiro, relatórios, configurações e IA. Tudo na ordem certa, porque jogar o usuário num sistema completo sem mapa é basicamente largar alguém em Guarulhos sem placa.</p>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="#roteiro" class="btn btn-brand btn-lg"><i class="bi bi-play-circle me-2"></i>Começar pelo roteiro</a>
+          <a href="#checklist" class="btn btn-ghost btn-lg"><i class="bi bi-card-checklist me-2"></i>Checklist rápido</a>
+          <button class="btn btn-ghost btn-lg" onclick="window.print()"><i class="bi bi-printer me-2"></i>Imprimir / PDF</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container pb-5">
+    <section id="roteiro" class="py-5">
+      <div class="row align-items-end mb-4">
+        <div class="col-lg-8">
+          <p class="section-kicker">Ordem recomendada</p>
+          <h2 class="section-title display-5">Aprenda nessa sequência</h2>
+          <p class="mini fs-5">A lógica é simples: primeiro você entende o painel, depois organiza pessoas e leads, agenda atendimentos, atende pelo WhatsApp, mede dinheiro e só então mexe em configuração. Sim, uma sequência civilizada. Quase raro.</p>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-md-6 col-xl-3"><div class="glass step-card rounded-4 p-4"><div class="step-number mb-3">1</div><h5>Entrar e reconhecer a tela</h5><p class="mini">Login do estúdio, menu lateral, cards da home e atalhos.</p><a href="#primeiro-acesso" class="stretched-link"></a></div></div>
+        <div class="col-md-6 col-xl-3"><div class="glass step-card rounded-4 p-4"><div class="step-number mb-3">2</div><h5>Cadastrar base</h5><p class="mini">Pessoas, clientes, leads, ficha completa e detalhes.</p><a href="#pessoas" class="stretched-link"></a></div></div>
+        <div class="col-md-6 col-xl-3"><div class="glass step-card rounded-4 p-4"><div class="step-number mb-3">3</div><h5>Operar o dia</h5><p class="mini">Funil, agenda, WhatsApp e respostas rápidas.</p><a href="#operacao" class="stretched-link"></a></div></div>
+        <div class="col-md-6 col-xl-3"><div class="glass step-card rounded-4 p-4"><div class="step-number mb-3">4</div><h5>Medir e ajustar</h5><p class="mini">Financeiro, relatórios, configurações e assistente IA.</p><a href="#gestao" class="stretched-link"></a></div></div>
+      </div>
+    </section>
+
+    <section id="primeiro-acesso" class="py-5">
+      <div class="row g-4 align-items-start">
+        <div class="col-lg-5">
+          <p class="section-kicker">1. Primeiro acesso</p>
+          <h2 class="section-title display-6">Entrando no CRM do estúdio</h2>
+          <p class="mini">Use o link de login do estúdio, e não o painel gerente. O painel gerente é para administrar estúdios, planos e bancos. O usuário demo deve entrar pelo CRM operacional.</p>
+          <div class="callout warn mt-3"><strong><i class="bi bi-exclamation-triangle me-2"></i>Atenção:</strong> se você recebeu email e senha, provavelmente seu lugar é em <strong>Entrar no CRM do estúdio</strong>. O painel gerente é outra camada do sistema.</div>
+        </div>
+        <div class="col-lg-7">
+          <div class="accordion" id="firstAccessAccordion">
+            <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#login1">🔐 Passo 1: abrir a tela de login</button></h3><div id="login1" class="accordion-collapse collapse show" data-bs-parent="#firstAccessAccordion"><div class="accordion-body"><ol><li>Acesse o endereço do CRM.</li><li>Clique em <strong>Login do estúdio</strong>, se houver escolha entre gerente e estúdio.</li><li>Digite o email e senha recebidos.</li><li>Clique em <strong>Entrar no CRM</strong>.</li></ol><span class="tag"><i class="bi bi-link-45deg"></i> Rota provável: <code>?page=studio_login</code></span></div></div></div>
+            <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#login2">🧭 Passo 2: entender o menu lateral</button></h3><div id="login2" class="accordion-collapse collapse" data-bs-parent="#firstAccessAccordion"><div class="accordion-body"><p>Depois do login, o menu lateral mostra a navegação principal:</p><div class="row g-2"><div class="col-sm-6"><span class="tag">Início</span></div><div class="col-sm-6"><span class="tag">Pessoas</span></div><div class="col-sm-6"><span class="tag">Agenda</span></div><div class="col-sm-6"><span class="tag">WhatsApp</span></div><div class="col-sm-6"><span class="tag">Financeiro</span></div><div class="col-sm-6"><span class="tag">Configurações</span></div><div class="col-sm-6"><span class="tag">Relatórios</span></div><div class="col-sm-6"><span class="tag">Assistente IA</span></div></div></div></div></div>
+            <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#login3">🏠 Passo 3: usar a Home como cockpit</button></h3><div id="login3" class="accordion-collapse collapse" data-bs-parent="#firstAccessAccordion"><div class="accordion-body"><p>A Home concentra os cards de resumo: total previsto no mês, sinais recebidos, agendamentos futuros, leads abertos, conversas pedindo humano, próximos horários livres e resultado simples do mês.</p><p class="mini mb-0">Regra prática: comece o dia pela Home, abra os cards de detalhe e resolva primeiro o que pede atenção.</p></div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="modulos" class="py-5">
+      <p class="section-kicker">2. Módulos principais</p>
+      <h2 class="section-title display-6 mb-4">O que cada área faz</h2>
+      <input id="searchModules" class="form-control form-control-lg mb-4" placeholder="Buscar no manual: lead, agenda, WhatsApp, financeiro, IA...">
+      <div class="row g-3" id="moduleCards">
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="inicio home painel métricas atalhos"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-speedometer2"></i></div><h4>Início</h4><p class="mini">Resumo operacional do estúdio: agenda de hoje, leads prioritários, vagas livres, resultado do mês e atalhos rápidos.</p><a href="#inicio" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="pessoas clientes leads cadastro ficha"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-people"></i></div><h4>Pessoas</h4><p class="mini">Base de clientes e leads. Aqui nasce a organização comercial, aquele negócio revolucionário de não depender só da memória.</p><a href="#pessoas" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="funil lead status score oportunidade"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-kanban"></i></div><h4>Leads e funil</h4><p class="mini">Controle de interesse, status, etapa, origem, valor estimado, nota 0 a 10 e próximas ações.</p><a href="#funil" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="agenda agendamento tatuador horário sinal valor"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-calendar2-week"></i></div><h4>Agenda</h4><p class="mini">Agendamentos por mês, semana, dia, blocos próximos e tatuador responsável.</p><a href="#agenda" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="whatsapp baileys conversa bot humano mensagem"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-whatsapp"></i></div><h4>WhatsApp</h4><p class="mini">Central de conversas, pareamento, envio manual, filtros, histórico, modo humano/IA e vínculo com cliente/lead.</p><a href="#whatsapp" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="financeiro despesas categorias receita saldo"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-cash-coin"></i></div><h4>Financeiro</h4><p class="mini">Cadastro de despesas, categorias e resultado simples do mês. Não substitui contador, mas já evita voar cego.</p><a href="#financeiro" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="configurações ia regras agenda resposta rápida meta"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-sliders"></i></div><h4>Configurações</h4><p class="mini">Dados do estúdio, agenda, WhatsApp, IA, respostas rápidas e regras comerciais.</p><a href="#configuracoes" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="relatórios leads agenda despesas desempenho"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-graph-up-arrow"></i></div><h4>Relatórios</h4><p class="mini">Visão de leads, agenda e despesas para entender o que está funcionando ou fingindo que funciona.</p><a href="#relatorios" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+        <div class="col-md-6 col-xl-4 module-card" data-keywords="assistente ia dados pergunta clientes agenda financeiro"><div class="glass rounded-4 p-4 h-100"><div class="feature-icon mb-3"><i class="bi bi-robot"></i></div><h4>Assistente IA</h4><p class="mini">Consulta dados do estúdio em modo somente leitura: clientes, leads, agenda, WhatsApp e financeiro.</p><a href="#assistente" class="btn btn-sm btn-ghost">Ver uso</a></div></div>
+      </div>
+    </section>
+
+    <section id="operacao" class="py-5">
+      <p class="section-kicker">3. Operação diária</p>
+      <h2 class="section-title display-6 mb-4">Como usar sem virar refém da tela</h2>
+      <div class="timeline">
+        <div id="inicio" class="timeline-item"><div class="timeline-dot"><i class="bi bi-house"></i></div><div class="glass rounded-4 p-4"><h4>Comece pela Home</h4><p class="mini">Veja agenda de hoje, leads pedindo atenção, próximos horários livres e resultado simples. Clique nos cards para abrir detalhes. Priorize: atendimento de hoje, leads quentes, conversas pedindo humano e vagas que podem virar dinheiro.</p></div></div>
+        <div id="pessoas" class="timeline-item"><div class="timeline-dot"><i class="bi bi-person-plus"></i></div><div class="glass rounded-4 p-4"><h4>Cadastre ou revise Pessoas</h4><p class="mini">Use Pessoas para trabalhar clientes e leads. Cliente é a ficha consolidada. Lead é oportunidade comercial. Quando possível, mantenha nome, telefone, Instagram, interesse, valor estimado e observações preenchidos.</p><div class="callout ok"><strong>Dica esperta:</strong> antes de criar cadastro novo, busque pelo telefone. Duplicidade em CRM é erva daninha digital.</div></div></div>
+        <div id="funil" class="timeline-item"><div class="timeline-dot"><i class="bi bi-kanban"></i></div><div class="glass rounded-4 p-4"><h4>Atualize o funil de leads</h4><p class="mini">Abra o lead, ajuste status, etapa do funil, origem, nota do lead e valor estimado. Use a nota 0 a 10 para priorizar quem tem maior chance de fechar.</p><table class="table table-darkish table-striped"><thead><tr><th>Campo</th><th>Como usar</th></tr></thead><tbody><tr><td>Status</td><td>Indica situação geral: novo, em conversa, fechado, perdido etc.</td></tr><tr><td>Etapa</td><td>Mostra onde o lead está no processo comercial.</td></tr><tr><td>Origem</td><td>Meta Ads, WhatsApp, indicação, Instagram, orgânico...</td></tr><tr><td>Valor estimado</td><td>Ajuda a medir oportunidades abertas.</td></tr><tr><td>Nota</td><td>Prioridade comercial de 0 a 10.</td></tr></tbody></table></div></div>
+        <div id="agenda" class="timeline-item"><div class="timeline-dot"><i class="bi bi-calendar-check"></i></div><div class="glass rounded-4 p-4"><h4>Crie agendamentos</h4><p class="mini">Na Agenda, selecione data, horário, status, cliente/lead, tatuador responsável, valor e sinal. O sistema também usa as regras configuradas para calcular horários disponíveis.</p><div class="row g-2"><div class="col-md-4"><span class="tag">Mês</span></div><div class="col-md-4"><span class="tag">Semana</span></div><div class="col-md-4"><span class="tag">Dia</span></div></div></div></div>
+        <div id="whatsapp" class="timeline-item"><div class="timeline-dot"><i class="bi bi-whatsapp"></i></div><div class="glass rounded-4 p-4"><h4>Atenda pelo WhatsApp</h4><p class="mini">A central mostra conversas importadas, filtros por modo humano/IA, pedidos de humano, nota mínima, conversas sem lead vinculado e envio manual. Dentro da conversa, você vê o histórico, responde, anexa arquivos, grava áudio, ajusta cadastro e cria agendamento.</p><div class="callout warn"><strong>Modo humano vs IA:</strong> se a conversa estiver em humano, a IA não deve se meter. Se estiver em IA e a configuração permitir, ela pode responder. Porque até robô precisa de limite, diferente de grupo de família.</div></div></div>
+        <div id="financeiro" class="timeline-item"><div class="timeline-dot"><i class="bi bi-cash"></i></div><div class="glass rounded-4 p-4"><h4>Lance despesas e acompanhe resultado</h4><p class="mini">Use Financeiro para cadastrar despesas e categorias. O resultado simples do mês cruza receita de agenda com despesas cadastradas. Não é contabilidade completa, é bússola.</p></div></div>
+        <div id="gestao" class="timeline-item"><div class="timeline-dot"><i class="bi bi-gear"></i></div><div class="glass rounded-4 p-4"><h4>Ajuste configurações e acompanhe relatórios</h4><p class="mini">Depois que a operação estiver rodando, configure dias de atendimento, horários disponíveis, duração dos atendimentos, frases da campanha META, provedor/modelo de IA, regras comerciais e respostas rápidas.</p></div></div>
+      </div>
+    </section>
+
+    <section id="configuracoes" class="py-5">
+      <p class="section-kicker">4. Configurações</p>
+      <h2 class="section-title display-6 mb-4">Onde mexer quando o CRM precisa obedecer o estúdio</h2>
+      <div class="accordion" id="settingsAccordion">
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#cfg1">🏪 Estúdio</button></h3><div id="cfg1" class="accordion-collapse collapse show" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Edite nome do estúdio e habilite/desabilite integração com WhatsApp.</p></div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#cfg2">📅 Agenda</button></h3><div id="cfg2" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Defina dias disponíveis, horários de atendimento e duração padrão. Exemplo: segunda a sexta, horários 10:00 e 15:00, duração de 5 horas.</p></div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#cfg3">📲 WhatsApp</button></h3><div id="cfg3" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Configure modo padrão das novas conversas, URL do serviço Baileys e frases iniciais da campanha META. Uma frase por linha.</p></div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#cfg4">🤖 IA</button></h3><div id="cfg4" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Escolha provedor, URL, modelo e permissão para a IA responder conversas marcadas como IA. Também há campo para chave OpenAI quando esse provedor for usado.</p></div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#cfg5">⚡ Respostas rápidas</button></h3><div id="cfg5" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Cadastre mensagens prontas com título, atalho, categoria, texto e status ativo. Elas ajudam no atendimento humano sem precisar redigitar sempre a mesma novela.</p></div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#cfg6">📜 Regras comerciais</button></h3><div id="cfg6" class="accordion-collapse collapse" data-bs-parent="#settingsAccordion"><div class="accordion-body"><p>Informe regras reais do estúdio para guiar a IA: horários, tom de voz, preços, exigência de sinal, o que não prometer e como perguntar informações faltantes.</p></div></div></div>
+      </div>
+    </section>
+
+    <section id="relatorios" class="py-5">
+      <div class="row g-4">
+        <div class="col-lg-6"><div class="glass rounded-4 p-4 h-100"><p class="section-kicker">5. Relatórios</p><h2 class="section-title">Leia antes de decidir</h2><p class="mini">Relatórios existem para você enxergar leads, agenda e despesas. Use para responder perguntas práticas: de onde vêm os melhores leads, quanto tem agendado, quanto entrou de sinal, quais despesas estão pesando e quais conversas estão paradas.</p></div></div>
+        <div id="assistente" class="col-lg-6"><div class="glass rounded-4 p-4 h-100"><p class="section-kicker">6. Assistente IA</p><h2 class="section-title">Pergunte aos dados</h2><p class="mini">O assistente consulta dados do estúdio em modo somente leitura. Perguntas úteis:</p><ul class="mini"><li>“Quais leads com nota alta ainda não agendaram?”</li><li>“Quanto tenho previsto para este mês?”</li><li>“Quais conversas pediram atendimento humano?”</li><li>“Quais clientes estão agendados para a próxima semana?”</li></ul></div></div>
+      </div>
+    </section>
+
+    <section id="checklist" class="py-5">
+      <p class="section-kicker">Checklist</p>
+      <h2 class="section-title display-6 mb-4">Treinamento rápido para usuário novo</h2>
+      <div class="glass rounded-4 p-4">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Entrou pelo login do estúdio</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Entendeu o menu lateral</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Abriu a Home e leu os cards</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Cadastrou ou editou uma pessoa</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Criou ou atualizou um lead</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Criou um agendamento</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Abriu uma conversa do WhatsApp</label></div>
+          <div class="col-md-6"><label class="form-check fs-5"><input class="form-check-input" type="checkbox"> Viu financeiro e relatórios</label></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq" class="py-5">
+      <p class="section-kicker">FAQ</p>
+      <h2 class="section-title display-6 mb-4">Dúvidas comuns</h2>
+      <div class="accordion" id="faqAccordion">
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button" data-bs-toggle="collapse" data-bs-target="#faq1">Qual tela eu devo usar primeiro?</button></h3><div id="faq1" class="accordion-collapse collapse show" data-bs-parent="#faqAccordion"><div class="accordion-body">Use <strong>Início</strong>. Ela mostra o que exige ação agora: agenda, leads, conversas e resultado.</div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#faq2">Cliente e lead são a mesma coisa?</button></h3><div id="faq2" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">Não. <strong>Cliente</strong> é cadastro/ficha. <strong>Lead</strong> é oportunidade comercial. Um cliente pode ter vários leads, conversas e agendamentos.</div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#faq3">Quando mexer nas configurações?</button></h3><div id="faq3" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">Só depois de entender a rotina. Configuração mexe em comportamento do sistema: horários, WhatsApp, IA e regras. Apertar botão sem saber é tradição humana, mas aqui dá pra evitar.</div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#faq4">O WhatsApp cria lead sozinho?</button></h3><div id="faq4" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">Pelo fluxo previsto, mensagens recebidas pelo Baileys podem entrar na central e criar/vincular lead quando o telefone ainda não existir. Revise os vínculos para evitar bagunça.</div></div></div>
+        <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#faq5">O financeiro substitui contabilidade?</button></h3><div id="faq5" class="accordion-collapse collapse" data-bs-parent="#faqAccordion"><div class="accordion-body">Não. Ele dá resultado simples de operação: agenda/receita menos despesas cadastradas. Serve para gestão diária, não para declarar imposto ou fazer milagre fiscal.</div></div></div>
+      </div>
+    </section>
+
+    <section class="py-5">
+      <div class="glass rounded-5 p-4 p-md-5 text-center">
+        <h2 class="section-title display-6">Resumo brutalmente honesto</h2>
+        <p class="lead-xl mx-auto">Use a Home para decidir prioridade, Pessoas para organizar a base, Funil para vender melhor, Agenda para não virar caos, WhatsApp para atender e registrar, Financeiro/Relatórios para medir e Configurações só quando souber o que está mudando.</p>
+        <a href="#topo" class="btn btn-brand btn-lg"><i class="bi bi-arrow-up-circle me-2"></i>Voltar ao topo</a>
+      </div>
+    </section>
+  </main>
+
+  <div class="floating-tools">
+    <button class="btn btn-brand" title="Voltar ao topo" onclick="location.hash='topo'"><i class="bi bi-arrow-up"></i></button>
+    <button class="btn btn-ghost" title="Imprimir" onclick="window.print()"><i class="bi bi-printer"></i></button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const search = document.getElementById('searchModules');
+    const cards = [...document.querySelectorAll('.module-card')];
+    search?.addEventListener('input', () => {
+      const q = search.value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+      cards.forEach(card => {
+        const hay = (card.textContent + ' ' + card.dataset.keywords).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        card.style.display = !q || hay.includes(q) ? '' : 'none';
+      });
+    });
+
+    const sections = [...document.querySelectorAll('main section[id], header[id]')];
+    const navLinks = [...document.querySelectorAll('#manualNav .nav-link')];
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + entry.target.id));
+      });
+    }, {rootMargin:'-35% 0px -55% 0px', threshold:.01});
+    sections.forEach(s => obs.observe(s));
+  </script>
+</body>
+</html>
