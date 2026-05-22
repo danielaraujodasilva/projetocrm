@@ -599,6 +599,8 @@ if ($page === 'studio_home') {
         $appointments = studio_upcoming_appointments($studio, 6);
         $monthStart = new DateTimeImmutable('first day of this month', new DateTimeZone('America/Sao_Paulo'));
         $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
+        $nextMonthStart = new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo'));
+        $nextMonthEnd = new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
         $settings = studio_settings($studio);
         $allowedDays = studio_schedule_days($studio);
         $allowedSlots = studio_schedule_slots($studio);
@@ -639,6 +641,38 @@ if ($page === 'studio_home') {
         });
         $attentionLeads = array_slice($attentionLeads, 0, 8);
         $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
+        $metaCampaignRanges = [
+            '7d' => [
+                'label' => 'Últimos 7 dias',
+                'start' => $current->modify('-6 days')->setTime(0, 0, 0),
+                'end' => $current->setTime(23, 59, 59),
+            ],
+            '15d' => [
+                'label' => 'Últimos 15 dias',
+                'start' => $current->modify('-14 days')->setTime(0, 0, 0),
+                'end' => $current->setTime(23, 59, 59),
+            ],
+            '30d' => [
+                'label' => 'Últimos 30 dias',
+                'start' => $current->modify('-29 days')->setTime(0, 0, 0),
+                'end' => $current->setTime(23, 59, 59),
+            ],
+            'month' => [
+                'label' => 'Este mês',
+                'start' => $monthStart->setTime(0, 0, 0),
+                'end' => $monthEnd,
+            ],
+        ];
+        $metaCampaignRangeMap = [];
+        foreach ($metaCampaignRanges as $rangeKey => $rangeConfig) {
+            $metaCampaignRangeMap[$rangeKey] = studio_meta_campaign_entries(
+                $studio,
+                $rangeConfig['start']->format('Y-m-d H:i:s'),
+                $rangeConfig['end']->format('Y-m-d H:i:s')
+            );
+        }
+        $metaCampaignItems = $metaCampaignRangeMap['month'] ?? [];
+        $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada neste mês.';
         $focus = (string)($_GET['focus'] ?? '');
         $homeDrilldowns = [
             'scheduled_month' => [
@@ -765,6 +799,15 @@ if ($page === 'studio_home') {
                     'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
                 ],
             ],
+            'meta_campaign' => [
+                'title' => 'Leads da campanha META',
+                'summary' => $metaCampaignSummary,
+                'type' => 'meta_campaign',
+                'tracking_hint' => implode(' | ', studio_meta_campaign_phrases($studio)),
+                'items' => $metaCampaignItems,
+                'filters' => array_map(static fn(array $range): string => (string)$range['label'], $metaCampaignRanges),
+                'rangeMap' => $metaCampaignRangeMap,
+            ],
         ];
 
         echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Acoes rapidas</h2><p class="muted">Atalhos para o que mais se usa no dia a dia.</p></div></div>';
@@ -792,10 +835,11 @@ if ($page === 'studio_home') {
         }
         echo '</section>';
 
-        echo '<section class="grid cols-2">';
+        echo '<section class="grid cols-3">';
         foreach ([
             ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'focus' => 'appointments'],
             ['value' => format_money($stats['open_value']), 'label' => 'Valor em oportunidades abertas', 'focus' => 'open_value'],
+            ['value' => (string)count($metaCampaignItems), 'label' => 'Leads da campanha META', 'focus' => 'meta_campaign'],
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
@@ -2139,6 +2183,7 @@ if ($page === 'studio_settings') {
         echo '</select></div>';
         echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
         echo '</div>';
+        echo '<div class="field"><label>Frases iniciais da campanha META</label><textarea name="meta_campaign_phrases" placeholder="Tenho interesse no fechamento!&#10;Quero fechar minha tattoo!">' . h($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!") . '</textarea><small class="muted">Use uma frase por linha. O card da home vai contar conversas/leads cuja primeira mensagem recebida bater com uma dessas frases.</small></div>';
         echo '<p class="muted">Controle a porta de entrada e o modo inicial das conversas do WhatsApp.</p>';
         echo '</div>';
 

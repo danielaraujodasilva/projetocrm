@@ -314,6 +314,60 @@
     renderList(data.summary || 'Período selecionado', items);
   }
 
+  function renderMetaCampaign(data) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    const filters = data.filters || {};
+    const filterEntries = Object.entries(filters);
+    const trackedPhrases = data.tracking_hint || '';
+
+    const renderList = (periodLabel, rows) => {
+      const totalCount = rows.length;
+      const list = rows.map((item) => {
+        const href = item.lead_id
+          ? `index.php?page=studio_lead&id=${encodeURIComponent(item.lead_id)}`
+          : `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}`;
+        const heading = item.lead_name || item.customer_name || item.name || item.phone || 'Contato da campanha';
+        const meta = [
+          item.first_message_at ? badge(item.first_message_at, 'neutral') : '',
+          item.pipeline_stage ? badge(item.pipeline_stage, 'neutral') : '',
+          item.lead_status ? badge(item.lead_status, item.lead_status === 'fechado' ? 'ok' : 'neutral') : '',
+          item.phone ? badge(item.phone, 'neutral') : '',
+        ].filter(Boolean).join('');
+        const detail = [
+          item.first_message_body ? `Primeira mensagem: ${item.first_message_body}` : '',
+          item.estimated_value ? `Estimado ${money(item.estimated_value)}` : '',
+          item.lead_id ? 'Lead vinculado' : 'Sem lead vinculado ainda',
+        ].filter(Boolean).join(' · ');
+        return card(href, heading, meta, detail, 'compact');
+      }).join('');
+
+      body.innerHTML = `
+        <div class="availability-toolbar">
+          ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === 'month' ? '' : 'secondary'}" data-meta-filter="${esc(key)}">${esc(label)}</button>`).join('')}
+          <div class="drilldown-toolbar-summary">
+            <strong>${esc(totalCount)} contatos</strong>
+            <span>${esc(periodLabel)}</span>
+            <small>${esc(trackedPhrases ? `Frases rastreadas: ${trackedPhrases}` : 'Usando a primeira mensagem recebida da conversa.')}</small>
+          </div>
+        </div>
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse período.</div></div>'}</div>`;
+
+      setTimeout(() => {
+        document.querySelectorAll('[data-meta-filter]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-meta-filter');
+            if (!key) return;
+            const nextItems = Array.isArray(data.rangeMap?.[key]) ? data.rangeMap[key] : rows;
+            const nextLabel = filters[key] || periodLabel;
+            renderList(nextLabel, nextItems);
+          });
+        });
+      }, 0);
+    };
+
+    renderList(data.summary || 'Período selecionado', items);
+  }
+
   function renderWhatsapp(data) {
     const items = Array.isArray(data.items) ? data.items : [];
     body.innerHTML = `
@@ -376,6 +430,8 @@
       renderFinance(data);
     } else if (data.type === 'appointments') {
       renderAppointments(data);
+    } else if (data.type === 'meta_campaign') {
+      renderMetaCampaign(data);
     } else if (data.type === 'leads') {
       renderLeads(data);
     } else if (data.type === 'whatsapp') {

@@ -3779,6 +3779,7 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
     }
     $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
+    $metaCampaignPhrases = trim((string)($data['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!"));
     if ($appointmentDurationMinutes <= 0) {
         $appointmentDurationMinutes = 300;
     }
@@ -3789,6 +3790,7 @@ function studio_save_settings(array $studio, array $data): void
         'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
         'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
         'appointment_overwrite_message' => 'TEXT NULL',
+        'meta_campaign_phrases' => 'TEXT NULL',
         'openai_api_key' => 'TEXT NULL',
         'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
         'ai_whatsapp_prompt' => 'TEXT NULL',
@@ -3804,7 +3806,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, meta_campaign_phrases = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -3819,6 +3821,7 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentTimeSlots,
         $appointmentDurationMinutes,
         $appointmentOverwriteMessage,
+        $metaCampaignPhrases !== '' ? $metaCampaignPhrases : "Tenho interesse no fechamento!",
         $openAiKey,
         $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
         $aiWhatsAppPrompt,
@@ -3842,6 +3845,78 @@ function studio_save_settings(array $studio, array $data): void
     ]);
 
     studio_event((int)$studio['id'], 'studio_settings_updated', 'Configuracoes operacionais do CRM atualizadas.');
+}
+
+function studio_meta_campaign_phrases(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $raw = trim((string)($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!"));
+    if ($raw === '') {
+        $raw = "Tenho interesse no fechamento!";
+    }
+
+    $phrases = preg_split('/\R+/', $raw) ?: [];
+    $phrases = array_values(array_filter(array_map(static function (string $phrase): string {
+        return trim($phrase);
+    }, $phrases), static fn(string $phrase): bool => $phrase !== ''));
+
+    return $phrases ?: ["Tenho interesse no fechamento!"];
+}
+
+function studio_meta_campaign_entries(array $studio, string $startAt, string $endAt): array
+{
+    $phrases = studio_meta_campaign_phrases($studio);
+    if (!$phrases) {
+        return [];
+    }
+
+    $normalizedPhrases = array_values(array_unique(array_map(static function (string $phrase): string {
+        return mb_strtolower(trim(preg_replace('/\s+/', ' ', $phrase)));
+    }, $phrases)));
+    $normalizedPhrases = array_values(array_filter($normalizedPhrases, static fn(string $phrase): bool => $phrase !== ''));
+    if (!$normalizedPhrases) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($normalizedPhrases), '?'));
+    $sql = "
+        SELECT
+            wc.id,
+            wc.lead_id,
+            wc.customer_id,
+            wc.phone,
+            wc.name,
+            first_msg.body AS first_message_body,
+            first_msg.sent_at AS first_message_at,
+            l.name AS lead_name,
+            l.status AS lead_status,
+            l.pipeline_stage,
+            l.estimated_value,
+            l.updated_at AS lead_updated_at,
+            c.name AS customer_name
+        FROM whatsapp_conversations wc
+        INNER JOIN whatsapp_messages first_msg ON first_msg.id = (
+            SELECT wm1.id
+            FROM whatsapp_messages wm1
+            WHERE wm1.conversation_id = wc.id
+              AND wm1.direction = 'in'
+              AND COALESCE(TRIM(wm1.body), '') <> ''
+            ORDER BY wm1.sent_at ASC, wm1.id ASC
+            LIMIT 1
+        )
+        LEFT JOIN leads l ON l.id = wc.lead_id
+        LEFT JOIN customers c ON c.id = wc.customer_id
+        WHERE first_msg.sent_at BETWEEN ? AND ?
+          AND LOWER(TRIM(first_msg.body)) IN ($placeholders)
+        ORDER BY first_msg.sent_at DESC, wc.id DESC
+        LIMIT 120
+    ";
+
+    $params = array_merge([$startAt, $endAt], $normalizedPhrases);
+    $stmt = studio_db($studio)->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll() ?: [];
 }
 
 function format_money(float|int|string $value): string
