@@ -1908,7 +1908,13 @@ if ($page === 'studio_reports') {
         } else {
             $rowLabels = array_fill_keys(array_keys($rowTotals), true);
             $colLabels = array_fill_keys(array_keys($colTotals), true);
-            echo '<div class="table-scroll"><table class="table"><thead><tr><th>' . h($pivot['rows'][$pivotRow]) . '</th>';
+            $maxCell = 0.0;
+            foreach ($grid as $row) {
+                foreach ($row as $value) {
+                    $maxCell = max($maxCell, (float)$value);
+                }
+            }
+            echo '<div class="table-scroll"><table class="table pivot-table"><thead><tr><th>' . h($pivot['rows'][$pivotRow]) . '</th>';
             foreach (array_keys($colLabels) as $colLabel) {
                 echo '<th>' . h($colLabel) . '</th>';
             }
@@ -1924,11 +1930,22 @@ if ($page === 'studio_reports') {
                     $grandTotal += $value;
                     $cellUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, $colLabel);
                     $cellText = $pivotMetric === 'count' ? (string)(int)$value : format_money($value);
-                    echo '<td><a class="pivot-cell-link" href="' . h($cellUrl) . '">' . h($cellText) . '</a></td>';
+                    $cellClass = 'pivot-cell-link';
+                    if ($value > 0 && $maxCell > 0) {
+                        $ratio = $value / $maxCell;
+                        if ($ratio >= 0.75) {
+                            $cellClass .= ' heat-high';
+                        } elseif ($ratio >= 0.45) {
+                            $cellClass .= ' heat-mid';
+                        } else {
+                            $cellClass .= ' heat-low';
+                        }
+                    }
+                    echo '<td><a class="' . h($cellClass) . '" href="' . h($cellUrl) . '">' . h($cellText) . '</a></td>';
                 }
-                echo '<td><a class="pivot-cell-link" href="' . h($rowUrl) . '">' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</a></td></tr>';
+                echo '<td><a class="pivot-cell-link pivot-total-link" href="' . h($rowUrl) . '">' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</a></td></tr>';
             }
-            echo '<tr><td><strong>Total</strong></td>';
+            echo '<tr class="pivot-grand-total"><td><strong>Total</strong></td>';
             foreach (array_keys($colLabels) as $colLabel) {
                 $colTotal = (float)($colTotals[$colLabel] ?? 0);
                 echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$colTotal : format_money($colTotal)) . '</strong></td>';
