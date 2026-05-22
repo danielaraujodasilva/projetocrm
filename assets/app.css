@@ -581,6 +581,13 @@ textarea {
     text-decoration: none;
 }
 
+.settings-switch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 10px 0;
+}
+
 .dashboard-stat {
     display: grid;
     gap: 4px;
@@ -1060,6 +1067,10 @@ textarea {
 
     .quick-actions-grid {
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .settings-switch-grid {
+        grid-template-columns: 1fr;
     }
 
     .calendar-grid.month,
