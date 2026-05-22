@@ -1704,6 +1704,10 @@ if ($page === 'studio_reports') {
             ],
         ];
         $pivot = $pivotDefinitions[$pivotSource] ?? $pivotDefinitions['leads'];
+        $pivotRowsConfig = $pivot['rows'];
+        $pivotColsConfig = $pivot['cols'];
+        $pivotMetricsConfig = $pivot['metrics'];
+        $pivotPeriodsConfig = $pivot['periods'];
         $pivotRow = array_key_exists($pivotRow, $pivot['rows']) ? $pivotRow : $pivot['default_row'];
         $pivotCol = array_key_exists($pivotCol, $pivot['cols']) ? $pivotCol : $pivot['default_col'];
         $pivotMetric = array_key_exists($pivotMetric, $pivot['metrics']) ? $pivotMetric : 'count';
@@ -1848,40 +1852,56 @@ if ($page === 'studio_reports') {
             return app_url('studio_finance');
         };
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Tabela dinamica</h2><span class="badge">Pivot simples</span></div>';
-        echo '<form class="filter-bar" method="get">';
+        echo '<div class="pivot-builder" data-pivot-builder>';
+        echo '<form class="filter-bar pivot-builder-form" method="get" id="pivotBuilderForm">';
         echo '<input type="hidden" name="page" value="studio_reports">';
-        echo '<select name="pivot_source">';
-        foreach ($pivotDefinitions as $key => $def) {
-            echo '<option value="' . h($key) . '" ' . ($pivotSource === $key ? 'selected' : '') . '>' . h($def['label']) . '</option>';
-        }
-        echo '</select>';
-        echo '<select name="pivot_row">';
-        foreach ($pivot['rows'] as $key => $label) {
-            echo '<option value="' . h($key) . '" ' . ($pivotRow === $key ? 'selected' : '') . '>' . h($label) . '</option>';
-        }
-        echo '</select>';
-        echo '<select name="pivot_col">';
-        foreach ($pivot['cols'] as $key => $label) {
-            echo '<option value="' . h($key) . '" ' . ($pivotCol === $key ? 'selected' : '') . '>' . h($label) . '</option>';
-        }
-        echo '</select>';
-        echo '<select name="pivot_metric">';
-        foreach ($pivot['metrics'] as $key => $label) {
-            echo '<option value="' . h($key) . '" ' . ($pivotMetric === $key ? 'selected' : '') . '>' . h($label) . '</option>';
-        }
-        echo '</select>';
-        echo '<select name="pivot_period">';
-        foreach ($pivot['periods'] as $key => $label) {
-            echo '<option value="' . h($key) . '" ' . ($pivotPeriod === $key ? 'selected' : '') . '>' . h($label) . '</option>';
-        }
-        echo '</select>';
+        echo '<input type="hidden" name="pivot_source" id="pivot_source" value="' . h($pivotSource) . '">';
+        echo '<input type="hidden" name="pivot_row" id="pivot_row" value="' . h($pivotRow) . '">';
+        echo '<input type="hidden" name="pivot_col" id="pivot_col" value="' . h($pivotCol) . '">';
+        echo '<input type="hidden" name="pivot_metric" id="pivot_metric" value="' . h($pivotMetric) . '">';
+        echo '<input type="hidden" name="pivot_period" id="pivot_period" value="' . h($pivotPeriod) . '">';
+        echo '<input type="hidden" name="pivot_search" id="pivot_search" value="' . h($pivotSearch) . '">';
+        echo '<input type="hidden" name="pivot_sort" id="pivot_sort" value="' . h($pivotSort) . '">';
+        echo '<input type="hidden" name="pivot_top_rows" id="pivot_top_rows" value="' . h((string)$pivotTopRows) . '">';
+        echo '<input type="hidden" name="pivot_top_cols" id="pivot_top_cols" value="' . h((string)$pivotTopCols) . '">';
+        echo '<input type="hidden" name="pivot_hide_zeros" id="pivot_hide_zeros" value="' . ($pivotHideZeros ? '1' : '0') . '">';
+        echo '<div class="pivot-builder-top">';
+        echo '<div class="pivot-dropzone" data-drop-target="source"><span class="muted">Fonte</span><div class="pivot-dropzone-slot" data-current="' . h($pivotSource) . '">' . h($pivotDefinitions[$pivotSource]['label'] ?? 'Leads') . '</div></div>';
+        echo '<div class="pivot-dropzone" data-drop-target="row"><span class="muted">Linhas</span><div class="pivot-dropzone-slot" data-current="' . h($pivotRow) . '">' . h($pivot['rows'][$pivotRow]) . '</div></div>';
+        echo '<div class="pivot-dropzone" data-drop-target="col"><span class="muted">Colunas</span><div class="pivot-dropzone-slot" data-current="' . h($pivotCol) . '">' . h($pivot['cols'][$pivotCol]) . '</div></div>';
+        echo '<div class="pivot-dropzone" data-drop-target="metric"><span class="muted">Métrica</span><div class="pivot-dropzone-slot" data-current="' . h($pivotMetric) . '">' . h($pivot['metrics'][$pivotMetric]) . '</div></div>';
+        echo '<div class="pivot-dropzone" data-drop-target="period"><span class="muted">Período</span><div class="pivot-dropzone-slot" data-current="' . h($pivotPeriod) . '">' . h($pivot['periods'][$pivotPeriod]) . '</div></div>';
+        echo '</div>';
+        echo '<div class="pivot-toolbar">';
         echo '<input name="pivot_search" value="' . h($pivotSearch) . '" placeholder="Buscar na pivot">';
         echo '<select name="pivot_sort"><option value="alpha" ' . ($pivotSort === 'alpha' ? 'selected' : '') . '>Ordem alfabetica</option><option value="total_desc" ' . ($pivotSort === 'total_desc' ? 'selected' : '') . '>Maior total primeiro</option><option value="total_asc" ' . ($pivotSort === 'total_asc' ? 'selected' : '') . '>Menor total primeiro</option></select>';
         echo '<input type="number" min="0" name="pivot_top_rows" value="' . h((string)$pivotTopRows) . '" placeholder="Top linhas">';
         echo '<input type="number" min="0" name="pivot_top_cols" value="' . h((string)$pivotTopCols) . '" placeholder="Top colunas">';
         echo '<label class="checkline" style="margin:0"><input type="checkbox" name="pivot_hide_zeros" value="1" ' . ($pivotHideZeros ? 'checked' : '') . '> Esconder zeros</label>';
         echo '<button class="btn secondary" type="submit">Atualizar</button>';
+        echo '</div>';
         echo '</form>';
+        echo '<div class="pivot-field-bank">';
+        foreach ($pivotDefinitions as $sourceKey => $sourceDef) {
+            echo '<div class="pivot-field-group">';
+            echo '<h3>' . h($sourceDef['label']) . '</h3>';
+            echo '<div class="pivot-field-row">';
+            echo '<button type="button" class="pivot-field-chip pivot-field-chip-source" draggable="true" data-pivot-kind="source" data-pivot-value="' . h($sourceKey) . '">' . h($sourceDef['label']) . '</button>';
+            foreach ($sourceDef['rows'] as $key => $label) {
+                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="row" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
+            }
+            foreach ($sourceDef['cols'] as $key => $label) {
+                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="col" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
+            }
+            foreach ($sourceDef['metrics'] as $key => $label) {
+                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="metric" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
+            }
+            foreach ($sourceDef['periods'] as $key => $label) {
+                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="period" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
+            }
+            echo '</div></div>';
+        }
+        echo '</div>';
         if (!$grid) {
             echo '<p class="muted">Sem dados suficientes para montar a tabela dinamica com esses filtros.</p>';
         } else {
@@ -1915,6 +1935,9 @@ if ($page === 'studio_reports') {
             echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$grandTotal : format_money($grandTotal)) . '</strong></td></tr>';
             echo '</tbody></table></div>';
         }
+        echo '<script>';
+        echo '(function(){const form=document.getElementById("pivotBuilderForm");if(!form)return;const submitIfChanged=()=>form.requestSubmit();const slots={source:document.querySelector("[data-drop-target=\\"source\\"] .pivot-dropzone-slot"),row:document.querySelector("[data-drop-target=\\"row\\"] .pivot-dropzone-slot"),col:document.querySelector("[data-drop-target=\\"col\\"] .pivot-dropzone-slot"),metric:document.querySelector("[data-drop-target=\\"metric\\"] .pivot-dropzone-slot"),period:document.querySelector("[data-drop-target=\\"period\\"] .pivot-dropzone-slot")};const fields={source:document.getElementById("pivot_source"),row:document.getElementById("pivot_row"),col:document.getElementById("pivot_col"),metric:document.getElementById("pivot_metric"),period:document.getElementById("pivot_period")};const labels={source:' . json_encode(array_map(static fn($d) => $d['label'], $pivotDefinitions), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',row:' . json_encode($pivot['rows'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',col:' . json_encode($pivot['cols'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',metric:' . json_encode($pivot['metrics'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',period:' . json_encode($pivot['periods'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '};function sync(target,value){if(!fields[target]||!slots[target])return;fields[target].value=value;slots[target].textContent=labels[target][value]||value;slots[target].dataset.current=value;}document.querySelectorAll(".pivot-field-chip").forEach(chip=>{chip.addEventListener("dragstart",ev=>{ev.dataTransfer.setData("text/plain", JSON.stringify({kind:chip.dataset.pivotKind||"", source:chip.dataset.pivotSource||"", value:chip.dataset.pivotValue||""}));ev.dataTransfer.effectAllowed="copy";});chip.addEventListener("click",()=>{const kind=chip.dataset.pivotKind||"";const value=chip.dataset.pivotValue||"";if(kind&&fields[kind]){sync(kind,value);submitIfChanged();}});});Object.entries(slots).forEach(([target,slot])=>{if(!slot)return;const zone=slot.closest("[data-drop-target]");zone.addEventListener("dragover",ev=>{ev.preventDefault();zone.classList.add("is-over");});zone.addEventListener("dragleave",()=>zone.classList.remove("is-over"));zone.addEventListener("drop",ev=>{ev.preventDefault();zone.classList.remove("is-over");try{const data=JSON.parse(ev.dataTransfer.getData("text/plain")||"{}");const kind=zone.getAttribute("data-drop-target");if(!data.value)return;if(kind==="source"){sync("source",data.value);const firstRow=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].rows||{})[0]||"";const firstCol=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].cols||{})[0]||"";const firstMetric=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].metrics||{})[0]||"";const firstPeriod=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].periods||{})[0]||"";sync("row",firstRow);sync("col",firstCol);sync("metric",firstMetric);sync("period",firstPeriod);}else if(kind==="row"||kind==="col"||kind==="metric"||kind==="period"){const currentSource=fields.source.value;const def=' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[currentSource];if(def&&def[kind+"s"]&&Object.prototype.hasOwnProperty.call(def[kind+"s"], data.value)){sync(kind,data.value);}}submitIfChanged();}catch(e){}});});})();';
+        echo '</script>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><h2>Leads por status</h2>';

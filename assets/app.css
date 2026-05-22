@@ -710,6 +710,95 @@ textarea {
     text-decoration: none;
 }
 
+.pivot-builder {
+    display: grid;
+    gap: 12px;
+}
+
+.pivot-builder-top {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+
+.pivot-toolbar {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.2fr) repeat(3, minmax(120px, .8fr)) auto auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.pivot-toolbar input,
+.pivot-toolbar select {
+    width: 100%;
+}
+
+.pivot-dropzone {
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+}
+
+.pivot-dropzone.is-over {
+    border-color: var(--accent);
+    background: rgba(42, 131, 143, .08);
+}
+
+.pivot-dropzone-slot {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #fff;
+    font-weight: 800;
+    box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.pivot-field-bank {
+    display: grid;
+    gap: 10px;
+}
+
+.pivot-field-group {
+    display: grid;
+    gap: 8px;
+}
+
+.pivot-field-group h3 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.pivot-field-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pivot-field-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: grab;
+}
+
+.pivot-field-chip:active {
+    cursor: grabbing;
+}
+
+.pivot-field-chip-source {
+    background: rgba(42, 131, 143, .08);
+    border-color: rgba(42, 131, 143, .18);
+}
+
 .whatsapp-quick-links .quick-action-card {
     min-height: 118px;
 }
