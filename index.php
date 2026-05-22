@@ -1765,9 +1765,12 @@ if ($page === 'studio_reports') {
         echo '</div>';
         echo '<div class="reports-pivot-note muted">Use o painel lateral da tabela dinâmica para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e detalhamento ficam na barra superior.</div>';
         echo '</section>';
-        echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/webdatarocks.min.css">';
-        echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
-        echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
+        echo '<link rel="stylesheet" href="assets/vendor/jquery-ui/jquery-ui.min.css">';
+        echo '<link rel="stylesheet" href="assets/vendor/pivottable/pivot.min.css">';
+        echo '<script src="assets/vendor/jquery/jquery.min.js"></script>';
+        echo '<script src="assets/vendor/jquery-ui/jquery-ui.min.js"></script>';
+        echo '<script src="assets/vendor/pivottable/pivot.min.js"></script>';
+        echo '<script src="assets/vendor/pivottable/pivot.pt.js"></script>';
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="assets/reports_pivot.js"></script>';
         echo '</section>';
