@@ -675,12 +675,15 @@ if ($page === 'studio_home') {
                     ['label' => 'Saldo simples', 'value' => format_money($stats['month_revenue'] - $stats['month_expenses'])],
                 ],
             ],
-            'customers' => [
-                'title' => 'Clientes cadastrados',
-                'summary' => (string)$stats['customers'] . ' clientes cadastrados.',
-                'kind' => 'customer',
-                'type' => 'table',
-                'items' => studio_list_customers($studio, 8),
+            'open_value' => [
+                'title' => 'Valor em oportunidades abertas',
+                'summary' => 'Soma estimada dos leads ainda nao perdidos ou fechados: ' . format_money($stats['open_value']),
+                'type' => 'finance',
+                'items' => [
+                    ['label' => 'Oportunidades abertas', 'value' => format_money($stats['open_value']), 'detail' => 'Leads em aberto e em conversa que ainda podem virar agendamento.'],
+                    ['label' => 'Leads no funil', 'value' => (string)$stats['leads'], 'detail' => 'Quantidade atual de leads ativos no sistema.'],
+                    ['label' => 'Clientes cadastrados', 'value' => (string)$stats['customers'], 'detail' => 'Base total de clientes no estúdio.'],
+                ],
             ],
             'appointments' => [
                 'title' => 'Proximos atendimentos',
@@ -688,13 +691,18 @@ if ($page === 'studio_home') {
                 'kind' => 'appointment',
                 'type' => 'appointments',
                 'items' => array_slice($appointments, 0, 8),
-            ],
-            'whatsapp' => [
-                'title' => 'Conversas WhatsApp',
-                'summary' => (string)$stats['whatsapp_conversations'] . ' conversas importadas.',
-                'kind' => 'whatsapp',
-                'type' => 'table',
-                'items' => studio_list_whatsapp_conversations($studio, ['needs_human' => 1], 8),
+                'filters' => [
+                    '7d' => 'Próximos 7 dias',
+                    '15d' => 'Próximos 15 dias',
+                    'month' => 'Este mês',
+                    'next_month' => 'Mês que vem',
+                ],
+                'rangeMap' => [
+                    '7d' => studio_upcoming_appointments($studio, 7),
+                    '15d' => studio_upcoming_appointments($studio, 15),
+                    'month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                    'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                ],
             ],
         ];
 
@@ -721,12 +729,10 @@ if ($page === 'studio_home') {
         }
         echo '</section>';
 
-        echo '<section class="grid cols-3">';
+        echo '<section class="grid cols-2">';
         foreach ([
-            ['value' => $stats['customers'], 'label' => 'Clientes cadastrados', 'focus' => 'customers'],
             ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'focus' => 'appointments'],
-            ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'focus' => 'month_result'],
-            ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'focus' => 'whatsapp'],
+            ['value' => format_money($stats['open_value']), 'label' => 'Valor em oportunidades abertas', 'focus' => 'open_value'],
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><span class="muted">Abrir detalhes</span></button>';
         }

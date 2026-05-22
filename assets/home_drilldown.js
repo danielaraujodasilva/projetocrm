@@ -230,20 +230,49 @@
 
   function renderAppointments(data) {
     const items = Array.isArray(data.items) ? data.items : [];
-    body.innerHTML = `
-      <div class="drilldown-card-list">
-        ${items.map((item) => {
-          const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
-          const meta = [
-            item.appointment_date ? badge(item.appointment_date) : '',
-            item.start_time ? badge(item.start_time.slice(0, 5)) : '',
-            item.artist_name ? badge(item.artist_name, 'neutral') : '',
-            item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
-          ].filter(Boolean).join('');
-          const detailParts = [item.title, item.description, item.value ? `Valor ${money(item.value)}` : '', item.deposit_value ? `Sinal ${money(item.deposit_value)}` : ''].filter(Boolean);
-          return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join(' · ') : 'Abra para editar ou ver detalhes.', 'compact');
-        }).join('')}
-      </div>`;
+    const filters = data.filters || {};
+    const filterEntries = Object.entries(filters);
+
+    const renderList = (periodLabel, rows) => {
+      const totalCount = rows.length;
+      const totalValue = rows.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+      const list = rows.map((item) => {
+        const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
+        const meta = [
+          item.appointment_date ? badge(item.appointment_date) : '',
+          item.start_time ? badge(item.start_time.slice(0, 5)) : '',
+          item.artist_name ? badge(item.artist_name, 'neutral') : '',
+          item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
+        ].filter(Boolean).join('');
+        const detailParts = [item.title, item.value ? `Valor ${money(item.value)}` : '', item.deposit_value ? `Sinal ${money(item.deposit_value)}` : ''].filter(Boolean);
+        return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join(' · ') : 'Abra para editar ou ver detalhes.', 'compact');
+      }).join('');
+
+      body.innerHTML = `
+        <div class="availability-toolbar">
+          ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === 'month' ? '' : 'secondary'}" data-appointment-filter="${esc(key)}">${esc(label)}</button>`).join('')}
+          <div class="drilldown-toolbar-summary">
+            <strong>${esc(totalCount)} agendamentos</strong>
+            <span>${esc(money(totalValue))}</span>
+            <small>${esc(periodLabel)}</small>
+          </div>
+        </div>
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
+
+      setTimeout(() => {
+        document.querySelectorAll('[data-appointment-filter]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-appointment-filter');
+            if (!key) return;
+            const nextItems = Array.isArray(data.rangeMap?.[key]) ? data.rangeMap[key] : rows;
+            const nextLabel = filters[key] || periodLabel;
+            renderList(nextLabel, nextItems);
+          });
+        });
+      }, 0);
+    };
+
+    renderList(data.summary || 'Período selecionado', items);
   }
 
   function renderWhatsapp(data) {
@@ -275,15 +304,6 @@
       <div class="drilldown-card-list">
         ${items.map((item) => {
           const meta = [];
-          if (kind === 'customer') {
-            if (item.appointment_count) meta.push(badge(`${item.appointment_count} atendimentos`, 'neutral'));
-            if (item.last_message_at) meta.push(badge(item.last_message_at, 'neutral'));
-            if (item.phone) meta.push(badge(item.phone, 'neutral'));
-            const href = item.id ? `index.php?page=studio_customer&id=${encodeURIComponent(item.id)}` : '';
-            const detail = [item.email, item.instagram, item.notes || item.description].filter(Boolean).join(' · ');
-            return card(href, item.name || item.title || item.customer_name || item.display_name || item.phone || 'Cliente', meta.join(''), detail || 'Abra para ver histórico e editar a ficha.', 'compact');
-          }
-
           if (kind === 'whatsapp') {
             if (item.status) meta.push(badge(item.status, 'neutral'));
             if (item.phone) meta.push(badge(item.phone, 'neutral'));

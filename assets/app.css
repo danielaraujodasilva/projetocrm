@@ -1232,6 +1232,34 @@ textarea {
     gap: 12px;
 }
 
+.drilldown-card-list.stacked {
+    grid-template-columns: 1fr;
+}
+
+.drilldown-toolbar-summary {
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface-soft);
+    min-width: 180px;
+}
+
+.drilldown-toolbar-summary strong {
+    font-size: 16px;
+    line-height: 1.1;
+}
+
+.drilldown-toolbar-summary span {
+    font-weight: 800;
+}
+
+.drilldown-toolbar-summary small {
+    color: var(--muted);
+    line-height: 1.2;
+}
+
 .drilldown-panel-grid {
     display: grid;
     gap: 14px;
@@ -1569,6 +1597,14 @@ textarea {
     gap: 12px;
 }
 
+.availability-day.compact {
+    padding: 12px;
+}
+
+.availability-day.compact {
+    padding: 12px;
+}
+
 .availability-day-head {
     display: flex;
     justify-content: space-between;
@@ -1595,6 +1631,14 @@ textarea {
     gap: 12px;
 }
 
+.availability-day.compact .availability-day-body {
+    gap: 10px;
+}
+
+.availability-day.compact .availability-day-body {
+    gap: 10px;
+}
+
 .availability-day-section {
     display: grid;
     gap: 8px;
@@ -1618,6 +1662,14 @@ textarea {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.availability-slot-row.occupied .availability-block {
+    background: #fafafa;
+}
+
+.availability-slot-row.occupied .availability-block {
+    background: #fafafa;
 }
 
 .availability-block {
@@ -1646,6 +1698,32 @@ textarea {
 .availability-block.occupied {
     background: #fafafa;
     opacity: .92;
+}
+
+.availability-block.free:hover,
+.availability-block.occupied:hover,
+.drilldown-chip:hover,
+.home-drill-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(18, 28, 37, .08);
+}
+
+.availability-note {
+    width: 100%;
+    margin: 0;
+}
+
+.availability-block.free:hover,
+.availability-block.occupied:hover,
+.drilldown-chip:hover,
+.home-drill-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(18, 28, 37, .08);
+}
+
+.availability-note {
+    width: 100%;
+    margin: 0;
 }
 
 .availability-note {
