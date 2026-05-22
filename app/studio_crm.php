@@ -1768,6 +1768,19 @@ function studio_schedule_add_minutes(string $date, string $time, int $minutes): 
     return $start->modify('+' . max(0, $minutes) . ' minutes')->format('H:i');
 }
 
+function studio_weekday_label_pt(DateTimeImmutable $date): string
+{
+    return [
+        '1' => 'Seg',
+        '2' => 'Ter',
+        '3' => 'Qua',
+        '4' => 'Qui',
+        '5' => 'Sex',
+        '6' => 'Sáb',
+        '7' => 'Dom',
+    ][$date->format('N')] ?? $date->format('d/m');
+}
+
 function studio_schedule_normalize_end_time(string $date, string $startTime, ?string $endTime, int $durationMinutes): string
 {
     $startTime = substr(trim($startTime), 0, 5);
@@ -1850,7 +1863,7 @@ function studio_schedule_available_slots(array $studio, int $daysAhead = 14): ar
         }
         $result[] = [
             'date' => $date,
-            'label' => $day->format('D d/m'),
+            'label' => studio_weekday_label_pt($day) . ' ' . $day->format('d/m'),
             'allowed' => $allowed,
             'free_slots' => $freeSlots,
             'booked' => $booked,
@@ -2032,7 +2045,7 @@ function studio_whatsapp_extract_date_context(string $text, array $studio): ?arr
         }
         return [
             'date' => $date,
-            'label' => (string)($day['label'] ?? $candidate->format('d/m')),
+            'label' => (string)($day['label'] ?? ($candidate->format('d/m'))),
             'allowed' => !empty($day['allowed']),
             'free_slots' => array_values(array_map('strval', $day['free_slots'] ?? [])),
             'booked' => array_values(array_map(static function (array $appt): array {

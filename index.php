@@ -680,8 +680,8 @@ if ($page === 'studio_home') {
                                 '3d' => '3 dias',
                                 '7d' => '7 dias',
                                 '15d' => '15 dias',
-                                'month' => 'Este mes',
-                                'next_month' => 'Mes que vem',
+                                'month' => 'Este mês',
+                                'next_month' => 'Mês que vem',
                             ][$rangeKey] ?? $rangeKey,
                             'items' => studio_schedule_available_slots($studio, $days),
                         ];
@@ -1298,8 +1298,8 @@ if ($page === 'studio_whatsapp_conversation') {
             '3d' => ['label' => '3 dias', 'days' => 3],
             '7d' => ['label' => '7 dias', 'days' => 7],
             '15d' => ['label' => '15 dias', 'days' => 15],
-            'month' => ['label' => 'Este mes', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
-            'next_month' => ['label' => 'Mes que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
+            'month' => ['label' => 'Este mês', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
+            'next_month' => ['label' => 'Mês que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
             'custom' => ['label' => 'Prazo livre', 'days' => 365],
         ];
         $availabilityCardsByRange = [];
@@ -1752,7 +1752,7 @@ if ($page === 'studio_reports') {
         ];
         $pivotConfig = $pivotDataSets[$pivotSource];
         echo '<section class="panel" style="margin-top:16px">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Arraste os campos, filtre e explore os dados como uma planilha de verdade.</p></div><span class="badge">Excel-like</span></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Arraste os campos, filtre e explore os dados como uma planilha de verdade.</p></div><span class="badge">Estilo planilha</span></div>';
         echo '<div class="wdr-shell">';
         echo '<div class="wdr-source-bar">';
         foreach ($pivotDataSets as $key => $def) {
@@ -1761,16 +1761,13 @@ if ($page === 'studio_reports') {
         echo '</div>';
         echo '<div id="reportsPivot" class="wdr-frame"></div>';
         echo '</div>';
-        echo '<div class="reports-pivot-note muted">Use o painel lateral do pivot para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e drill-down ficam no toolbar do componente.</div>';
+        echo '<div class="reports-pivot-note muted">Use o painel lateral da tabela dinâmica para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e detalhamento ficam na barra superior.</div>';
         echo '</section>';
         echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/webdatarocks.min.css">';
         echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
         echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
-        echo '<script>';
-        echo 'window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
-        echo 'window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
-        echo '(function(){const mount=document.getElementById("reportsPivot");if(!mount||!window.WebDataRocks)return;const makeReport=function(source){const def=(window.reportsPivotData||{})[source]||window.reportsPivotData.leads;return {dataSource:{dataSourceType:"json",data:def.data},slice:def.report.slice,options:{grid:{showGrandTotals:"on",showTotals:"on",type:"flat"},configuratorButton:true,sorting:"on",drillThrough:true,drillThroughMaxRows:50},formats:[{name:"currency",thousandsSeparator:".",decimalSeparator:",",decimalPlaces:2,currencySymbol:"R$ ",currencySymbolAlign:"left"},{name:"int",thousandsSeparator:".",decimalPlaces:0}]};};const initPivot=function(source){mount.innerHTML="";const active=(window.reportsPivotData||{})[source]||window.reportsPivotData.leads;document.querySelectorAll("[data-pivot-source]").forEach(btn=>btn.classList.toggle("active",(btn.getAttribute("data-pivot-source")||"")==source));window.reportsPivot=new WebDataRocks({container:"#reportsPivot",toolbar:true,height:640,report:makeReport(source),global:{options:{grid:{showFilter:true,showReportFiltersArea:true},configuratorButton:true,sorting:"on",drillThrough:true}}});};document.querySelectorAll("[data-pivot-source]").forEach(btn=>btn.addEventListener("click",function(){const source=this.getAttribute("data-pivot-source")||"leads";initPivot(source);}));initPivot(window.reportsPivotSource||"leads");})();';
-        echo '</script>';
+        echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script src="assets/reports_pivot.js"></script>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><h2>Leads por status</h2>';
@@ -1779,7 +1776,7 @@ if ($page === 'studio_reports') {
         render_report_table($reports['leads_by_source'], 'source');
         echo '</div><div class="panel"><h2>Agenda por status</h2>';
         render_report_table($reports['appointments_by_status'], 'status');
-        echo '</div><div class="panel"><h2>Agenda por mes</h2>';
+        echo '</div><div class="panel"><h2>Agenda por mês</h2>';
         render_report_table($reports['appointments_by_month'], 'month');
         echo '</div><div class="panel"><h2>Despesas por categoria</h2>';
         render_report_table($reports['expenses_by_category'], 'category');

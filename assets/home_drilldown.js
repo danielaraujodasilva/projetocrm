@@ -36,8 +36,8 @@
       '3d': '3 dias',
       '7d': '7 dias',
       '15d': '15 dias',
-      month: 'Este mes',
-      next_month: 'Mes que vem',
+      month: 'Este mês',
+      next_month: 'Mês que vem',
       custom: 'Prazo livre',
     };
 
