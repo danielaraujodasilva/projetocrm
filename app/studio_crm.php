@@ -1646,6 +1646,48 @@ function studio_schedule_slots(array $studio): array
     return $slots ?: ['10:00', '15:00'];
 }
 
+function studio_schedule_duration_minutes(array $studio): int
+{
+    $settings = studio_settings($studio);
+    $raw = trim((string)($settings['appointment_duration_minutes'] ?? '300'));
+    $minutes = (int)$raw;
+    if ($minutes <= 0) {
+        $minutes = 300;
+    }
+
+    return max(15, min(24 * 60, $minutes));
+}
+
+function studio_schedule_add_minutes(string $date, string $time, int $minutes): string
+{
+    $start = DateTimeImmutable::createFromFormat(
+        'Y-m-d H:i',
+        trim($date) . ' ' . substr(trim($time), 0, 5),
+        new DateTimeZone('America/Sao_Paulo')
+    );
+    if (!$start) {
+        return '';
+    }
+
+    return $start->modify('+' . max(0, $minutes) . ' minutes')->format('H:i');
+}
+
+function studio_schedule_normalize_end_time(string $date, string $startTime, ?string $endTime, int $durationMinutes): string
+{
+    $startTime = substr(trim($startTime), 0, 5);
+    $provided = substr(trim((string)$endTime), 0, 5);
+    $calculated = studio_schedule_add_minutes($date, $startTime, $durationMinutes);
+    if ($calculated === '') {
+        return $provided;
+    }
+
+    if ($provided === '') {
+        return $calculated;
+    }
+
+    return $calculated;
+}
+
 function studio_schedule_is_allowed_day(array $studio, DateTimeImmutable $date): bool
 {
     return in_array((string)$date->format('N'), studio_schedule_days($studio), true);
@@ -1743,6 +1785,7 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     }
 
     $studio = current_studio() ?: [];
+    $durationMinutes = studio_schedule_duration_minutes($studio);
     $date = date('Y-m-d');
     $time = studio_schedule_slots($studio)[0] ?? '10:00';
     $nextSlots = studio_schedule_next_slots($studio, 14);
@@ -1764,12 +1807,15 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     if (!in_array($time, $allowedSlots, true)) {
         $time = $allowedSlots[0] ?? '10:00';
     }
+    $endTime = studio_schedule_add_minutes($date, $time, $durationMinutes);
 
     return [
         'title' => $title,
         'reason' => $reason,
         'date' => $date,
         'time' => $time,
+        'end_time' => $endTime,
+        'duration_minutes' => $durationMinutes,
         'description' => (string)($conversation['last_message_preview'] ?? ''),
         'artist_id' => $artistId,
     ];
@@ -2440,15 +2486,19 @@ function studio_save_appointment(array $studio, array $data): int
         $lead = studio_find_lead($studio, $leadId);
         $customerId = (int)($lead['customer_id'] ?? 0);
     }
+    $durationMinutes = studio_schedule_duration_minutes($studio);
+    $appointmentDate = trim((string)($data['appointment_date'] ?? date('Y-m-d')));
+    $startTime = trim((string)($data['start_time'] ?? '10:00'));
+    $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $data['end_time'] ?? '', $durationMinutes);
     $values = [
         $customerId ?: null,
         $leadId ?: null,
         (int)($data['artist_id'] ?? 0) ?: null,
         trim((string)($data['title'] ?? 'Atendimento')),
         trim((string)($data['description'] ?? '')),
-        trim((string)($data['appointment_date'] ?? date('Y-m-d'))),
-        trim((string)($data['start_time'] ?? '10:00')),
-        trim((string)($data['end_time'] ?? '')),
+        $appointmentDate,
+        $startTime,
+        $endTime,
         trim((string)($data['status'] ?? 'pre_agendado')),
         money_to_float((string)($data['value'] ?? '0')),
         money_to_float((string)($data['deposit_value'] ?? '0')),
@@ -2782,11 +2832,16 @@ function studio_save_settings(array $studio, array $data): void
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
     $appointmentWorkDays = trim((string)($data['appointment_work_days'] ?? '1,2,3,4,5'));
     $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
+    $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
+    if ($appointmentDurationMinutes <= 0) {
+        $appointmentDurationMinutes = 300;
+    }
 
     $pdo = studio_db($studio);
     foreach ([
         'appointment_work_days' => 'VARCHAR(40) NOT NULL DEFAULT "1,2,3,4,5"',
         'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
+        'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -2797,7 +2852,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -2810,6 +2865,7 @@ function studio_save_settings(array $studio, array $data): void
         $whatsappServiceUrl,
         $appointmentWorkDays,
         $appointmentTimeSlots,
+        $appointmentDurationMinutes,
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
