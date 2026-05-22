@@ -2521,6 +2521,8 @@ function studio_save_appointment(array $studio, array $data): int
     $appointmentDate = trim((string)($data['appointment_date'] ?? date('Y-m-d')));
     $startTime = trim((string)($data['start_time'] ?? '10:00'));
     $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $data['end_time'] ?? '', $durationMinutes);
+    $depositValue = money_to_float((string)($data['deposit_value'] ?? '0'));
+    $status = $depositValue > 0 ? 'confirmado' : 'pre_agendado';
     $values = [
         $customerId ?: null,
         $leadId ?: null,
@@ -2530,15 +2532,29 @@ function studio_save_appointment(array $studio, array $data): int
         $appointmentDate,
         $startTime,
         $endTime,
-        trim((string)($data['status'] ?? 'pre_agendado')),
+        $status,
         money_to_float((string)($data['value'] ?? '0')),
-        money_to_float((string)($data['deposit_value'] ?? '0')),
+        $depositValue,
         max(0, (int)($data['pomadas_quantity'] ?? 0)),
     ];
     if ($values[7] === '') {
         $values[7] = null;
     }
     $attachment = studio_prepare_appointment_reference($studio, $_FILES ?? []);
+    $replacedAppointments = [];
+    $conflictStatuses = ['pre_agendado'];
+    if ($status === 'confirmado') {
+        $confirmedConflicts = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $values[2] ? (int)$values[2] : null, ['confirmado'], $id);
+        if ($confirmedConflicts) {
+            throw new RuntimeException('Esse horario já está ocupado por outro atendimento confirmado com sinal pago. Escolha outro horario.');
+        }
+        $replacedAppointments = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $values[2] ? (int)$values[2] : null, $conflictStatuses, $id);
+    } elseif ($values[2]) {
+        $confirmedConflicts = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, (int)$values[2], ['confirmado'], $id);
+        if ($confirmedConflicts) {
+            throw new RuntimeException('Esse horario já está ocupado por um atendimento confirmado com sinal pago. Escolha outro horario.');
+        }
+    }
 
     if ($id > 0) {
         $stmt = $pdo->prepare(
@@ -2554,6 +2570,16 @@ function studio_save_appointment(array $studio, array $data): int
             $id
         ]);
         studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
+        if ($status === 'confirmado' && $replacedAppointments) {
+            foreach ($replacedAppointments as $appointment) {
+                $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?')->execute(['cancelado', (int)$appointment['id']]);
+                studio_notify_appointment_replacement($studio, $appointment, [
+                    'appointment_date' => $appointmentDate,
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                ]);
+            }
+        }
         return $id;
     }
 
@@ -2571,6 +2597,16 @@ function studio_save_appointment(array $studio, array $data): int
 
     $appointmentId = (int)$pdo->lastInsertId();
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
+    if ($status === 'confirmado' && $replacedAppointments) {
+        foreach ($replacedAppointments as $appointment) {
+            $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?')->execute(['cancelado', (int)$appointment['id']]);
+            studio_notify_appointment_replacement($studio, $appointment, [
+                'appointment_date' => $appointmentDate,
+                'start_time' => $startTime,
+                'end_time' => $endTime,
+            ]);
+        }
+    }
 
     return $appointmentId;
 }
@@ -2846,6 +2882,94 @@ function studio_sync_lead_from_appointment(array $studio, int $leadId, string $a
     )->execute([$leadStatus, $stage, $value, $lastContactAt, $leadId]);
 }
 
+function studio_format_appointment_message(string $template, array $vars): string
+{
+    $message = trim($template);
+    if ($message === '') {
+        $message = 'Oi {{name}}, sua vaga foi ocupada por outro agendamento confirmado. Escolha outra data/hora e, para garantir a vaga, envie o sinal.';
+    }
+    foreach ($vars as $key => $value) {
+        $message = str_replace('{{' . $key . '}}', (string)$value, $message);
+    }
+    return trim(preg_replace('/\R{3,}/', "\n\n", $message) ?: $message);
+}
+
+function studio_notify_appointment_replacement(array $studio, array $appointment, array $replacement): void
+{
+    $settings = studio_settings($studio);
+    $template = (string)($settings['appointment_overwrite_message'] ?? '');
+    $phone = normalize_phone((string)($appointment['customer_phone'] ?? $appointment['phone'] ?? ''));
+    if ($phone === '') {
+        return;
+    }
+    $message = studio_format_appointment_message($template, [
+        'name' => $appointment['customer_name'] ?: $appointment['title'] ?: 'cliente',
+        'date' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])),
+        'start_time' => substr((string)$appointment['start_time'], 0, 5),
+        'end_time' => substr((string)($appointment['end_time'] ?? ''), 0, 5),
+        'new_date' => date('d/m/Y', strtotime((string)$replacement['appointment_date'])),
+        'new_start_time' => substr((string)$replacement['start_time'], 0, 5),
+        'new_end_time' => substr((string)($replacement['end_time'] ?? ''), 0, 5),
+        'studio_name' => (string)($studio['name'] ?? 'estudio'),
+        'reason' => 'A vaga foi ocupada por outro agendamento confirmado com sinal pago.',
+    ]);
+    if ($message !== '') {
+        try {
+            studio_send_whatsapp_message($studio, [
+                'phone' => $phone,
+                'message' => $message,
+            ]);
+        } catch (Throwable) {
+        }
+    }
+}
+
+function studio_find_overlapping_appointments(array $studio, string $appointmentDate, string $startTime, string $endTime, ?int $artistId, array $statuses, int $excludeId = 0): array
+{
+    $pdo = studio_db($studio);
+    $statusPlaceholders = implode(',', array_fill(0, count($statuses), '?'));
+    if ($artistId !== null && $artistId > 0) {
+        $sql = "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, c.phone AS customer_phone, ta.name AS artist_name
+                FROM appointments a
+                LEFT JOIN customers c ON c.id = a.customer_id
+                LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+                WHERE a.appointment_date = ?
+                  AND a.id <> ?
+                  AND COALESCE(a.artist_id, 0) = ?
+                  AND a.status IN ($statusPlaceholders)
+                  AND NOT (COALESCE(a.end_time, a.start_time) <= ? OR a.start_time >= ?)
+                ORDER BY a.start_time ASC, a.id ASC";
+        $stmt = $pdo->prepare($sql);
+        $bind = [$appointmentDate, max(0, $excludeId), $artistId];
+        foreach ($statuses as $status) {
+            $bind[] = $status;
+        }
+        $bind[] = $startTime;
+        $bind[] = $endTime;
+        $stmt->execute($bind);
+        return $stmt->fetchAll() ?: [];
+    }
+
+    $sql = "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, c.phone AS customer_phone, ta.name AS artist_name
+            FROM appointments a
+            LEFT JOIN customers c ON c.id = a.customer_id
+            LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+            WHERE a.appointment_date = ?
+              AND a.id <> ?
+              AND a.status IN ($statusPlaceholders)
+              AND NOT (COALESCE(a.end_time, a.start_time) <= ? OR a.start_time >= ?)
+            ORDER BY a.start_time ASC, a.id ASC";
+    $stmt = $pdo->prepare($sql);
+    $bind = [$appointmentDate, max(0, $excludeId)];
+    foreach ($statuses as $status) {
+        $bind[] = $status;
+    }
+    $bind[] = $startTime;
+    $bind[] = $endTime;
+    $stmt->execute($bind);
+    return $stmt->fetchAll() ?: [];
+}
+
 function studio_settings(array $studio): array
 {
     $stmt = studio_db($studio)->query('SELECT * FROM studio_settings WHERE id = 1 LIMIT 1');
@@ -2866,6 +2990,7 @@ function studio_save_settings(array $studio, array $data): void
     $appointmentWorkDays = trim((string)($data['appointment_work_days'] ?? '1,2,3,4,5'));
     $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
     $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
+    $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
     if ($appointmentDurationMinutes <= 0) {
         $appointmentDurationMinutes = 300;
     }
@@ -2875,6 +3000,7 @@ function studio_save_settings(array $studio, array $data): void
         'appointment_work_days' => 'VARCHAR(40) NOT NULL DEFAULT "1,2,3,4,5"',
         'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
         'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
+        'appointment_overwrite_message' => 'TEXT NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -2885,7 +3011,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -2899,6 +3025,7 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentWorkDays,
         $appointmentTimeSlots,
         $appointmentDurationMinutes,
+        $appointmentOverwriteMessage,
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
