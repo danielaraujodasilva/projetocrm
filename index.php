@@ -1763,8 +1763,9 @@ if ($page === 'studio_reports') {
         echo '</div>';
         echo '<div class="reports-pivot-note muted">Use o painel lateral do pivot para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e drill-down ficam no toolbar do componente.</div>';
         echo '</section>';
-        echo '<script src="https://cdn.webdatarocks.com/latest/webdatarocks.min.js"></script>';
-        echo '<script src="https://cdn.webdatarocks.com/latest/webdatarocks.toolbar.min.js"></script>';
+        echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/webdatarocks.min.css">';
+        echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
+        echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
         echo '<script>';
         echo 'window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
         echo 'window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
