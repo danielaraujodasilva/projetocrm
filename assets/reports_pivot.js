@@ -2,6 +2,12 @@
   const mount = document.getElementById('reportsPivot');
   if (!mount || !window.reportsPivotData || !window.jQuery || !jQuery.fn || !jQuery.fn.pivotUI) return;
 
+  if (typeof jQuery.isFunction !== 'function') {
+    jQuery.isFunction = function (value) {
+      return typeof value === 'function';
+    };
+  }
+
   const dataSets = window.reportsPivotData;
 
   const ptRenderers = {
