@@ -2124,7 +2124,7 @@ if ($page === 'studio_settings') {
         ];
         foreach ($tabs as $key => $label) {
             $activeClass = $activeTab === $key ? ' active' : '';
-            echo '<button type="button" class="settings-tab' . h($activeClass) . '" data-settings-tab="' . h($key) . '" aria-selected="' . ($activeTab === $key ? 'true' : 'false') . '">' . h($label) . '</button>';
+            echo '<a class="settings-tab' . h($activeClass) . '" data-settings-tab="' . h($key) . '" aria-selected="' . ($activeTab === $key ? 'true' : 'false') . '" href="' . h(app_url('studio_settings', ['tab' => $key])) . '">' . h($label) . '</a>';
         }
         echo '</div>';
 
@@ -2227,7 +2227,7 @@ if ($page === 'studio_settings') {
         render_quick_replies_table(array_slice($replies, 0, 12));
         echo '</div></div>';
         echo '</div>';
-        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const panels = document.querySelectorAll("[data-settings-panel]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); function setTab(name){ tabs.forEach(btn => btn.classList.toggle("active", btn.dataset.settingsTab === name)); panels.forEach(panel => panel.classList.toggle("hidden", panel.dataset.settingsPanel !== name)); if (hiddenTab) hiddenTab.value = name; const url = new URL(window.location.href); url.searchParams.set("tab", name); window.history.replaceState({}, "", url); } tabs.forEach(btn => btn.addEventListener("click", () => setTab(btn.dataset.settingsTab || "studio"))); setTab(activeTab); })();</script>';
+        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const panels = document.querySelectorAll("[data-settings-panel]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); function setTab(name){ tabs.forEach(btn => { const selected = btn.dataset.settingsTab === name; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); }); panels.forEach(panel => panel.classList.toggle("hidden", panel.dataset.settingsPanel !== name)); if (hiddenTab) hiddenTab.value = name; const url = new URL(window.location.href); url.searchParams.set("tab", name); window.history.replaceState({}, "", url); } tabs.forEach(btn => btn.addEventListener("click", (event) => { event.preventDefault(); setTab(btn.dataset.settingsTab || "studio"); })); setTab(activeTab); })();</script>';
     }, $flash);
     exit;
 }
