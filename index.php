@@ -611,21 +611,26 @@ if ($page === 'studio_home') {
         echo '</div></section>';
 
         echo '<section class="grid cols-3">';
-        echo '<div class="panel"><p class="metric">' . h($stats['leads']) . '</p><p class="muted">Leads no funil</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($stats['customers']) . '</p><p class="muted">Clientes cadastrados</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($stats['appointments']) . '</p><p class="muted">Proximos atendimentos</p></div>';
-        echo '<div class="panel"><p class="metric">' . h(format_money($stats['month_revenue'])) . '</p><p class="muted">Agenda no mes</p></div>';
-        echo '<div class="panel"><p class="metric">' . h(format_money($stats['month_expenses'])) . '</p><p class="muted">Despesas no mes</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($stats['whatsapp_conversations']) . '</p><p class="muted">Conversas WhatsApp</p></div>';
+        foreach ([
+            ['value' => $stats['leads'], 'label' => 'Leads no funil', 'href' => app_url('studio_leads')],
+            ['value' => $stats['customers'], 'label' => 'Clientes cadastrados', 'href' => app_url('studio_customers')],
+            ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'href' => app_url('studio_agenda')],
+            ['value' => format_money($stats['month_revenue']), 'label' => 'Agenda no mes', 'href' => app_url('studio_agenda')],
+            ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'href' => app_url('studio_finance')],
+            ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'href' => app_url('studio_whatsapp')],
+        ] as $stat) {
+            echo '<a class="panel dashboard-stat" href="' . h($stat['href']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Abrir setor</span></a>';
+        }
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
         if (!$recentLeads) {
             echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Nota</th></tr></thead><tbody>';
+            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
             foreach ($recentLeads as $lead) {
-                echo '<tr><td><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td><td><span class="badge">' . h($lead['status']) . '</span></td><td>' . h((string)($lead['lead_score'] ?? '-')) . '/10</td></tr>';
+                $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td><td><span class="badge">' . h($lead['status']) . '</span></td><td>' . h((string)($lead['lead_score'] ?? '-')) . '/10</td><td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td></tr>';
             }
             echo '</tbody></table>';
         }
@@ -634,9 +639,10 @@ if ($page === 'studio_home') {
         if (!$appointments) {
             echo '<p class="muted">Nenhum horario futuro cadastrado.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Status</th></tr></thead><tbody>';
+            echo '<table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Status</th><th>Acoes</th></tr></thead><tbody>';
             foreach ($appointments as $appointment) {
-                echo '<tr><td><strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date']))) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . '</span></td><td>' . h($appointment['customer_name']) . '<br><span class="muted">' . h($appointment['title']) . '</span></td><td><span class="badge">' . h($appointment['status']) . '</span></td></tr>';
+                $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date']))) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . '</span></a></td><td>' . h($appointment['customer_name']) . '<br><span class="muted">' . h($appointment['title']) . '</span></td><td><span class="badge">' . h($appointment['status']) . '</span></td><td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td></tr>';
             }
             echo '</tbody></table>';
         }

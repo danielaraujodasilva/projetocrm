@@ -581,6 +581,20 @@ textarea {
     text-decoration: none;
 }
 
+.dashboard-stat {
+    display: grid;
+    gap: 4px;
+    color: var(--text);
+    text-decoration: none;
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.dashboard-stat:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
+    text-decoration: none;
+}
+
 .calendar-title {
     margin: 0 0 12px;
 }
