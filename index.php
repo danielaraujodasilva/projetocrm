@@ -623,41 +623,32 @@ if ($page === 'studio_home') {
         )->fetchColumn());
         $focus = (string)($_GET['focus'] ?? '');
         $focusUrls = [
-            'waiting_replies' => app_url('studio_home', ['focus' => 'waiting_replies']),
             'scheduled_month' => app_url('studio_home', ['focus' => 'scheduled_month']),
             'available_slots' => app_url('studio_home', ['focus' => 'available_slots']),
             'month_result' => app_url('studio_home', ['focus' => 'month_result']),
-            'leads' => app_url('studio_home', ['focus' => 'leads']),
             'customers' => app_url('studio_home', ['focus' => 'customers']),
             'appointments' => app_url('studio_home', ['focus' => 'appointments']),
             'whatsapp' => app_url('studio_home', ['focus' => 'whatsapp']),
         ];
         $availabilityCards = $availabilityCards ?? [];
         $homeDrilldowns = [
-            'waiting_replies' => [
-                'title' => 'Conversas que pedem resposta',
-                'summary' => (string)$waitingReplies . ' conversas sem resposta ainda.',
-                'type' => 'whatsapp',
-                'items' => $pdo->query(
-                    "SELECT wc.id, COALESCE(c.name, l.name, wc.name, wc.phone) AS display_name, wc.phone, wc.last_message_preview, wc.last_message_at, wc.attendance_mode
-                     FROM whatsapp_conversations wc
-                     LEFT JOIN customers c ON c.id = wc.customer_id
-                     LEFT JOIN leads l ON l.id = wc.lead_id
-                     WHERE wc.id IN (
-                        SELECT conversation_id
-                        FROM whatsapp_messages
-                        GROUP BY conversation_id
-                        HAVING SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) > SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END)
-                     )
-                     ORDER BY COALESCE(wc.last_message_at, wc.updated_at) DESC
-                     LIMIT 12"
-                )->fetchAll() ?: [],
-            ],
             'scheduled_month' => [
                 'title' => 'Agendado de hoje ate o fim do mes',
                 'summary' => 'Total projetado a partir de hoje: ' . format_money($scheduledToEndOfMonth),
-                'type' => 'appointments',
+                'type' => 'scheduled_month',
                 'items' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: [],
+                'filters' => [
+                    '7d' => 'Próximos 7 dias',
+                    '15d' => 'Próximos 15 dias',
+                    'month' => 'Este mês',
+                    'next_month' => 'Mês que vem',
+                ],
+                'rangeMap' => [
+                    '7d' => studio_upcoming_appointments($studio, 7),
+                    '15d' => studio_upcoming_appointments($studio, 15),
+                    'month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                    'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                ],
             ],
             'available_slots' => [
                 'title' => 'Vagas livres na agenda',
@@ -703,13 +694,6 @@ if ($page === 'studio_home') {
                     ['label' => 'Saldo simples', 'value' => format_money($stats['month_revenue'] - $stats['month_expenses'])],
                 ],
             ],
-            'leads' => [
-                'title' => 'Leads no funil',
-                'summary' => (string)$stats['leads'] . ' leads cadastrados.',
-                'kind' => 'lead',
-                'type' => 'table',
-                'items' => $recentLeads,
-            ],
             'customers' => [
                 'title' => 'Clientes cadastrados',
                 'summary' => (string)$stats['customers'] . ' clientes cadastrados.',
@@ -746,9 +730,8 @@ if ($page === 'studio_home') {
         }
         echo '</div></section>';
 
-        echo '<section class="grid cols-4">';
+        echo '<section class="grid cols-3">';
         foreach ([
-            ['value' => $waitingReplies, 'label' => 'Conversas sem resposta', 'focus' => 'waiting_replies'],
             ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado de hoje ate o fim do mes', 'focus' => 'scheduled_month'],
             ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'focus' => 'available_slots'],
             ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'focus' => 'month_result'],
@@ -759,10 +742,8 @@ if ($page === 'studio_home') {
 
         echo '<section class="grid cols-3">';
         foreach ([
-            ['value' => $stats['leads'], 'label' => 'Leads no funil', 'focus' => 'leads'],
             ['value' => $stats['customers'], 'label' => 'Clientes cadastrados', 'focus' => 'customers'],
             ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'focus' => 'appointments'],
-            ['value' => format_money($stats['month_revenue']), 'label' => 'Agenda no mes', 'focus' => 'appointments'],
             ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'focus' => 'month_result'],
             ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'focus' => 'whatsapp'],
         ] as $stat) {

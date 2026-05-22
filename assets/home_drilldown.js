@@ -130,6 +130,72 @@
     renderRange(defaultRange);
   }
 
+  function renderScheduledMonth(data) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    const filters = data.filters || {};
+    const filterEntries = Object.entries(filters);
+    const totalValue = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+
+    const renderList = (periodLabel, rows) => {
+      const list = rows.map((item) => {
+        const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
+        const meta = [
+          item.appointment_date ? badge(item.appointment_date) : '',
+          item.start_time ? badge(item.start_time.slice(0, 5)) : '',
+          item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
+        ].filter(Boolean).join('');
+        const detail = `${item.title || item.customer_name || 'Atendimento'} · ${money(item.value || 0)}`;
+        return card(href, item.customer_name || item.title || 'Agendamento', meta, detail, 'compact');
+      }).join('');
+
+      body.innerHTML = `
+        <div class="availability-toolbar">
+          ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === 'month' ? '' : 'secondary'}" data-scheduled-filter="${esc(key)}">${esc(label)}</button>`).join('')}
+          <div class="drilldown-toolbar-summary">
+            <strong>${esc(rows.length)} agendamentos</strong>
+            <span>${esc(money(rows.reduce((sum, item) => sum + (Number(item.value) || 0), 0)))}</span>
+            <small>${esc(periodLabel)}</small>
+          </div>
+        </div>
+        <div class="drilldown-card-list">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
+
+      setTimeout(() => {
+        document.querySelectorAll('[data-scheduled-filter]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-scheduled-filter');
+            if (!key) return;
+            const nextItems = Array.isArray(data.rangeMap?.[key]) ? data.rangeMap[key] : rows;
+            const nextLabel = filters[key] || periodLabel;
+            renderList(nextLabel, nextItems);
+          });
+        });
+      }, 0);
+    };
+
+    renderList(data.summary || 'Período selecionado', items);
+  }
+
+  function renderHumanReplies(data) {
+    const total = Number(data.count || 0);
+    const items = Array.isArray(data.items) ? data.items : [];
+    const summaryHtml = `
+      <div class="drilldown-panel-summary">
+        <div class="drilldown-kpi"><strong>${esc(total)}</strong><span>Conversas sem confirmação</span><small>Este cartão ficou sem espelho confiável de leitura no WhatsApp, então ele mostra apenas o que o sistema sabe de forma segura.</small></div>
+        <div class="drilldown-kpi highlight"><strong>${esc(items.length)}</strong><span>Conversas listadas</span><small>Somente itens com última atividade recente.</small></div>
+      </div>`;
+
+    const rows = items.map((item) => {
+      const href = item.id ? `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}` : '';
+      const meta = [
+        item.last_message_at ? badge(item.last_message_at, 'neutral') : '',
+        item.attendance_mode ? badge(item.attendance_mode === 'bot' ? 'bot' : 'human', item.attendance_mode === 'bot' ? 'ok' : 'neutral') : '',
+      ].filter(Boolean).join('');
+      return card(href, item.display_name || item.phone || 'Contato', meta, item.last_message_preview || 'Sem prévia recente.', 'compact');
+    }).join('');
+
+    body.innerHTML = `${summaryHtml}<div class="drilldown-card-list">${rows || '<div class="drilldown-empty"><strong>Sem itens confiáveis para exibir</strong><div class="muted">Esse card foi propositalmente simplificado para não mostrar informação falsa.</div></div>'}</div>`;
+  }
+
   function renderFinance(data) {
     const items = Array.isArray(data.items) ? data.items : [];
     const revenue = items[0]?.value || 'R$ 0,00';
@@ -244,6 +310,8 @@
 
     if (data.type === 'availability') {
       renderAvailability(data);
+    } else if (data.type === 'scheduled_month') {
+      renderScheduledMonth(data);
     } else if (data.type === 'finance') {
       renderFinance(data);
     } else if (data.type === 'appointments') {
@@ -264,6 +332,16 @@
     const data = (window.homeDrilldowns || {})[key];
     if (!data) return false;
     try {
+      if (key === 'waiting_replies') {
+        return show({
+          ...data,
+          type: 'scheduled_month',
+          title: 'Conversas sem confirmação confiável',
+          summary: 'Esse card foi reduzido para evitar informação falsa de leitura de respostas já vistas.',
+          count: data.count || 0,
+          items: data.items || [],
+        });
+      }
       return show(data);
     } catch (error) {
       console.error(error);
