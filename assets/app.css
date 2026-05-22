@@ -717,7 +717,7 @@ textarea {
     margin-bottom: 10px;
 }
 
-.mini-metrics span,
+.mini-metrics > *,
 .activity-card {
     display: flex;
     flex-direction: column;
@@ -731,7 +731,7 @@ textarea {
     min-height: 0;
 }
 
-.conversation-metrics span {
+.conversation-metrics > * {
     gap: 2px;
     padding: 8px 10px;
     line-height: 1.05;
@@ -745,7 +745,7 @@ textarea {
     line-height: 1.15;
 }
 
-.side-suggestion-metrics span {
+.side-suggestion-metrics > * {
     gap: 2px;
     padding: 8px 10px;
     line-height: 1.05;
@@ -949,7 +949,7 @@ textarea {
         gap: 6px;
     }
 
-    .mini-metrics span {
+    .mini-metrics > * {
         padding: 10px;
     }
 
