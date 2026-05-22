@@ -1300,6 +1300,7 @@ if ($page === 'studio_whatsapp_conversation') {
             '15d' => ['label' => '15 dias', 'days' => 15],
             'month' => ['label' => 'Este mes', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
             'next_month' => ['label' => 'Mes que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
+            'custom' => ['label' => 'Prazo livre', 'days' => 365],
         ];
         $availabilityCardsByRange = [];
         $allowedDays = studio_schedule_days($studio);

@@ -1452,6 +1452,46 @@ textarea {
     line-height: 1.2;
 }
 
+.availability-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+}
+
+.availability-toolbar .field {
+    margin: 0;
+}
+
+.availability-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.availability-block {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.availability-block strong {
+    font-size: 0.95rem;
+}
+
+.availability-block span {
+    color: var(--muted);
+    font-weight: 800;
+}
+
 .send-box {
     background: #f7fdf8;
     border: 1px solid var(--line);

@@ -21,54 +21,80 @@
   const closeModal = () => modal.classList.add('hidden');
   const openModal = () => modal.classList.remove('hidden');
 
+  function getAvailabilityRows(data, rangeKey, limitDays) {
+    const ranges = data.ranges || {};
+    const defaultRange = data.default_range || '7d';
+    const range = ranges[rangeKey] || ranges[defaultRange] || Object.values(ranges)[0] || { label: '7 dias', items: [] };
+    const items = Array.isArray(range.items) ? range.items.slice(0, Math.max(1, limitDays || range.items.length)) : [];
+    return { range, items };
+  }
+
   function renderAvailability(data) {
     const ranges = Object.entries(data.ranges || {});
     const defaultRange = data.default_range || '7d';
-    const renderRange = (rangeKey) => {
-      const pair =
-        ranges.find(([key]) => key === rangeKey) ||
-        ranges.find(([key]) => key === defaultRange) ||
-        ranges[0] ||
-        ['7d', { label: '7 dias', items: [] }];
-      const keyReal = pair[0];
-      const range = pair[1] || { items: [] };
-      const options = ranges
-        .map(([key, value]) => `<option value="${esc(key)}"${key === keyReal ? ' selected' : ''}>${esc(value.label || key)}</option>`)
-        .join('');
-      const days = (range.items || [])
-        .map((item) => {
-          const free = (item.free_slots || [])
-            .map((slot) => `<button type="button" class="drilldown-chip" data-availability-date="${esc(item.date)}">${esc(slot)}</button>`)
-            .join('');
-          const booked = (item.booked || [])
-            .map((appt) => `<button type="button" class="drilldown-chip secondary" data-appointment-id="${esc(appt.id || 0)}" data-appointment-date="${esc(item.date)}">${esc(appt.time)}${appt.customer_name ? ` • ${esc(appt.customer_name)}` : ''}</button>`)
-            .join('');
-          return (
-            `<details class="drilldown-card drilldown-details" open>` +
-            `<summary><strong>${esc(item.label)}</strong><span class="muted">${esc(item.allowed ? `${item.free} vagas livres` : 'Fora dos dias permitidos')}</span></summary>` +
-            `<div class="drilldown-detail-list">` +
-            `<div><span class="muted">Horarios livres</span>${free ? `<div class="drilldown-chip-row">${free}</div>` : '<p class="muted">Sem horarios livres nesse dia.</p>'}</div>` +
-            `${booked ? `<div style="margin-top:10px"><span class="muted">Ocupados</span><div class="drilldown-chip-row">${booked}</div></div>` : ''}` +
-            `</div></details>`
+    const rangeLabels = {
+      '3d': '3 dias',
+      '7d': '7 dias',
+      '15d': '15 dias',
+      month: 'Este mes',
+      next_month: 'Mes que vem',
+      custom: 'Prazo livre',
+    };
+
+    const options = ranges
+      .filter(([key]) => key !== 'custom')
+      .map(([key, value]) => `<option value="${esc(key)}"${key === defaultRange ? ' selected' : ''}>${esc(value.label || rangeLabels[key] || key)}</option>`)
+      .join('');
+
+    const freeRange = ranges.find(([key]) => key === 'custom');
+    const freeLimit = freeRange ? (freeRange[1]?.items?.length || 365) : 365;
+
+    const renderRange = (rangeKey, customDays) => {
+      const activeRangeKey = rangeKey === 'custom' ? 'custom' : rangeKey;
+      const { range, items } = getAvailabilityRows(data, activeRangeKey, activeRangeKey === 'custom' ? customDays : undefined);
+      const chosenLabel = activeRangeKey === 'custom'
+        ? `Prazo livre: ${customDays} dias`
+        : (range.label || rangeLabels[activeRangeKey] || activeRangeKey);
+
+      const blocks = [];
+      items.forEach((item) => {
+        (item.free_slots || []).forEach((slot) => {
+          blocks.push(
+            `<button type="button" class="availability-block" data-availability-date="${esc(item.date)}" data-availability-time="${esc(slot)}">` +
+            `<strong>${esc(item.label)}</strong>` +
+            `<span>${esc(slot)}</span>` +
+            `</button>`
           );
-        })
-        .join('');
+        });
+      });
+
+      const empty = `<div class="drilldown-card"><strong>Nenhuma vaga livre encontrada</strong><div class="muted">Nesse prazo não apareceu nenhum horário livre dentro das regras do estúdio.</div></div>`;
 
       body.innerHTML =
         `<div class="availability-toolbar">` +
-        `<label class="field" style="max-width:240px"><span class="muted">Período</span><select id="availabilityRangeSelect">${options}</select></label>` +
-        `<p class="muted">Mostrando ${esc(range.label || keyReal)}. Toque num dia ou horario para navegar direto.</p>` +
+        `<label class="field" style="min-width:220px"><span class="muted">Atalhos</span><select id="availabilityRangeSelect">${options}</select></label>` +
+        `<label class="field" style="max-width:180px"><span class="muted">Prazo livre</span><input id="availabilityDaysInput" type="number" min="1" max="${freeLimit}" value="${Math.min(7, freeLimit)}"></label>` +
+        `<button type="button" class="btn secondary" id="availabilityDaysApply">Aplicar</button>` +
+        `<p class="muted">Mostrando ${esc(chosenLabel)}. Clique numa vaga para abrir o dia correspondente.</p>` +
         `</div>` +
-        `<div class="drilldown-grid availability-grid">` +
-        (days || '<div class="drilldown-card"><strong>Nenhuma vaga livre encontrada</strong><div class="muted">Nesse período não apareceu nenhum horário livre rápido dentro das regras do estúdio.</div></div>') +
-        `</div>`;
+        `<div class="availability-list">${blocks.length ? blocks.join('') : empty}</div>`;
 
       setTimeout(() => {
-        const sel = document.getElementById('availabilityRangeSelect');
-        if (sel) {
-          sel.addEventListener('change', function () {
+        const select = document.getElementById('availabilityRangeSelect');
+        const input = document.getElementById('availabilityDaysInput');
+        const apply = document.getElementById('availabilityDaysApply');
+        if (select) {
+          select.value = activeRangeKey === 'custom' ? defaultRange : activeRangeKey;
+          select.addEventListener('change', function () {
+            if (this.value === 'custom') {
+              renderRange('custom', Number(input?.value || freeLimit));
+              return;
+            }
             renderRange(this.value);
           });
+        }
+        if (apply && input) {
+          apply.addEventListener('click', () => renderRange('custom', Number(input.value || freeLimit)));
         }
       }, 0);
     };
@@ -126,5 +152,27 @@
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeModal();
+  });
+
+  document.addEventListener('click', (event) => {
+    const availabilityBtn = event.target.closest('[data-availability-date]');
+    if (availabilityBtn) {
+      const date = availabilityBtn.getAttribute('data-availability-date') || '';
+      const time = availabilityBtn.getAttribute('data-availability-time') || '';
+      if (date) {
+        const url = `index.php?page=studio_agenda&date=${encodeURIComponent(date)}`;
+        window.location.href = `${url}#appointment-form${time ? `&time=${encodeURIComponent(time)}` : ''}`;
+      }
+      return;
+    }
+
+    const appointmentBtn = event.target.closest('[data-appointment-id]');
+    if (appointmentBtn) {
+      const appointmentId = appointmentBtn.getAttribute('data-appointment-id') || '';
+      const date = appointmentBtn.getAttribute('data-appointment-date') || '';
+      if (appointmentId && date) {
+        window.location.href = `index.php?page=studio_agenda&date=${encodeURIComponent(date)}&appointment_id=${encodeURIComponent(appointmentId)}#appointment-form`;
+      }
+    }
   });
 })();
