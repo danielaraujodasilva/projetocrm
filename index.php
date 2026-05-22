@@ -621,6 +621,17 @@ if ($page === 'studio_home') {
                 HAVING in_count > out_count
             ) pending_threads"
         )->fetchColumn());
+        $focus = (string)($_GET['focus'] ?? '');
+        $focusUrls = [
+            'waiting_replies' => app_url('studio_home', ['focus' => 'waiting_replies']),
+            'scheduled_month' => app_url('studio_home', ['focus' => 'scheduled_month']),
+            'available_slots' => app_url('studio_home', ['focus' => 'available_slots']),
+            'month_result' => app_url('studio_home', ['focus' => 'month_result']),
+            'leads' => app_url('studio_home', ['focus' => 'leads']),
+            'customers' => app_url('studio_home', ['focus' => 'customers']),
+            'appointments' => app_url('studio_home', ['focus' => 'appointments']),
+            'whatsapp' => app_url('studio_home', ['focus' => 'whatsapp']),
+        ];
 
         echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Acoes rapidas</h2><p class="muted">Atalhos para o que mais se usa no dia a dia.</p></div></div>';
         echo '<div class="quick-actions-grid">';
@@ -637,10 +648,10 @@ if ($page === 'studio_home') {
 
         echo '<section class="grid cols-4">';
         foreach ([
-            ['value' => $waitingReplies, 'label' => 'Conversas sem resposta', 'href' => app_url('studio_whatsapp', ['needs_human' => 1])],
-            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado ate o fim do mes', 'href' => app_url('studio_agenda')],
-            ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'href' => app_url('studio_agenda')],
-            ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'href' => app_url('studio_finance')],
+            ['value' => $waitingReplies, 'label' => 'Conversas sem resposta', 'href' => $focusUrls['waiting_replies']],
+            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado ate o fim do mes', 'href' => $focusUrls['scheduled_month']],
+            ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'href' => $focusUrls['available_slots']],
+            ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'href' => $focusUrls['month_result']],
         ] as $stat) {
             echo '<a class="panel dashboard-stat" href="' . h($stat['href']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Ver detalhes</span></a>';
         }
@@ -648,16 +659,85 @@ if ($page === 'studio_home') {
 
         echo '<section class="grid cols-3">';
         foreach ([
-            ['value' => $stats['leads'], 'label' => 'Leads no funil', 'href' => app_url('studio_leads')],
-            ['value' => $stats['customers'], 'label' => 'Clientes cadastrados', 'href' => app_url('studio_customers')],
-            ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'href' => app_url('studio_agenda')],
-            ['value' => format_money($stats['month_revenue']), 'label' => 'Agenda no mes', 'href' => app_url('studio_agenda')],
-            ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'href' => app_url('studio_finance')],
-            ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'href' => app_url('studio_whatsapp')],
+            ['value' => $stats['leads'], 'label' => 'Leads no funil', 'href' => $focusUrls['leads']],
+            ['value' => $stats['customers'], 'label' => 'Clientes cadastrados', 'href' => $focusUrls['customers']],
+            ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'href' => $focusUrls['appointments']],
+            ['value' => format_money($stats['month_revenue']), 'label' => 'Agenda no mes', 'href' => $focusUrls['appointments']],
+            ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'href' => $focusUrls['month_result']],
+            ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'href' => $focusUrls['whatsapp']],
         ] as $stat) {
             echo '<a class="panel dashboard-stat" href="' . h($stat['href']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Abrir setor</span></a>';
         }
         echo '</section>';
+        if ($focus !== '') {
+            echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Detalhe rapido</h2><p class="muted">Clique novamente num bloco para limpar este foco.</p></div><a class="btn secondary" href="' . h(app_url('studio_home')) . '">Limpar foco</a></div>';
+            if ($focus === 'waiting_replies') {
+                $pendingThreads = $pdo->query(
+                    "SELECT wc.id, COALESCE(c.name, l.name, wc.name, wc.phone) AS display_name, wc.phone, wc.last_message_preview, wc.last_message_at, wc.attendance_mode
+                     FROM whatsapp_conversations wc
+                     LEFT JOIN customers c ON c.id = wc.customer_id
+                     LEFT JOIN leads l ON l.id = wc.lead_id
+                     WHERE wc.id IN (
+                        SELECT conversation_id
+                        FROM whatsapp_messages
+                        GROUP BY conversation_id
+                        HAVING SUM(CASE WHEN direction = 'in' THEN 1 ELSE 0 END) > SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END)
+                     )
+                     ORDER BY COALESCE(wc.last_message_at, wc.updated_at) DESC
+                     LIMIT 12"
+                )->fetchAll() ?: [];
+                echo '<h3>Conversas que pedem resposta</h3>';
+                if (!$pendingThreads) {
+                    echo '<p class="muted">Nenhuma conversa pendente no momento.</p>';
+                } else {
+                    echo '<div class="stack-list">';
+                    foreach ($pendingThreads as $thread) {
+                        $href = app_url('studio_whatsapp_conversation', ['id' => (int)$thread['id']]);
+                        echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h($thread['display_name'] ?: $thread['phone']) . '</strong><span class="muted">' . h(($thread['last_message_at'] ?: '-') . ' | ' . ($thread['attendance_mode'] ?: '-')) . '</span><span>' . h($thread['last_message_preview'] ?: '-') . '</span></a>';
+                    }
+                    echo '</div>';
+                }
+            } elseif ($focus === 'scheduled_month') {
+                $appointmentsMonth = $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: [];
+                echo '<h3>Agendado ate o fim do mes</h3><p class="muted">Total projetado: ' . h(format_money($scheduledToEndOfMonth)) . '</p>';
+                render_appointments_table($appointmentsMonth);
+            } elseif ($focus === 'available_slots') {
+                echo '<h3>Vagas livres na agenda</h3>';
+                echo '<p class="muted">Dias restantes uteis: ' . h((string)$remainingWorkDays) . ' | slots por dia: ' . h((string)$slotCount) . ' | vagas livres estimadas: ' . h((string)$availableSlots) . '</p>';
+                echo '<div class="mini-metrics">';
+                echo '<span><strong>' . h((string)$remainingWorkDays) . '</strong><small>Dias uteis restantes</small></span>';
+                echo '<span><strong>' . h((string)$slotCount) . '</strong><small>Slots por dia</small></span>';
+                echo '<span><strong>' . h((string)$bookedSlots) . '</strong><small>Slots ocupados</small></span>';
+                echo '</div>';
+                echo '<p class="muted">As sugestões do agendamento usam os dias e horarios cadastrados em Configuracoes.</p>';
+            } elseif ($focus === 'month_result') {
+                echo '<h3>Resultado simples do mes</h3>';
+                echo '<div class="grid cols-3">';
+                echo '<div class="panel soft"><strong>' . h(format_money($stats['month_revenue'])) . '</strong><div class="muted">Agenda no mes</div></div>';
+                echo '<div class="panel soft"><strong>' . h(format_money($stats['month_expenses'])) . '</strong><div class="muted">Despesas no mes</div></div>';
+                echo '<div class="panel soft"><strong>' . h(format_money($stats['month_revenue'] - $stats['month_expenses'])) . '</strong><div class="muted">Saldo simples</div></div>';
+                echo '</div>';
+            } elseif ($focus === 'leads') {
+                echo '<h3>Leads no funil</h3>';
+                render_leads_table(array_slice($recentLeads, 0, 8));
+                echo '<p class="muted">Use a pagina Pessoas para filtrar, abrir fichas e mover leads com mais contexto.</p>';
+            } elseif ($focus === 'customers') {
+                $recentCustomers = studio_list_customers($studio, 8);
+                echo '<h3>Clientes cadastrados</h3>';
+                render_customers_table($recentCustomers);
+                echo '<p class="muted">Clientes e leads vivem juntos em Pessoas para evitar duplicacao de caminho.</p>';
+            } elseif ($focus === 'appointments') {
+                echo '<h3>Proximos atendimentos</h3>';
+                render_appointments_table(array_slice($appointments, 0, 8));
+                echo '<p class="muted">Clique num atendimento para ir direto ao contexto dele na agenda.</p>';
+            } elseif ($focus === 'whatsapp') {
+                $conversations = studio_list_whatsapp_conversations($studio, ['needs_human' => 1], 8);
+                echo '<h3>Conversas WhatsApp</h3>';
+                render_whatsapp_table($conversations);
+                echo '<p class="muted">Esse recorte mostra apenas conversas que pedem atenção humana.</p>';
+            }
+            echo '</section>';
+        }
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
         if (!$recentLeads) {
