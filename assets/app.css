@@ -702,6 +702,34 @@ textarea {
     font-weight: 700;
 }
 
+.settings-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 14px 0 16px;
+}
+
+.settings-tab {
+    appearance: none;
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    color: var(--text);
+    border-radius: 999px;
+    padding: 10px 14px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.settings-tab.active {
+    background: var(--brand);
+    color: #fff;
+    border-color: var(--brand);
+}
+
+.settings-panel.hidden {
+    display: none;
+}
+
 .dashboard-stat {
     display: grid;
     gap: 4px;
