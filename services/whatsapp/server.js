@@ -61,6 +61,20 @@ function extractText(message) {
   const content = getMessageContent(message);
   return content?.conversation ||
     content?.extendedTextMessage?.text ||
+    content?.messageContextInfo?.quotedMessage?.conversation ||
+    content?.messageContextInfo?.quotedMessage?.extendedTextMessage?.text ||
+    content?.templateMessage?.hydratedTemplate?.hydratedContentText ||
+    content?.templateMessage?.hydratedTemplate?.hydratedFooterText ||
+    content?.buttonsResponseMessage?.selectedButtonId ||
+    content?.buttonsResponseMessage?.selectedDisplayText ||
+    content?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    content?.listResponseMessage?.singleSelectReply?.selectedRowDescription ||
+    content?.templateButtonReplyMessage?.selectedId ||
+    content?.templateButtonReplyMessage?.selectedDisplayText ||
+    content?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+    content?.interactiveResponseMessage?.body?.text ||
+    content?.interactiveMessage?.nativeFlowResponseMessage?.paramsJson ||
+    content?.interactiveMessage?.body?.text ||
     content?.imageMessage?.caption ||
     content?.videoMessage?.caption ||
     content?.documentMessage?.caption ||
@@ -220,7 +234,7 @@ async function postWebhook(session, payload) {
     ...payload
   };
   try {
-    const response = await axios.post(session.webhookUrl, body, { timeout: 15000 });
+    const response = await axios.post(session.webhookUrl, body, { timeout: 60000 });
     return response.data;
   } catch (error) {
     console.error(`[${session.key}] Falha ao chamar webhook:`, error.message);
@@ -409,6 +423,7 @@ async function startSession(sessionKey, config = {}) {
       const texto = extractText(msg.message);
       const mediaInfo = getMediaMessage(msg.message);
       const mediaPayload = {};
+      const messageKind = Object.keys(getMessageContent(msg.message) || {}).slice(0, 8).join(",") || "unknown";
 
       if (mediaInfo) {
         try {
@@ -430,10 +445,22 @@ async function startSession(sessionKey, config = {}) {
       if (!String(texto || "").trim() && !mediaInfo) {
         logSession(session, "Mensagem recebida sem texto/midia descartada", {
           remoteJid: jid,
-          fromMe: !!key.fromMe
+          fromMe: !!key.fromMe,
+          messageKind,
+          messageId: key.id || "",
+          isStatus: !!key.isStatus
         });
         continue;
       }
+
+      logSession(session, "Mensagem recebida pronta para webhook", {
+        remoteJid: jid,
+        fromMe: !!key.fromMe,
+        tipoMensagem: mediaInfo?.type || "texto",
+        temTexto: !!String(texto || "").trim(),
+        messageKind,
+        messageId: key.id || ""
+      });
 
       await postWebhook(session, {
         numero: identity.numero,

@@ -564,6 +564,13 @@ function studio_windows_json_string(array $payload): string
     return str_replace("'", "''", json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}');
 }
 
+function studio_whatsapp_ai_timeout(array $studio): int
+{
+    $settings = studio_settings($studio);
+    $provider = (string)($settings['ai_provider'] ?? 'ollama');
+    return $provider === 'ollama' ? 90 : 60;
+}
+
 function studio_windows_start_process(string $command): void
 {
     $escaped = escapeshellarg('Start-Process -WindowStyle Hidden -WorkingDirectory ' . studio_windows_cmd_arg(getcwd() ?: '.') . ' -FilePath powershell.exe -ArgumentList ' . studio_windows_cmd_arg('-NoProfile -ExecutionPolicy Bypass -Command ' . $command));
@@ -2285,7 +2292,7 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         ];
     }
 
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/send', $payload, 25);
+    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($sessionKey) . '/send', $payload, studio_whatsapp_ai_timeout($studio));
 
     if (empty($result['ok'])) {
         throw new RuntimeException((string)($result['error'] ?? $result['erro'] ?? 'Nao foi possivel enviar pelo WhatsApp.'));
@@ -2356,31 +2363,12 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
     }
 
-    $schema = [
-        'type' => 'object',
-        'properties' => [
-            'reply_text' => ['type' => 'string'],
-            'needs_human' => ['type' => 'boolean'],
-            'lead_score_delta' => ['type' => 'integer'],
-            'summary' => ['type' => 'string'],
-        ],
-        'required' => ['reply_text', 'needs_human', 'lead_score_delta', 'summary'],
-        'additionalProperties' => false,
-    ];
-
     $body = [
         'model' => $model,
+        'temperature' => 0.3,
         'messages' => [
-            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
             ['role' => 'user', 'content' => $userPrompt],
-        ],
-        'response_format' => [
-            'type' => 'json_schema',
-            'json_schema' => [
-                'name' => 'whatsapp_reply',
-                'strict' => true,
-                'schema' => $schema,
-            ],
         ],
     ];
 
@@ -2418,8 +2406,11 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
     }
     $decoded = json_decode($content, true);
+    if (!is_array($decoded) && preg_match('/\{.*\}/s', $content, $matches)) {
+        $decoded = json_decode($matches[0], true);
+    }
     if (!is_array($decoded)) {
-        return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA.'];
+        return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA: ' . mb_substr($content, 0, 120)];
     }
 
     return [
