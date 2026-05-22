@@ -533,6 +533,55 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '</body></html>';
 }
 
+function render_public_agent_page(): void
+{
+    $version = app_build_version();
+    $status = [
+        'aplicacao' => 'online',
+        'banco_central' => $GLOBALS['dbStatus']['ok'] ?? false ? 'ok' : 'indisponivel',
+        'schema' => $GLOBALS['schemaReady'] ?? false ? 'ok' : 'pendente',
+        'versao' => $version,
+        'gerado_em' => (new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d H:i:s'),
+    ];
+
+    echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
+    echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
+    echo '<title>projetocrm · Página pública para agentes</title>';
+    echo '<meta name="description" content="Página pública de verificação do CRM do estúdio, acessível sem login para agentes e validadores.">';
+    echo '<style>
+        :root{color-scheme:light;--bg:#f3f5f7;--surface:#fff;--line:#dbe2ea;--text:#17202a;--muted:#657386;--brand:#1f6f78;}
+        *{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+        main{max-width:920px;margin:0 auto;padding:32px 18px 48px}
+        .hero,.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+        .hero{padding:28px;margin-bottom:18px}.hero h1{margin:0 0 8px;font-size:32px}.hero p{margin:0;color:var(--muted);line-height:1.5}
+        .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}
+        .card{padding:16px;border:1px solid var(--line);border-radius:12px;background:#f9fbfc}.card strong{display:block;font-size:14px;margin-bottom:6px}.card span{color:var(--muted)}
+        .panel{padding:22px}.panel h2{margin:0 0 10px;font-size:20px}.panel p,.panel li{color:var(--muted);line-height:1.55}
+        .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid var(--line);text-decoration:none;color:var(--text);background:#fff;font-weight:700}
+        .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}pre{margin:0;padding:14px;border-radius:12px;background:#101820;color:#d7f7ea;overflow:auto}
+    </style></head><body><main>';
+    echo '<section class="hero"><h1>projetocrm</h1><p>Esta é uma página pública de verificação para agentes, navegadores automatizados e validadores. As áreas operacionais do CRM exigem autenticação, mas esta rota foi criada justamente para ser acessível sem login.</p>';
+    echo '<div class="actions"><a class="btn primary" href="' . h(app_url('studio_login')) . '">Login do estúdio</a><a class="btn" href="' . h(app_url('login')) . '">Painel gerente</a></div></section>';
+    echo '<div class="grid">';
+    foreach ($status as $label => $value) {
+        echo '<div class="card"><strong>' . h(ucwords(str_replace('_', ' ', $label))) . '</strong><span>' . h((string)$value) . '</span></div>';
+    }
+    echo '</div>';
+    echo '<section class="panel"><h2>O que um agente consegue fazer aqui</h2><ul>';
+    echo '<li>Confirmar que o domínio e a aplicação estão online.</li>';
+    echo '<li>Ler informações públicas básicas sem esbarrar na tela de login.</li>';
+    echo '<li>Descobrir as rotas corretas de autenticação do CRM.</li>';
+    echo '</ul></section>';
+    echo '<section class="panel" style="margin-top:18px"><h2>Resumo técnico</h2><pre>' . h(json_encode([
+        'app' => 'projetocrm',
+        'public_agent_page' => true,
+        'login_url' => app_url('studio_login'),
+        'manager_login_url' => app_url('login'),
+        'version' => $version,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . '</pre></section>';
+    echo '</main></body></html>';
+}
+
 if (!$dbStatus['ok'] || !$schemaReady) {
     render_auth_page('Preparar banco central', 'Rode o SQL inicial no phpMyAdmin para habilitar a alpha.', function () use ($dbStatus) {
         echo '<div class="panel">';
@@ -576,6 +625,11 @@ if ($page === 'studio_login') {
         echo '<a class="btn secondary" href="' . h(app_url('login')) . '">Painel gerente</a>';
         echo '</form>';
     }, $flash);
+    exit;
+}
+
+if ($page === 'public_agent') {
+    render_public_agent_page();
     exit;
 }
 

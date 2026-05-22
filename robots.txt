@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://danieltatuador.com/projetocrm/index.php?page=public_agent
