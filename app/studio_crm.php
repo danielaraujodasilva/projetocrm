@@ -1527,7 +1527,10 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     }
 
     $sql =
-        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count, COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at
+        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count,
+                COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at,
+                MAX(CASE WHEN wm.direction IN ('in', 'customer') THEN wm.sent_at END) AS last_incoming_at,
+                MAX(CASE WHEN wm.direction IN ('out', 'human', 'bot') THEN wm.sent_at END) AS last_outgoing_at
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
@@ -1546,7 +1549,29 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
     $stmt->execute();
 
-    return $stmt->fetchAll() ?: [];
+    $rows = $stmt->fetchAll() ?: [];
+    $filter = trim((string)($filters['filter'] ?? 'all'));
+    if (!in_array($filter, ['all', 'unreplied', 'needs_human', 'bot', 'human', 'no_link'], true)) {
+        $filter = 'all';
+    }
+
+    $rows = array_values(array_filter($rows, static function (array $conversation) use ($filter): bool {
+        $hasLink = !empty($conversation['customer_id']) || !empty($conversation['lead_id']);
+        $lastIncoming = trim((string)($conversation['last_incoming_at'] ?? ''));
+        $lastOutgoing = trim((string)($conversation['last_outgoing_at'] ?? ''));
+        $needsReply = $lastIncoming !== '' && ($lastOutgoing === '' || strtotime($lastIncoming) > strtotime($lastOutgoing));
+
+        return match ($filter) {
+            'unreplied' => $needsReply,
+            'needs_human' => !empty($conversation['needs_human']),
+            'bot' => (string)($conversation['attendance_mode'] ?? '') === 'bot',
+            'human' => (string)($conversation['attendance_mode'] ?? '') === 'human',
+            'no_link' => !$hasLink,
+            default => true,
+        };
+    }));
+
+    return $rows;
 }
 
 function studio_find_whatsapp_conversation(array $studio, int $id): ?array

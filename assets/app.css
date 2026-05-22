@@ -229,6 +229,38 @@ textarea {
     margin: 14px 0;
 }
 
+.whatsapp-filter-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 14px;
+}
+
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.filter-pill:hover {
+    background: var(--surface-soft);
+    text-decoration: none;
+}
+
+.filter-pill.active {
+    background: var(--brand);
+    color: #fff;
+    border-color: var(--brand);
+}
+
 .checkline {
     display: flex;
     align-items: center;
@@ -1415,6 +1447,15 @@ textarea {
     background:
         radial-gradient(circle at 20px 20px, rgba(0,0,0,.018) 1px, transparent 1px) 0 0/22px 22px,
         linear-gradient(180deg, #edf6f0 0%, #eaf4ee 100%);
+}
+
+.whatsapp-conversations-table td {
+    vertical-align: top;
+}
+
+.whatsapp-conversations-table .badge {
+    margin-right: 6px;
+    margin-bottom: 4px;
 }
 
 .chat-message {

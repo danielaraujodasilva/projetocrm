@@ -1069,6 +1069,7 @@ if ($page === 'studio_whatsapp') {
             'mode' => (string)($_GET['mode'] ?? ''),
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
+            'filter' => (string)($_GET['filter'] ?? 'all'),
         ];
         $conversations = studio_list_whatsapp_conversations($studio, $filters);
         $serviceState = (string)($serviceStatus['status'] ?? 'offline');
@@ -1229,7 +1230,30 @@ if ($page === 'studio_whatsapp') {
         echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
         echo '</div></section>';
         echo '<section class="panel whatsapp-list-panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<div class="whatsapp-filter-tabs">';
+        $baseWhatsappUrl = app_url('studio_whatsapp');
+        $filterTabs = [
+            'all' => 'Todas',
+            'unreplied' => 'Não respondidas',
+            'needs_human' => 'Pediram humano',
+            'bot' => 'Em IA/Bot',
+            'human' => 'Em humano',
+            'no_link' => 'Sem lead vinculado',
+        ];
+        foreach ($filterTabs as $filterKey => $label) {
+            $href = app_url('studio_whatsapp', array_filter([
+                'filter' => $filterKey !== 'all' ? $filterKey : null,
+                'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                'mode' => $filters['mode'] !== '' ? $filters['mode'] : null,
+                'needs_human' => $filters['needs_human'] ? 1 : null,
+                'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null,
+            ], static fn($value) => $value !== null && $value !== ''));
+            $active = ($filters['filter'] ?: 'all') === $filterKey ? ' active' : '';
+            echo '<a class="filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
+        }
+        echo '</div>';
         echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_whatsapp">';
+        echo '<input type="hidden" name="filter" value="' . h($filters['filter'] ?: 'all') . '">';
         echo '<input name="q" placeholder="Buscar contato, telefone ou mensagem..." value="' . h($filters['q']) . '">';
         echo '<select name="mode"><option value="">Todos os modos</option>';
         render_options(['human' => 'Humano', 'bot' => 'IA'], $filters['mode']);
@@ -2571,22 +2595,84 @@ function render_quick_replies_table(array $replies): void
     echo '</tbody></table>';
 }
 
+function studio_relative_time_label(?string $value): string
+{
+    $value = trim((string)$value);
+    if ($value === '') {
+        return '-';
+    }
+    try {
+        $tz = new DateTimeZone('America/Sao_Paulo');
+        $moment = new DateTimeImmutable($value, $tz);
+        $now = new DateTimeImmutable('now', $tz);
+        $diff = $now->diff($moment);
+        $past = $moment <= $now;
+        $units = [
+            ['days', 365, 'ano', 'anos'],
+            ['days', 30, 'mês', 'meses'],
+            ['days', 7, 'semana', 'semanas'],
+            ['h', 1, 'hora', 'horas'],
+            ['i', 1, 'minuto', 'minutos'],
+            ['s', 1, 'segundo', 'segundos'],
+        ];
+        foreach ($units as [$prop, $threshold, $singular, $plural]) {
+            $amount = (int)($diff->$prop ?? 0);
+            if ($prop === 'days') {
+                $days = (int)$diff->days;
+                if ($days >= $threshold) {
+                    $amount = (int)floor($days / $threshold);
+                } else {
+                    continue;
+                }
+            } elseif ($amount < $threshold) {
+                continue;
+            }
+            if ($amount <= 0) {
+                continue;
+            }
+            $label = $amount === 1 ? $singular : $plural;
+            return $past ? 'há ' . $amount . ' ' . $label : 'em ' . $amount . ' ' . $label;
+        }
+        return $past ? 'há instantes' : 'agora';
+    } catch (Throwable) {
+        return $value;
+    }
+}
+
 function render_whatsapp_table(array $conversations): void
 {
     if (!$conversations) {
         echo '<p class="muted">Nenhuma conversa importada ainda. Inicie a sessao do WhatsApp e envie uma mensagem para este numero aparecer aqui.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Contato</th><th>Modo</th><th>Lead</th><th>Ultima mensagem</th><th>Acoes</th></tr></thead><tbody>';
+    echo '<table class="table whatsapp-conversations-table"><thead><tr><th>Contato</th><th>Última mensagem</th><th>Modo</th><th>Vínculo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>';
     foreach ($conversations as $conversation) {
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
         $href = app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']]);
+        $isUnreplied = false;
+        $lastIncoming = trim((string)($conversation['last_incoming_at'] ?? ''));
+        $lastOutgoing = trim((string)($conversation['last_outgoing_at'] ?? ''));
+        if ($lastIncoming !== '' && ($lastOutgoing === '' || strtotime($lastIncoming) > strtotime($lastOutgoing))) {
+            $isUnreplied = true;
+        }
+        $linkedLabel = !empty($conversation['customer_id']) ? 'Cliente vinculado' : (!empty($conversation['lead_id']) ? 'Lead vinculado' : 'Sem vínculo');
+        $linkBadgeClass = $linkedLabel === 'Sem vínculo' ? 'warn' : '';
+        $statusBadges = [];
+        $statusBadges[] = '<span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode'] === 'bot' ? 'IA' : 'Humano') . '</span>';
+        if ($needsHuman) {
+            $statusBadges[] = '<span class="badge warn">pediu humano</span>';
+        }
+        if ($isUnreplied) {
+            $statusBadges[] = '<span class="badge danger">sem resposta</span>';
+        }
         echo '<tr>';
-        echo '<td><a href="' . h($href) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
-        echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span><br>' . ($needsHuman ? '<span class="badge warn">quer humano</span>' : '<span class="muted">sem alerta</span>') . '</td>';
+        echo '<td><a href="' . h($href) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span><br><span class="muted">' . h((string)($conversation['message_count'] ?? 0)) . ' mensagens</span></td>';
+        $messageMoment = (string)($conversation['message_last_at'] ?? $conversation['last_message_at'] ?? '');
+        echo '<td><strong>' . h($conversation['last_message_preview'] ?: '-') . '</strong><br><span class="muted">' . h(studio_relative_time_label($messageMoment)) . '</span></td>';
+        echo '<td>' . implode('<br>', $statusBadges) . '</td>';
+        echo '<td><span class="badge ' . h($linkBadgeClass) . '">' . h($linkedLabel) . '</span></td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
-        echo '<td>' . h($conversation['last_message_preview'] ?: '-') . '<br><span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens - ' . ($conversation['message_last_at'] ?: '-')) . '</span></td>';
         echo '<td><div class="actions"><a class="btn tiny" href="' . h($href) . '">Abrir</a>';
         if (!empty($conversation['lead_id'])) {
             echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">Lead</a>';
