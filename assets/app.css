@@ -725,6 +725,25 @@ textarea {
     background: var(--surface-soft);
 }
 
+.conversation-metrics span {
+    gap: 1px;
+    padding: 8px 10px;
+    align-content: start;
+}
+
+.conversation-metrics strong {
+    line-height: 1;
+}
+
+.conversation-metrics small {
+    line-height: 1.15;
+}
+
+.side-suggestion-metrics span {
+    gap: 2px;
+    padding: 8px 10px;
+}
+
 .mini-metrics small {
     color: var(--muted);
     font-weight: 700;
