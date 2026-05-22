@@ -2005,7 +2005,7 @@ if ($page === 'studio_reports') {
         ];
         $pivotConfig = $pivotDataSets[$pivotSource];
         echo '<section class="panel" style="margin-top:16px">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Arraste os campos, filtre e explore os dados como uma planilha de verdade.</p></div><span class="badge">Estilo planilha</span></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Análise</span></div>';
         echo '<div class="wdr-shell">';
         echo '<div class="wdr-source-bar">';
         foreach ($pivotDataSets as $key => $def) {
@@ -2014,14 +2014,11 @@ if ($page === 'studio_reports') {
         echo '</div>';
         echo '<div id="reportsPivot" class="wdr-frame"></div>';
         echo '</div>';
-        echo '<div class="reports-pivot-note muted">Use o painel lateral da tabela dinâmica para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e detalhamento ficam na barra superior.</div>';
+        echo '<div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div>';
         echo '</section>';
-        echo '<link rel="stylesheet" href="assets/vendor/jquery-ui/jquery-ui.min.css">';
-        echo '<link rel="stylesheet" href="assets/vendor/pivottable/pivot.min.css">';
-        echo '<script src="assets/vendor/jquery/jquery.min.js"></script>';
-        echo '<script src="assets/vendor/jquery-ui/jquery-ui.min.js"></script>';
-        echo '<script src="assets/vendor/pivottable/pivot.min.js"></script>';
-        echo '<script src="assets/vendor/pivottable/pivot.pt.js"></script>';
+        echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/theme/teal/webdatarocks.min.css">';
+        echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
+        echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="assets/reports_pivot.js"></script>';
         echo '</section>';
