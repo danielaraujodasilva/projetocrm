@@ -391,9 +391,9 @@ textarea {
 }
 
 .flash.success {
-    border-color: #bfe5cf;
-    background: #eefaf3;
-    color: #176b3a;
+    border-color: #d8eadf;
+    background: #f4faf6;
+    color: #2f5e41;
 }
 
 .flash.error {

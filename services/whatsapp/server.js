@@ -39,7 +39,7 @@ function safeSessionKey(value) {
 }
 
 function jidToDigits(jid) {
-  return String(jid || "").split("@")[0].replace(/\D/g, "");
+  return String(jid || "").split("@")[0].split(":")[0].replace(/\D/g, "");
 }
 
 function isPhoneJid(jid) {
@@ -320,6 +320,9 @@ async function startSession(sessionKey, config = {}) {
       session.restartAttempts = 0;
       session.shouldReconnect = true;
       session.phone = jidToDigits(sock.user?.id || "");
+      if (!session.phone && session.pairingPhone) {
+        session.phone = session.pairingPhone;
+      }
       notifyStatusAsync(session, "connected", "WhatsApp conectado.");
       logSession(session, "WhatsApp conectado", { phone: session.phone || "" });
     }
@@ -719,4 +722,17 @@ app.listen(port, () => {
   fs.mkdirSync(sessionsDir, { recursive: true });
   appendServiceLog("Servico WhatsApp iniciado", { port, version: serviceVersion });
   console.log(`Servico WhatsApp multi-estudio rodando na porta ${port}`);
+  try {
+    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const sessionKey = entry.name;
+      const authDir = path.join(sessionsDir, sessionKey, "auth_info");
+      if (!fs.existsSync(authDir)) continue;
+      startSession(sessionKey).catch((error) => {
+        console.error(`[${sessionKey}] Falha ao restaurar sessao no inicio:`, error.message);
+      });
+    }
+  } catch (error) {
+    console.error("Falha ao restaurar sessoes existentes:", error.message);
+  }
 });

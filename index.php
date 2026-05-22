@@ -253,7 +253,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', 'Sessao WhatsApp solicitada. O painel vai atualizar o codigo ao vivo.');
+            flash_set('success', 'Pedido enviado. O WhatsApp vai mostrar o codigo quando o servico responder.');
             redirect_to('studio_whatsapp');
         }
 
@@ -303,7 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 throw new RuntimeException($error);
             }
-            flash_set('success', 'Codigo de pareamento solicitado. O painel vai atualizar o resultado ao vivo.');
+            flash_set('success', 'Codigo solicitado. Aguarde a resposta do servico e o codigo vai aparecer na tela.');
             redirect_to('studio_whatsapp');
         }
 
@@ -964,8 +964,9 @@ if ($page === 'studio_whatsapp') {
         $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($statusLabel) . '</span></div>';
         $sessionSummary = 'Nao conectado';
-        if (!empty($serviceStatus['phone'])) {
-            $sessionSummary = 'Conectado no numero ' . (string)$serviceStatus['phone'];
+        $connectedPhone = preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''));
+        if ($connectedPhone !== '') {
+            $sessionSummary = 'Conectado no numero ' . $connectedPhone;
         } elseif (!empty($serviceStatus['pairingCode'])) {
             $sessionSummary = 'Codigo pronto para parear';
         } elseif ($status === 'waiting_qr') {
@@ -978,7 +979,7 @@ if ($page === 'studio_whatsapp') {
             $sessionSummary = 'Nao foi possivel conectar';
         }
         echo '<div class="wa-session-summary"><strong>' . h($sessionSummary) . '</strong>';
-        if (!empty($serviceStatus['phone'])) {
+        if ($connectedPhone !== '') {
             echo '<span class="muted">WhatsApp conectado e pronto para receber mensagens.</span>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
             echo '<span class="muted">Use o codigo abaixo no WhatsApp do celular.</span>';
@@ -993,8 +994,8 @@ if ($page === 'studio_whatsapp') {
         } elseif (!empty($serviceStatus['pairingCode'])) {
             echo '<div class="wa-pairing-code">' . h((string)$serviceStatus['pairingCode']) . '</div>';
             echo '<p class="muted">Codigo para parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . '.</p>';
-        } elseif (!empty($serviceStatus['phone'])) {
-            echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
+        } elseif ($connectedPhone !== '') {
+            echo '<p>Numero conectado: <strong>' . h($connectedPhone) . '</strong></p>';
         } elseif ($status === 'starting') {
             echo '<p class="muted">Gerando codigo de pareamento. Se demorar mais de alguns segundos, clique em <strong>Gerar codigo</strong>.</p>';
         } elseif ($status === 'waiting_qr') {
