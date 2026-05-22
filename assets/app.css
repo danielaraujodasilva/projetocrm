@@ -146,6 +146,14 @@ a:hover {
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.grid.cols-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.grid.cols-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .panel {
     background: var(--surface);
     border: 1px solid var(--line);
@@ -1196,6 +1204,12 @@ textarea {
     margin-top: 2px;
 }
 
+@media (max-width: 1200px) {
+    .grid.cols-5 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
 .activity-card {
     transition: transform .12s ease, box-shadow .12s ease;
 }
@@ -1899,6 +1913,8 @@ textarea {
 
     .grid.cols-3,
     .grid.cols-2,
+    .grid.cols-4,
+    .grid.cols-5,
     .filter-bar,
     .module-list,
     .lead-detail-head,

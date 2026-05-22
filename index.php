@@ -611,6 +611,31 @@ if ($page === 'studio_home') {
         $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
         $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
         $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
+        $todayAppointments = array_values(array_filter(studio_calendar_appointments($studio, $current->format('Y-m-d'), $current->format('Y-m-d')), static fn(array $appointment): bool => (string)($appointment['status'] ?? '') !== 'cancelado'));
+        $attentionLeads = array_values(array_filter(studio_list_leads($studio, [], 120), static function (array $lead) use ($current): bool {
+            $score = (int)($lead['lead_score'] ?? 0);
+            $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
+            $isStale = false;
+            if ($updatedAt !== '') {
+                try {
+                    $updatedMoment = new DateTimeImmutable($updatedAt, new DateTimeZone('America/Sao_Paulo'));
+                    $isStale = $updatedMoment < $current->modify('-24 hours');
+                } catch (Throwable) {
+                    $isStale = false;
+                }
+            }
+            return $score >= 7 || $isStale || in_array((string)($lead['status'] ?? ''), ['novo', 'em_conversa'], true);
+        }));
+        usort($attentionLeads, static function (array $left, array $right): int {
+            $leftScore = (int)($left['lead_score'] ?? 0);
+            $rightScore = (int)($right['lead_score'] ?? 0);
+            if ($leftScore !== $rightScore) {
+                return $rightScore <=> $leftScore;
+            }
+            return strcmp((string)($right['updated_at'] ?? ''), (string)($left['updated_at'] ?? ''));
+        });
+        $attentionLeads = array_slice($attentionLeads, 0, 8);
+        $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
         $focus = (string)($_GET['focus'] ?? '');
         $homeDrilldowns = [
             'scheduled_month' => [
@@ -629,6 +654,39 @@ if ($page === 'studio_home') {
                     '15d' => studio_upcoming_appointments($studio, 15),
                     'month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
                     'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                ],
+            ],
+            'today_agenda' => [
+                'title' => 'Agenda de hoje',
+                'summary' => 'Horario, cliente, status, valor e sinal do dia corrente.',
+                'type' => 'appointments',
+                'kind' => 'appointment',
+                'items' => $todayAppointments,
+            ],
+            'attention_leads' => [
+                'title' => 'Leads que precisam de atencao',
+                'summary' => 'Leads parados, com score alto ou que ainda precisam de retorno.',
+                'type' => 'leads',
+                'items' => $attentionLeads,
+            ],
+            'free_windows' => [
+                'title' => 'Proximos horarios livres',
+                'summary' => 'Primeiras janelas livres reais encontradas na agenda.',
+                'type' => 'availability',
+                'items' => array_slice($nextAvailableSlots, 0, 12),
+                'filters' => [
+                    '3d' => '3 dias',
+                    '7d' => '7 dias',
+                    '15d' => '15 dias',
+                    'month' => 'Este mês',
+                    'next_month' => 'Mês que vem',
+                ],
+                'rangeMap' => [
+                    '3d' => studio_schedule_available_slots($studio, 3, $current),
+                    '7d' => studio_schedule_available_slots($studio, 7, $current),
+                    '15d' => studio_schedule_available_slots($studio, 15, $current),
+                    'month' => studio_schedule_available_slots($studio, max(1, (int)$monthEnd->diff($current)->days + 1), $current),
+                    'next_month' => studio_schedule_available_slots($studio, (int)(new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('t'), new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo'))),
                 ],
             ],
             'available_slots' => [
@@ -719,13 +777,15 @@ if ($page === 'studio_home') {
         }
         echo '</div></section>';
 
-        echo '<section class="grid cols-3">';
+        echo '<section class="grid cols-5">';
         foreach ([
-            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado de hoje ate o fim do mes', 'focus' => 'scheduled_month'],
-            ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'focus' => 'available_slots'],
-            ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'focus' => 'month_result'],
+            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Total previsto no mês', 'focus' => 'scheduled_month'],
+            ['value' => format_money($stats['month_signals']), 'label' => 'Sinais recebidos no mês', 'focus' => 'month_result'],
+            ['value' => (string)$stats['appointments'], 'label' => 'Agendamentos futuros', 'focus' => 'appointments'],
+            ['value' => (string)$stats['open_leads'], 'label' => 'Leads abertos', 'focus' => 'attention_leads'],
+            ['value' => (string)$stats['human_conversations'], 'label' => 'Conversas pedindo humano', 'focus' => 'open_value'],
         ] as $stat) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><span class="muted">Abrir detalhes</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
 
@@ -734,40 +794,65 @@ if ($page === 'studio_home') {
             ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'focus' => 'appointments'],
             ['value' => format_money($stats['open_value']), 'label' => 'Valor em oportunidades abertas', 'focus' => 'open_value'],
         ] as $stat) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><span class="muted">Abrir detalhes</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="assets/home_drilldown.js"></script>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
-        if (!$recentLeads) {
-            echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda de hoje</h2><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $current->format('Y-m-d')])) . '">Abrir agenda</a></div>';
+        if (!$todayAppointments) {
+            echo '<p class="muted">Nenhum atendimento agendado para hoje.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
-            foreach ($recentLeads as $lead) {
-                $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
-                echo '<tr><td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td><td><span class="badge">' . h($lead['status']) . '</span></td><td>' . h((string)($lead['lead_score'] ?? '-')) . '/10</td><td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td></tr>';
+            echo '<table class="table"><thead><tr><th>Hora</th><th>Cliente / Lead</th><th>Status</th><th>Valor</th><th>Sinal</th></tr></thead><tbody>';
+            foreach ($todayAppointments as $appointment) {
+                $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong></a></td>';
+                echo '<td>' . h($appointment['customer_name'] ?: $appointment['title'] ?: '-') . '</td>';
+                echo '<td><span class="badge">' . h((string)($appointment['status'] ?? '-')) . '</span></td>';
+                echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '</td>';
+                echo '<td>' . h(format_money($appointment['deposit_value'] ?? 0)) . '</td></tr>';
             }
             echo '</tbody></table>';
         }
         echo '</div>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda proxima</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div>';
-        if (!$appointments) {
-            echo '<p class="muted">Nenhum horario futuro cadastrado.</p>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads que precisam de atenção</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        if (!$attentionLeads) {
+            echo '<p class="muted">Nenhum lead com atenção prioritária no momento.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Status</th><th>Acoes</th></tr></thead><tbody>';
-            foreach ($appointments as $appointment) {
-                $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
-                echo '<tr><td><a href="' . h($href) . '"><strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date']))) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . '</span></a></td><td>' . h($appointment['customer_name']) . '<br><span class="muted">' . h($appointment['title']) . '</span></td><td><span class="badge">' . h($appointment['status']) . '</span></td><td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td></tr>';
+            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Score</th><th>Atualização</th></tr></thead><tbody>';
+            foreach ($attentionLeads as $lead) {
+                $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
+                $stale = false;
+                try {
+                    $updatedAt = new DateTimeImmutable((string)($lead['updated_at'] ?? $lead['created_at'] ?? 'now'), new DateTimeZone('America/Sao_Paulo'));
+                    $stale = $updatedAt < $current->modify('-24 hours');
+                } catch (Throwable) {
+                    $stale = false;
+                }
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest'] ?: '-') . '</span></td>';
+                echo '<td><span class="badge">' . h((string)($lead['status'] ?? '-')) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
+                echo '<td><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong>' . ($stale ? '<br><span class="badge warn">parado há 24h+</span>' : '') . '</td>';
+                echo '<td>' . h($lead['updated_at'] ?: $lead['created_at'] ?: '-') . '</td></tr>';
             }
             echo '</tbody></table>';
         }
         echo '</div></section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><h2>Valor em oportunidades abertas</h2><p class="metric">' . h(format_money($stats['open_value'])) . '</p><p class="muted">Soma estimada dos leads ainda nao perdidos ou fechados.</p></div>';
-        echo '<div class="panel"><h2>Resultado simples do mes</h2><p class="metric">' . h(format_money($stats['month_revenue'] - $stats['month_expenses'])) . '</p><p class="muted">Agenda do mes menos despesas cadastradas.</p></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Próximos horários livres</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div>';
+        if (!$nextAvailableSlots) {
+            echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
+        } else {
+            echo '<div class="stack-list">';
+            foreach (array_slice($nextAvailableSlots, 0, 10) as $slot) {
+                $href = app_url('studio_agenda', ['date' => (string)$slot['date']]) . '#appointment-form';
+                echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)$slot['label']) . '</strong><span class="muted">' . h(implode(' · ', array_slice($slot['free_slots'] ?? [], 0, 4))) . '</span><span>' . h((string)count($slot['free_slots'] ?? [])) . ' horários livres</span></a>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+        echo '<div class="panel"><h2>Resultado simples do mês</h2><p class="metric">' . h(format_money($stats['month_revenue'] - $stats['month_expenses'])) . '</p><p class="muted">Agenda do mês menos despesas cadastradas.</p><div class="mini-metrics"><span><strong>' . h(format_money($stats['month_revenue'])) . '</strong><small>Receita</small></span><span><strong>' . h(format_money($stats['month_expenses'])) . '</strong><small>Despesa</small></span><span><strong>' . h(format_money($stats['month_signals'])) . '</strong><small>Sinais</small></span></div></div>';
         echo '</section>';
     }, $flash);
     exit;

@@ -1012,16 +1012,24 @@ function studio_stats(array $studio): array
     $pdo = studio_db($studio);
     $stats = [
         'leads' => 0,
+        'open_leads' => 0,
         'customers' => 0,
         'appointments' => 0,
+        'appointments_month' => 0,
+        'month_signals' => 0.0,
+        'human_conversations' => 0,
         'open_value' => 0.0,
         'month_revenue' => 0.0,
         'month_expenses' => 0.0,
         'whatsapp_conversations' => 0,
     ];
     $stats['leads'] = (int)$pdo->query('SELECT COUNT(*) FROM leads')->fetchColumn();
+    $stats['open_leads'] = (int)$pdo->query("SELECT COUNT(*) FROM leads WHERE status NOT IN ('perdido', 'fechado')")->fetchColumn();
     $stats['customers'] = (int)$pdo->query('SELECT COUNT(*) FROM customers')->fetchColumn();
     $stats['appointments'] = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND status NOT IN ('cancelado')")->fetchColumn();
+    $stats['appointments_month'] = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
+    $stats['month_signals'] = (float)$pdo->query("SELECT COALESCE(SUM(deposit_value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
+    $stats['human_conversations'] = (int)$pdo->query("SELECT COUNT(*) FROM whatsapp_conversations WHERE needs_human = 1")->fetchColumn();
     $stats['open_value'] = (float)$pdo->query("SELECT COALESCE(SUM(estimated_value), 0) FROM leads WHERE status NOT IN ('perdido', 'fechado')")->fetchColumn();
     $stats['month_revenue'] = (float)$pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
     $stats['month_expenses'] = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE DATE_FORMAT(expense_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")->fetchColumn();

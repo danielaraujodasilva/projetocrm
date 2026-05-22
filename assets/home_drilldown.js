@@ -228,6 +228,45 @@
       </div>`;
   }
 
+  function renderLeads(data) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    const totalCount = items.length;
+    const totalValue = items.reduce((sum, item) => sum + (Number(item.estimated_value) || 0), 0);
+    const rows = items.map((item) => {
+      const href = item.id ? `index.php?page=studio_lead&id=${encodeURIComponent(item.id)}` : '';
+      const phoneHref = item.phone ? `https://wa.me/${String(item.phone).replace(/[^\d]/g, '')}` : '';
+      const meta = [
+        item.pipeline_stage ? badge(item.pipeline_stage, 'neutral') : '',
+        item.status ? badge(item.status, item.status === 'fechado' ? 'ok' : (item.status === 'perdido' ? 'warn' : 'neutral')) : '',
+        item.source ? badge(item.source, 'neutral') : '',
+        item.lead_score ? badge(`${item.lead_score}/10`, item.lead_score >= 7 ? 'warn' : 'neutral') : '',
+      ].filter(Boolean).join('');
+      const detail = [
+        item.phone ? `Telefone ${item.phone}` : '',
+        item.interest || item.description || '',
+        item.updated_at ? `Atualizado ${item.updated_at}` : '',
+      ].filter(Boolean).join(' · ');
+      return `
+        <div class="drilldown-card compact">
+          <strong>${esc(item.name || item.phone || 'Lead')}</strong>
+          ${meta ? `<div class="meta-line">${meta}</div>` : ''}
+          ${detail ? `<div class="drilldown-card-more">${esc(detail)}</div>` : ''}
+          <div class="lead-card-actions lead-card-actions-quick">
+            ${href ? `<a class="btn tiny secondary" href="${esc(href)}">Ver</a>` : ''}
+            ${phoneHref ? `<a class="btn tiny secondary" href="${esc(phoneHref)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div class="drilldown-toolbar-summary">
+        <strong>${esc(totalCount)} leads</strong>
+        <span>${esc(money(totalValue))}</span>
+        <small>${esc(data.summary || 'Leads em atenção')}</small>
+      </div>
+      <div class="drilldown-card-list stacked">${rows || '<div class="drilldown-empty"><strong>Nenhum lead encontrado</strong><div class="muted">Não há leads para este recorte.</div></div>'}</div>`;
+  }
+
   function renderAppointments(data) {
     const items = Array.isArray(data.items) ? data.items : [];
     const filters = data.filters || {};
@@ -337,6 +376,8 @@
       renderFinance(data);
     } else if (data.type === 'appointments') {
       renderAppointments(data);
+    } else if (data.type === 'leads') {
+      renderLeads(data);
     } else if (data.type === 'whatsapp') {
       renderWhatsapp(data);
     } else if (data.type === 'table') {
