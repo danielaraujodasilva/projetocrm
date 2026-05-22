@@ -963,8 +963,21 @@ if ($page === 'studio_whatsapp') {
         $statusLabel = $status === 'connected' ? 'conectado' : ($status === 'waiting_qr' ? 'aguardando codigo' : $status);
         $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($statusLabel) . '</span></div>';
-        echo '<p class="muted">Chave isolada: <strong>' . h($sessionKey) . '</strong></p>';
-        echo '<p class="muted">Servico: <strong>' . h(studio_whatsapp_service_url($studio)) . '</strong></p>';
+        $sessionSummary = 'Aguardando pareamento';
+        if (!empty($serviceStatus['phone'])) {
+            $sessionSummary = 'Conectado no numero ' . (string)$serviceStatus['phone'];
+        } elseif (!empty($serviceStatus['pairingCode'])) {
+            $sessionSummary = 'Codigo gerado para parear o WhatsApp';
+        } elseif ($status === 'waiting_qr') {
+            $sessionSummary = 'Servico ativo e aguardando retorno do pareamento';
+        } elseif ($status === 'starting') {
+            $sessionSummary = 'Solicitando pareamento ao servico';
+        } elseif ($status === 'disconnected') {
+            $sessionSummary = 'Sessao desconectada';
+        } elseif ($status === 'error') {
+            $sessionSummary = 'Servico retornou erro';
+        }
+        echo '<div class="wa-session-summary"><strong>' . h($sessionSummary) . '</strong><span class="muted">Sessao ' . h($sessionKey) . ' • Servico ' . h(studio_whatsapp_service_url($studio)) . '</span></div>';
         echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
             echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
@@ -982,13 +995,13 @@ if ($page === 'studio_whatsapp') {
             echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
         }
         echo '</div>';
-        echo '<div class="actions">';
+        echo '<div class="actions whatsapp-session-actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar pareamento</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessao</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar servico</button></form>';
         echo '</div>';
-        echo '<form method="post" class="inline-form" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
+        echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
         echo '<div class="field" style="margin:0;min-width:220px"><label>Codigo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
         echo '<button class="btn secondary" type="submit">Gerar codigo</button>';

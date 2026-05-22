@@ -5,6 +5,17 @@ declare(strict_types=1);
 date_default_timezone_set('America/Sao_Paulo');
 
 if (session_status() !== PHP_SESSION_ACTIVE) {
+    $sessionLifetime = 60 * 60 * 24 * 30;
+    if (PHP_SAPI !== 'cli') {
+        session_set_cookie_params([
+            'lifetime' => $sessionLifetime,
+            'path' => '/',
+            'secure' => (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'),
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+    ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
     session_start();
 }
 
