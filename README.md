@@ -39,7 +39,10 @@ Rode `database/platform_alpha.sql` no phpMyAdmin para criar o banco central.
 
 Se voce ja criou o banco antes da area de login dos estudios, rode tambem `database/platform_alpha_002_studio_users.sql`.
 
-Para habilitar os planos comerciais editaveis no painel administrativo em bases ja existentes, rode tambem `database/platform_alpha_003_commercial_plans.sql`.
+Para habilitar os planos comerciais editaveis no painel administrativo em bases ja existentes, rode tambem:
+
+- `database/platform_alpha_003_commercial_plans.sql`
+- `database/platform_alpha_004_commercial_plans_extended.sql`
 
 Depois de cadastrar um estudio no painel, abra o estudio e clique em "Instalar banco do estudio". Se preferir fazer manualmente, use "Ver SQL do banco do estudio" e rode o SQL gerado no phpMyAdmin.
 

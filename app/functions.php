@@ -154,45 +154,112 @@ function seed_default_commercial_plans(): void
         return;
     }
 
-    $stmt = db()->prepare(
-        'INSERT INTO commercial_plans
-            (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
-         VALUES
-            (?, ?, ?, ?, ?, "BRL", ?, ?, ?, 1, NOW(), NOW())'
-    );
+    $hasExtendedFields = column_exists('commercial_plans', 'short_description');
+    if ($hasExtendedFields) {
+        $stmt = db()->prepare(
+            'INSERT INTO commercial_plans
+                (name, slug, short_description, description, monthly_price, annual_price, currency_code, recommended, studio_limit, user_limit, tattoo_artist_limit, lead_limit, whatsapp_session_limit, allow_whatsapp, allow_ai, allow_data_assistant, allow_finance, allow_advanced_reports, allow_automations, allow_multi_studio, allow_external_integrations, allow_advanced_customization, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, ?, "BRL", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())'
+        );
 
-    $defaults = [
-        [
-            'Basico',
-            'basico',
-            'Entrada para estudios menores que querem organizar atendimento, agenda e operacao base.',
-            149.90,
-            1499.00,
-            "CRM do estudio\nAgenda\nWhatsApp humano\nRelatorios basicos",
-            "usuarios: 2\ntatuadores: 2\nleads_ativos: 500",
-            1,
-        ],
-        [
-            'Profissional',
-            'profissional',
-            'Plano principal para estudios em operacao diaria com WhatsApp, IA e mais equipe.',
-            249.90,
-            2499.00,
-            "CRM completo\nAgenda\nWhatsApp com IA\nRespostas rapidas\nRelatorios",
-            "usuarios: 5\ntatuadores: 5\nleads_ativos: 2000",
-            2,
-        ],
-        [
-            'Avancado',
-            'avancado',
-            'Plano para estudios com mais volume, equipe maior e uso intenso da operacao.',
-            399.90,
-            3999.00,
-            "CRM completo\nAgenda\nWhatsApp com IA\nAssistente de dados\nRelatorios avancados",
-            "usuarios: 15\ntatuadores: 12\nleads_ativos: 10000",
-            3,
-        ],
-    ];
+        $defaults = [
+            [
+                'Basico',
+                'basico',
+                'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.',
+                'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.',
+                79.00,
+                790.00,
+                0,
+                1,
+                2,
+                1,
+                500,
+                0,
+                0,
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rápidas\nRelatórios básicos",
+                "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado",
+                1,
+            ],
+            [
+                'Profissional',
+                'profissional',
+                'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
+                'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
+                149.00,
+                1490.00,
+                1,
+                1,
+                5,
+                5,
+                3000,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "Tudo do Básico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rápidas avançadas\nAgenda com controle de conflitos\nRelatórios gerenciais\nPermissões por usuário\nFollow-up manual/assistido",
+                "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sessão",
+                2,
+            ],
+            [
+                'Avancado',
+                'avancado',
+                'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.',
+                'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.',
+                299.00,
+                2990.00,
+                1,
+                3,
+                15,
+                15,
+                20000,
+                3,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                "Tudo do Profissional\nIA para classificação de leads\nAssistente de dados\nSugestão de respostas por IA\nAutomações de follow-up\nRelatórios avançados/BI\nMulti-estúdio\nIntegrações externas/API\nPersonalização avançada do funil",
+                "Estúdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sessões",
+                3,
+            ],
+        ];
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO commercial_plans
+                (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, "BRL", ?, ?, ?, 1, NOW(), NOW())'
+        );
+
+        $defaults = [
+            ['Basico', 'basico', 'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rápidas\nRelatórios básicos", "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado", 1],
+            ['Profissional', 'profissional', 'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Básico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rápidas avançadas\nAgenda com controle de conflitos\nRelatórios gerenciais\nPermissões por usuário\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sessão", 2],
+            ['Avancado', 'avancado', 'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificação de leads\nAssistente de dados\nSugestão de respostas por IA\nAutomações de follow-up\nRelatórios avançados/BI\nMulti-estúdio\nIntegrações externas/API\nPersonalização avançada do funil", "Estúdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sessões", 3],
+        ];
+    }
 
     foreach ($defaults as $plan) {
         $stmt->execute($plan);
@@ -465,16 +532,62 @@ function save_commercial_plan(array $data): int
         throw new RuntimeException('Tabela de planos comerciais ainda nao instalada.');
     }
 
+    $moneyFromInput = static function (string $key) use ($data): float {
+        if (!array_key_exists($key, $data)) {
+            return 0.0;
+        }
+
+        $raw = trim((string)$data[$key]);
+        if ($raw === '') {
+            return 0.0;
+        }
+
+        $raw = str_replace(['R$', ' '], '', $raw);
+        $raw = str_replace('.', '', $raw);
+        $raw = str_replace(',', '.', $raw);
+
+        return round((float)$raw, 2);
+    };
+
+    $nullableIntFromInput = static function (string $key) use ($data): ?int {
+        if (!array_key_exists($key, $data)) {
+            return null;
+        }
+
+        $raw = trim((string)$data[$key]);
+        if ($raw === '') {
+            return null;
+        }
+
+        return max(0, (int)$raw);
+    };
+
     $id = (int)($data['id'] ?? 0);
     $name = trim((string)($data['name'] ?? ''));
     $slug = slugify((string)($data['slug'] ?? $name));
     $description = trim((string)($data['description'] ?? ''));
-    $monthlyPrice = round((float)($data['monthly_price'] ?? 0), 2);
-    $annualPrice = round((float)($data['annual_price'] ?? 0), 2);
+    $monthlyPrice = $moneyFromInput('monthly_price');
+    $annualPrice = $moneyFromInput('annual_price');
     $featuresText = trim((string)($data['features_text'] ?? ''));
     $limitsText = trim((string)($data['limits_text'] ?? ''));
     $sortOrder = (int)($data['sort_order'] ?? 0);
     $isActive = !empty($data['is_active']) ? 1 : 0;
+    $recommended = !empty($data['recommended']) ? 1 : 0;
+    $shortDescription = trim((string)($data['short_description'] ?? $description));
+    $studioLimit = $nullableIntFromInput('studio_limit');
+    $userLimit = $nullableIntFromInput('user_limit');
+    $tattooArtistLimit = $nullableIntFromInput('tattoo_artist_limit');
+    $leadLimit = $nullableIntFromInput('lead_limit');
+    $whatsappSessionLimit = $nullableIntFromInput('whatsapp_session_limit');
+    $allowWhatsapp = !empty($data['allow_whatsapp']) ? 1 : 0;
+    $allowAi = !empty($data['allow_ai']) ? 1 : 0;
+    $allowDataAssistant = !empty($data['allow_data_assistant']) ? 1 : 0;
+    $allowFinance = !empty($data['allow_finance']) ? 1 : 0;
+    $allowAdvancedReports = !empty($data['allow_advanced_reports']) ? 1 : 0;
+    $allowAutomations = !empty($data['allow_automations']) ? 1 : 0;
+    $allowMultiStudio = !empty($data['allow_multi_studio']) ? 1 : 0;
+    $allowExternalIntegrations = !empty($data['allow_external_integrations']) ? 1 : 0;
+    $allowAdvancedCustomization = !empty($data['allow_advanced_customization']) ? 1 : 0;
 
     if ($name === '') {
         throw new RuntimeException('Informe o nome do plano.');
@@ -495,12 +608,25 @@ function save_commercial_plan(array $data): int
     }
 
     if ($id > 0) {
-        $stmt = db()->prepare(
-            'UPDATE commercial_plans
-             SET name = ?, slug = ?, description = ?, monthly_price = ?, annual_price = ?, features_text = ?, limits_text = ?, sort_order = ?, is_active = ?, updated_at = NOW()
-             WHERE id = ?'
-        );
-        $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive, $id]);
+        if (column_exists('commercial_plans', 'short_description')) {
+            $stmt = db()->prepare(
+                'UPDATE commercial_plans
+                 SET name = ?, slug = ?, short_description = ?, description = ?, monthly_price = ?, annual_price = ?, currency_code = "BRL", recommended = ?, studio_limit = ?, user_limit = ?, tattoo_artist_limit = ?, lead_limit = ?, whatsapp_session_limit = ?, allow_whatsapp = ?, allow_ai = ?, allow_data_assistant = ?, allow_finance = ?, allow_advanced_reports = ?, allow_automations = ?, allow_multi_studio = ?, allow_external_integrations = ?, allow_advanced_customization = ?, features_text = ?, limits_text = ?, sort_order = ?, is_active = ?, updated_at = NOW()
+                 WHERE id = ?'
+            );
+            $stmt->execute([
+                $name, $slug, $shortDescription, $description, $monthlyPrice, $annualPrice, $recommended, $studioLimit, $userLimit, $tattooArtistLimit,
+                $leadLimit, $whatsappSessionLimit, $allowWhatsapp, $allowAi, $allowDataAssistant, $allowFinance, $allowAdvancedReports, $allowAutomations,
+                $allowMultiStudio, $allowExternalIntegrations, $allowAdvancedCustomization, $featuresText, $limitsText, $sortOrder, $isActive, $id,
+            ]);
+        } else {
+            $stmt = db()->prepare(
+                'UPDATE commercial_plans
+                 SET name = ?, slug = ?, description = ?, monthly_price = ?, annual_price = ?, features_text = ?, limits_text = ?, sort_order = ?, is_active = ?, updated_at = NOW()
+                 WHERE id = ?'
+            );
+            $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive, $id]);
+        }
         if (studio_plan_assignment_ready()) {
             db()->prepare('UPDATE studios SET plan_name = ? WHERE plan_id = ?')->execute([$slug, $id]);
         }
@@ -508,13 +634,27 @@ function save_commercial_plan(array $data): int
         return $id;
     }
 
-    $stmt = db()->prepare(
-        'INSERT INTO commercial_plans
-            (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
-         VALUES
-            (?, ?, ?, ?, ?, "BRL", ?, ?, ?, ?, NOW(), NOW())'
-    );
-    $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive]);
+    if (column_exists('commercial_plans', 'short_description')) {
+        $stmt = db()->prepare(
+            'INSERT INTO commercial_plans
+                (name, slug, short_description, description, monthly_price, annual_price, currency_code, recommended, studio_limit, user_limit, tattoo_artist_limit, lead_limit, whatsapp_session_limit, allow_whatsapp, allow_ai, allow_data_assistant, allow_finance, allow_advanced_reports, allow_automations, allow_multi_studio, allow_external_integrations, allow_advanced_customization, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, ?, "BRL", ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+        );
+        $stmt->execute([
+            $name, $slug, $shortDescription, $description, $monthlyPrice, $annualPrice, $recommended, $studioLimit, $userLimit, $tattooArtistLimit,
+            $leadLimit, $whatsappSessionLimit, $allowWhatsapp, $allowAi, $allowDataAssistant, $allowFinance, $allowAdvancedReports, $allowAutomations,
+            $allowMultiStudio, $allowExternalIntegrations, $allowAdvancedCustomization, $featuresText, $limitsText, $sortOrder, $isActive,
+        ]);
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO commercial_plans
+                (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, "BRL", ?, ?, ?, ?, NOW(), NOW())'
+        );
+        $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive]);
+    }
 
     return (int)db()->lastInsertId();
 }

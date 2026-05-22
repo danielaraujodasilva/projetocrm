@@ -2409,13 +2409,39 @@ if ($page === 'plans') {
         } else {
             echo '<div class="grid cols-3">';
             foreach ($plans as $plan) {
+                $recommended = !empty($plan['recommended']);
                 echo '<article class="panel">';
-                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>' . h($plan['name']) . '</h2><p class="muted">' . h($plan['slug']) . '</p></div><span class="badge ' . (!empty($plan['is_active']) ? 'ok' : 'warn') . '">' . (!empty($plan['is_active']) ? 'ativo' : 'inativo') . '</span></div>';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>' . h($plan['name']) . '</h2><p class="muted">' . h($plan['slug']) . '</p></div><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><span class="badge ' . ($recommended ? 'ok' : 'warn') . '">' . ($recommended ? 'recomendado' : 'padrao') . '</span><span class="badge ' . (!empty($plan['is_active']) ? 'ok' : 'warn') . '">' . (!empty($plan['is_active']) ? 'ativo' : 'inativo') . '</span></div></div>';
+                if (trim((string)($plan['short_description'] ?? '')) !== '') {
+                    echo '<p class="muted">' . h($plan['short_description']) . '</p>';
+                }
                 echo '<p><strong>Mensal:</strong> ' . h(format_money((float)$plan['monthly_price'])) . '</p>';
                 echo '<p><strong>Anual:</strong> ' . h(format_money((float)$plan['annual_price'])) . '</p>';
-                if (trim((string)$plan['description']) !== '') {
+                if (trim((string)($plan['description'] ?? '')) !== '') {
                     echo '<p class="muted">' . h($plan['description']) . '</p>';
                 }
+                echo '<div class="module-list" style="margin-top:10px">';
+                foreach ([
+                    'WhatsApp' => !empty($plan['allow_whatsapp']),
+                    'IA' => !empty($plan['allow_ai']),
+                    'Dados' => !empty($plan['allow_data_assistant']),
+                    'Financeiro' => !empty($plan['allow_finance']),
+                    'Relatorios' => !empty($plan['allow_advanced_reports']),
+                    'Automações' => !empty($plan['allow_automations']),
+                    'Multi-estudio' => !empty($plan['allow_multi_studio']),
+                    'Integrações' => !empty($plan['allow_external_integrations']),
+                ] as $label => $enabled) {
+                    echo '<div class="module"><strong>' . h($label) . '</strong><span class="muted">' . ($enabled ? 'sim' : 'nao') . '</span></div>';
+                }
+                echo '</div>';
+                echo '<p class="muted" style="margin-top:10px">Limites: ' . h(trim(sprintf(
+                    'estudios: %s | usuarios: %s | tatuadores: %s | leads: %s | WhatsApp: %s',
+                    $plan['studio_limit'] === null ? 'ilimitado' : (string)$plan['studio_limit'],
+                    $plan['user_limit'] === null ? 'ilimitado' : (string)$plan['user_limit'],
+                    $plan['tattoo_artist_limit'] === null ? 'ilimitado' : (string)$plan['tattoo_artist_limit'],
+                    $plan['lead_limit'] === null ? 'ilimitado' : (string)$plan['lead_limit'],
+                    $plan['whatsapp_session_limit'] === null ? 'ilimitado' : (string)$plan['whatsapp_session_limit']
+                ))) . '</p>';
                 echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('edit_plan', ['id' => (int)$plan['id']])) . '">Editar</a></div>';
                 echo '</article>';
             }
@@ -2628,16 +2654,40 @@ function render_commercial_plan_form(?array $plan): void
     echo '<div class="grid cols-2">';
     echo '<div class="field"><label>Nome do plano</label><input name="name" required value="' . h($plan['name'] ?? '') . '"></div>';
     echo '<div class="field"><label>Slug</label><input name="slug" value="' . h($plan['slug'] ?? '') . '" placeholder="basico"></div>';
-    echo '<div class="field"><label>Preco mensal (R$)</label><input type="number" step="0.01" min="0" name="monthly_price" value="' . h($plan['monthly_price'] ?? '0.00') . '"></div>';
-    echo '<div class="field"><label>Preco anual (R$)</label><input type="number" step="0.01" min="0" name="annual_price" value="' . h($plan['annual_price'] ?? '0.00') . '"></div>';
+    echo '<div class="field"><label>Nome curto</label><input name="short_description" value="' . h($plan['short_description'] ?? '') . '" placeholder="Resumo curto do plano"></div>';
     echo '<div class="field"><label>Ordem</label><input type="number" name="sort_order" value="' . h($plan['sort_order'] ?? 0) . '"></div>';
+    echo '<div class="field"><label>Preco mensal (R$)</label><input type="text" inputmode="decimal" step="0.01" min="0" name="monthly_price" value="' . h(number_format((float)($plan['monthly_price'] ?? 0), 2, '.', '')) . '"></div>';
+    echo '<div class="field"><label>Preco anual (R$)</label><input type="text" inputmode="decimal" step="0.01" min="0" name="annual_price" value="' . h(number_format((float)($plan['annual_price'] ?? 0), 2, '.', '')) . '"></div>';
     echo '<div class="field"><label>Status</label><select name="is_active"><option value="1" ' . (!isset($plan['is_active']) || !empty($plan['is_active']) ? 'selected' : '') . '>Ativo</option><option value="0" ' . (isset($plan['is_active']) && empty($plan['is_active']) ? 'selected' : '') . '>Inativo</option></select></div>';
+    echo '<div class="field"><label>Destaque</label><select name="recommended"><option value="1" ' . (!empty($plan['recommended']) ? 'selected' : '') . '>Recomendado</option><option value="0" ' . (empty($plan['recommended']) ? 'selected' : '') . '>Padrao</option></select></div>';
+    echo '<div class="field"><label>Limite de estúdios</label><input type="number" min="0" name="studio_limit" value="' . h($plan['studio_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de usuários</label><input type="number" min="0" name="user_limit" value="' . h($plan['user_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de tatuadores</label><input type="number" min="0" name="tattoo_artist_limit" value="' . h($plan['tattoo_artist_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de clientes/leads</label><input type="number" min="0" name="lead_limit" value="' . h($plan['lead_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de sessões WhatsApp</label><input type="number" min="0" name="whatsapp_session_limit" value="' . h($plan['whatsapp_session_limit'] ?? '') . '" placeholder="0 = sem WhatsApp"></div>';
     echo '</div>';
-    echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Resumo comercial do plano para o gerente.">' . h($plan['description'] ?? '') . '</textarea></div>';
+    echo '<div class="field"><label>Descricao completa</label><textarea name="description" placeholder="Resumo comercial do plano para o gerente.">' . h($plan['description'] ?? '') . '</textarea></div>';
     echo '<div class="grid cols-2">';
     echo '<div class="field"><label>Recursos inclusos</label><textarea name="features_text" placeholder="Um recurso por linha. Ex:&#10;WhatsApp com IA&#10;Relatorios avancados">' . h($plan['features_text'] ?? '') . '</textarea><small class="muted">Use uma linha por recurso ou modulo incluso.</small></div>';
     echo '<div class="field"><label>Limites do plano</label><textarea name="limits_text" placeholder="Um limite por linha. Ex:&#10;usuarios: 5&#10;tatuadores: 3">' . h($plan['limits_text'] ?? '') . '</textarea><small class="muted">Use texto simples para limites comerciais do plano.</small></div>';
     echo '</div>';
+    echo '<div class="field"><label>Permissoes</label>';
+    echo '<div class="module-list">';
+    foreach ([
+        'allow_whatsapp' => 'Permite WhatsApp',
+        'allow_ai' => 'Permite IA',
+        'allow_data_assistant' => 'Permite assistente de dados',
+        'allow_finance' => 'Permite financeiro',
+        'allow_advanced_reports' => 'Permite relatorios avancados',
+        'allow_automations' => 'Permite automacoes/follow-up',
+        'allow_multi_studio' => 'Permite multi-estudio',
+        'allow_external_integrations' => 'Permite integracoes externas',
+        'allow_advanced_customization' => 'Permite personalizacao avancada',
+    ] as $field => $label) {
+        $checked = !empty($plan[$field]) ? ' checked' : '';
+        echo '<label class="module"><input type="checkbox" name="' . h($field) . '" value="1"' . $checked . '> <strong>' . h($label) . '</strong></label>';
+    }
+    echo '</div></div>';
     echo '<div class="actions"><button class="btn" type="submit">' . ($isEdit ? 'Salvar plano' : 'Cadastrar plano') . '</button><a class="btn secondary" href="' . h(app_url('plans')) . '">Cancelar</a></div>';
     echo '</form>';
     if ($isEdit) {
