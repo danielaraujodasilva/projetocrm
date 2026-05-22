@@ -571,6 +571,41 @@ function studio_whatsapp_ai_timeout(array $studio): int
     return $provider === 'ollama' ? 90 : 60;
 }
 
+function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
+{
+    $sessionKey = studio_session_key($studio);
+    if ($sessionKey === '') {
+        return ['ok' => false, 'error' => 'Sessao WhatsApp invalida.'];
+    }
+
+    try {
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'ai_last_status' => 'Analisando com IA...',
+        ]);
+    } catch (Throwable) {
+    }
+
+    $php = 'C:\\xampp\\php\\php.exe';
+    $worker = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'api' . DIRECTORY_SEPARATOR . 'whatsapp_ai_worker.php';
+    if (!is_file($php) || !is_file($worker)) {
+        return ['ok' => false, 'error' => 'Worker de IA nao encontrado.'];
+    }
+
+    $args = [
+        studio_windows_cmd_arg($worker),
+        studio_windows_cmd_arg($sessionKey),
+        studio_windows_cmd_arg((string)((int)$conversation['id'])),
+        studio_windows_cmd_arg(trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? ''))),
+    ];
+    $command = 'Start-Process -WindowStyle Hidden -FilePath ' . studio_windows_cmd_arg($php)
+        . ' -WorkingDirectory ' . studio_windows_cmd_arg(dirname($worker))
+        . ' -ArgumentList @(' . implode(',', $args) . ')';
+    studio_windows_start_process($command);
+
+    return ['ok' => true, 'queued' => true];
+}
+
 function studio_windows_start_process(string $command): void
 {
     $escaped = escapeshellarg('Start-Process -WindowStyle Hidden -WorkingDirectory ' . studio_windows_cmd_arg(getcwd() ?: '.') . ' -FilePath powershell.exe -ArgumentList ' . studio_windows_cmd_arg('-NoProfile -ExecutionPolicy Bypass -Command ' . $command));
@@ -1539,6 +1574,11 @@ function studio_update_whatsapp_conversation(array $studio, array $data): void
     $needsHuman = !empty($data['needs_human']) ? 1 : 0;
     $score = max(0, min(10, (int)($data['lead_score'] ?? 0)));
     $aiStatus = trim((string)($data['ai_last_status'] ?? ''));
+    if ($aiStatus === '' && $mode === 'human') {
+        $aiStatus = 'IA inativa';
+    } elseif ($aiStatus === '' && $mode === 'bot') {
+        $aiStatus = 'IA pronta';
+    }
 
     $stmt = studio_db($studio)->prepare(
         'UPDATE whatsapp_conversations
@@ -1605,6 +1645,11 @@ function studio_update_whatsapp_profile(array $studio, array $data): array
     $needsHuman = !empty($data['needs_human']) ? 1 : 0;
     $score = max(0, min(10, (int)($data['lead_score'] ?? $conversation['lead_score'] ?? 0)));
     $aiStatus = trim((string)($data['ai_last_status'] ?? $conversation['ai_last_status'] ?? ''));
+    if ($aiStatus === '' && $mode === 'human') {
+        $aiStatus = 'IA inativa';
+    } elseif ($aiStatus === '' && $mode === 'bot') {
+        $aiStatus = 'IA pronta';
+    }
 
     $stmt = $pdo->prepare(
         'UPDATE whatsapp_conversations
@@ -2060,16 +2105,13 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
 
     if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
         try {
-            studio_update_whatsapp_conversation($studio, [
-                'conversation_id' => (int)$conversation['id'],
-                'ai_last_status' => 'Analisando com IA...',
-            ]);
-            studio_whatsapp_ai_reply($studio, $conversation, [
+            studio_queue_whatsapp_ai_reply($studio, $conversation, [
                 'body' => $body,
                 'mensagem' => $body,
                 'from_me' => $fromMe,
                 'direction' => $direction,
                 'message_type' => $messageType,
+                'message_id' => $messageId,
             ]);
         } catch (Throwable $e) {
             studio_update_whatsapp_conversation($studio, [
@@ -2363,16 +2405,32 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
     }
 
-    $body = [
-        'model' => $model,
-        'temperature' => 0.3,
-        'messages' => [
-            ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
-            ['role' => 'user', 'content' => $userPrompt],
-        ],
-    ];
-
-    $ch = curl_init(rtrim($baseUrl, '/') . '/chat/completions');
+    $isOllama = (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
+    $responseText = '';
+    if ($isOllama) {
+        $body = [
+            'model' => $model,
+            'stream' => false,
+            'options' => [
+                'temperature' => 0.3,
+            ],
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
+                ['role' => 'user', 'content' => $userPrompt],
+            ],
+        ];
+        $ch = curl_init(rtrim(preg_replace('#/v1/?$#', '', $baseUrl), '/') . '/api/chat');
+    } else {
+        $body = [
+            'model' => $model,
+            'temperature' => 0.3,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
+                ['role' => 'user', 'content' => $userPrompt],
+            ],
+        ];
+        $ch = curl_init(rtrim($baseUrl, '/') . '/chat/completions');
+    }
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
@@ -2381,7 +2439,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
             'Authorization: Bearer ' . $apiKey,
         ],
         CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        CURLOPT_TIMEOUT => 60,
+        CURLOPT_TIMEOUT => $isOllama ? 180 : 60,
     ]);
     $raw = curl_exec($ch);
     $errno = curl_errno($ch);
@@ -2401,7 +2459,12 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))];
     }
 
-    $content = trim((string)($json['choices'][0]['message']['content'] ?? ''));
+    if ($isOllama) {
+        $responseText = trim((string)($json['message']['content'] ?? ''));
+    } else {
+        $responseText = trim((string)($json['choices'][0]['message']['content'] ?? ''));
+    }
+    $content = $responseText;
     if ($content === '') {
         return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
     }

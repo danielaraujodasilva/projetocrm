@@ -1008,9 +1008,66 @@ textarea {
     box-shadow: 0 8px 20px rgba(18, 28, 37, .08);
 }
 
+.drilldown-card-button {
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+}
+
 .drilldown-card strong {
     font-size: 15px;
     line-height: 1.2;
+}
+
+.drilldown-details {
+    cursor: default;
+}
+
+.drilldown-details summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.drilldown-details summary::-webkit-details-marker {
+    display: none;
+}
+
+.drilldown-detail-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.drilldown-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.drilldown-chip {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--text);
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.drilldown-chip.secondary {
+    background: var(--surface);
+    color: var(--muted);
+}
+
+.drilldown-card-more {
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 .drilldown-card .meta-line {
