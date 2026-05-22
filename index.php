@@ -1247,7 +1247,7 @@ if ($page === 'studio_whatsapp_conversation') {
         }
         echo '</div>';
 
-        echo '<form class="form action-card" method="post">';
+        echo '<form class="form action-card compact-action" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
         echo '<h3>Criar agendamento</h3>';

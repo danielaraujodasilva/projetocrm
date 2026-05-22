@@ -672,17 +672,17 @@ textarea {
 .conversation-layout {
     display: grid;
     grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr);
-    gap: 16px;
+    gap: 12px;
 }
 
 .conversation-main {
     display: grid;
-    gap: 12px;
+    gap: 10px;
 }
 
 .conversation-side {
     display: grid;
-    gap: 12px;
+    gap: 10px;
     align-content: start;
 }
 
@@ -707,12 +707,12 @@ textarea {
 .mini-metrics {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 12px;
+    gap: 8px;
+    margin-top: 10px;
 }
 
 .conversation-metrics {
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 
 .mini-metrics span,
@@ -737,10 +737,10 @@ textarea {
 
 .chat-thread {
     display: grid;
-    gap: 10px;
-    max-height: 620px;
+    gap: 8px;
+    max-height: 580px;
     overflow: auto;
-    padding: 12px;
+    padding: 10px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background:
@@ -758,7 +758,7 @@ textarea {
 
 .chat-bubble {
     max-width: min(680px, 82%);
-    padding: 10px 12px 8px;
+    padding: 9px 11px 7px;
     border: 1px solid var(--line);
     border-radius: 18px 18px 8px 18px;
     background: #fff;
@@ -788,25 +788,38 @@ textarea {
 .send-box,
 .info-list,
 .side-tool-panel {
-    margin-top: 14px;
+    margin-top: 10px;
 }
 
 .action-card {
-    margin-top: 18px;
-    padding-top: 18px;
+    margin-top: 12px;
+    padding-top: 14px;
     border-top: 1px solid var(--line);
+}
+
+.compact-action {
+    padding-top: 12px;
+}
+
+.compact-action .field {
+    margin-bottom: 8px;
+}
+
+.compact-action .grid {
+    gap: 10px;
 }
 
 .quick-reply-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px;
+    gap: 6px;
+    margin-top: 8px;
 }
 
 .side-tool-panel {
     display: grid;
-    gap: 10px;
+    gap: 8px;
+    padding: 14px;
 }
 
 .side-tool-panel h3 {
@@ -815,7 +828,7 @@ textarea {
 }
 
 .side-reply-list {
-    max-height: 220px;
+    max-height: 180px;
     overflow: auto;
 }
 
@@ -825,9 +838,9 @@ textarea {
 
 .emoji-strip {
     display: flex;
-    gap: 6px;
+    gap: 5px;
     flex-wrap: wrap;
-    margin-top: 8px;
+    margin-top: 6px;
 }
 
 .chat-attach-row {
@@ -838,11 +851,11 @@ textarea {
     background: #f7fdf8;
     border: 1px solid var(--line);
     border-radius: 10px;
-    padding: 14px;
+    padding: 12px;
 }
 
 .send-box .field textarea {
-    min-height: 92px;
+    min-height: 84px;
 }
 
 .send-box .btn {
