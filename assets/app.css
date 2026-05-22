@@ -282,6 +282,15 @@ textarea {
 .table {
     width: 100%;
     border-collapse: collapse;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table thead,
+.table tbody,
+.table tr {
+    min-width: 100%;
 }
 
 .table th,
@@ -592,6 +601,7 @@ textarea {
 }
 
 .calendar-event {
+    display: block;
     border-left: 4px solid var(--brand);
     background: #fff;
     border-radius: 6px;
@@ -599,6 +609,18 @@ textarea {
     margin-bottom: 6px;
     font-size: 12px;
     line-height: 1.3;
+    color: var(--text);
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.calendar-event:hover,
+.appointment-block:hover,
+.activity-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
+    text-decoration: none;
 }
 
 .stack-list {
@@ -607,6 +629,8 @@ textarea {
 }
 
 .appointment-block {
+    color: var(--text);
+    text-decoration: none;
     display: grid;
     gap: 4px;
     border: 1px solid var(--line);
@@ -614,6 +638,8 @@ textarea {
     border-radius: 8px;
     background: var(--surface-soft);
     padding: 12px;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
 }
 
 .color-dot {
@@ -666,6 +692,10 @@ textarea {
     color: var(--text);
     font-weight: 900;
     text-decoration: none;
+}
+
+.activity-card {
+    transition: transform .12s ease, box-shadow .12s ease;
 }
 
 .lead-detail-head,
@@ -942,9 +972,38 @@ textarea {
     border-radius: 8px;
 }
 
+.soft {
+    background: var(--surface-soft);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.info-box {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
 @media (max-width: 900px) {
     .shell {
         grid-template-columns: 1fr;
+    }
+
+    .main {
+        padding: 18px;
+    }
+
+    .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .topbar h1 {
+        font-size: 22px;
     }
 
     .sidebar {
@@ -957,10 +1016,14 @@ textarea {
     .module-list,
     .lead-detail-head,
     .conversation-layout,
-    .mini-metrics,
+    .mini-metrics {
+        grid-template-columns: 1fr;
+    }
+
     .calendar-grid.month,
     .calendar-grid.week {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        overflow-x: auto;
     }
 
     .conversation-layout {
@@ -999,5 +1062,19 @@ textarea {
 
     .send-box .field textarea {
         min-height: 72px;
+    }
+
+    .panel {
+        padding: 14px;
+    }
+
+    .btn {
+        width: 100%;
+    }
+
+    .btn.tiny,
+    .actions .btn,
+    .inline-form .btn {
+        width: auto;
     }
 }
