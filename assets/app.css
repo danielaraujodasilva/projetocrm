@@ -559,7 +559,7 @@ textarea {
 
 .quick-actions-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
 }
 
@@ -568,7 +568,7 @@ textarea {
     flex-direction: column;
     gap: 6px;
     justify-content: center;
-    min-height: 108px;
+    min-height: 86px;
     padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -594,7 +594,7 @@ textarea {
 .dashboard-stat {
     display: grid;
     gap: 4px;
-    min-height: 122px;
+    min-height: 96px;
     padding: 14px 16px;
     color: var(--text);
     text-decoration: none;
@@ -1137,7 +1137,7 @@ textarea {
     }
 
     .quick-actions-grid {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     }
 
     .whatsapp-quick-links {
