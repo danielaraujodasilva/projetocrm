@@ -412,7 +412,7 @@ function render_head(string $title): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="assets/app.css"></head><body>';
-    echo '<div class="app-build-badge" title="Versao da interface">v' . h(app_build_version()) . '</div>';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
 function render_flash(?array $flash): void
@@ -433,6 +433,24 @@ document.addEventListener("click", function (event) {
     if (!textarea) return;
     textarea.value = button.getAttribute("data-reply") || "";
     textarea.focus();
+});
+
+document.addEventListener("click", async function (event) {
+    var badge = event.target.closest(".app-build-badge-input");
+    if (!badge) return;
+    var version = badge.getAttribute("data-build-version") || badge.textContent || "";
+    try {
+        badge.select();
+        badge.setSelectionRange(0, version.length);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(version).catch(function () {});
+        }
+        setTimeout(function () {
+            badge.blur();
+        }, 200);
+    } catch (error) {
+        badge.focus();
+    }
 });
 </script>';
 }
