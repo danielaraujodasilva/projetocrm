@@ -2731,14 +2731,18 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
     $occupiedPreview = $occupiedNotes ? implode("\n- ", array_slice($occupiedNotes, 0, 6)) : 'Sem ocupacoes no recorte rapido.';
     $exactDateBlock = "Nao foi citada uma data especifica.";
+    $nextAvailableHint = 'Sem vaga futura encontrada no recorte rapido.';
     if (is_array($dateContext)) {
         $freeSlots = array_values(array_map('strval', $dateContext['free_slots'] ?? []));
-        $bookedSlots = array_values(array_map(static fn(array $appt): string => trim(($appt['time'] ?? '') . (($appt['customer_name'] ?? '') !== '' ? ' (' . $appt['customer_name'] . ')' : '')), $dateContext['booked'] ?? []));
+        $bookedSlots = array_values(array_map(static fn(array $appt): string => trim((string)($appt['time'] ?? '')), $dateContext['booked'] ?? []));
+        $nextFreeSlot = $freeSlots[0] ?? '';
+        $nextAvailableHint = $nextFreeSlot !== '' ? ($dateContext['date'] . ' ' . $nextFreeSlot) : $nextAvailableHint;
         $exactDateBlock = "Data citada pelo cliente: " . $dateContext['date'] . "\n"
             . "Esta data esta " . (!empty($dateContext['allowed']) ? 'dentro' : 'fora') . " dos dias permitidos do estúdio.\n"
             . "Vagas livres exatas nesse dia: " . ($freeSlots ? implode(', ', $freeSlots) : 'nenhuma') . "\n"
-            . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', $bookedSlots) : 'nenhum') . "\n"
-            . "Regra: se vagas livres exatas estiverem vazias, responda que esse dia esta lotado e nao sugira horario inventado.";
+            . "Proximo horario livre real no recorte: " . $nextAvailableHint . "\n"
+            . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', array_slice($bookedSlots, 0, 3)) : 'nenhum') . "\n"
+            . "Regra: se vagas livres exatas estiverem vazias, responda apenas que esse dia esta lotado e mostre o proximo horario livre real.";
     }
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
@@ -2757,7 +2761,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Historico recente da conversa:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Regras de resposta:\n"
         . "- Responda como atendente de tatuagem, sem soar robotico.\n"
-        . "- Seja direto, util e natural.\n"
+        . "- Seja direto, util e natural. Use no maximo 2 frases curtas.\n"
         . "- Nao repita a mesma saudacao ou frase de abertura.\n"
         . "- Nao diga 'estou aqui para ajudar' nem variações parecidas.\n"
         . "- Nao use respostas genéricas de assistente, tipo 'como posso ajudar'.\n"
@@ -2767,7 +2771,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a pessoa perguntou de agendamento, puxe para data, horario e sinal.\n"
         . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima e as vagas livres reais listadas acima.\n"
         . "- Se a ultima mensagem citar uma data especifica, consulte o bloco 'Data citada pelo cliente' e responda apenas com base nele.\n"
-        . "- Se a data citada estiver lotada, diga isso explicitamente e ofereca o proximo horario livre real.\n"
+        . "- Se a data citada estiver lotada, diga apenas que o dia esta lotado e ofereca o proximo horario livre real.\n"
         . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
         . "- Nunca diga que existe vaga em uma data que tenha vagas livres exatas vazias no contexto.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
@@ -2781,6 +2785,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "  * Cliente: 'oi' -> Resposta: 'Oi! Me conta o que você quer tatuar e eu te ajudo por aqui.'\n"
         . "  * Cliente: 'quero agendar' -> Resposta: 'Perfeito. Me manda a referência e a data que você prefere, que eu vejo os próximos passos.'\n"
         . "  * Cliente: 'qual o valor?' -> Resposta: 'Me manda a ideia ou a referência da tattoo que eu te passo o melhor caminho.'\n\n"
+        . "- Quando falar de disponibilidade, use este formato mental:\n"
+        . "  * se houver vaga: 'Tem vaga sim. O proximo horario livre real é DD/MM às HH:MM.'\n"
+        . "  * se nao houver vaga: 'Nao tem vaga nesse dia. O proximo horario livre real é DD/MM às HH:MM.'\n"
+        . "- Evite listar varias vagas, varios nomes ou varios detalhes. Entregue só o proximo passo mais util.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
     $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
@@ -2791,6 +2799,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $replyText = trim((string)$result['reply_text']);
     if ($replyText === '') {
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
+    }
+    $replyText = preg_replace('/\s+/', ' ', $replyText) ?? $replyText;
+    if (mb_strlen($replyText) > 220) {
+        $parts = preg_split('/(?<=[.!?])\s+/u', $replyText) ?: [$replyText];
+        $replyText = trim(implode(' ', array_slice($parts, 0, 2)));
+        if (mb_strlen($replyText) > 220) {
+            $replyText = mb_substr($replyText, 0, 220);
+        }
     }
 
     $reply = studio_send_whatsapp_message($studio, [
