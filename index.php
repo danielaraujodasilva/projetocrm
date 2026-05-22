@@ -665,11 +665,13 @@ if ($page === 'studio_home') {
                 'type' => 'availability',
                 'default_range' => '7d',
                 'ranges' => (static function (array $studio): array {
+                    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+                    $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
                     $rangeMap = [
                         '3d' => 3,
                         '7d' => 7,
                         '15d' => 15,
-                        'month' => max(1, (int)(new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo')))->format('t')),
+                        'month' => max(1, (int)$monthEnd->diff($today)->days + 1),
                         'next_month' => max(1, (int)(new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('t')),
                     ];
                     $result = [];
