@@ -7,6 +7,30 @@
       return typeof value === 'function';
     };
   }
+  if (typeof jQuery.isArray !== 'function') {
+    jQuery.isArray = Array.isArray;
+  }
+  if (typeof jQuery.isPlainObject !== 'function') {
+    jQuery.isPlainObject = function (value) {
+      if (!value || Object.prototype.toString.call(value) !== '[object Object]') return false;
+      const proto = Object.getPrototypeOf(value);
+      return proto === null || proto === Object.prototype;
+    };
+  }
+  if (typeof jQuery.isEmptyObject !== 'function') {
+    jQuery.isEmptyObject = function (value) {
+      if (value == null) return true;
+      for (const key in Object(value)) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) return false;
+      }
+      return true;
+    };
+  }
+  if (typeof jQuery.isNumeric !== 'function') {
+    jQuery.isNumeric = function (value) {
+      return !Array.isArray(value) && (value - parseFloat(value) + 1) >= 0;
+    };
+  }
 
   const dataSets = window.reportsPivotData;
 
