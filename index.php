@@ -117,6 +117,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio', ['id' => (int)$studio['id']]);
         }
 
+        if ($action === 'save_commercial_plan') {
+            require_admin();
+            $planId = save_commercial_plan($_POST);
+            flash_set('success', 'Plano comercial salvo.');
+            redirect_to('edit_plan', ['id' => $planId]);
+        }
+
+        if ($action === 'delete_commercial_plan') {
+            require_admin();
+            delete_commercial_plan((int)($_POST['id'] ?? 0));
+            flash_set('success', 'Plano comercial removido.');
+            redirect_to('plans');
+        }
+
         if ($action === 'save_studio_access') {
             require_admin();
             $studio = get_studio((int)($_POST['studio_id'] ?? 0));
@@ -492,6 +506,7 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'dashboard' ? 'active' : '') . '" href="' . h(app_url('dashboard')) . '">Painel</a>';
     echo '<a class="' . ($active === 'studios' ? 'active' : '') . '" href="' . h(app_url('studios')) . '">Estudios</a>';
+    echo '<a class="' . ($active === 'plans' ? 'active' : '') . '" href="' . h(app_url('plans')) . '">Planos</a>';
     echo '<a class="' . ($active === 'new_studio' ? 'active' : '') . '" href="' . h(app_url('new_studio')) . '">Novo estudio</a>';
     echo '<a href="' . h(app_url('logout')) . '">Sair</a>';
     echo '</nav></aside>';
@@ -2363,8 +2378,9 @@ if ($page === 'studios') {
             echo '<table class="table"><thead><tr><th>Estudio</th><th>Status</th><th>Banco</th><th>Dono</th><th></th></tr></thead><tbody>';
             foreach ($studios as $studio) {
                 $dbOk = studio_database_exists($studio);
+                $plan = resolve_studio_plan($studio);
                 echo '<tr>';
-                echo '<td><strong>' . h($studio['name']) . '</strong><br><span class="muted">' . h($studio['slug']) . '</span></td>';
+                echo '<td><strong>' . h($studio['name']) . '</strong><br><span class="muted">' . h($studio['slug']) . ' · ' . h(commercial_plan_display_name($plan, (string)($studio['plan_name'] ?? ''))) . '</span></td>';
                 echo '<td><span class="badge ' . ($studio['status'] === 'active' ? 'ok' : 'warn') . '">' . h($studio['status']) . '</span></td>';
                 echo '<td>' . h($studio['database_name']) . '<br><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></td>';
                 echo '<td>' . h($studio['owner_name']) . '<br><span class="muted">' . h($studio['owner_email']) . '</span></td>';
@@ -2374,6 +2390,59 @@ if ($page === 'studios') {
             echo '</tbody></table>';
         }
         echo '</div>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'plans') {
+    require_admin();
+    $plans = list_commercial_plans();
+    render_app_shell('Planos comerciais', 'Precos, recursos e limites editaveis do CRM.', 'plans', function () use ($plans) {
+        if (!commercial_plans_ready()) {
+            echo '<section class="panel"><h2>Migration pendente</h2><p>Rode o arquivo <code>database/platform_alpha_003_commercial_plans.sql</code> no banco central para habilitar os planos comerciais.</p></section>';
+            return;
+        }
+
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between"><h2>Planos cadastrados</h2><a class="btn" href="' . h(app_url('new_plan')) . '">Novo plano</a></div>';
+        if (!$plans) {
+            echo '<p class="muted">Nenhum plano cadastrado ainda.</p>';
+        } else {
+            echo '<div class="grid cols-3">';
+            foreach ($plans as $plan) {
+                echo '<article class="panel">';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>' . h($plan['name']) . '</h2><p class="muted">' . h($plan['slug']) . '</p></div><span class="badge ' . (!empty($plan['is_active']) ? 'ok' : 'warn') . '">' . (!empty($plan['is_active']) ? 'ativo' : 'inativo') . '</span></div>';
+                echo '<p><strong>Mensal:</strong> ' . h(format_money((float)$plan['monthly_price'])) . '</p>';
+                echo '<p><strong>Anual:</strong> ' . h(format_money((float)$plan['annual_price'])) . '</p>';
+                if (trim((string)$plan['description']) !== '') {
+                    echo '<p class="muted">' . h($plan['description']) . '</p>';
+                }
+                echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('edit_plan', ['id' => (int)$plan['id']])) . '">Editar</a></div>';
+                echo '</article>';
+            }
+            echo '</div>';
+        }
+        echo '</section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'new_plan') {
+    require_admin();
+    render_app_shell('Novo plano', 'Cadastre um plano comercial editavel para a plataforma.', 'plans', function () {
+        render_commercial_plan_form(null);
+    }, $flash);
+    exit;
+}
+
+if ($page === 'edit_plan') {
+    require_admin();
+    $plan = get_commercial_plan((int)($_GET['id'] ?? 0));
+    if (!$plan) {
+        flash_set('error', 'Plano comercial nao encontrado.');
+        redirect_to('plans');
+    }
+    render_app_shell('Editar plano', 'Atualize preco, recursos e limites do plano.', 'plans', function () use ($plan) {
+        render_commercial_plan_form($plan);
     }, $flash);
     exit;
 }
@@ -2395,10 +2464,15 @@ if ($page === 'studio') {
     }
     render_app_shell((string)$studio['name'], 'Instancia alpha do CRM deste estudio.', 'studios', function () use ($studio) {
         $dbOk = studio_database_exists($studio);
+        $plan = resolve_studio_plan($studio);
         echo '<section class="grid cols-3">';
         echo '<div class="panel"><h2>Status</h2><span class="badge ' . ($studio['status'] === 'active' ? 'ok' : 'warn') . '">' . h($studio['status']) . '</span></div>';
         echo '<div class="panel"><h2>Banco</h2><p>' . h($studio['database_name']) . '</p><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></div>';
-        echo '<div class="panel"><h2>Plano</h2><p>' . h($studio['plan_name']) . '</p></div>';
+        echo '<div class="panel"><h2>Plano</h2><p>' . h(commercial_plan_display_name($plan, (string)($studio['plan_name'] ?? ''))) . '</p>';
+        if ($plan) {
+            echo '<span class="muted">' . h(format_money((float)$plan['monthly_price'])) . '/mes · ' . h(format_money((float)$plan['annual_price'])) . '/ano</span>';
+        }
+        echo '</div>';
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions">';
         echo '<a class="btn" href="' . h(app_url('studio_login')) . '">Acessar login do estudio</a>';
@@ -2495,6 +2569,12 @@ function render_studio_form(?array $studio): void
 {
     $isEdit = is_array($studio);
     $action = $isEdit ? 'update_studio' : 'create_studio';
+    $plans = list_commercial_plans(true);
+    $selectedPlanId = (int)($studio['plan_id'] ?? 0);
+    if ($selectedPlanId <= 0 && !empty($studio['plan_name'])) {
+        $selectedPlan = get_commercial_plan_by_slug((string)$studio['plan_name']);
+        $selectedPlanId = (int)($selectedPlan['id'] ?? 0);
+    }
     echo '<form class="form panel" method="post">';
     echo csrf_field();
     echo '<input type="hidden" name="action" value="' . h($action) . '">';
@@ -2510,7 +2590,19 @@ function render_studio_form(?array $studio): void
         echo '<option value="' . h($value) . '" ' . $selected . '>' . h($label) . '</option>';
     }
     echo '</select></div>';
-    echo '<div class="field"><label>Plano</label><input name="plan_name" value="' . h($studio['plan_name'] ?? 'alpha') . '"></div>';
+    echo '<div class="field"><label>Plano</label>';
+    if ($plans) {
+        echo '<select name="plan_id">';
+        echo '<option value="">Selecione um plano</option>';
+        foreach ($plans as $plan) {
+            $selected = (int)$plan['id'] === $selectedPlanId ? 'selected' : '';
+            echo '<option value="' . h($plan['id']) . '" ' . $selected . '>' . h($plan['name'] . ' · ' . format_money((float)$plan['monthly_price']) . '/mes') . '</option>';
+        }
+        echo '</select>';
+    } else {
+        echo '<input name="plan_name" value="' . h($studio['plan_name'] ?? 'basico') . '">';
+    }
+    echo '<small class="muted">O plano pode ser trocado depois no painel administrativo.</small></div>';
     echo '<div class="field"><label>Responsavel</label><input name="owner_name" value="' . h($studio['owner_name'] ?? '') . '"></div>';
     echo '<div class="field"><label>Email do responsavel</label><input type="text" inputmode="email" name="owner_email" value="' . h($studio['owner_email'] ?? '') . '"></div>';
     echo '<div class="field"><label>Telefone</label><input name="owner_phone" value="' . h($studio['owner_phone'] ?? '') . '"></div>';
@@ -2522,6 +2614,40 @@ function render_studio_form(?array $studio): void
     echo '<div class="field"><label>Regras base da IA deste estudio</label><textarea name="business_rules" placeholder="Endereco, horarios, sinal, politicas, limites da IA...">' . h($studio['business_rules'] ?? '') . '</textarea></div>';
     echo '<div class="actions"><button class="btn" type="submit">' . ($isEdit ? 'Salvar alteracoes' : 'Cadastrar estudio') . '</button><a class="btn secondary" href="' . h(app_url('studios')) . '">Cancelar</a></div>';
     echo '</form>';
+}
+
+function render_commercial_plan_form(?array $plan): void
+{
+    $isEdit = is_array($plan);
+    echo '<form class="form panel" method="post">';
+    echo csrf_field();
+    echo '<input type="hidden" name="action" value="save_commercial_plan">';
+    if ($isEdit) {
+        echo '<input type="hidden" name="id" value="' . h($plan['id']) . '">';
+    }
+    echo '<div class="grid cols-2">';
+    echo '<div class="field"><label>Nome do plano</label><input name="name" required value="' . h($plan['name'] ?? '') . '"></div>';
+    echo '<div class="field"><label>Slug</label><input name="slug" value="' . h($plan['slug'] ?? '') . '" placeholder="basico"></div>';
+    echo '<div class="field"><label>Preco mensal (R$)</label><input type="number" step="0.01" min="0" name="monthly_price" value="' . h($plan['monthly_price'] ?? '0.00') . '"></div>';
+    echo '<div class="field"><label>Preco anual (R$)</label><input type="number" step="0.01" min="0" name="annual_price" value="' . h($plan['annual_price'] ?? '0.00') . '"></div>';
+    echo '<div class="field"><label>Ordem</label><input type="number" name="sort_order" value="' . h($plan['sort_order'] ?? 0) . '"></div>';
+    echo '<div class="field"><label>Status</label><select name="is_active"><option value="1" ' . (!isset($plan['is_active']) || !empty($plan['is_active']) ? 'selected' : '') . '>Ativo</option><option value="0" ' . (isset($plan['is_active']) && empty($plan['is_active']) ? 'selected' : '') . '>Inativo</option></select></div>';
+    echo '</div>';
+    echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Resumo comercial do plano para o gerente.">' . h($plan['description'] ?? '') . '</textarea></div>';
+    echo '<div class="grid cols-2">';
+    echo '<div class="field"><label>Recursos inclusos</label><textarea name="features_text" placeholder="Um recurso por linha. Ex:&#10;WhatsApp com IA&#10;Relatorios avancados">' . h($plan['features_text'] ?? '') . '</textarea><small class="muted">Use uma linha por recurso ou modulo incluso.</small></div>';
+    echo '<div class="field"><label>Limites do plano</label><textarea name="limits_text" placeholder="Um limite por linha. Ex:&#10;usuarios: 5&#10;tatuadores: 3">' . h($plan['limits_text'] ?? '') . '</textarea><small class="muted">Use texto simples para limites comerciais do plano.</small></div>';
+    echo '</div>';
+    echo '<div class="actions"><button class="btn" type="submit">' . ($isEdit ? 'Salvar plano' : 'Cadastrar plano') . '</button><a class="btn secondary" href="' . h(app_url('plans')) . '">Cancelar</a></div>';
+    echo '</form>';
+    if ($isEdit) {
+        echo '<form method="post" class="panel" style="margin-top:12px" onsubmit="return confirm(\'Remover este plano?\')">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="delete_commercial_plan">';
+        echo '<input type="hidden" name="id" value="' . h($plan['id']) . '">';
+        echo '<div class="actions"><button class="btn secondary" type="submit">Excluir plano</button></div>';
+        echo '</form>';
+    }
 }
 
 function render_studio_db_missing(array $studio, string $error): void

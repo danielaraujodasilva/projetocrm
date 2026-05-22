@@ -112,9 +112,91 @@ function table_exists(string $table): bool
     }
 }
 
+function column_exists(string $table, string $column): bool
+{
+    try {
+        $config = app_config('database');
+        $stmt = db()->prepare(
+            'SELECT COUNT(*)
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+        );
+        $stmt->execute([(string)($config['database'] ?? 'projetocrm_platform'), $table, $column]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable) {
+        return false;
+    }
+}
+
 function schema_ready(): bool
 {
     return table_exists('platform_admins') && table_exists('studios') && table_exists('studio_events') && table_exists('studio_users');
+}
+
+function commercial_plans_ready(): bool
+{
+    return table_exists('commercial_plans');
+}
+
+function studio_plan_assignment_ready(): bool
+{
+    return commercial_plans_ready() && column_exists('studios', 'plan_id');
+}
+
+function seed_default_commercial_plans(): void
+{
+    if (!commercial_plans_ready()) {
+        return;
+    }
+
+    $count = (int)db()->query('SELECT COUNT(*) FROM commercial_plans')->fetchColumn();
+    if ($count > 0) {
+        return;
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO commercial_plans
+            (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+         VALUES
+            (?, ?, ?, ?, ?, "BRL", ?, ?, ?, 1, NOW(), NOW())'
+    );
+
+    $defaults = [
+        [
+            'Basico',
+            'basico',
+            'Entrada para estudios menores que querem organizar atendimento, agenda e operacao base.',
+            149.90,
+            1499.00,
+            "CRM do estudio\nAgenda\nWhatsApp humano\nRelatorios basicos",
+            "usuarios: 2\ntatuadores: 2\nleads_ativos: 500",
+            1,
+        ],
+        [
+            'Profissional',
+            'profissional',
+            'Plano principal para estudios em operacao diaria com WhatsApp, IA e mais equipe.',
+            249.90,
+            2499.00,
+            "CRM completo\nAgenda\nWhatsApp com IA\nRespostas rapidas\nRelatorios",
+            "usuarios: 5\ntatuadores: 5\nleads_ativos: 2000",
+            2,
+        ],
+        [
+            'Avancado',
+            'avancado',
+            'Plano para estudios com mais volume, equipe maior e uso intenso da operacao.',
+            399.90,
+            3999.00,
+            "CRM completo\nAgenda\nWhatsApp com IA\nAssistente de dados\nRelatorios avancados",
+            "usuarios: 15\ntatuadores: 12\nleads_ativos: 10000",
+            3,
+        ],
+    ];
+
+    foreach ($defaults as $plan) {
+        $stmt->execute($plan);
+    }
 }
 
 function admin_count(): int
@@ -268,6 +350,192 @@ function list_studios(): array
     return $stmt->fetchAll() ?: [];
 }
 
+function list_commercial_plans(bool $onlyActive = false): array
+{
+    if (!commercial_plans_ready()) {
+        return [];
+    }
+
+    seed_default_commercial_plans();
+
+    $sql = 'SELECT * FROM commercial_plans';
+    if ($onlyActive) {
+        $sql .= ' WHERE is_active = 1';
+    }
+    $sql .= ' ORDER BY sort_order ASC, id ASC';
+
+    $stmt = db()->query($sql);
+    return $stmt->fetchAll() ?: [];
+}
+
+function get_commercial_plan(int $id): ?array
+{
+    if ($id <= 0 || !commercial_plans_ready()) {
+        return null;
+    }
+
+    seed_default_commercial_plans();
+    $stmt = db()->prepare('SELECT * FROM commercial_plans WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    $plan = $stmt->fetch();
+
+    return is_array($plan) ? $plan : null;
+}
+
+function get_commercial_plan_by_slug(string $slug): ?array
+{
+    $slug = trim($slug);
+    if ($slug === '' || !commercial_plans_ready()) {
+        return null;
+    }
+
+    seed_default_commercial_plans();
+    $stmt = db()->prepare('SELECT * FROM commercial_plans WHERE slug = ? LIMIT 1');
+    $stmt->execute([$slug]);
+    $plan = $stmt->fetch();
+
+    return is_array($plan) ? $plan : null;
+}
+
+function resolve_studio_plan(array $studio): ?array
+{
+    $planId = (int)($studio['plan_id'] ?? 0);
+    if ($planId > 0) {
+        $plan = get_commercial_plan($planId);
+        if ($plan) {
+            return $plan;
+        }
+    }
+
+    $planName = trim((string)($studio['plan_name'] ?? ''));
+    if ($planName !== '') {
+        return get_commercial_plan_by_slug($planName);
+    }
+
+    return null;
+}
+
+function commercial_plan_display_name(?array $plan, ?string $fallback = null): string
+{
+    if (is_array($plan) && trim((string)($plan['name'] ?? '')) !== '') {
+        return (string)$plan['name'];
+    }
+
+    $fallback = trim((string)$fallback);
+    return $fallback !== '' ? $fallback : 'Sem plano';
+}
+
+function studio_plan_snapshot(array $data, ?array $studio = null): array
+{
+    $planId = (int)($data['plan_id'] ?? ($studio['plan_id'] ?? 0));
+    $planName = trim((string)($data['plan_name'] ?? ($studio['plan_name'] ?? 'basico')));
+
+    if (commercial_plans_ready()) {
+        seed_default_commercial_plans();
+        if ($planId > 0) {
+            $plan = get_commercial_plan($planId);
+            if ($plan) {
+                return [
+                    'plan_id' => (int)$plan['id'],
+                    'plan_name' => (string)$plan['slug'],
+                ];
+            }
+        }
+
+        if ($planName !== '') {
+            $plan = get_commercial_plan_by_slug($planName);
+            if ($plan) {
+                return [
+                    'plan_id' => (int)$plan['id'],
+                    'plan_name' => (string)$plan['slug'],
+                ];
+            }
+        }
+    }
+
+    return [
+        'plan_id' => $planId > 0 ? $planId : null,
+        'plan_name' => $planName !== '' ? $planName : 'basico',
+    ];
+}
+
+function save_commercial_plan(array $data): int
+{
+    if (!commercial_plans_ready()) {
+        throw new RuntimeException('Tabela de planos comerciais ainda nao instalada.');
+    }
+
+    $id = (int)($data['id'] ?? 0);
+    $name = trim((string)($data['name'] ?? ''));
+    $slug = slugify((string)($data['slug'] ?? $name));
+    $description = trim((string)($data['description'] ?? ''));
+    $monthlyPrice = round((float)($data['monthly_price'] ?? 0), 2);
+    $annualPrice = round((float)($data['annual_price'] ?? 0), 2);
+    $featuresText = trim((string)($data['features_text'] ?? ''));
+    $limitsText = trim((string)($data['limits_text'] ?? ''));
+    $sortOrder = (int)($data['sort_order'] ?? 0);
+    $isActive = !empty($data['is_active']) ? 1 : 0;
+
+    if ($name === '') {
+        throw new RuntimeException('Informe o nome do plano.');
+    }
+
+    if ($slug === '') {
+        throw new RuntimeException('Informe um slug valido para o plano.');
+    }
+
+    if ($monthlyPrice < 0 || $annualPrice < 0) {
+        throw new RuntimeException('Os precos do plano nao podem ser negativos.');
+    }
+
+    $duplicateStmt = db()->prepare('SELECT id FROM commercial_plans WHERE slug = ? AND id <> ? LIMIT 1');
+    $duplicateStmt->execute([$slug, $id]);
+    if ((int)($duplicateStmt->fetchColumn() ?: 0) > 0) {
+        throw new RuntimeException('Ja existe um plano com esse slug.');
+    }
+
+    if ($id > 0) {
+        $stmt = db()->prepare(
+            'UPDATE commercial_plans
+             SET name = ?, slug = ?, description = ?, monthly_price = ?, annual_price = ?, features_text = ?, limits_text = ?, sort_order = ?, is_active = ?, updated_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive, $id]);
+        if (studio_plan_assignment_ready()) {
+            db()->prepare('UPDATE studios SET plan_name = ? WHERE plan_id = ?')->execute([$slug, $id]);
+        }
+
+        return $id;
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO commercial_plans
+            (name, slug, description, monthly_price, annual_price, currency_code, features_text, limits_text, sort_order, is_active, created_at, updated_at)
+         VALUES
+            (?, ?, ?, ?, ?, "BRL", ?, ?, ?, ?, NOW(), NOW())'
+    );
+    $stmt->execute([$name, $slug, $description, $monthlyPrice, $annualPrice, $featuresText, $limitsText, $sortOrder, $isActive]);
+
+    return (int)db()->lastInsertId();
+}
+
+function delete_commercial_plan(int $id): void
+{
+    if ($id <= 0 || !commercial_plans_ready()) {
+        return;
+    }
+
+    if (studio_plan_assignment_ready()) {
+        $stmt = db()->prepare('SELECT COUNT(*) FROM studios WHERE plan_id = ?');
+        $stmt->execute([$id]);
+        if ((int)$stmt->fetchColumn() > 0) {
+            throw new RuntimeException('Este plano ja esta vinculado a estudios e nao pode ser removido agora.');
+        }
+    }
+
+    db()->prepare('DELETE FROM commercial_plans WHERE id = ?')->execute([$id]);
+}
+
 function get_studio(int $id): ?array
 {
     $stmt = db()->prepare('SELECT * FROM studios WHERE id = ? LIMIT 1');
@@ -295,29 +563,57 @@ function create_studio(array $data, int $adminId): int
         $databaseName = default_studio_database($slug);
     }
 
-    $stmt = db()->prepare(
-        'INSERT INTO studios
-            (name, slug, status, owner_name, owner_email, owner_phone, database_name, database_host, database_user, plan_name, ai_model, business_rules, whatsapp_session_key, created_by, created_at, updated_at)
-         VALUES
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
-    );
+    $plan = studio_plan_snapshot($data);
+
     $nextId = (int)db()->query("SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'studios'")->fetchColumn();
-    $stmt->execute([
-        $name,
-        $slug,
-        (string)($data['status'] ?? 'setup'),
-        trim((string)($data['owner_name'] ?? '')),
-        strtolower(trim((string)($data['owner_email'] ?? ''))),
-        trim((string)($data['owner_phone'] ?? '')),
-        $databaseName,
-        trim((string)($data['database_host'] ?? 'localhost')),
-        trim((string)($data['database_user'] ?? 'root')),
-        trim((string)($data['plan_name'] ?? 'alpha')),
-        trim((string)($data['ai_model'] ?? 'llama3:8b')),
-        trim((string)($data['business_rules'] ?? '')),
-        studio_session_key_from_parts($nextId, $slug),
-        $adminId,
-    ]);
+    if (studio_plan_assignment_ready()) {
+        $stmt = db()->prepare(
+            'INSERT INTO studios
+                (name, slug, status, owner_name, owner_email, owner_phone, database_name, database_host, database_user, plan_id, plan_name, ai_model, business_rules, whatsapp_session_key, created_by, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+        );
+        $stmt->execute([
+            $name,
+            $slug,
+            (string)($data['status'] ?? 'setup'),
+            trim((string)($data['owner_name'] ?? '')),
+            strtolower(trim((string)($data['owner_email'] ?? ''))),
+            trim((string)($data['owner_phone'] ?? '')),
+            $databaseName,
+            trim((string)($data['database_host'] ?? 'localhost')),
+            trim((string)($data['database_user'] ?? 'root')),
+            $plan['plan_id'],
+            $plan['plan_name'],
+            trim((string)($data['ai_model'] ?? 'llama3:8b')),
+            trim((string)($data['business_rules'] ?? '')),
+            studio_session_key_from_parts($nextId, $slug),
+            $adminId,
+        ]);
+    } else {
+        $stmt = db()->prepare(
+            'INSERT INTO studios
+                (name, slug, status, owner_name, owner_email, owner_phone, database_name, database_host, database_user, plan_name, ai_model, business_rules, whatsapp_session_key, created_by, created_at, updated_at)
+             VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+        );
+        $stmt->execute([
+            $name,
+            $slug,
+            (string)($data['status'] ?? 'setup'),
+            trim((string)($data['owner_name'] ?? '')),
+            strtolower(trim((string)($data['owner_email'] ?? ''))),
+            trim((string)($data['owner_phone'] ?? '')),
+            $databaseName,
+            trim((string)($data['database_host'] ?? 'localhost')),
+            trim((string)($data['database_user'] ?? 'root')),
+            $plan['plan_name'],
+            trim((string)($data['ai_model'] ?? 'llama3:8b')),
+            trim((string)($data['business_rules'] ?? '')),
+            studio_session_key_from_parts($nextId, $slug),
+            $adminId,
+        ]);
+    }
 
     $studioId = (int)db()->lastInsertId();
     studio_event($studioId, 'studio_created', 'Estudio cadastrado na plataforma alpha.');
@@ -327,30 +623,58 @@ function create_studio(array $data, int $adminId): int
 
 function update_studio(array $studio, array $data): void
 {
-    $stmt = db()->prepare(
-        'UPDATE studios
-         SET name = ?, status = ?, owner_name = ?, owner_email = ?, owner_phone = ?, database_name = ?,
-             database_host = ?, database_user = ?, plan_name = ?, ai_model = ?, business_rules = ?,
-             whatsapp_session_key = IF(whatsapp_session_key IS NULL OR whatsapp_session_key = "", ?, whatsapp_session_key),
-             updated_at = NOW()
-         WHERE id = ?'
-    );
+    $plan = studio_plan_snapshot($data, $studio);
     $sessionKey = studio_session_key_from_parts((int)$studio['id'], (string)$studio['slug']);
-    $stmt->execute([
-        trim((string)($data['name'] ?? $studio['name'])),
-        trim((string)($data['status'] ?? $studio['status'])),
-        trim((string)($data['owner_name'] ?? '')),
-        strtolower(trim((string)($data['owner_email'] ?? ''))),
-        trim((string)($data['owner_phone'] ?? '')),
-        trim((string)($data['database_name'] ?? $studio['database_name'])),
-        trim((string)($data['database_host'] ?? 'localhost')),
-        trim((string)($data['database_user'] ?? 'root')),
-        trim((string)($data['plan_name'] ?? 'alpha')),
-        trim((string)($data['ai_model'] ?? 'llama3:8b')),
-        trim((string)($data['business_rules'] ?? '')),
-        $sessionKey,
-        (int)$studio['id'],
-    ]);
+    if (studio_plan_assignment_ready()) {
+        $stmt = db()->prepare(
+            'UPDATE studios
+             SET name = ?, status = ?, owner_name = ?, owner_email = ?, owner_phone = ?, database_name = ?,
+                 database_host = ?, database_user = ?, plan_id = ?, plan_name = ?, ai_model = ?, business_rules = ?,
+                 whatsapp_session_key = IF(whatsapp_session_key IS NULL OR whatsapp_session_key = "", ?, whatsapp_session_key),
+                 updated_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            trim((string)($data['name'] ?? $studio['name'])),
+            trim((string)($data['status'] ?? $studio['status'])),
+            trim((string)($data['owner_name'] ?? '')),
+            strtolower(trim((string)($data['owner_email'] ?? ''))),
+            trim((string)($data['owner_phone'] ?? '')),
+            trim((string)($data['database_name'] ?? $studio['database_name'])),
+            trim((string)($data['database_host'] ?? 'localhost')),
+            trim((string)($data['database_user'] ?? 'root')),
+            $plan['plan_id'],
+            $plan['plan_name'],
+            trim((string)($data['ai_model'] ?? 'llama3:8b')),
+            trim((string)($data['business_rules'] ?? '')),
+            $sessionKey,
+            (int)$studio['id'],
+        ]);
+    } else {
+        $stmt = db()->prepare(
+            'UPDATE studios
+             SET name = ?, status = ?, owner_name = ?, owner_email = ?, owner_phone = ?, database_name = ?,
+                 database_host = ?, database_user = ?, plan_name = ?, ai_model = ?, business_rules = ?,
+                 whatsapp_session_key = IF(whatsapp_session_key IS NULL OR whatsapp_session_key = "", ?, whatsapp_session_key),
+                 updated_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            trim((string)($data['name'] ?? $studio['name'])),
+            trim((string)($data['status'] ?? $studio['status'])),
+            trim((string)($data['owner_name'] ?? '')),
+            strtolower(trim((string)($data['owner_email'] ?? ''))),
+            trim((string)($data['owner_phone'] ?? '')),
+            trim((string)($data['database_name'] ?? $studio['database_name'])),
+            trim((string)($data['database_host'] ?? 'localhost')),
+            trim((string)($data['database_user'] ?? 'root')),
+            $plan['plan_name'],
+            trim((string)($data['ai_model'] ?? 'llama3:8b')),
+            trim((string)($data['business_rules'] ?? '')),
+            $sessionKey,
+            (int)$studio['id'],
+        ]);
+    }
 
     studio_event((int)$studio['id'], 'studio_updated', 'Dados do estudio atualizados.');
 }
