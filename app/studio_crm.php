@@ -1006,6 +1006,37 @@ function studio_upcoming_appointments(array $studio, int $limit = 8): array
     return $stmt->fetchAll() ?: [];
 }
 
+function studio_find_appointment(array $studio, int $id): ?array
+{
+    if ($id <= 0) {
+        return null;
+    }
+
+    $stmt = studio_db($studio)->prepare(
+        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+         FROM appointments a
+         LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
+         LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+         WHERE a.id = ? LIMIT 1"
+    );
+    $stmt->execute([$id]);
+    $appointment = $stmt->fetch();
+
+    return is_array($appointment) ? $appointment : null;
+}
+
+function studio_delete_appointment(array $studio, int $id): void
+{
+    if ($id <= 0) {
+        return;
+    }
+
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('DELETE FROM appointments WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+}
+
 function studio_list_customers(array $studio, int $limit = 180): array
 {
     $stmt = studio_db($studio)->prepare('SELECT * FROM customers ORDER BY updated_at DESC, id DESC LIMIT ?');

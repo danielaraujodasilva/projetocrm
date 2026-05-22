@@ -194,6 +194,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'delete_appointment') {
+            $studio = require_studio();
+            $appointmentId = (int)($_POST['appointment_id'] ?? 0);
+            studio_delete_appointment($studio, $appointmentId);
+            flash_set('success', 'Agendamento excluido.');
+            $redirectDate = trim((string)($_POST['appointment_date'] ?? ''));
+            if ($redirectDate !== '') {
+                redirect_to('studio_agenda', ['date' => $redirectDate]);
+            }
+            redirect_to('studio_agenda');
+        }
+
         if ($action === 'import_calendar_ics') {
             $studio = require_studio();
             if (empty($_FILES['ics_file']['tmp_name'])) {
@@ -884,6 +896,8 @@ if ($page === 'studio_agenda') {
         $focus = parse_calendar_date((string)($_GET['date'] ?? date('Y-m-d')));
         [$startDate, $endDate] = calendar_range_for($view, $focus);
         $calendarAppointments = studio_calendar_appointments($studio, $startDate, $endDate);
+        $selectedAppointmentId = (int)($_GET['appointment_id'] ?? 0);
+        $selectedAppointment = $selectedAppointmentId > 0 ? studio_find_appointment($studio, $selectedAppointmentId) : null;
 
         echo '<section class="panel"><div class="actions calendar-toolbar">';
         echo '<h2>Calendario</h2>';
@@ -914,12 +928,41 @@ if ($page === 'studio_agenda') {
         }
         echo '</section>';
 
-        echo '<section class="grid cols-2">';
+        if ($selectedAppointment) {
+            $selectedDate = (string)($selectedAppointment['appointment_date'] ?? date('Y-m-d'));
+            echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Detalhes do agendamento</h2><p class="muted">Clique num item da agenda para revisar, editar ou excluir sem perder o contexto.</p></div><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '">Limpar selecao</a></div>';
+            echo '<div class="grid cols-2">';
+            echo '<div class="panel soft"><p class="muted">Quando</p><h3 style="margin-top:0">' . h(date('d/m/Y', strtotime($selectedDate)) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted">' . h($selectedAppointment['status']) . '</p></div>';
+            echo '<div class="panel soft"><p class="muted">Cliente / Lead</p><h3 style="margin-top:0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
+            echo '<div class="panel soft"><p class="muted">Valor</p><h3 style="margin-top:0">' . h(format_money($selectedAppointment['value'] ?? 0)) . '</h3><p class="muted">Sinal ' . h(format_money($selectedAppointment['deposit_value'] ?? 0)) . '</p></div>';
+            echo '<div class="panel soft"><p class="muted">Pomadas</p><h3 style="margin-top:0">' . h((string)($selectedAppointment['pomadas_quantity'] ?? 0)) . '</h3><p class="muted">Quantidade vinculada ao agendamento</p></div>';
+            echo '</div>';
+            if (!empty($selectedAppointment['description'])) {
+                echo '<div class="field"><label>Descricao</label><div class="info-box">' . h($selectedAppointment['description']) . '</div></div>';
+            }
+            if (!empty($selectedAppointment['reference_image_path'])) {
+                $refUrl = app_url((string)$selectedAppointment['reference_image_path']);
+                echo '<div class="field"><label>Referencia</label><a class="btn secondary" href="' . h($refUrl) . '" target="_blank" rel="noopener">Abrir imagem de referencia</a></div>';
+            }
+            echo '<div class="actions" style="margin-top:14px">';
+            echo '<a class="btn" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '&appointment_id=' . h((string)(int)$selectedAppointment['id']) . '#appointment-form">Editar este agendamento</a>';
+            echo '<form method="post" onsubmit="return confirm(\'Excluir este agendamento?\')" class="inline-form">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="delete_appointment">';
+            echo '<input type="hidden" name="appointment_id" value="' . h((string)(int)$selectedAppointment['id']) . '">';
+            echo '<input type="hidden" name="appointment_date" value="' . h($selectedDate) . '">';
+            echo '<button class="btn secondary" type="submit">Excluir</button>';
+            echo '</form>';
+            echo '</div></section>';
+        }
+
+        echo '<section class="grid cols-2" id="appointment-form">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment">';
-        echo '<h2>Novo horario</h2>';
-        echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
+        echo '<input type="hidden" name="id" value="' . h((string)($selectedAppointment['id'] ?? 0)) . '">';
+        echo '<h2>' . h($selectedAppointment ? 'Editar horario' : 'Novo horario') . '</h2>';
+        echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($selectedAppointment['title'] ?? 'Atendimento') . '"></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Cliente</label><select name="customer_id"><option value="">Sem cliente</option>';
         render_customer_options($customers);
         echo '</select></div><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
@@ -927,12 +970,13 @@ if ($page === 'studio_agenda') {
         echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
         render_artist_options($artists);
         echo '</select></div></div>';
-        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h($selectedAppointment['appointment_date'] ?? date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="' . h(substr((string)($selectedAppointment['start_time'] ?? '10:00'), 0, 5)) . '"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly value="' . h(substr((string)($selectedAppointment['end_time'] ?? ''), 0, 5)) . '"></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
-        render_options(appointment_status_options(), 'pre_agendado');
-        echo '</select></div><div class="field"><label>Valor</label><input name="value" placeholder="600,00"></div><div class="field"><label>Sinal</label><input name="deposit_value" placeholder="100,00"></div></div>';
-        echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento, local do corpo, referencia, observacoes..."></textarea></div>';
-        echo '<button class="btn" type="submit">Salvar horario</button>';
+        render_options(appointment_status_options(), (string)($selectedAppointment['status'] ?? 'pre_agendado'));
+        echo '</select></div><div class="field"><label>Valor</label><input name="value" placeholder="600,00" value="' . h((string)($selectedAppointment['value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value" placeholder="100,00" value="' . h((string)($selectedAppointment['deposit_value'] ?? '')) . '"></div></div>';
+        echo '<div class="field"><label>Quantidade de pomadas</label><input type="number" min="0" step="1" name="pomadas_quantity" value="' . h((string)($selectedAppointment['pomadas_quantity'] ?? 0)) . '"></div>';
+        echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento, local do corpo, referencia, observacoes...">' . h($selectedAppointment['description'] ?? '') . '</textarea></div>';
+        echo '<button class="btn" type="submit">' . h($selectedAppointment ? 'Salvar alteracoes' : 'Salvar horario') . '</button>';
         echo '</form>';
         echo '<div class="panel"><h2>Tatuadores</h2>';
         render_artists_table($artists);
@@ -2008,18 +2052,20 @@ function render_calendar_event(array $appointment): void
 {
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
-    echo '<div class="calendar-event" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '</div>';
+    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+    echo '<a class="calendar-event" href="' . h($href) . '" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '</a>';
 }
 
 function render_calendar_block(array $appointment): void
 {
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
-    echo '<div class="appointment-block" style="border-left-color:' . h($color) . '">';
+    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+    echo '<a class="appointment-block" href="' . h($href) . '" style="border-left-color:' . h($color) . '">';
     echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5)) . '</strong>';
     echo '<span>' . h($name) . ' - ' . h($appointment['title']) . '</span>';
     echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . $appointment['status'] . ' | ' . format_money($appointment['value'] ?? 0)) . '</span>';
-    echo '</div>';
+    echo '</a>';
 }
 
 function render_customers_table(array $customers): void
@@ -2157,12 +2203,13 @@ function render_appointments_table(array $appointments): void
     echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Tatuador</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
     foreach ($appointments as $appointment) {
         $date = date('d/m/Y', strtotime((string)$appointment['appointment_date']));
+        $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
         echo '<tr>';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
         echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
         echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '<br><span class="muted">Sinal ' . h(format_money($appointment['deposit_value'] ?? 0)) . '</span></td>';
-        echo '<td><span class="badge">' . h($appointment['status']) . '</span></td>';
+        echo '<td><span class="badge">' . h($appointment['status']) . '</span><br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
