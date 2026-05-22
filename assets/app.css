@@ -1098,6 +1098,32 @@ textarea {
     padding: 12px;
 }
 
+.pipeline-column-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin: 10px 0 8px;
+}
+
+.pipeline-column-summary span {
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid var(--line);
+}
+
+.pipeline-column-summary strong {
+    font-size: 16px;
+    line-height: 1.1;
+}
+
+.pipeline-column-summary small {
+    color: var(--muted);
+    font-weight: 700;
+}
+
 .pipeline-column-head,
 .lead-card-meta,
 .lead-card-actions {
@@ -1118,10 +1144,56 @@ textarea {
     background: #fff;
 }
 
+.lead-card.stale {
+    border-color: #f0b35b;
+    box-shadow: 0 0 0 1px rgba(240, 179, 91, .18), 0 8px 18px rgba(0, 0, 0, .04);
+}
+
 .lead-card-title {
     color: var(--text);
     font-weight: 900;
     text-decoration: none;
+}
+
+.lead-card-interest {
+    margin: 0;
+    color: var(--text);
+    line-height: 1.45;
+}
+
+.lead-card-meta {
+    align-items: stretch;
+}
+
+.lead-card-meta span {
+    display: grid;
+    gap: 2px;
+    flex: 1 1 120px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+}
+
+.lead-card-meta small {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.lead-card-meta strong {
+    font-size: 16px;
+    line-height: 1.1;
+}
+
+.lead-card-submeta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.lead-card-actions-quick {
+    margin-top: 2px;
 }
 
 .activity-card {

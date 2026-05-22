@@ -873,7 +873,7 @@ if ($page === 'studio_lead') {
         echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
         echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa</small></span></div>';
         echo '</div>';
-        echo '<form class="form panel" method="post">';
+        echo '<form class="form panel" method="post" id="lead-appointment-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Mover no funil</h2><span class="badge">Fluxo</span></div>';
@@ -887,7 +887,7 @@ if ($page === 'studio_lead') {
         echo '</form></section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<form class="form panel" method="post">';
+        echo '<form class="form panel" method="post" id="lead-appointment-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Editar lead</h2><span class="badge">Dados</span></div>';
@@ -2444,10 +2444,15 @@ function render_pipeline_board(array $board, array $stages): void
     foreach ($board as $stageName => $column) {
         $stage = $column['stage'];
         $leads = $column['leads'];
+        $stageCount = count($leads);
+        $stageTotalValue = (float)($column['total_value'] ?? 0);
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($stage['color'] ?? '')) ? $stage['color'] : '#667085';
         echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '">';
-        echo '<div class="pipeline-column-head"><strong>' . h($stageName) . '</strong><span class="badge">' . h((string)count($leads)) . '</span></div>';
-        echo '<p class="muted">' . h(format_money($column['total_value'] ?? 0)) . '</p>';
+        echo '<div class="pipeline-column-head">';
+        echo '<div><strong>' . h($stageName) . '</strong><span class="muted">Etapa do funil</span></div>';
+        echo '<span class="badge">' . h((string)$stageCount) . '</span>';
+        echo '</div>';
+        echo '<div class="pipeline-column-summary"><span><strong>' . h((string)$stageCount) . '</strong><small>Leads</small></span><span><strong>' . h(format_money($stageTotalValue)) . '</strong><small>Valor total</small></span></div>';
         if (!$leads) {
             echo '<p class="muted">Sem leads nesta etapa.</p>';
         }
@@ -2466,12 +2471,40 @@ function render_pipeline_card(array $lead, array $stageNames): void
     $prevStage = $currentIndex !== false && $currentIndex > 0 ? $stageNames[$currentIndex - 1] : '';
     $nextStage = $currentIndex !== false && $currentIndex < count($stageNames) - 1 ? $stageNames[$currentIndex + 1] : '';
     $leadId = (int)$lead['id'];
+    $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
+    $isStale = false;
+    if ($updatedAt !== '') {
+        try {
+            $staleThreshold = new DateTimeImmutable('-24 hours', new DateTimeZone('America/Sao_Paulo'));
+            $updatedMoment = new DateTimeImmutable($updatedAt, new DateTimeZone('America/Sao_Paulo'));
+            $isStale = $updatedMoment < $staleThreshold;
+        } catch (Throwable) {
+            $isStale = false;
+        }
+    }
+    $phone = normalize_phone((string)($lead['phone'] ?? ''));
+    $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
+    $createdOrUpdated = $updatedAt !== '' ? (function_exists('studio_relative_time_label') ? studio_relative_time_label($updatedAt) : $updatedAt) : '-';
 
-    echo '<article class="lead-card">';
+    echo '<article class="lead-card' . ($isStale ? ' stale' : '') . '">';
     echo '<a class="lead-card-title" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">' . h($lead['name'] ?: 'Lead sem nome') . '</a>';
-    echo '<p class="muted">' . h($lead['phone'] ?: ($lead['interest'] ?: 'Sem telefone')) . '</p>';
-    echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
-    echo '<div class="lead-card-meta"><span>' . h(format_money($lead['estimated_value'] ?? 0)) . '</span><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
+    echo '<p class="muted">' . h($lead['phone'] ?: 'Sem telefone') . '</p>';
+    echo '<p class="lead-card-interest">' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
+    echo '<div class="lead-card-meta"><span><small>Valor estimado</small><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong></span><span><small>Nota</small><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></span></div>';
+    echo '<div class="lead-card-submeta">';
+    echo '<span class="badge">' . h($lead['source'] ?: 'Sem origem') . '</span>';
+    echo '<span class="muted">' . h($createdOrUpdated !== '' ? 'Atualizado ' . $createdOrUpdated : '-') . '</span>';
+    if ($isStale) {
+        echo '<span class="badge warn">parado há mais de 24h</span>';
+    }
+    echo '</div>';
+    echo '<div class="lead-card-actions lead-card-actions-quick">';
+    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">Ver</a>';
+    if ($phoneLink !== '') {
+        echo '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>';
+    }
+    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '#lead-appointment-form">Agendar</a>';
+    echo '</div>';
     echo '<div class="lead-card-actions">';
     foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
         if ($move['stage'] === '') {
