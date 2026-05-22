@@ -2039,6 +2039,10 @@ if ($page === 'studio_data_assistant') {
         if (!$result) {
             echo '<p class="muted">Faca uma pergunta ou use uma sugestao para gerar uma leitura do negocio.</p>';
         } else {
+            if (!empty($result['source'])) {
+                $sourceLabel = $result['source'] === 'ai' ? 'Resposta por IA' : 'Leitura direta dos dados';
+                echo '<p class="muted" style="margin:0 0 8px">' . h($sourceLabel) . '</p>';
+            }
             echo '<pre class="answer-box">' . h($result['answer']) . '</pre>';
         }
         echo '</section>';

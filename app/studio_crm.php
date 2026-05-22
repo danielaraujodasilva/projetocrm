@@ -2625,7 +2625,7 @@ TXT;
     ];
 }
 
-function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1'): array
+function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1', ?int $timeoutSeconds = null): array
 {
     if ($apiKey === '') {
         return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
@@ -2670,7 +2670,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
             'Authorization: Bearer ' . $apiKey,
         ],
         CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        CURLOPT_TIMEOUT => $isOllama ? 180 : 60,
+        CURLOPT_TIMEOUT => $timeoutSeconds ?? ($isOllama ? 180 : 60),
     ]);
     $raw = curl_exec($ch);
     $errno = curl_errno($ch);
@@ -3014,11 +3014,166 @@ function studio_data_assistant_answer(array $studio, string $question): array
     }
 
     $context = studio_data_assistant_context($studio);
+    $pdo = studio_db($studio);
+    $config = studio_openai_config($studio);
+    $tz = new DateTimeZone('America/Sao_Paulo');
     $lower = function_exists('mb_strtolower') ? mb_strtolower($question, 'UTF-8') : strtolower($question);
+    $isAgendaQuestion = str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'calendario');
+    $isFinanceQuestion = str_contains($lower, 'finance') || str_contains($lower, 'fatur') || str_contains($lower, 'despesa') || str_contains($lower, 'resultado');
+    $isWhatsappQuestion = str_contains($lower, 'whatsapp') || str_contains($lower, 'conversa') || str_contains($lower, 'atencao') || str_contains($lower, 'humano');
+
+    $summarizeAppointment = static function (array $appointment): array {
+        return [
+            'data' => (string)($appointment['appointment_date'] ?? ''),
+            'hora_inicio' => substr((string)($appointment['start_time'] ?? ''), 0, 5),
+            'hora_fim' => substr((string)($appointment['end_time'] ?? ''), 0, 5),
+            'cliente' => (string)(($appointment['customer_name'] ?? '') ?: ($appointment['lead_name'] ?? '') ?: ($appointment['title'] ?? '')),
+            'tatuador' => (string)(($appointment['artist_name'] ?? '') ?: 'tatuador nao definido'),
+            'status' => (string)($appointment['status'] ?? ''),
+            'valor' => (float)($appointment['value'] ?? 0),
+            'sinal' => (float)($appointment['deposit_value'] ?? 0),
+        ];
+    };
+    $summarizeLead = static function (array $lead): array {
+        return [
+            'nome' => (string)(($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')),
+            'telefone' => (string)($lead['phone'] ?? ''),
+            'interesse' => (string)($lead['interest'] ?? ''),
+            'status' => (string)($lead['status'] ?? ''),
+            'etapa' => (string)($lead['pipeline_stage'] ?? ''),
+            'nota' => (int)($lead['lead_score'] ?? 0),
+            'valor_estimado' => (float)($lead['estimated_value'] ?? 0),
+            'origem' => (string)($lead['source'] ?? ''),
+        ];
+    };
+    $summarizeConversation = static function (array $conversation): array {
+        return [
+            'nome' => (string)(($conversation['customer_name'] ?? '') ?: ($conversation['lead_name'] ?? '') ?: ($conversation['name'] ?? '') ?: ($conversation['phone'] ?? '')),
+            'telefone' => (string)($conversation['phone'] ?? ''),
+            'modo' => (string)($conversation['attendance_mode'] ?? 'human'),
+            'pediu_humano' => !empty($conversation['needs_human']),
+            'vinculo' => !empty($conversation['customer_id']) || !empty($conversation['lead_id']),
+            'nota' => (int)($conversation['lead_score'] ?? 0),
+            'ultima_mensagem' => (string)($conversation['last_message_preview'] ?? ''),
+        ];
+    };
+
+    $dateContext = studio_whatsapp_extract_date_context($question, $studio);
+    $dateFocus = null;
+    if (is_array($dateContext) && !empty($dateContext['date'])) {
+        $stmt = $pdo->prepare(
+            "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, l.name AS lead_name, ta.name AS artist_name
+             FROM appointments a
+             LEFT JOIN customers c ON c.id = a.customer_id
+             LEFT JOIN leads l ON l.id = a.lead_id
+             LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+             WHERE a.appointment_date = ?
+               AND a.status NOT IN ('cancelado')
+             ORDER BY a.start_time ASC, a.id ASC"
+        );
+        $stmt->execute([(string)$dateContext['date']]);
+        $dayAppointments = array_map($summarizeAppointment, $stmt->fetchAll() ?: []);
+        $dateFocus = [
+            'data' => (string)$dateContext['date'],
+            'rotulo' => (string)($dateContext['label'] ?? ''),
+            'permitido' => !empty($dateContext['allowed']),
+            'vagas_livres_exatas' => array_values(array_map('strval', $dateContext['free_slots'] ?? [])),
+            'horarios_ocupados' => array_values(array_map(static fn(array $item): string => trim((string)($item['time'] ?? '')) . ((string)($item['customer_name'] ?? '') !== '' ? ' · ' . (string)$item['customer_name'] : ''), $dateContext['booked'] ?? [])),
+            'agendamentos_do_dia' => $dayAppointments,
+        ];
+    }
+
+    $availability = studio_schedule_available_slots($studio, 14);
+    $availabilityPreview = array_slice(array_map(static function (array $day): array {
+        return [
+            'data' => (string)($day['date'] ?? ''),
+            'rotulo' => (string)($day['label'] ?? ''),
+            'permitido' => !empty($day['allowed']),
+            'vagas_livres' => array_slice(array_values(array_map('strval', $day['free_slots'] ?? [])), 0, 4),
+            'horarios_ocupados' => array_slice(array_values(array_map(static fn(array $item): string => trim((string)($item['time'] ?? '')) . ((string)($item['customer_name'] ?? '') !== '' ? ' · ' . (string)$item['customer_name'] : ''), $day['booked'] ?? [])), 0, 4),
+        ];
+    }, $availability), 0, 7);
+
+    $assistantContext = [
+        'pergunta' => $question,
+        'intencao' => $isAgendaQuestion ? 'agenda' : ($isFinanceQuestion ? 'financeiro' : ($isWhatsappQuestion ? 'whatsapp' : 'geral')),
+        'estudio' => [
+            'nome' => (string)($studio['name'] ?? 'Estudio'),
+            'regras' => trim((string)($context['settings']['business_rules'] ?? '')),
+            'dias_agenda' => trim((string)($context['settings']['appointment_work_days'] ?? '1,2,3,4,5')),
+            'horarios_agenda' => trim((string)($context['settings']['appointment_time_slots'] ?? '10:00,15:00')),
+            'duracao_atendimento_minutos' => (int)($context['settings']['appointment_duration_minutes'] ?? 300),
+        ],
+        'resumo' => $context['stats'],
+    ];
+    if ($isAgendaQuestion || (!$isFinanceQuestion && !$isWhatsappQuestion)) {
+        $assistantContext['agenda'] = [
+            'proximos_agendamentos' => array_slice(array_map($summarizeAppointment, $context['upcoming_appointments'] ?: []), 0, 5),
+            'agenda_por_tatuador' => array_map(static fn(array $row): array => [
+                'tatuador' => (string)($row['artist'] ?? ''),
+                'quantidade' => (int)($row['qtd'] ?? 0),
+                'valor_total' => (float)($row['total'] ?? 0),
+            ], array_slice($context['appointments_by_artist'] ?: [], 0, 5)),
+            'visao_proximos_dias' => array_slice($availabilityPreview, 0, 5),
+        ];
+        if ($dateFocus) {
+            $assistantContext['agenda']['recorte_data_citada'] = $dateFocus;
+        }
+    }
+    if ($isWhatsappQuestion || (!$isAgendaQuestion && !$isFinanceQuestion)) {
+        $assistantContext['whatsapp'] = [
+            'resumo' => $context['whatsapp'],
+            'conversas' => array_slice(array_map($summarizeConversation, $context['whatsapp_conversations'] ?: []), 0, 5),
+        ];
+    }
+    if ($isFinanceQuestion || (!$isAgendaQuestion && !$isWhatsappQuestion)) {
+        $assistantContext['financeiro'] = [
+            'agenda_mes' => (float)($context['finance']['appointments_month'] ?? 0),
+            'despesas_mes' => (float)($context['finance']['expenses_month'] ?? 0),
+            'resultado_mes' => (float)($context['finance']['balance_month'] ?? 0),
+            'por_categoria' => array_map(static fn(array $row): array => [
+                'categoria' => (string)($row['category'] ?? 'Geral'),
+                'quantidade' => (int)($row['qtd'] ?? 0),
+                'total' => (float)($row['total'] ?? 0),
+            ], array_slice($context['finance']['by_category'] ?: [], 0, 5)),
+        ];
+    }
+    if (!$isAgendaQuestion && !$isFinanceQuestion && !$isWhatsappQuestion) {
+        $assistantContext['leads'] = [
+            'prioritarios' => array_slice(array_map($summarizeLead, $context['hot_leads'] ?: []), 0, 5),
+        ];
+    }
+
+    $assistantContextJson = json_encode($assistantContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $assistantContextJson = is_string($assistantContextJson) ? $assistantContextJson : '{}';
+
+    $configPrompt = trim((string)($context['settings']['business_rules'] ?? ''));
+    $systemPrompt = "Você é o assistente interno de dados do CRM de um estúdio de tatuagem no Brasil.\n"
+        . "Responda apenas com base no contexto fornecido no JSON.\n"
+        . "Se a pergunta for sobre agenda ou disponibilidade, use o recorte de data e os agendamentos listados, sem inventar horário.\n"
+        . "Se a data citada estiver lotada, diga isso de forma curta e aponte o próximo horário livre real, se houver.\n"
+        . "Se faltar dado, diga que não há informação suficiente.\n"
+        . "Nunca exponha dados de outros clientes além do recorte fornecido.\n"
+        . "Responda em português do Brasil, com tom humano, direto e útil, sem dizer que você é IA.\n"
+        . ($configPrompt !== '' ? "\nRegras adicionais do estúdio:\n" . $configPrompt . "\n" : '')
+        . "\nFormato esperado: uma resposta curta, clara e prática.";
+
+    if ($config['api_key'] !== '') {
+        $aiResult = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $assistantContextJson, $config['base_url'], 60);
+        if (!empty($aiResult['ok']) && trim((string)($aiResult['reply_text'] ?? '')) !== '') {
+            return [
+                'question' => $question,
+                'answer' => trim((string)$aiResult['reply_text']),
+                'context' => $context,
+                'generated_at' => date('Y-m-d H:i:s'),
+                'source' => 'ai',
+            ];
+        }
+    }
+
     $lines = [];
     $lines[] = 'Com base nos dados atuais do estudio:';
-
-    if (str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'calendario')) {
+    if ($isAgendaQuestion) {
         $appointments = $context['upcoming_appointments'];
         $lines[] = '- Existem ' . count($appointments) . ' proximos agendamentos no recorte rapido.';
         foreach (array_slice($appointments, 0, 6) as $appointment) {
@@ -3030,7 +3185,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
                 $lines[] = '- ' . $row['artist'] . ': ' . (int)$row['qtd'] . ' agendamentos, ' . format_money($row['total'] ?? 0) . '.';
             }
         }
-    } elseif (str_contains($lower, 'finance') || str_contains($lower, 'fatur') || str_contains($lower, 'despesa') || str_contains($lower, 'resultado')) {
+    } elseif ($isFinanceQuestion) {
         $finance = $context['finance'];
         $lines[] = '- Agenda do mes: ' . format_money($finance['appointments_month']);
         $lines[] = '- Despesas do mes: ' . format_money($finance['expenses_month']);
@@ -3038,7 +3193,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
         foreach (array_slice($finance['by_category'], 0, 6) as $row) {
             $lines[] = '- Despesa em ' . (($row['category'] ?? '') ?: 'Geral') . ': ' . format_money($row['total'] ?? 0) . '.';
         }
-    } elseif (str_contains($lower, 'whatsapp') || str_contains($lower, 'conversa') || str_contains($lower, 'atencao') || str_contains($lower, 'humano')) {
+    } elseif ($isWhatsappQuestion) {
         $wa = $context['whatsapp'];
         $lines[] = '- WhatsApp tem ' . $wa['total'] . ' conversas, ' . $wa['bot'] . ' em IA e ' . $wa['human'] . ' em humano.';
         $lines[] = '- ' . $wa['needs_human'] . ' conversas estao marcadas como pedindo humano.';
@@ -3068,6 +3223,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
         'answer' => implode("\n", $lines),
         'context' => $context,
         'generated_at' => date('Y-m-d H:i:s'),
+        'source' => 'fallback',
     ];
 }
 
