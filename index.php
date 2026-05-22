@@ -1853,9 +1853,12 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Usada para a IA responder no WhatsApp.</small></div>';
-        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'gpt-4o-mini') . '" placeholder="gpt-4o-mini"><small class="muted">Ex: gpt-4o-mini, gpt-4.1-mini, gpt-4.1</small></div>';
+        echo '<div class="field"><label>Fornecedor da IA</label><select name="ai_provider"><option value="ollama"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'ollama' ? ' selected' : '') . '>Ollama local</option><option value="openai"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'openai' ? ' selected' : '') . '>OpenAI</option></select><small class="muted">O padrão agora é local, sem depender da nuvem.</small></div>';
+        echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($settings['ai_api_base_url'] ?? 'http://localhost:11434/v1') . '" placeholder="http://localhost:11434/v1"><small class="muted">Use a URL do servidor local ou da API escolhida.</small></div>';
         echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha só se usar OpenAI.</small></div>';
+        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
         echo '<div class="settings-switch-grid">';
         echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label>';
         echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label>';

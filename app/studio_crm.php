@@ -2311,9 +2311,23 @@ function studio_send_whatsapp_message(array $studio, array $data): array
 function studio_openai_config(array $studio): array
 {
     $settings = studio_settings($studio);
+    $provider = trim((string)($settings['ai_provider'] ?? 'ollama'));
+    if ($provider !== 'openai' && $provider !== 'ollama') {
+        $provider = 'ollama';
+    }
     $apiKey = trim((string)($settings['openai_api_key'] ?? getenv('OPENAI_API_KEY') ?: ''));
-    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'gpt-4o-mini'));
-    $model = $model !== '' ? $model : 'gpt-4o-mini';
+    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'qwen3:4b'));
+    $model = $model !== '' ? $model : 'qwen3:4b';
+    $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
+    if ($provider === 'ollama') {
+        $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'http://localhost:11434/v1';
+        if ($apiKey === '') {
+            $apiKey = 'ollama';
+        }
+    }
+    if ($provider === 'openai') {
+        $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'https://api.openai.com/v1';
+    }
     $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
     if ($systemPrompt === '') {
         $systemPrompt = <<<TXT
@@ -2328,13 +2342,15 @@ TXT;
     }
 
     return [
+        'provider' => $provider,
         'api_key' => $apiKey,
         'model' => $model,
+        'base_url' => $baseUrl,
         'system_prompt' => $systemPrompt,
     ];
 }
 
-function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt): array
+function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1'): array
 {
     if ($apiKey === '') {
         return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
@@ -2368,7 +2384,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         ],
     ];
 
-    $ch = curl_init('https://api.openai.com/v1/chat/completions');
+    $ch = curl_init(rtrim($baseUrl, '/') . '/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
@@ -2470,7 +2486,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Historico recente:\n- " . implode("\n- ", $historyLines) . "\n\n"
         . "Responda com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
-    $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt);
+    $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
     if (empty($result['ok'])) {
         return $result;
     }
@@ -3207,6 +3223,11 @@ function studio_save_settings(array $studio, array $data): void
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
     $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
     $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
+    $aiProvider = (string)($data['ai_provider'] ?? 'ollama');
+    if (!in_array($aiProvider, ['openai', 'ollama'], true)) {
+        $aiProvider = 'ollama';
+    }
+    $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
@@ -3236,6 +3257,8 @@ function studio_save_settings(array $studio, array $data): void
         'openai_api_key' => 'TEXT NULL',
         'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
         'ai_whatsapp_prompt' => 'TEXT NULL',
+        'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "ollama"',
+        'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -3246,7 +3269,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -3264,6 +3287,8 @@ function studio_save_settings(array $studio, array $data): void
         $openAiKey,
         $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
         $aiWhatsAppPrompt,
+        $aiProvider,
+        $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
