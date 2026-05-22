@@ -4,6 +4,56 @@ declare(strict_types=1);
 
 require __DIR__ . '/app/bootstrap.php';
 
+$__app_build_cache = null;
+function app_build_version(): string
+{
+    static $version = null;
+    if ($version !== null) {
+        return $version;
+    }
+    $root = __DIR__;
+    $gitDir = $root . DIRECTORY_SEPARATOR . '.git';
+    if (!is_dir($gitDir)) {
+        $version = 'dev';
+        return $version;
+    }
+    $head = @file_get_contents($gitDir . DIRECTORY_SEPARATOR . 'HEAD');
+    if ($head === false) {
+        $version = 'dev';
+        return $version;
+    }
+    $head = trim($head);
+    if (str_starts_with($head, 'ref: ')) {
+        $ref = trim(substr($head, 5));
+        $refFile = $gitDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $ref);
+        if (is_file($refFile)) {
+            $hash = trim((string)@file_get_contents($refFile));
+            if ($hash !== '') {
+                $version = substr($hash, 0, 7);
+                return $version;
+            }
+        }
+        $packed = $gitDir . DIRECTORY_SEPARATOR . 'packed-refs';
+        if (is_file($packed)) {
+            foreach (file($packed, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+                if ($line[0] === '#' || $line[0] === '^') {
+                    continue;
+                }
+                [$hash, $path] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
+                if ($path === $ref && is_string($hash) && $hash !== '') {
+                    $version = substr($hash, 0, 7);
+                    return $version;
+                }
+            }
+        }
+    } elseif ($head !== '') {
+        $version = substr($head, 0, 7);
+        return $version;
+    }
+    $version = 'dev';
+    return $version;
+}
+
 $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
@@ -362,6 +412,7 @@ function render_head(string $title): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="assets/app.css"></head><body>';
+    echo '<div class="app-build-badge" title="Versao da interface">v' . h(app_build_version()) . '</div>';
 }
 
 function render_flash(?array $flash): void
