@@ -1034,30 +1034,32 @@ if ($page === 'studio_whatsapp') {
             'min_score' => (int)($_GET['min_score'] ?? 0),
         ];
         $conversations = studio_list_whatsapp_conversations($studio, $filters);
-        echo '<section class="grid cols-3">';
-        echo '<div class="panel"><p class="metric">' . h($summary['total']) . '</p><p class="muted">Conversas</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($summary['bot']) . '</p><p class="muted">Em modo IA</p></div>';
-        echo '<div class="panel"><p class="metric">' . h($summary['needs_human']) . '</p><p class="muted">Pedindo humano</p></div>';
+        $serviceState = (string)($serviceStatus['status'] ?? 'offline');
+        $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
+        $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
+        echo '<section class="quick-actions-grid whatsapp-quick-links">';
+        echo '<a class="panel quick-action-card" href="' . h($firstConversationHref) . '"><strong>' . h($summary['total']) . '</strong><span>Conversas</span><small>Abrir a primeira conversa ativa</small></a>';
+        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['mode' => 'bot'])) . '"><strong>' . h($summary['bot']) . '</strong><span>Em modo IA</span><small>Ver conversas automáticas</small></a>';
+        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['needs_human' => 1])) . '"><strong>' . h($summary['needs_human']) . '</strong><span>Pedindo humano</span><small>Atendimentos que pedem atenção</small></a>';
+        echo '<a class="panel quick-action-card" href="#wa-session-panel"><strong>' . h($serviceStateLabel) . '</strong><span>Sessao WhatsApp</span><small>Ver conexão e pareamento</small></a>';
         echo '</section>';
-        echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
-        $status = (string)($serviceStatus['status'] ?? 'offline');
-        $statusLabel = $status === 'connected' ? 'Conectado' : ($status === 'waiting_qr' ? 'Aguardando codigo' : ($status === 'starting' ? 'Iniciando' : 'Nao conectado'));
-        $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
-        echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($statusLabel) . '</span></div>';
+        echo '<section class="grid cols-2 whatsapp-overview" style="margin-top:16px">';
+        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
+        $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
+        echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
         $sessionSummary = 'Nao conectado';
         $connectedPhone = preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''));
         if ($connectedPhone !== '') {
             $sessionSummary = 'Conectado no numero ' . $connectedPhone;
         } elseif (!empty($serviceStatus['pairingCode'])) {
             $sessionSummary = 'Codigo pronto para parear';
-        } elseif ($status === 'waiting_qr') {
+        } elseif ($serviceState === 'waiting_qr') {
             $sessionSummary = 'Aguardando o codigo de pareamento';
-        } elseif ($status === 'starting') {
+        } elseif ($serviceState === 'starting') {
             $sessionSummary = 'Solicitando o codigo de pareamento';
-        } elseif ($status === 'disconnected') {
+        } elseif ($serviceState === 'disconnected') {
             $sessionSummary = 'Sessao desconectada';
-        } elseif ($status === 'error') {
+        } elseif ($serviceState === 'error') {
             $sessionSummary = 'Nao foi possivel conectar';
         }
         echo '<div class="wa-session-summary"><strong>' . h($sessionSummary) . '</strong>';
@@ -1069,18 +1071,20 @@ if ($page === 'studio_whatsapp') {
             echo '<span class="muted">Clique em iniciar pareamento ou gerar codigo por telefone.</span>';
         }
         echo '</div>';
+        if (!empty($serviceStatus['pairingCode'])) {
+            echo '<div class="wa-pairing-code-inline">' . h((string)$serviceStatus['pairingCode']) . '</div>';
+        }
         echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
             echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
-            echo '<div class="wa-pairing-code">' . h((string)$serviceStatus['pairingCode']) . '</div>';
-            echo '<p class="muted">Codigo para parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . '.</p>';
+            echo '<p class="muted">Parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . ' agora.</p>';
         } elseif ($connectedPhone !== '') {
             echo '<p>Numero conectado: <strong>' . h($connectedPhone) . '</strong></p>';
-        } elseif ($status === 'starting') {
+        } elseif ($serviceState === 'starting') {
             echo '<p class="muted">Gerando codigo de pareamento. Se demorar mais de alguns segundos, clique em <strong>Gerar codigo</strong>.</p>';
-        } elseif ($status === 'waiting_qr') {
+        } elseif ($serviceState === 'waiting_qr') {
             echo '<p class="muted">Aguardando o retorno do servico para mostrar o codigo.</p>';
         } elseif (!empty($serviceStatus['lastError'])) {
             echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
@@ -1170,7 +1174,7 @@ if ($page === 'studio_whatsapp') {
 })();
 </script>';
         echo '</section>';
-        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<section class="grid cols-2 whatsapp-lower-panels" style="margin-top:16px">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message">';
@@ -1187,7 +1191,7 @@ if ($page === 'studio_whatsapp') {
         echo '</div>';
         echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
         echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<section class="panel whatsapp-list-panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_whatsapp">';
         echo '<input name="q" placeholder="Buscar contato, telefone ou mensagem..." value="' . h($filters['q']) . '">';
         echo '<select name="mode"><option value="">Todos os modos</option>';

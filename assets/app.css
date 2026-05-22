@@ -564,7 +564,8 @@ textarea {
 }
 
 .quick-action-card {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 4px;
     padding: 12px 14px;
     border: 1px solid var(--line);
@@ -604,6 +605,49 @@ textarea {
 
 .dashboard-stat .metric {
     font-size: 28px;
+}
+
+.whatsapp-quick-links .quick-action-card {
+    min-height: 118px;
+}
+
+.whatsapp-quick-links .quick-action-card strong {
+    font-size: 26px;
+    line-height: 1;
+}
+
+.whatsapp-quick-links .quick-action-card span {
+    font-weight: 800;
+}
+
+.whatsapp-overview {
+    align-items: start;
+}
+
+.wa-session-summary {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    margin-top: 10px;
+}
+
+.wa-pairing-code-inline {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: #fff;
+    font-size: 28px;
+    letter-spacing: 2px;
+    font-weight: 900;
+    text-align: center;
+}
+
+.whatsapp-lower-panels {
+    align-items: start;
 }
 
 .calendar-title {
@@ -1073,6 +1117,10 @@ textarea {
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }
 
+    .whatsapp-quick-links {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
     .settings-switch-grid {
         grid-template-columns: 1fr;
     }
@@ -1085,6 +1133,11 @@ textarea {
 
     .conversation-layout {
         gap: 10px;
+    }
+
+    .whatsapp-overview,
+    .whatsapp-lower-panels {
+        grid-template-columns: 1fr;
     }
 
     .conversation-main,
