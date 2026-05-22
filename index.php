@@ -512,15 +512,12 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Inicio</a>';
     echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
-    echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_leads')) . '">Leads</a>';
-    echo '<a class="' . ($active === 'customers' ? 'active' : '') . '" href="' . h(app_url('studio_customers')) . '">Clientes</a>';
     echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
     echo '<a class="' . ($active === 'whatsapp' ? 'active' : '') . '" href="' . h(app_url('studio_whatsapp')) . '">WhatsApp</a>';
     echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatorios</a>';
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
-    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
     echo '<main class="main">';
@@ -695,29 +692,7 @@ if ($page === 'studio_home') {
 }
 
 if ($page === 'studio_customers') {
-    $studio = require_studio();
-    render_studio_shell('Clientes', 'Fichas de clientes, historico e proximos passos.', 'customers', function () use ($studio) {
-        $dbStatus = studio_db_status_for($studio);
-        if (!$dbStatus['ok']) {
-            render_studio_db_missing($studio, $dbStatus['error']);
-            return;
-        }
-        $customers = studio_list_customers($studio);
-        echo '<section class="grid cols-2">';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_customer">';
-        echo '<div class="actions" style="justify-content:space-between"><h2>Novo cliente</h2><span class="badge">Cadastro rapido</span></div>';
-        echo '<div class="field"><label>Nome</label><input name="name" required></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Telefone</label><input name="phone"></div><div class="field"><label>Email</label><input type="text" inputmode="email" name="email"></div></div>';
-        echo '<div class="field"><label>Instagram</label><input name="instagram" placeholder="@cliente"></div>';
-        echo '<div class="field"><label>Observacoes</label><textarea name="notes" placeholder="Preferencias, historico, restricoes, ideias de tatuagem..."></textarea></div>';
-        echo '<button class="btn" type="submit">Salvar cliente</button>';
-        echo '</form>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Atualizar</a></div>';
-        render_customers_table($customers);
-        echo '</div></section>';
-    }, $flash);
+    redirect_to('studio_people', ['view' => 'customers']);
     exit;
 }
 
@@ -788,66 +763,7 @@ if ($page === 'studio_customer') {
 }
 
 if ($page === 'studio_leads') {
-    $studio = require_studio();
-    render_studio_shell('Leads', 'Funil comercial visual, prioridades e oportunidades do estudio.', 'leads', function () use ($studio) {
-        $dbStatus = studio_db_status_for($studio);
-        if (!$dbStatus['ok']) {
-            render_studio_db_missing($studio, $dbStatus['error']);
-            return;
-        }
-        $customers = studio_list_customers($studio);
-        $stages = studio_list_pipeline_stages($studio);
-        $filters = [
-            'q' => (string)($_GET['q'] ?? ''),
-            'status' => (string)($_GET['status'] ?? ''),
-            'source' => (string)($_GET['source'] ?? ''),
-            'min_score' => (int)($_GET['min_score'] ?? 0),
-        ];
-        $leads = studio_list_leads($studio, $filters);
-        $board = studio_pipeline_board($studio, $filters);
-        echo '<section class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Funil visual</h2><p class="muted">Acompanhe as oportunidades por etapa e mova o lead conforme a conversa evolui.</p></div><span class="badge">' . h((string)count($leads)) . ' leads</span></div>';
-        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_leads">';
-        echo '<input name="q" placeholder="Buscar nome, telefone, interesse..." value="' . h($filters['q']) . '">';
-        echo '<select name="status"><option value="">Todos os status</option>';
-        render_options(lead_status_options(), $filters['status']);
-        echo '</select>';
-        echo '<input name="source" placeholder="Origem" value="' . h($filters['source']) . '">';
-        echo '<select name="min_score"><option value="0">Qualquer nota</option>';
-        foreach ([5, 7, 9] as $score) {
-            echo '<option value="' . h((string)$score) . '" ' . ((int)$filters['min_score'] === $score ? 'selected' : '') . '>Nota ' . h((string)$score) . '+</option>';
-        }
-        echo '</select><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Limpar</a></form>';
-        render_pipeline_board($board, $stages);
-        echo '</section>';
-
-        echo '<section class="grid cols-2">';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_lead">';
-        echo '<h2>Novo lead</h2>';
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name"></div><div class="field"><label>Telefone</label><input name="phone"></div></div>';
-        echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
-        render_customer_options($customers);
-        echo '</select></div>';
-        echo '<div class="field"><label>Interesse</label><input name="interest" placeholder="Fechamento de braco, piercing, cobertura..."></div>';
-        echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Status</label><select name="status">';
-        render_options(lead_status_options(), 'novo');
-        echo '</select></div>';
-        echo '<div class="field"><label>Etapa</label><select name="pipeline_stage">';
-        foreach ($stages as $stage) {
-            echo '<option value="' . h($stage['name']) . '">' . h($stage['name']) . '</option>';
-        }
-        echo '</select></div>';
-        echo '<div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="5"></div>';
-        echo '</div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" placeholder="450,00"></div><div class="field"><label>Origem</label><input name="source" value="manual"></div></div>';
-        echo '<button class="btn" type="submit">Salvar lead</button>';
-        echo '</form>';
-        echo '<div class="panel"><h2>Leads cadastrados</h2>';
-        render_leads_table($leads);
-        echo '</div></section>';
-    }, $flash);
+    redirect_to('studio_people', ['view' => 'leads']);
     exit;
 }
 
@@ -1586,29 +1502,7 @@ if ($page === 'studio_people') {
 }
 
 if ($page === 'studio_quick_replies') {
-    $studio = require_studio();
-    render_studio_shell('Respostas rapidas', 'Textos prontos para atendimento e futura IA do WhatsApp.', 'quick_replies', function () use ($studio) {
-        $dbStatus = studio_db_status_for($studio);
-        if (!$dbStatus['ok']) {
-            render_studio_db_missing($studio, $dbStatus['error']);
-            return;
-        }
-        $replies = studio_list_quick_replies($studio);
-        echo '<section class="grid cols-2">';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_quick_reply">';
-        echo '<h2>Nova resposta</h2>';
-        echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required></div><div class="field"><label>Atalho</label><input name="shortcut" placeholder="/atalho"></div></div>';
-        echo '<div class="field"><label>Categoria</label><input name="category" value="Geral"></div>';
-        echo '<div class="field"><label>Texto</label><textarea name="body" required placeholder="Mensagem pronta para usar no atendimento..."></textarea></div>';
-        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Resposta ativa</label>';
-        echo '<button class="btn" type="submit">Salvar resposta</button>';
-        echo '</form>';
-        echo '<div class="panel"><h2>Biblioteca</h2>';
-        render_quick_replies_table($replies);
-        echo '</div></section>';
-    }, $flash);
+    redirect_to('studio_settings');
     exit;
 }
 
