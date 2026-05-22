@@ -668,14 +668,14 @@ if ($page === 'studio_customers') {
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_customer">';
-        echo '<h2>Novo cliente</h2>';
+        echo '<div class="actions" style="justify-content:space-between"><h2>Novo cliente</h2><span class="badge">Cadastro rapido</span></div>';
         echo '<div class="field"><label>Nome</label><input name="name" required></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Telefone</label><input name="phone"></div><div class="field"><label>Email</label><input type="text" inputmode="email" name="email"></div></div>';
         echo '<div class="field"><label>Instagram</label><input name="instagram" placeholder="@cliente"></div>';
         echo '<div class="field"><label>Observacoes</label><textarea name="notes" placeholder="Preferencias, historico, restricoes, ideias de tatuagem..."></textarea></div>';
         echo '<button class="btn" type="submit">Salvar cliente</button>';
         echo '</form>';
-        echo '<div class="panel"><h2>Clientes recentes</h2>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Atualizar</a></div>';
         render_customers_table($customers);
         echo '</div></section>';
     }, $flash);
@@ -832,14 +832,14 @@ if ($page === 'studio_lead') {
         $activity = studio_lead_activity($studio, $leadId);
 
         echo '<section class="lead-detail-head">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($lead['name'] ?: 'Lead sem nome') . '</h2><p class="muted">' . h(($lead['phone'] ?: 'Sem telefone') . ' | ' . ($lead['source'] ?: 'sem origem')) . '</p></div><strong class="score-pill">' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>' . h($lead['name'] ?: 'Lead sem nome') . '</h2><p class="muted">' . h(($lead['phone'] ?: 'Sem telefone') . ' | ' . ($lead['source'] ?: 'sem origem')) . '</p></div><strong class="score-pill">' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
         echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
         echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa</small></span></div>';
         echo '</div>';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
-        echo '<h2>Mover no funil</h2>';
+        echo '<div class="actions" style="justify-content:space-between"><h2>Mover no funil</h2><span class="badge">Fluxo</span></div>';
         echo '<div class="field"><label>Etapa</label><select name="pipeline_stage">';
         foreach ($stages as $stage) {
             echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
@@ -853,7 +853,7 @@ if ($page === 'studio_lead') {
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
-        echo '<h2>Editar lead</h2>';
+        echo '<div class="actions" style="justify-content:space-between"><h2>Editar lead</h2><span class="badge">Dados</span></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($lead['name'] ?? '') . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($lead['phone'] ?? '') . '"></div></div>';
         echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
         render_customer_options($customers, (int)($lead['customer_id'] ?? 0));
@@ -873,7 +873,7 @@ if ($page === 'studio_lead') {
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
-        echo '<h2>Agendar este lead</h2>';
+        echo '<div class="actions" style="justify-content:space-between"><h2>Agendar este lead</h2><span class="badge">Proximo passo</span></div>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($lead['interest'] ?: 'Atendimento') . '"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
         render_artist_options($artists);
@@ -887,7 +887,7 @@ if ($page === 'studio_lead') {
         echo '</form></section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><h2>Historico rapido</h2>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Historico rapido</h2><span class="badge">Resumo</span></div>';
         echo '<h3>Conversas WhatsApp</h3>';
         render_lead_conversations($activity['conversations']);
         echo '<h3>Agendamentos</h3>';

@@ -602,6 +602,10 @@ textarea {
     text-decoration: none;
 }
 
+.dashboard-stat .metric {
+    font-size: 28px;
+}
+
 .calendar-title {
     margin: 0 0 12px;
 }
