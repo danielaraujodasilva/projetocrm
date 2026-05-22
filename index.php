@@ -664,35 +664,30 @@ if ($page === 'studio_home') {
                 'summary' => 'Dias uteis restantes: ' . $remainingWorkDays . ' | slots por dia: ' . $slotCount . ' | vagas livres estimadas: ' . $availableSlots,
                 'type' => 'availability',
                 'default_range' => '7d',
-                'ranges' => (static function (array $cardsByRange): array {
-                    $rangeLabels = [
-                        '3d' => '3 dias',
-                        '7d' => '7 dias',
-                        '15d' => '15 dias',
-                        'month' => 'Este mes',
-                        'next_month' => 'Mes que vem',
+                'ranges' => (static function (array $studio): array {
+                    $rangeMap = [
+                        '3d' => 3,
+                        '7d' => 7,
+                        '15d' => 15,
+                        'month' => max(1, (int)(new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo')))->format('t')),
+                        'next_month' => max(1, (int)(new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('t')),
                     ];
-                    $ranges = [];
-                    foreach ($cardsByRange as $rangeKey => $cards) {
-                        $ranges[$rangeKey] = [
+                    $result = [];
+                    foreach ($rangeMap as $rangeKey => $days) {
+                        $result[$rangeKey] = [
                             'key' => $rangeKey,
-                            'label' => $rangeLabels[$rangeKey] ?? $rangeKey,
-                            'items' => array_map(static function (array $card): array {
-                                return [
-                                    'date' => $card['date'] ?? '',
-                                    'label' => $card['label'] ?? '',
-                                    'allowed' => !empty($card['allowed']),
-                                    'busy' => (int)($card['busy'] ?? 0),
-                                    'free' => (int)($card['free'] ?? 0),
-                                    'slot' => $card['slot'] ?? '',
-                                    'free_slots' => array_values(array_filter(array_map('strval', $card['free_slots'] ?? []))),
-                                    'booked' => array_values($card['booked'] ?? []),
-                                ];
-                            }, $cards),
+                            'label' => [
+                                '3d' => '3 dias',
+                                '7d' => '7 dias',
+                                '15d' => '15 dias',
+                                'month' => 'Este mes',
+                                'next_month' => 'Mes que vem',
+                            ][$rangeKey] ?? $rangeKey,
+                            'items' => studio_schedule_available_slots($studio, $days),
                         ];
                     }
-                    return $ranges;
-                })($availabilityCardsByRange),
+                    return $result;
+                })($studio),
             ],
             'month_result' => [
                 'title' => 'Resultado simples do mes',
