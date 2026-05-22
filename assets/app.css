@@ -595,6 +595,59 @@ textarea {
     margin: 10px 0;
 }
 
+.weekday-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.weekday-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.weekday-pill input {
+    margin: 0;
+}
+
+.weekday-pill.is-active {
+    background: rgba(40, 126, 140, .1);
+    border-color: rgba(40, 126, 140, .25);
+    color: var(--accent);
+}
+
+.weekday-pill:has(input:checked) {
+    background: rgba(40, 126, 140, .1);
+    border-color: rgba(40, 126, 140, .25);
+    color: var(--accent);
+}
+
+.duration-picker {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.duration-picker label {
+    display: grid;
+    gap: 6px;
+}
+
+.duration-picker span {
+    font-size: 13px;
+    font-weight: 700;
+}
+
 .dashboard-stat {
     display: grid;
     gap: 4px;

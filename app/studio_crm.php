@@ -2987,9 +2987,18 @@ function studio_save_settings(array $studio, array $data): void
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
-    $appointmentWorkDays = trim((string)($data['appointment_work_days'] ?? '1,2,3,4,5'));
+    $appointmentWorkDaysRaw = $data['appointment_work_days'] ?? '1,2,3,4,5';
+    $appointmentWorkDays = is_array($appointmentWorkDaysRaw)
+        ? implode(',', array_values(array_filter(array_map('trim', $appointmentWorkDaysRaw), static fn($value) => $value !== '')))
+        : trim((string)$appointmentWorkDaysRaw);
     $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
-    $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
+    $durationHours = (int)($data['appointment_duration_hours'] ?? 0);
+    $durationMinutesPart = (int)($data['appointment_duration_minutes_part'] ?? 0);
+    if ($durationHours > 0 || $durationMinutesPart > 0) {
+        $appointmentDurationMinutes = max(0, ($durationHours * 60) + $durationMinutesPart);
+    } else {
+        $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
+    }
     $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
     if ($appointmentDurationMinutes <= 0) {
         $appointmentDurationMinutes = 300;

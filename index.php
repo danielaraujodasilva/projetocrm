@@ -1862,10 +1862,43 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:12px">';
         echo '<h3 style="margin-top:0">Regras de agenda</h3>';
+        $workDaysRaw = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
+        $selectedWorkDays = array_values(array_filter(array_map('trim', explode(',', $workDaysRaw)), static fn($value) => $value !== ''));
+        $dayOptions = [
+            '1' => 'Segunda',
+            '2' => 'Terca',
+            '3' => 'Quarta',
+            '4' => 'Quinta',
+            '5' => 'Sexta',
+            '6' => 'Sabado',
+            '7' => 'Domingo',
+        ];
+        $durationMinutes = max(0, (int)($settings['appointment_duration_minutes'] ?? '300'));
+        $durationHours = intdiv($durationMinutes, 60);
+        $durationMins = $durationMinutes % 60;
         echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Dias disponiveis para agendamento</label><input name="appointment_work_days" value="' . h($settings['appointment_work_days'] ?? '1,2,3,4,5') . '" placeholder="1,2,3,4,5"><small class="muted">Use 1=Segunda ... 7=Domingo. Ex: 1,2,3,4,5</small></div>';
-        echo '<div class="field"><label>Horarios disponiveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separados por virgula. Ex: 10:00,15:00</small></div>';
-        echo '<div class="field"><label>Tempo de atendimento (minutos)</label><input type="number" min="15" step="15" name="appointment_duration_minutes" value="' . h((string)($settings['appointment_duration_minutes'] ?? '300')) . '" placeholder="300"><small class="muted">Ex: 300 = 5 horas. O horario final sera calculado automaticamente.</small></div>';
+        echo '<div class="field"><label>Dias da semana disponiveis</label><div class="weekday-picker">';
+        foreach ($dayOptions as $dayValue => $dayLabel) {
+            $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5'], true));
+            echo '<label class="weekday-pill' . ($checked ? ' is-active' : '') . '">';
+            echo '<input type="checkbox" name="appointment_work_days[]" value="' . h($dayValue) . '" ' . ($checked ? 'checked' : '') . '>';
+            echo '<span>' . h($dayLabel) . '</span>';
+            echo '</label>';
+        }
+        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrao ja vem de segunda a sexta.</small></div>';
+        echo '<div class="field"><label>Horarios disponiveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por virgula. Ex: 10:00,15:00</small></div>';
+        echo '<div class="field"><label>Duracao do atendimento</label><div class="duration-picker">';
+        echo '<label><span>Horas</span><select name="appointment_duration_hours">';
+        for ($hours = 0; $hours <= 12; $hours++) {
+            echo '<option value="' . $hours . '"' . ($hours === $durationHours ? ' selected' : '') . '>' . $hours . '</option>';
+        }
+        echo '</select></label>';
+        echo '<label><span>Minutos</span><select name="appointment_duration_minutes_part">';
+        foreach ([0, 15, 30, 45] as $minutes) {
+            echo '<option value="' . $minutes . '"' . ($minutes === $durationMins ? ' selected' : '') . '>' . str_pad((string)$minutes, 2, '0', STR_PAD_LEFT) . '</option>';
+        }
+        echo '</select></label>';
+        echo '</div><small class="muted">O fim sera calculado automaticamente. Ex: 5 horas = 10:00 ate 15:00.</small></div>';
         echo '</div></div>';
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
