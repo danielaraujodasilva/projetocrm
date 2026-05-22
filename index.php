@@ -1842,7 +1842,7 @@ if ($page === 'studio_settings') {
             return;
         }
         $settings = studio_settings($studio);
-        echo '<form class="form panel" method="post">';
+        echo '<form class="form panel" method="post" id="studioSettingsForm">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';
         echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Base do estudio</h2><p class="muted">Ajustes que afetam IA, WhatsApp e agenda.</p></div><span class="badge">Operacao</span></div>';
@@ -1869,6 +1869,8 @@ if ($page === 'studio_settings') {
         echo '</div></div>';
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
+        echo '<div class="actions"><button class="btn" type="submit" form="studioSettingsForm">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
+        echo '</form>';
         echo '<section class="panel soft" style="margin-top:12px">';
         echo '<div class="actions" style="justify-content:space-between"><h3 style="margin:0">Respostas rapidas</h3><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
         $replies = studio_list_quick_replies($studio);
@@ -1888,8 +1890,6 @@ if ($page === 'studio_settings') {
         render_quick_replies_table(array_slice($replies, 0, 12));
         echo '</div></div></section>';
         echo '<p class="muted">Resumo: use os toggles para controlar IA e WhatsApp. As regras de agenda acima passam a valer em todo o fluxo de agendamento e sugestao.</p>';
-        echo '<div class="actions"><button class="btn" type="submit">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
-        echo '</form>';
     }, $flash);
     exit;
 }
