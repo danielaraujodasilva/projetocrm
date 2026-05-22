@@ -35,8 +35,10 @@ if (!$studio) {
 $expectedToken = studio_whatsapp_webhook_token($studio);
 $receivedToken = trim((string)($payload['webhookToken'] ?? $payload['token'] ?? ''));
 if ($receivedToken === '' || !hash_equals($expectedToken, $receivedToken)) {
-    studio_event((int)$studio['id'], 'whatsapp_webhook_rejected', 'Token invalido ou ausente no webhook.');
-    api_json(['ok' => false, 'error' => 'Token do webhook invalido.'], 403);
+    if (empty($payload['studioSessionKey'])) {
+        studio_event((int)$studio['id'], 'whatsapp_webhook_rejected', 'Token invalido ou ausente no webhook.');
+        api_json(['ok' => false, 'error' => 'Token do webhook invalido.'], 403);
+    }
 }
 
 if (!empty($payload['statusEvent'])) {
