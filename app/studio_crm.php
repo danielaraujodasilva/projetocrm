@@ -3115,10 +3115,11 @@ function studio_save_appointment(array $studio, array $data): int
     $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $data['end_time'] ?? '', $durationMinutes);
     $depositValue = money_to_float((string)($data['deposit_value'] ?? '0'));
     $status = $depositValue > 0 ? 'confirmado' : 'pre_agendado';
+    $artistId = (int)($data['artist_id'] ?? 0) ?: null;
     $values = [
         $customerId ?: null,
         $leadId ?: null,
-        (int)($data['artist_id'] ?? 0) ?: null,
+        $artistId,
         trim((string)($data['title'] ?? 'Atendimento')),
         trim((string)($data['description'] ?? '')),
         $appointmentDate,
@@ -3134,18 +3135,28 @@ function studio_save_appointment(array $studio, array $data): int
     }
     $attachment = studio_prepare_appointment_reference($studio, $_FILES ?? []);
     $replacedAppointments = [];
-    $conflictStatuses = ['pre_agendado'];
-    if ($status === 'confirmado') {
-        $confirmedConflicts = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $values[2] ? (int)$values[2] : null, ['confirmado'], $id);
-        if ($confirmedConflicts) {
-            throw new RuntimeException('Esse horario já está ocupado por outro atendimento confirmado com sinal pago. Escolha outro horario.');
+    $activeStatuses = ['pre_agendado', 'confirmado', 'em_atendimento'];
+    $overlappingAppointments = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $artistId, $activeStatuses, $id);
+    if ($overlappingAppointments) {
+        $conflict = $overlappingAppointments[0];
+        $artistName = trim((string)($conflict['artist_name'] ?? ''));
+        if ($artistName === '' && $artistId) {
+            foreach (studio_list_artists($studio, false) as $artist) {
+                if ((int)($artist['id'] ?? 0) === $artistId) {
+                    $artistName = trim((string)($artist['name'] ?? '')) ?: 'tatuador selecionado';
+                    break;
+                }
+            }
         }
-        $replacedAppointments = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $values[2] ? (int)$values[2] : null, $conflictStatuses, $id);
-    } elseif ($values[2]) {
-        $confirmedConflicts = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, (int)$values[2], ['confirmado'], $id);
-        if ($confirmedConflicts) {
-            throw new RuntimeException('Esse horario já está ocupado por um atendimento confirmado com sinal pago. Escolha outro horario.');
+        if ($artistName === '') {
+            $artistName = 'esse tatuador';
         }
+        $conflictDate = date('d/m/Y', strtotime((string)$conflict['appointment_date']));
+        $conflictStart = substr((string)$conflict['start_time'], 0, 5);
+        $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time']), 0, 5);
+        throw new RuntimeException(
+            'Conflito de agenda: ' . $conflictDate . ' às ' . $conflictStart . '–' . $conflictEnd . ' já está ocupado para ' . $artistName . '.'
+        );
     }
 
     if ($id > 0) {
@@ -3162,16 +3173,6 @@ function studio_save_appointment(array $studio, array $data): int
             $id
         ]);
         studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
-        if ($status === 'confirmado' && $replacedAppointments) {
-            foreach ($replacedAppointments as $appointment) {
-                $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?')->execute(['cancelado', (int)$appointment['id']]);
-                studio_notify_appointment_replacement($studio, $appointment, [
-                    'appointment_date' => $appointmentDate,
-                    'start_time' => $startTime,
-                    'end_time' => $endTime,
-                ]);
-            }
-        }
         return $id;
     }
 
@@ -3189,17 +3190,6 @@ function studio_save_appointment(array $studio, array $data): int
 
     $appointmentId = (int)$pdo->lastInsertId();
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
-    if ($status === 'confirmado' && $replacedAppointments) {
-        foreach ($replacedAppointments as $appointment) {
-            $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ?')->execute(['cancelado', (int)$appointment['id']]);
-            studio_notify_appointment_replacement($studio, $appointment, [
-                'appointment_date' => $appointmentDate,
-                'start_time' => $startTime,
-                'end_time' => $endTime,
-            ]);
-        }
-    }
-
     return $appointmentId;
 }
 
