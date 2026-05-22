@@ -1620,6 +1620,59 @@ function studio_whatsapp_default_mode(array $studio): string
     return (string)($settings['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
 }
 
+function studio_schedule_days(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $raw = trim((string)($settings['appointment_work_days'] ?? ''));
+    if ($raw === '') {
+        return ['1', '2', '3', '4', '5'];
+    }
+    $days = array_values(array_filter(array_map(static fn(string $value): string => trim($value), preg_split('/[,\s|;]+/', $raw) ?: []), static fn(string $value): bool => $value !== ''));
+    $days = array_values(array_unique(array_map(static fn(string $value): string => (string)max(1, min(7, (int)$value)), $days)));
+    return $days ?: ['1', '2', '3', '4', '5'];
+}
+
+function studio_schedule_slots(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $raw = trim((string)($settings['appointment_time_slots'] ?? ''));
+    if ($raw === '') {
+        return ['10:00', '15:00'];
+    }
+    $slots = array_values(array_filter(array_map(static fn(string $value): string => preg_replace('/[^0-9:]/', '', trim($value)), preg_split('/[,\n\r|;]+/', $raw) ?: []), static fn(string $value): bool => $value !== ''));
+    $slots = array_values(array_unique(array_filter($slots, static function (string $value): bool {
+        return (bool)preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value);
+    })));
+    return $slots ?: ['10:00', '15:00'];
+}
+
+function studio_schedule_is_allowed_day(array $studio, DateTimeImmutable $date): bool
+{
+    return in_array((string)$date->format('N'), studio_schedule_days($studio), true);
+}
+
+function studio_schedule_next_slots(array $studio, int $daysAhead = 7): array
+{
+    $slots = studio_schedule_slots($studio);
+    $allowedDays = studio_schedule_days($studio);
+    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $result = [];
+    for ($offset = 0; $offset < max(1, $daysAhead); $offset++) {
+        $day = $today->modify('+' . $offset . ' days');
+        if (!in_array((string)$day->format('N'), $allowedDays, true)) {
+            continue;
+        }
+        foreach ($slots as $slot) {
+            $result[] = [
+                'date' => $day->format('Y-m-d'),
+                'weekday' => $day->format('D'),
+                'time' => $slot,
+            ];
+        }
+    }
+    return $result;
+}
+
 function studio_whatsapp_lead_score(string $text, bool $hasMedia): int
 {
     $text = strtolower($text);
@@ -1689,7 +1742,14 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
         $artistId = (string)($artists[0]['id'] ?? '');
     }
 
+    $studio = current_studio() ?: [];
     $date = date('Y-m-d');
+    $time = studio_schedule_slots($studio)[0] ?? '10:00';
+    $nextSlots = studio_schedule_next_slots($studio, 14);
+    if ($nextSlots) {
+        $date = $nextSlots[0]['date'];
+        $time = $nextSlots[0]['time'];
+    }
     if (str_contains($text, 'amanha')) {
         $date = date('Y-m-d', strtotime('+1 day'));
     } elseif (str_contains($text, 'sabado')) {
@@ -1697,16 +1757,12 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     } elseif (str_contains($text, 'segunda')) {
         $date = date('Y-m-d', strtotime('next monday'));
     }
-
-    $time = '10:00';
     if (preg_match('/\b(1[0-9]|2[0-1]):[0-5][0-9]\b/', $text, $match)) {
         $time = $match[0];
-    } elseif (str_contains($text, 'tarde')) {
-        $time = '14:00';
-    } elseif (str_contains($text, 'manha')) {
-        $time = '09:00';
-    } elseif (str_contains($text, 'noite')) {
-        $time = '18:00';
+    }
+    $allowedSlots = studio_schedule_slots($studio);
+    if (!in_array($time, $allowedSlots, true)) {
+        $time = $allowedSlots[0] ?? '10:00';
     }
 
     return [
@@ -2724,11 +2780,24 @@ function studio_save_settings(array $studio, array $data): void
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
+    $appointmentWorkDays = trim((string)($data['appointment_work_days'] ?? '1,2,3,4,5'));
+    $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
 
-    $stmt = studio_db($studio)->prepare(
+    $pdo = studio_db($studio);
+    foreach ([
+        'appointment_work_days' => 'VARCHAR(40) NOT NULL DEFAULT "1,2,3,4,5"',
+        'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
+    ] as $column => $definition) {
+        try {
+            $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
+        } catch (Throwable) {
+        }
+    }
+
+    $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -2739,6 +2808,8 @@ function studio_save_settings(array $studio, array $data): void
         $whatsappEnabled,
         $whatsappDefaultMode,
         $whatsappServiceUrl,
+        $appointmentWorkDays,
+        $appointmentTimeSlots,
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');

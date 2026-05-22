@@ -1164,18 +1164,20 @@ if ($page === 'studio_whatsapp_conversation') {
         $availabilityStart = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
         $availabilityEnd = $availabilityStart->modify('+6 days');
         $availabilityAppointments = studio_calendar_appointments($studio, $availabilityStart->format('Y-m-d'), $availabilityEnd->format('Y-m-d'));
+        $allowedDays = studio_schedule_days($studio);
+        $allowedSlots = studio_schedule_slots($studio);
         $appointmentsByDay = [];
         foreach ($availabilityAppointments as $appointment) {
             $appointmentsByDay[(string)$appointment['appointment_date']][] = $appointment;
         }
         $availabilityCards = [];
-        $slotCandidates = ['10:00', '11:30', '14:00', '16:00', '18:00'];
         for ($offset = 0; $offset < 7; $offset++) {
             $day = $availabilityStart->modify('+' . $offset . ' days');
             $dateKey = $day->format('Y-m-d');
             $busy = count($appointmentsByDay[$dateKey] ?? []);
             $suggestedSlot = '';
-            foreach ($slotCandidates as $slot) {
+            $isAllowedDay = in_array((string)$day->format('N'), $allowedDays, true);
+            foreach ($allowedSlots as $slot) {
                 $taken = false;
                 foreach ($appointmentsByDay[$dateKey] ?? [] as $appointment) {
                     $startTime = substr((string)$appointment['start_time'], 0, 5);
@@ -1192,8 +1194,9 @@ if ($page === 'studio_whatsapp_conversation') {
             $availabilityCards[] = [
                 'date' => $day->format('Y-m-d'),
                 'label' => $day->format('D d/m'),
+                'allowed' => $isAllowedDay,
                 'busy' => $busy,
-                'free' => max(0, count($slotCandidates) - $busy),
+                'free' => max(0, count($allowedSlots) - $busy),
                 'slot' => $suggestedSlot,
             ];
         }
@@ -1307,8 +1310,8 @@ if ($page === 'studio_whatsapp_conversation') {
         foreach ($availabilityCards as $card) {
             echo '<button type="button" class="availability-card" data-appointment-date="' . h($card['date']) . '" data-appointment-time="' . h($card['slot'] ?: '10:00') . '">';
             echo '<strong>' . h($card['label']) . '</strong>';
-            echo '<span>' . h((string)$card['busy']) . ' ocupados</span>';
-            echo '<small>' . h($card['slot'] ? 'Livre: ' . $card['slot'] : 'Sem slot livre rapido') . '</small>';
+            echo '<span>' . h($card['allowed'] ? (string)$card['busy'] . ' ocupados' : 'Fora dos dias permitidos') . '</span>';
+            echo '<small>' . h($card['allowed'] ? ($card['slot'] ? 'Livre: ' . $card['slot'] : 'Sem slot livre rapido') : 'Nao sugerir') . '</small>';
             echo '</button>';
         }
         echo '</div></div>';
@@ -1545,6 +1548,10 @@ if ($page === 'studio_settings') {
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select></div>';
         echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Dias disponiveis para agendamento</label><input name="appointment_work_days" value="' . h($settings['appointment_work_days'] ?? '1,2,3,4,5') . '" placeholder="1,2,3,4,5"><small class="muted">Use 1=Segunda ... 7=Domingo. Ex: 1,2,3,4,5</small></div>';
+        echo '<div class="field"><label>Horarios disponiveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separados por virgula. Ex: 10:00,15:00</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
         echo '<p class="muted">Resumo: a primeira opcao libera a IA para responder somente conversas marcadas como IA. A segunda libera a conexao do numero WhatsApp deste estudio. O padrao das novas conversas define se um novo cliente entra com humano ou IA primeiro.</p>';
