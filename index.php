@@ -667,15 +667,17 @@ if ($page === 'studio_home') {
                 'ranges' => (static function (array $studio): array {
                     $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
                     $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
+                    $nextMonthStart = new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo'));
                     $rangeMap = [
-                        '3d' => 3,
-                        '7d' => 7,
-                        '15d' => 15,
-                        'month' => max(1, (int)$monthEnd->diff($today)->days + 1),
-                        'next_month' => max(1, (int)(new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('t')),
+                        '3d' => ['days' => 3, 'start' => $today],
+                        '7d' => ['days' => 7, 'start' => $today],
+                        '15d' => ['days' => 15, 'start' => $today],
+                        'month' => ['days' => max(1, (int)$monthEnd->diff($today)->days + 1), 'start' => $today],
+                        'next_month' => ['days' => max(1, (int)$nextMonthStart->format('t')), 'start' => $nextMonthStart],
                     ];
                     $result = [];
-                    foreach ($rangeMap as $rangeKey => $days) {
+                    foreach ($rangeMap as $rangeKey => $rangeInfo) {
+                        $days = (int)($rangeInfo['days'] ?? 7);
                         $result[$rangeKey] = [
                             'key' => $rangeKey,
                             'label' => [
@@ -685,7 +687,7 @@ if ($page === 'studio_home') {
                                 'month' => 'Este mês',
                                 'next_month' => 'Mês que vem',
                             ][$rangeKey] ?? $rangeKey,
-                            'items' => studio_schedule_available_slots($studio, $days),
+                            'items' => studio_schedule_available_slots($studio, $days, $rangeInfo['start'] ?? null),
                         ];
                     }
                     return $result;

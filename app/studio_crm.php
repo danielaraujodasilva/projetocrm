@@ -1824,9 +1824,9 @@ function studio_schedule_next_slots(array $studio, int $daysAhead = 7): array
     return $result;
 }
 
-function studio_schedule_available_slots(array $studio, int $daysAhead = 14): array
+function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?DateTimeImmutable $startDate = null): array
 {
-    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $today = $startDate ?: new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
     $endDate = $today->modify('+' . max(1, $daysAhead - 1) . ' days');
     $allowedSlots = studio_schedule_slots($studio);
     $allowedDays = studio_schedule_days($studio);

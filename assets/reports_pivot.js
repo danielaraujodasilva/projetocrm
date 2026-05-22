@@ -12,29 +12,11 @@
     'Mapa de Calor por Colunas': jQuery.pivotUtilities.renderers['Col Heatmap'],
   };
 
-  const common = {
-    locale: 'pt',
-    rows: [],
-    cols: [],
-    vals: [],
-    rendererName: 'Tabela',
-    renderers: ptRenderers,
-    sorters: {},
-    menuLimit: 1000,
-    rendererOptions: {
-      table: {
-        rowTotals: true,
-        colTotals: true,
-      },
-    },
-    aggregators: jQuery.pivotUtilities.aggregators,
-  };
-
   const presets = {
     leads: {
       rows: ['status'],
       cols: ['origem'],
-      vals: ['total'],
+      vals: [],
       aggregatorName: 'Contagem',
       rendererName: 'Tabela com Barras',
     },
@@ -67,15 +49,15 @@
     mount.innerHTML = '';
     setSourceButtonState(source);
 
-    const options = jQuery.extend(true, {}, common, preset, {
+    const options = jQuery.extend(true, {}, preset, {
       rows: preset.rows.slice(),
       cols: preset.cols.slice(),
       vals: preset.vals.slice(),
       rendererName: preset.rendererName,
       aggregatorName: preset.aggregatorName,
-      onRefresh: function () {
-        window.reportsPivotCurrent = source;
-      },
+      renderers: ptRenderers,
+      aggregators: jQuery.pivotUtilities.locales.pt.aggregators,
+      localeStrings: jQuery.pivotUtilities.locales.pt.localeStrings,
     });
 
     jQuery(mount).pivotUI(def.data, options, true, 'pt');
