@@ -1167,29 +1167,15 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button><button class="btn secondary" type="button" data-mode-toggle="human">Humano</button><button class="btn secondary" type="button" data-status-set="novo">Novo</button><button class="btn secondary" type="button" data-status-set="agendado">Agendado</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
         echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span></div>';
         render_chat_messages($messages);
-        if ($scheduleSuggestion) {
-            echo '<div class="panel" style="margin-top:12px;padding:12px">';
-            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start">';
-            echo '<div><strong>Sugestao de agendamento</strong><div class="muted text-sm">' . h($scheduleSuggestion['reason']) . '</div></div>';
-            echo '<button class="btn secondary" type="button" id="applyScheduleSuggestionButton">Usar sugestao</button>';
-            echo '</div>';
-            echo '<div class="mini-metrics" style="margin-top:10px">';
-            echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
-            echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
-            echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
-            echo '</div></div>';
-        }
-        if ($quickReplies) {
-            echo '<details class="suggestion-group"><summary>Respostas rapidas</summary><div class="quick-reply-list">';
-            foreach (array_slice($quickReplies, 0, 12) as $reply) {
-                echo '<button class="btn tiny secondary quick-reply-copy" type="button" data-reply="' . h($reply['body']) . '">' . h($reply['title']) . '</button>';
-            }
-            echo '</div></details>';
-        }
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
         echo '<div class="field"><label>Responder</label><textarea id="reply-message" name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
+        echo '<div class="emoji-strip" aria-label="Emojis rapidos">';
+        foreach (['😀','👍','🙏','❤️','😂','🔥','🎯','✅'] as $emoji) {
+            echo '<button type="button" class="btn tiny secondary quick-reply-copy" data-reply="' . h($emoji) . '">' . h($emoji) . '</button>';
+        }
+        echo '</div>';
         echo '<div class="chat-attach-row">';
         echo '<input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
         echo '<button class="btn secondary" type="button" id="chatAttachmentButton">Anexar</button>';
@@ -1232,6 +1218,34 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<label class="checkline"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label>';
         echo '<button class="btn" type="submit">Salvar cadastro</button>';
         echo '</form>';
+
+        echo '<div class="panel side-tool-panel">';
+        echo '<h3>Respostas rapidas</h3>';
+        if ($quickReplies) {
+            echo '<div class="quick-reply-list side-reply-list">';
+            foreach (array_slice($quickReplies, 0, 12) as $reply) {
+                echo '<button class="btn tiny secondary quick-reply-copy" type="button" data-reply="' . h($reply['body']) . '">' . h($reply['title']) . '</button>';
+            }
+            echo '</div>';
+        } else {
+            echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
+        }
+        echo '</div>';
+
+        echo '<div class="panel side-tool-panel">';
+        echo '<h3>Sugestao de agendamento</h3>';
+        if ($scheduleSuggestion) {
+            echo '<p class="muted">' . h($scheduleSuggestion['reason']) . '</p>';
+            echo '<div class="mini-metrics side-suggestion-metrics">';
+            echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
+            echo '</div>';
+            echo '<button class="btn secondary" type="button" id="applyScheduleSuggestionButton" style="margin-top:10px">Usar sugestao</button>';
+        } else {
+            echo '<p class="muted">Ainda sem sugestao para esta conversa.</p>';
+        }
+        echo '</div>';
 
         echo '<form class="form action-card" method="post">';
         echo csrf_field();

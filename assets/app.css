@@ -675,6 +675,17 @@ textarea {
     gap: 16px;
 }
 
+.conversation-main {
+    display: grid;
+    gap: 12px;
+}
+
+.conversation-side {
+    display: grid;
+    gap: 12px;
+    align-content: start;
+}
+
 .score-pill {
     display: inline-flex;
     align-items: center;
@@ -732,7 +743,9 @@ textarea {
     padding: 12px;
     border: 1px solid var(--line);
     border-radius: 8px;
-    background: var(--surface-soft);
+    background:
+        radial-gradient(circle at 20px 20px, rgba(0,0,0,.018) 1px, transparent 1px) 0 0/22px 22px,
+        linear-gradient(180deg, #edf6f0 0%, #eaf4ee 100%);
 }
 
 .chat-message {
@@ -745,20 +758,24 @@ textarea {
 
 .chat-bubble {
     max-width: min(680px, 82%);
-    padding: 10px 12px;
+    padding: 10px 12px 8px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 18px 18px 8px 18px;
     background: #fff;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, .05);
 }
 
 .chat-message.out .chat-bubble {
-    background: #e8f6ee;
-    border-color: #bee6cf;
+    background: #dff6de;
+    border-color: #c9e8c7;
+    border-radius: 18px 18px 18px 8px;
 }
 
 .chat-bubble p {
     margin: 0 0 6px;
     white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.45;
 }
 
 .chat-bubble span {
@@ -769,7 +786,8 @@ textarea {
 }
 
 .send-box,
-.info-list {
+.info-list,
+.side-tool-panel {
     margin-top: 14px;
 }
 
@@ -784,6 +802,51 @@ textarea {
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 10px;
+}
+
+.side-tool-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.side-tool-panel h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+.side-reply-list {
+    max-height: 220px;
+    overflow: auto;
+}
+
+.side-suggestion-metrics {
+    margin-top: 0;
+}
+
+.emoji-strip {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.chat-attach-row {
+    align-items: center;
+}
+
+.send-box {
+    background: #f7fdf8;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.send-box .field textarea {
+    min-height: 92px;
+}
+
+.send-box .btn {
+    border-radius: 8px;
 }
 
 @media (max-width: 900px) {
