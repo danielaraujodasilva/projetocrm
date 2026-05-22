@@ -596,6 +596,20 @@ if ($page === 'studio_home') {
         $recentLeads = studio_recent_leads($studio, 6);
         $appointments = studio_upcoming_appointments($studio, 6);
 
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Acoes rapidas</h2><p class="muted">Atalhos para o que mais se usa no dia a dia.</p></div></div>';
+        echo '<div class="quick-actions-grid">';
+        foreach ([
+            ['label' => 'Novo lead', 'href' => app_url('studio_leads')],
+            ['label' => 'Novo cliente', 'href' => app_url('studio_customers')],
+            ['label' => 'Abrir agenda', 'href' => app_url('studio_agenda')],
+            ['label' => 'WhatsApp', 'href' => app_url('studio_whatsapp')],
+            ['label' => 'Financeiro', 'href' => app_url('studio_finance')],
+            ['label' => 'Respostas rapidas', 'href' => app_url('studio_quick_replies')],
+        ] as $action) {
+            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
+        }
+        echo '</div></section>';
+
         echo '<section class="grid cols-3">';
         echo '<div class="panel"><p class="metric">' . h($stats['leads']) . '</p><p class="muted">Leads no funil</p></div>';
         echo '<div class="panel"><p class="metric">' . h($stats['customers']) . '</p><p class="muted">Clientes cadastrados</p></div>';
@@ -2074,12 +2088,14 @@ function render_customers_table(array $customers): void
         echo '<p class="muted">Nenhum cliente cadastrado ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($customers as $customer) {
+        $href = app_url('studio_customer', ['id' => (int)$customer['id']]);
         echo '<tr>';
-        echo '<td><a href="' . h(app_url('studio_customer', ['id' => (int)$customer['id']])) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
+        echo '<td><a href="' . h($href) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
+        echo '<td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
@@ -2163,13 +2179,15 @@ function render_leads_table(array $leads): void
         echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($leads as $lead) {
+        $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
         echo '<tr>';
-        echo '<td><a href="' . h(app_url('studio_lead', ['id' => (int)$lead['id']])) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
+        echo '<td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
         echo '<td><span class="badge">' . h($lead['status']) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
         echo '<td>' . h(format_money($lead['estimated_value'] ?? 0)) . '<br><span class="muted">' . h($lead['source'] ?: '-') . '</span></td>';
         echo '<td><strong>' . h((string)($lead['lead_score'] ?? '-')) . '/10</strong></td>';
+        echo '<td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
@@ -2274,12 +2292,13 @@ function render_whatsapp_table(array $conversations): void
     foreach ($conversations as $conversation) {
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
+        $href = app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']]);
         echo '<tr>';
-        echo '<td><a href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
+        echo '<td><a href="' . h($href) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span></td>';
         echo '<td><span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode']) . '</span><br>' . ($needsHuman ? '<span class="badge warn">quer humano</span>' : '<span class="muted">sem alerta</span>') . '</td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
         echo '<td>' . h($conversation['last_message_preview'] ?: '-') . '<br><span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens - ' . ($conversation['message_last_at'] ?: '-')) . '</span></td>';
-        echo '<td><div class="actions"><a class="btn tiny" href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '">Abrir</a>';
+        echo '<td><div class="actions"><a class="btn tiny" href="' . h($href) . '">Abrir</a>';
         if (!empty($conversation['lead_id'])) {
             echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">Lead</a>';
         }

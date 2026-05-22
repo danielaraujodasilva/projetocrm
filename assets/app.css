@@ -557,6 +557,30 @@ textarea {
     margin-bottom: 5px;
 }
 
+.quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.quick-action-card {
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    color: var(--text);
+    text-decoration: none;
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.quick-action-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
+    text-decoration: none;
+}
+
 .calendar-title {
     margin: 0 0 12px;
 }
@@ -1018,6 +1042,10 @@ textarea {
     .conversation-layout,
     .mini-metrics {
         grid-template-columns: 1fr;
+    }
+
+    .quick-actions-grid {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     }
 
     .calendar-grid.month,
