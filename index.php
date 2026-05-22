@@ -1293,6 +1293,7 @@ if ($page === 'studio_whatsapp_conversation') {
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
         $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
         $availabilityStart = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
         $availabilityRanges = [
             '3d' => ['label' => '3 dias', 'days' => 3],
             '7d' => ['label' => '7 dias', 'days' => 7],
