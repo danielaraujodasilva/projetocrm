@@ -361,6 +361,22 @@ textarea {
     line-height: 1.25;
 }
 
+.wa-pairing-code {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 260px;
+    padding: 12px 16px;
+    margin: 4px 0 8px;
+    border-radius: 10px;
+    background: #f3fbff;
+    border: 1px solid #cfe7f2;
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 900;
+    letter-spacing: .08em;
+    color: #0f4c5c;
+}
+
 .whatsapp-session-actions {
     gap: 8px;
     flex-wrap: wrap;

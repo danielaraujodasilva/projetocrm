@@ -960,37 +960,45 @@ if ($page === 'studio_whatsapp') {
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
         $status = (string)($serviceStatus['status'] ?? 'offline');
-        $statusLabel = $status === 'connected' ? 'conectado' : ($status === 'waiting_qr' ? 'aguardando codigo' : $status);
+        $statusLabel = $status === 'connected' ? 'Conectado' : ($status === 'waiting_qr' ? 'Aguardando codigo' : ($status === 'starting' ? 'Iniciando' : 'Nao conectado'));
         $badgeClass = $status === 'connected' ? 'ok' : ($status === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($statusLabel) . '</span></div>';
-        $sessionSummary = 'Aguardando pareamento';
+        $sessionSummary = 'Nao conectado';
         if (!empty($serviceStatus['phone'])) {
             $sessionSummary = 'Conectado no numero ' . (string)$serviceStatus['phone'];
         } elseif (!empty($serviceStatus['pairingCode'])) {
-            $sessionSummary = 'Codigo gerado para parear o WhatsApp';
+            $sessionSummary = 'Codigo pronto para parear';
         } elseif ($status === 'waiting_qr') {
-            $sessionSummary = 'Servico ativo e aguardando retorno do pareamento';
+            $sessionSummary = 'Aguardando o codigo de pareamento';
         } elseif ($status === 'starting') {
-            $sessionSummary = 'Solicitando pareamento ao servico';
+            $sessionSummary = 'Solicitando o codigo de pareamento';
         } elseif ($status === 'disconnected') {
             $sessionSummary = 'Sessao desconectada';
         } elseif ($status === 'error') {
-            $sessionSummary = 'Servico retornou erro';
+            $sessionSummary = 'Nao foi possivel conectar';
         }
-        echo '<div class="wa-session-summary"><strong>' . h($sessionSummary) . '</strong><span class="muted">Sessao ' . h($sessionKey) . ' • Servico ' . h(studio_whatsapp_service_url($studio)) . '</span></div>';
+        echo '<div class="wa-session-summary"><strong>' . h($sessionSummary) . '</strong>';
+        if (!empty($serviceStatus['phone'])) {
+            echo '<span class="muted">WhatsApp conectado e pronto para receber mensagens.</span>';
+        } elseif (!empty($serviceStatus['pairingCode'])) {
+            echo '<span class="muted">Use o codigo abaixo no WhatsApp do celular.</span>';
+        } else {
+            echo '<span class="muted">Clique em iniciar pareamento ou gerar codigo por telefone.</span>';
+        }
+        echo '</div>';
         echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
             echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
-            echo '<p class="metric">' . h((string)$serviceStatus['pairingCode']) . '</p>';
+            echo '<div class="wa-pairing-code">' . h((string)$serviceStatus['pairingCode']) . '</div>';
             echo '<p class="muted">Codigo para parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . '.</p>';
         } elseif (!empty($serviceStatus['phone'])) {
             echo '<p>Numero conectado: <strong>' . h($serviceStatus['phone']) . '</strong></p>';
         } elseif ($status === 'starting') {
-            echo '<p class="muted">Gerando codigo de pareamento.</p>';
+            echo '<p class="muted">Gerando codigo de pareamento. Se demorar mais de alguns segundos, clique em <strong>Gerar codigo</strong>.</p>';
         } elseif ($status === 'waiting_qr') {
-            echo '<p class="muted">Codigo solicitado, aguardando retorno do servico.</p>';
+            echo '<p class="muted">Aguardando o retorno do servico para mostrar o codigo.</p>';
         } elseif (!empty($serviceStatus['lastError'])) {
             echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
         }
