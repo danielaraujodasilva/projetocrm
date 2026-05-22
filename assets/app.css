@@ -971,6 +971,46 @@ textarea {
     font-weight: 700;
 }
 
+.drilldown-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+}
+
+.drilldown-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+    color: var(--text);
+    text-decoration: none;
+}
+
+.drilldown-card:hover {
+    text-decoration: none;
+    box-shadow: 0 8px 20px rgba(18, 28, 37, .08);
+}
+
+.drilldown-card strong {
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.drilldown-card .meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.drilldown-card .meta-line span {
+    font-size: 12px;
+    color: var(--muted);
+}
+
 .activity-card {
     color: var(--text);
     text-decoration: none;
