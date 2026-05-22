@@ -749,7 +749,7 @@ if ($page === 'studio_home') {
             ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'focus' => 'available_slots'],
             ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'focus' => 'month_result'],
         ] as $stat) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Ver detalhes</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
 
@@ -762,7 +762,7 @@ if ($page === 'studio_home') {
             ['value' => format_money($stats['month_expenses']), 'label' => 'Despesas no mes', 'focus' => 'month_result'],
             ['value' => $stats['whatsapp_conversations'], 'label' => 'Conversas WhatsApp', 'focus' => 'whatsapp'],
         ] as $stat) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Abrir detalhe</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
