@@ -1811,6 +1811,56 @@ function studio_schedule_next_slots(array $studio, int $daysAhead = 7): array
     return $result;
 }
 
+function studio_schedule_available_slots(array $studio, int $daysAhead = 14): array
+{
+    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $endDate = $today->modify('+' . max(1, $daysAhead - 1) . ' days');
+    $allowedSlots = studio_schedule_slots($studio);
+    $allowedDays = studio_schedule_days($studio);
+    $appointments = studio_calendar_appointments($studio, $today->format('Y-m-d'), $endDate->format('Y-m-d'));
+    $byDate = [];
+    foreach ($appointments as $appointment) {
+        $byDate[(string)$appointment['appointment_date']][] = $appointment;
+    }
+
+    $result = [];
+    for ($offset = 0; $offset < max(1, $daysAhead); $offset++) {
+        $day = $today->modify('+' . $offset . ' days');
+        $date = $day->format('Y-m-d');
+        $allowed = in_array((string)$day->format('N'), $allowedDays, true);
+        $freeSlots = [];
+        $booked = [];
+        foreach ($allowedSlots as $slot) {
+            $occupied = false;
+            foreach ($byDate[$date] ?? [] as $appointment) {
+                if (substr((string)$appointment['start_time'], 0, 5) === $slot) {
+                    $occupied = true;
+                    $booked[] = [
+                        'id' => (int)($appointment['id'] ?? 0),
+                        'time' => $slot,
+                        'customer_name' => (string)($appointment['customer_name'] ?? $appointment['title'] ?? ''),
+                        'status' => (string)($appointment['status'] ?? ''),
+                    ];
+                    break;
+                }
+            }
+            if (!$occupied) {
+                $freeSlots[] = $slot;
+            }
+        }
+        $result[] = [
+            'date' => $date,
+            'label' => $day->format('D d/m'),
+            'allowed' => $allowed,
+            'free_slots' => $freeSlots,
+            'booked' => $booked,
+            'free' => count($freeSlots),
+        ];
+    }
+
+    return $result;
+}
+
 function studio_whatsapp_lead_score(string $text, bool $hasMedia): int
 {
     $text = strtolower($text);
@@ -2565,11 +2615,26 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $studioName = (string)($studio['name'] ?? 'Estudio');
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
     $latestMessages = implode("\n- ", array_slice($historyLines, -6));
+    $availability = studio_schedule_available_slots($studio, 14);
+    $availableNotes = [];
+    $occupiedNotes = [];
+    foreach ($availability as $day) {
+        if (!empty($day['allowed']) && !empty($day['free_slots'])) {
+            $availableNotes[] = $day['date'] . ' => ' . implode(', ', array_slice($day['free_slots'], 0, 3));
+        }
+        if (!empty($day['booked'])) {
+            $occupiedNotes[] = $day['date'] . ' => ' . implode(', ', array_map(static fn(array $appt): string => $appt['time'] . ($appt['customer_name'] !== '' ? ' (' . $appt['customer_name'] . ')' : ''), array_slice($day['booked'], 0, 3)));
+        }
+    }
+    $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
+    $occupiedPreview = $occupiedNotes ? implode("\n- ", array_slice($occupiedNotes, 0, 6)) : 'Sem ocupacoes no recorte rapido.';
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
         . "Nome do estudio: " . $studioName . "\n"
         . "Regras do estudio: " . ($studioRules !== '' ? $studioRules : 'Sem regras extras.') . "\n"
         . "Agenda do estudio: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
+        . "Proximas vagas livres reais (data => horarios livres):\n- " . $availabilityPreview . "\n"
+        . "Proximos horarios ocupados reais:\n- " . $occupiedPreview . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
         . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
@@ -2587,7 +2652,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a conversa ja teve saudacao, nao cumprimente de novo.\n"
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
         . "- Se a pessoa perguntou de agendamento, puxe para data, horario e sinal.\n"
-        . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima.\n"
+        . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima e as vagas livres reais listadas acima.\n"
+        . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
