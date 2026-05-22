@@ -511,12 +511,13 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estudio') . '</span></div>';
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Inicio</a>';
+    echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
     echo '<a class="' . ($active === 'leads' ? 'active' : '') . '" href="' . h(app_url('studio_leads')) . '">Leads</a>';
     echo '<a class="' . ($active === 'customers' ? 'active' : '') . '" href="' . h(app_url('studio_customers')) . '">Clientes</a>';
     echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
     echo '<a class="' . ($active === 'whatsapp' ? 'active' : '') . '" href="' . h(app_url('studio_whatsapp')) . '">WhatsApp</a>';
     echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
-    echo '<a class="' . ($active === 'quick_replies' ? 'active' : '') . '" href="' . h(app_url('studio_quick_replies')) . '">Respostas</a>';
+    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
     echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatorios</a>';
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
@@ -578,7 +579,7 @@ if ($page === 'studio_login') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -593,22 +594,60 @@ if ($page === 'studio_home') {
             return;
         }
         $stats = studio_stats($studio);
+        $pdo = studio_db($studio);
         $recentLeads = studio_recent_leads($studio, 6);
         $appointments = studio_upcoming_appointments($studio, 6);
+        $monthStart = new DateTimeImmutable('first day of this month', new DateTimeZone('America/Sao_Paulo'));
+        $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
+        $settings = studio_settings($studio);
+        $allowedDays = studio_schedule_days($studio);
+        $allowedSlots = studio_schedule_slots($studio);
+        $allowedDaySet = array_fill_keys(array_map('strval', $allowedDays), true);
+        $current = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $remainingWorkDays = 0;
+        for ($day = $current; $day <= $monthEnd; $day = $day->modify('+1 day')) {
+            if (isset($allowedDaySet[$day->format('N')])) {
+                $remainingWorkDays++;
+            }
+        }
+        $slotCount = max(1, count($allowedSlots));
+        $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
+        $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
+        $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
+        $waitingReplies = (int)($pdo->query(
+            "SELECT COUNT(*) FROM (
+                SELECT wm.conversation_id,
+                       SUM(CASE WHEN wm.direction = 'in' THEN 1 ELSE 0 END) AS in_count,
+                       SUM(CASE WHEN wm.direction = 'out' THEN 1 ELSE 0 END) AS out_count
+                FROM whatsapp_messages wm
+                GROUP BY wm.conversation_id
+                HAVING in_count > out_count
+            ) pending_threads"
+        )->fetchColumn());
 
         echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Acoes rapidas</h2><p class="muted">Atalhos para o que mais se usa no dia a dia.</p></div></div>';
         echo '<div class="quick-actions-grid">';
         foreach ([
-            ['label' => 'Novo lead', 'href' => app_url('studio_leads')],
-            ['label' => 'Novo cliente', 'href' => app_url('studio_customers')],
+            ['label' => 'Pessoas', 'href' => app_url('studio_people')],
             ['label' => 'Abrir agenda', 'href' => app_url('studio_agenda')],
             ['label' => 'WhatsApp', 'href' => app_url('studio_whatsapp')],
             ['label' => 'Financeiro', 'href' => app_url('studio_finance')],
-            ['label' => 'Respostas rapidas', 'href' => app_url('studio_quick_replies')],
+            ['label' => 'Configuracoes', 'href' => app_url('studio_settings')],
         ] as $action) {
             echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
         }
         echo '</div></section>';
+
+        echo '<section class="grid cols-4">';
+        foreach ([
+            ['value' => $waitingReplies, 'label' => 'Conversas sem resposta', 'href' => app_url('studio_whatsapp', ['needs_human' => 1])],
+            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado ate o fim do mes', 'href' => app_url('studio_agenda')],
+            ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'href' => app_url('studio_agenda')],
+            ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'href' => app_url('studio_finance')],
+        ] as $stat) {
+            echo '<a class="panel dashboard-stat" href="' . h($stat['href']) . '"><p class="metric">' . h((string)$stat['value']) . '</p><p class="muted">' . h($stat['label']) . '</p><span class="muted">Ver detalhes</span></a>';
+        }
+        echo '</section>';
 
         echo '<section class="grid cols-3">';
         foreach ([
@@ -1497,6 +1536,34 @@ if ($page === 'studio_finance') {
     exit;
 }
 
+if ($page === 'studio_people') {
+    $studio = require_studio();
+    render_studio_shell('Pessoas', 'Clientes e leads num unico lugar.', 'people', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $customers = studio_list_customers($studio);
+        $leads = studio_list_leads($studio);
+        $totalCustomers = count($customers);
+        $totalLeads = count($leads);
+        echo '<section class="grid cols-3">';
+        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_customers')) . '"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></a>';
+        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_leads')) . '"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads</p><span class="muted">Abrir funil</span></a>';
+        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
+        echo '</section>';
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        render_leads_table(array_slice($leads, 0, 12));
+        echo '</div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
+        render_customers_table(array_slice($customers, 0, 12));
+        echo '</div></section>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_quick_replies') {
     $studio = require_studio();
     render_studio_shell('Respostas rapidas', 'Textos prontos para atendimento e futura IA do WhatsApp.', 'quick_replies', function () use ($studio) {
@@ -1538,6 +1605,138 @@ if ($page === 'studio_reports') {
         echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['appointments_by_status'] ?? []))) . '</strong><small>Agendamentos</small></span>';
         echo '<span><strong>' . h((string)count($reports['expenses_by_category'] ?? [])) . '</strong><small>Grupos de despesa</small></span>';
         echo '</div></section>';
+        $pivotSource = (string)($_GET['pivot_source'] ?? 'leads');
+        $pivotRow = (string)($_GET['pivot_row'] ?? 'status');
+        $pivotCol = (string)($_GET['pivot_col'] ?? 'source');
+        $pivotMetric = (string)($_GET['pivot_metric'] ?? 'count');
+        $pivotDefinitions = [
+            'leads' => [
+                'label' => 'Leads',
+                'table' => 'leads',
+                'rows' => ['status' => 'Status', 'source' => 'Origem', 'pipeline_stage' => 'Etapa', 'attendance_mode' => 'Atendimento'],
+                'cols' => ['source' => 'Origem', 'status' => 'Status', 'pipeline_stage' => 'Etapa'],
+                'metrics' => ['count' => 'Qtd', 'estimated_value' => 'Valor estimado'],
+                'default_row' => 'status',
+                'default_col' => 'source',
+            ],
+            'appointments' => [
+                'label' => 'Agenda',
+                'table' => 'appointments',
+                'rows' => ['status' => 'Status', 'appointment_date' => 'Data', 'artist' => 'Tatuador'],
+                'cols' => ['artist' => 'Tatuador', 'status' => 'Status'],
+                'metrics' => ['count' => 'Qtd', 'value' => 'Valor'],
+                'default_row' => 'status',
+                'default_col' => 'artist',
+            ],
+            'expenses' => [
+                'label' => 'Despesas',
+                'table' => 'expenses',
+                'rows' => ['category' => 'Categoria', 'payment_method' => 'Pagamento', 'expense_date' => 'Data'],
+                'cols' => ['payment_method' => 'Pagamento', 'category' => 'Categoria'],
+                'metrics' => ['count' => 'Qtd', 'amount' => 'Valor'],
+                'default_row' => 'category',
+                'default_col' => 'payment_method',
+            ],
+        ];
+        $pivot = $pivotDefinitions[$pivotSource] ?? $pivotDefinitions['leads'];
+        $pivotRow = array_key_exists($pivotRow, $pivot['rows']) ? $pivotRow : $pivot['default_row'];
+        $pivotCol = array_key_exists($pivotCol, $pivot['cols']) ? $pivotCol : $pivot['default_col'];
+        $pivotMetric = array_key_exists($pivotMetric, $pivot['metrics']) ? $pivotMetric : 'count';
+        $pdo = studio_db($studio);
+        $selectRow = $pivotRow === 'artist' ? "COALESCE(ta.name, 'Sem tatuador')" : ($pivotRow === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotRow, 'Sem valor')");
+        $selectCol = $pivotCol === 'artist' ? "COALESCE(tb.name, 'Sem tatuador')" : ($pivotCol === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotCol, 'Sem valor')");
+        $metricSql = $pivotMetric === 'amount' || $pivotMetric === 'estimated_value' || $pivotMetric === 'value' ? "COALESCE(SUM(metric_value), 0)" : "COUNT(*)";
+        $whereSql = '1=1';
+        $joins = '';
+        $metricExpression = '1';
+        if ($pivotSource === 'leads') {
+            $fromSql = 'FROM leads a';
+            $metricExpression = $pivotMetric === 'estimated_value' ? 'COALESCE(a.estimated_value, 0)' : '1';
+        } elseif ($pivotSource === 'appointments') {
+            $fromSql = 'FROM appointments a LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id LEFT JOIN tattoo_artists tb ON tb.id = a.artist_id';
+            $metricExpression = $pivotMetric === 'value' ? 'COALESCE(a.value, 0)' : '1';
+        } else {
+            $fromSql = 'FROM expenses a';
+            $metricExpression = $pivotMetric === 'amount' ? 'COALESCE(a.amount, 0)' : '1';
+        }
+        $sql = "SELECT row_label, col_label, $metricSql AS total
+                FROM (
+                    SELECT $selectRow AS row_label, $selectCol AS col_label, $metricExpression AS metric_value
+                    $fromSql
+                    WHERE $whereSql
+                ) pivot_source
+                GROUP BY row_label, col_label
+                ORDER BY row_label, col_label";
+        $pivotRows = $pdo->query($sql)->fetchAll() ?: [];
+        $rowLabels = [];
+        $colLabels = [];
+        $grid = [];
+        foreach ($pivotRows as $row) {
+            $r = (string)($row['row_label'] ?? 'Sem valor');
+            $c = (string)($row['col_label'] ?? 'Sem valor');
+            $rowLabels[$r] = true;
+            $colLabels[$c] = true;
+            $grid[$r][$c] = (float)($row['total'] ?? 0);
+        }
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Tabela dinamica</h2><span class="badge">Pivot simples</span></div>';
+        echo '<form class="filter-bar" method="get">';
+        echo '<input type="hidden" name="page" value="studio_reports">';
+        echo '<select name="pivot_source">';
+        foreach ($pivotDefinitions as $key => $def) {
+            echo '<option value="' . h($key) . '" ' . ($pivotSource === $key ? 'selected' : '') . '>' . h($def['label']) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="pivot_row">';
+        foreach ($pivot['rows'] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($pivotRow === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="pivot_col">';
+        foreach ($pivot['cols'] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($pivotCol === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="pivot_metric">';
+        foreach ($pivot['metrics'] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($pivotMetric === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<button class="btn secondary" type="submit">Atualizar</button>';
+        echo '</form>';
+        if (!$grid) {
+            echo '<p class="muted">Sem dados suficientes para montar a tabela dinamica com esses filtros.</p>';
+        } else {
+            ksort($rowLabels);
+            ksort($colLabels);
+            echo '<div class="table-scroll"><table class="table"><thead><tr><th>' . h($pivot['rows'][$pivotRow]) . '</th>';
+            foreach (array_keys($colLabels) as $colLabel) {
+                echo '<th>' . h($colLabel) . '</th>';
+            }
+            echo '<th>Total</th></tr></thead><tbody>';
+            $grandTotal = 0;
+            foreach (array_keys($rowLabels) as $rowLabel) {
+                echo '<tr><td><strong>' . h($rowLabel) . '</strong></td>';
+                $rowTotal = 0;
+                foreach (array_keys($colLabels) as $colLabel) {
+                    $value = (float)($grid[$rowLabel][$colLabel] ?? 0);
+                    $rowTotal += $value;
+                    $grandTotal += $value;
+                    echo '<td>' . h($pivotMetric === 'count' ? (string)(int)$value : format_money($value)) . '</td>';
+                }
+                echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</strong></td></tr>';
+            }
+            echo '<tr><td><strong>Total</strong></td>';
+            foreach (array_keys($colLabels) as $colLabel) {
+                $colTotal = 0;
+                foreach (array_keys($rowLabels) as $rowLabel) {
+                    $colTotal += (float)($grid[$rowLabel][$colLabel] ?? 0);
+                }
+                echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$colTotal : format_money($colTotal)) . '</strong></td>';
+            }
+            echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$grandTotal : format_money($grandTotal)) . '</strong></td></tr>';
+            echo '</tbody></table></div>';
+        }
+        echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><h2>Leads por status</h2>';
         render_report_table($reports['leads_by_status'], 'status');
@@ -1638,6 +1837,24 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Tempo de atendimento (minutos)</label><input type="number" min="15" step="15" name="appointment_duration_minutes" value="' . h((string)($settings['appointment_duration_minutes'] ?? '300')) . '" placeholder="300"><small class="muted">Ex: 300 = 5 horas. O horario final sera calculado automaticamente.</small></div>';
         echo '</div></div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
+        echo '<section class="panel soft" style="margin-top:12px">';
+        echo '<div class="actions" style="justify-content:space-between"><h3 style="margin:0">Respostas rapidas</h3><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
+        $replies = studio_list_quick_replies($studio);
+        echo '<p class="muted">Esses textos prontos agora moram aqui tambem, junto das regras de operação do estudio.</p>';
+        echo '<div class="grid cols-2">';
+        echo '<form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_quick_reply">';
+        echo '<div class="field"><label>Titulo</label><input name="title" required></div>';
+        echo '<div class="field"><label>Atalho</label><input name="shortcut" placeholder="/atalho"></div>';
+        echo '<div class="field"><label>Categoria</label><input name="category" value="Geral"></div>';
+        echo '<div class="field"><label>Texto</label><textarea name="body" required placeholder="Mensagem pronta para usar no atendimento..."></textarea></div>';
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Resposta ativa</label>';
+        echo '<button class="btn" type="submit">Salvar resposta</button>';
+        echo '</form>';
+        echo '<div class="panel"><h3 style="margin-top:0">Biblioteca atual</h3>';
+        render_quick_replies_table(array_slice($replies, 0, 12));
+        echo '</div></div></section>';
         echo '<p class="muted">Resumo: use os toggles para controlar IA e WhatsApp. As regras de agenda acima passam a valer em todo o fluxo de agendamento e sugestao.</p>';
         echo '<div class="actions"><button class="btn" type="submit">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';
         echo '</form>';
