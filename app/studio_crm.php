@@ -2728,6 +2728,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
     $studioName = (string)($studio['name'] ?? 'Estudio');
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
+    $customerId = (int)($conversation['customer_id'] ?? 0);
+    $leadId = (int)($conversation['lead_id'] ?? 0);
+    $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
+    $leadData = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
     $latestMessages = implode("\n- ", array_slice($historyLines, -6));
     $availability = studio_schedule_available_slots($studio, 14);
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
@@ -2758,6 +2762,28 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', array_slice($bookedSlots, 0, 3)) : 'nenhum') . "\n"
             . "Regra: se vagas livres exatas estiverem vazias, responda apenas que esse dia esta lotado e mostre o proximo horario livre real.";
     }
+    $customerContextLines = [];
+    if ($customerId > 0) {
+        $customerContextLines[] = 'Cliente vinculado na base: sim (ID ' . $customerId . ')';
+        $customerContextLines[] = 'Resumo do historico deste cliente: ' . count($customerActivity['appointments']) . ' agendamentos, ' . count($customerActivity['leads']) . ' leads, ' . count($customerActivity['conversations']) . ' conversas.';
+        if (!empty($customerActivity['appointments'])) {
+            $customerContextLines[] = 'Ultimos agendamentos do cliente:';
+            foreach (array_slice($customerActivity['appointments'], 0, 3) as $appointment) {
+                $customerContextLines[] = '- ' . date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (($appointment['artist_name'] ?? '') ?: 'sem tatuador') . ' · ' . (($appointment['status'] ?? '') ?: 'sem status');
+            }
+        }
+    } else {
+        $customerContextLines[] = 'Cliente vinculado na base: nao.';
+    }
+    if (is_array($leadData) && !empty($leadData)) {
+        $customerContextLines[] = 'Lead associado: ' . (($leadData['name'] ?? '') ?: 'sem nome') . ' · status ' . (($leadData['status'] ?? 'novo') ?: 'novo') . ' · etapa ' . (($leadData['pipeline_stage'] ?? 'entrada') ?: 'entrada') . ' · nota ' . ((string)($leadData['lead_score'] ?? '-') ?: '-') . '/10';
+        if (!empty($leadData['interest'])) {
+            $customerContextLines[] = 'Interesse atual: ' . (string)$leadData['interest'];
+        }
+        if (!empty($leadData['estimated_value'])) {
+            $customerContextLines[] = 'Valor estimado atual: ' . format_money((float)$leadData['estimated_value']);
+        }
+    }
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
         . "Nome do estudio: " . $studioName . "\n"
@@ -2771,6 +2797,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
         . "Status comercial: " . trim((string)($conversation['lead_status'] ?? 'em_conversa')) . ' / ' . trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')) . "\n"
         . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
+        . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
         . "Ultima mensagem do cliente: " . trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '')) . "\n"
         . "Historico recente da conversa:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Regras de resposta:\n"
@@ -2788,6 +2815,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a data citada estiver lotada, diga apenas que o dia esta lotado e ofereca o proximo horario livre real.\n"
         . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
         . "- Nunca diga que existe vaga em uma data que tenha vagas livres exatas vazias no contexto.\n"
+        . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
+        . "- Quando responder sobre agendamento, se existir um proximo horario livre real, cite só ele.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"

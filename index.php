@@ -611,26 +611,7 @@ if ($page === 'studio_home') {
         $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
         $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
         $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
-        $waitingReplies = (int)($pdo->query(
-            "SELECT COUNT(*) FROM (
-                SELECT wm.conversation_id,
-                       SUM(CASE WHEN wm.direction = 'in' THEN 1 ELSE 0 END) AS in_count,
-                       SUM(CASE WHEN wm.direction = 'out' THEN 1 ELSE 0 END) AS out_count
-                FROM whatsapp_messages wm
-                GROUP BY wm.conversation_id
-                HAVING in_count > out_count
-            ) pending_threads"
-        )->fetchColumn());
         $focus = (string)($_GET['focus'] ?? '');
-        $focusUrls = [
-            'scheduled_month' => app_url('studio_home', ['focus' => 'scheduled_month']),
-            'available_slots' => app_url('studio_home', ['focus' => 'available_slots']),
-            'month_result' => app_url('studio_home', ['focus' => 'month_result']),
-            'customers' => app_url('studio_home', ['focus' => 'customers']),
-            'appointments' => app_url('studio_home', ['focus' => 'appointments']),
-            'whatsapp' => app_url('studio_home', ['focus' => 'whatsapp']),
-        ];
-        $availabilityCards = $availabilityCards ?? [];
         $homeDrilldowns = [
             'scheduled_month' => [
                 'title' => 'Agendado de hoje ate o fim do mes',

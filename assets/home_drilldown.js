@@ -134,9 +134,10 @@
     const items = Array.isArray(data.items) ? data.items : [];
     const filters = data.filters || {};
     const filterEntries = Object.entries(filters);
-    const totalValue = items.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
 
     const renderList = (periodLabel, rows) => {
+      const totalCount = rows.length;
+      const totalValue = rows.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
       const list = rows.map((item) => {
         const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
         const meta = [
@@ -152,8 +153,8 @@
         <div class="availability-toolbar">
           ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === 'month' ? '' : 'secondary'}" data-scheduled-filter="${esc(key)}">${esc(label)}</button>`).join('')}
           <div class="drilldown-toolbar-summary">
-            <strong>${esc(rows.length)} agendamentos</strong>
-            <span>${esc(money(rows.reduce((sum, item) => sum + (Number(item.value) || 0), 0)))}</span>
+            <strong>${esc(totalCount)} agendamentos</strong>
+            <span>${esc(money(totalValue))}</span>
             <small>${esc(periodLabel)}</small>
           </div>
         </div>
