@@ -1670,6 +1670,12 @@ if ($page === 'studio_reports') {
         $pivotRow = (string)($_GET['pivot_row'] ?? 'status');
         $pivotCol = (string)($_GET['pivot_col'] ?? 'source');
         $pivotMetric = (string)($_GET['pivot_metric'] ?? 'count');
+        $pivotPeriod = (string)($_GET['pivot_period'] ?? 'all');
+        $pivotSearch = trim((string)($_GET['pivot_search'] ?? ''));
+        $pivotSort = (string)($_GET['pivot_sort'] ?? 'alpha');
+        $pivotHideZeros = !empty($_GET['pivot_hide_zeros']);
+        $pivotTopRows = max(0, (int)($_GET['pivot_top_rows'] ?? 0));
+        $pivotTopCols = max(0, (int)($_GET['pivot_top_cols'] ?? 0));
         $pivotDefinitions = [
             'leads' => [
                 'label' => 'Leads',
@@ -1677,6 +1683,7 @@ if ($page === 'studio_reports') {
                 'rows' => ['status' => 'Status', 'source' => 'Origem', 'pipeline_stage' => 'Etapa', 'attendance_mode' => 'Atendimento'],
                 'cols' => ['source' => 'Origem', 'status' => 'Status', 'pipeline_stage' => 'Etapa'],
                 'metrics' => ['count' => 'Qtd', 'estimated_value' => 'Valor estimado'],
+                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'year' => 'Este ano'],
                 'default_row' => 'status',
                 'default_col' => 'source',
             ],
@@ -1686,6 +1693,7 @@ if ($page === 'studio_reports') {
                 'rows' => ['status' => 'Status', 'appointment_date' => 'Data', 'artist' => 'Tatuador'],
                 'cols' => ['artist' => 'Tatuador', 'status' => 'Status'],
                 'metrics' => ['count' => 'Qtd', 'value' => 'Valor'],
+                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'next30' => 'Proximos 30 dias'],
                 'default_row' => 'status',
                 'default_col' => 'artist',
             ],
@@ -1695,6 +1703,7 @@ if ($page === 'studio_reports') {
                 'rows' => ['category' => 'Categoria', 'payment_method' => 'Pagamento', 'expense_date' => 'Data'],
                 'cols' => ['payment_method' => 'Pagamento', 'category' => 'Categoria'],
                 'metrics' => ['count' => 'Qtd', 'amount' => 'Valor'],
+                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'year' => 'Este ano'],
                 'default_row' => 'category',
                 'default_col' => 'payment_method',
             ],
@@ -1703,11 +1712,48 @@ if ($page === 'studio_reports') {
         $pivotRow = array_key_exists($pivotRow, $pivot['rows']) ? $pivotRow : $pivot['default_row'];
         $pivotCol = array_key_exists($pivotCol, $pivot['cols']) ? $pivotCol : $pivot['default_col'];
         $pivotMetric = array_key_exists($pivotMetric, $pivot['metrics']) ? $pivotMetric : 'count';
+        $pivotPeriod = array_key_exists($pivotPeriod, $pivot['periods']) ? $pivotPeriod : 'all';
         $pdo = studio_db($studio);
         $selectRow = $pivotRow === 'artist' ? "COALESCE(ta.name, 'Sem tatuador')" : ($pivotRow === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotRow, 'Sem valor')");
         $selectCol = $pivotCol === 'artist' ? "COALESCE(tb.name, 'Sem tatuador')" : ($pivotCol === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotCol, 'Sem valor')");
         $metricSql = $pivotMetric === 'amount' || $pivotMetric === 'estimated_value' || $pivotMetric === 'value' ? "COALESCE(SUM(metric_value), 0)" : "COUNT(*)";
-        $whereSql = '1=1';
+        $whereParts = ['1=1'];
+        if ($pivotSearch !== '') {
+            $escapedSearch = str_replace("'", "''", $pivotSearch);
+            if ($pivotSource === 'leads') {
+                $whereParts[] = "(COALESCE(a.name,'') LIKE '%$escapedSearch%' OR COALESCE(a.phone,'') LIKE '%$escapedSearch%' OR COALESCE(a.source,'') LIKE '%$escapedSearch%' OR COALESCE(a.status,'') LIKE '%$escapedSearch%' OR COALESCE(a.pipeline_stage,'') LIKE '%$escapedSearch%' OR COALESCE(a.interest,'') LIKE '%$escapedSearch%')";
+            } elseif ($pivotSource === 'appointments') {
+                $whereParts[] = "(COALESCE(a.title,'') LIKE '%$escapedSearch%' OR COALESCE(a.status,'') LIKE '%$escapedSearch%' OR COALESCE(a.notes,'') LIKE '%$escapedSearch%' OR COALESCE(ta.name,'') LIKE '%$escapedSearch%' OR COALESCE(c.name,'') LIKE '%$escapedSearch%')";
+            } else {
+                $whereParts[] = "(COALESCE(a.description,'') LIKE '%$escapedSearch%' OR COALESCE(a.category,'') LIKE '%$escapedSearch%' OR COALESCE(a.payment_method,'') LIKE '%$escapedSearch%' OR COALESCE(a.notes,'') LIKE '%$escapedSearch%')";
+            }
+        }
+        if ($pivotSource === 'leads') {
+            if ($pivotPeriod === 'month') {
+                $whereParts[] = "DATE(COALESCE(a.created_at, a.updated_at)) BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
+            } elseif ($pivotPeriod === 'last30') {
+                $whereParts[] = "DATE(COALESCE(a.created_at, a.updated_at)) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+            } elseif ($pivotPeriod === 'year') {
+                $whereParts[] = "YEAR(COALESCE(a.created_at, a.updated_at)) = YEAR(CURDATE())";
+            }
+        } elseif ($pivotSource === 'appointments') {
+            if ($pivotPeriod === 'month') {
+                $whereParts[] = "a.appointment_date BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
+            } elseif ($pivotPeriod === 'last30') {
+                $whereParts[] = "a.appointment_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+            } elseif ($pivotPeriod === 'next30') {
+                $whereParts[] = "a.appointment_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
+            }
+        } else {
+            if ($pivotPeriod === 'month') {
+                $whereParts[] = "a.expense_date BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
+            } elseif ($pivotPeriod === 'last30') {
+                $whereParts[] = "a.expense_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+            } elseif ($pivotPeriod === 'year') {
+                $whereParts[] = "YEAR(a.expense_date) = YEAR(CURDATE())";
+            }
+        }
+        $whereSql = implode(' AND ', $whereParts);
         $joins = '';
         $metricExpression = '1';
         if ($pivotSource === 'leads') {
@@ -1739,9 +1785,51 @@ if ($page === 'studio_reports') {
             $colLabels[$c] = true;
             $grid[$r][$c] = (float)($row['total'] ?? 0);
         }
+        $rowTotals = [];
+        $colTotals = [];
+        foreach ($grid as $rowLabel => $cols) {
+            foreach ($cols as $colLabel => $value) {
+                $rowTotals[$rowLabel] = ($rowTotals[$rowLabel] ?? 0) + $value;
+                $colTotals[$colLabel] = ($colTotals[$colLabel] ?? 0) + $value;
+            }
+        }
+        if ($pivotHideZeros) {
+            foreach ($grid as $rowLabel => $cols) {
+                foreach ($cols as $colLabel => $value) {
+                    if ((float)$value === 0.0) {
+                        unset($grid[$rowLabel][$colLabel]);
+                    }
+                }
+                if (!isset($rowTotals[$rowLabel]) || (float)$rowTotals[$rowLabel] === 0.0) {
+                    unset($grid[$rowLabel], $rowTotals[$rowLabel]);
+                }
+            }
+            foreach ($colTotals as $colLabel => $total) {
+                if ((float)$total === 0.0) {
+                    unset($colTotals[$colLabel]);
+                }
+            }
+        }
+        if ($pivotSort === 'total_desc') {
+            arsort($rowTotals);
+            arsort($colTotals);
+        } elseif ($pivotSort === 'total_asc') {
+            asort($rowTotals);
+            asort($colTotals);
+        } else {
+            ksort($rowTotals);
+            ksort($colTotals);
+        }
+        if ($pivotTopRows > 0) {
+            $rowTotals = array_slice($rowTotals, 0, $pivotTopRows, true);
+        }
+        if ($pivotTopCols > 0) {
+            $colTotals = array_slice($colTotals, 0, $pivotTopCols, true);
+        }
         $buildPivotLink = static function (string $source, string $rowKey, string $rowLabel, string $colKey, string $colLabel) use ($pivotMetric): string {
-            $params = ['page' => 'studio_leads'];
+            $params = ['page' => 'studio_reports'];
             if ($source === 'leads') {
+                $params = ['page' => 'studio_leads'];
                 if ($rowKey === 'status') $params['status'] = $rowLabel;
                 if ($rowKey === 'source') $params['source'] = $rowLabel;
                 if ($rowKey === 'pipeline_stage') $params['q'] = $rowLabel;
@@ -1787,20 +1875,30 @@ if ($page === 'studio_reports') {
             echo '<option value="' . h($key) . '" ' . ($pivotMetric === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
         echo '</select>';
+        echo '<select name="pivot_period">';
+        foreach ($pivot['periods'] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($pivotPeriod === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<input name="pivot_search" value="' . h($pivotSearch) . '" placeholder="Buscar na pivot">';
+        echo '<select name="pivot_sort"><option value="alpha" ' . ($pivotSort === 'alpha' ? 'selected' : '') . '>Ordem alfabetica</option><option value="total_desc" ' . ($pivotSort === 'total_desc' ? 'selected' : '') . '>Maior total primeiro</option><option value="total_asc" ' . ($pivotSort === 'total_asc' ? 'selected' : '') . '>Menor total primeiro</option></select>';
+        echo '<input type="number" min="0" name="pivot_top_rows" value="' . h((string)$pivotTopRows) . '" placeholder="Top linhas">';
+        echo '<input type="number" min="0" name="pivot_top_cols" value="' . h((string)$pivotTopCols) . '" placeholder="Top colunas">';
+        echo '<label class="checkline" style="margin:0"><input type="checkbox" name="pivot_hide_zeros" value="1" ' . ($pivotHideZeros ? 'checked' : '') . '> Esconder zeros</label>';
         echo '<button class="btn secondary" type="submit">Atualizar</button>';
         echo '</form>';
         if (!$grid) {
             echo '<p class="muted">Sem dados suficientes para montar a tabela dinamica com esses filtros.</p>';
         } else {
-            ksort($rowLabels);
-            ksort($colLabels);
+            $rowLabels = array_fill_keys(array_keys($rowTotals), true);
+            $colLabels = array_fill_keys(array_keys($colTotals), true);
             echo '<div class="table-scroll"><table class="table"><thead><tr><th>' . h($pivot['rows'][$pivotRow]) . '</th>';
             foreach (array_keys($colLabels) as $colLabel) {
                 echo '<th>' . h($colLabel) . '</th>';
             }
             echo '<th>Total</th></tr></thead><tbody>';
             $grandTotal = 0;
-            foreach (array_keys($rowLabels) as $rowLabel) {
+            foreach (array_keys($rowTotals) as $rowLabel) {
                 $rowUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, '');
                 echo '<tr><td><a href="' . h($rowUrl) . '"><strong>' . h($rowLabel) . '</strong></a></td>';
                 $rowTotal = 0;
@@ -1816,10 +1914,7 @@ if ($page === 'studio_reports') {
             }
             echo '<tr><td><strong>Total</strong></td>';
             foreach (array_keys($colLabels) as $colLabel) {
-                $colTotal = 0;
-                foreach (array_keys($rowLabels) as $rowLabel) {
-                    $colTotal += (float)($grid[$rowLabel][$colLabel] ?? 0);
-                }
+                $colTotal = (float)($colTotals[$colLabel] ?? 0);
                 echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$colTotal : format_money($colTotal)) . '</strong></td>';
             }
             echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$grandTotal : format_money($grandTotal)) . '</strong></td></tr>';
