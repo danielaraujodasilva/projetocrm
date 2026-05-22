@@ -2376,6 +2376,7 @@ function studio_save_lead(array $studio, array $data): int
 function studio_save_appointment(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
+    studio_ensure_appointment_reference_columns($studio);
     $id = (int)($data['id'] ?? 0);
     $leadId = (int)($data['lead_id'] ?? 0);
     $customerId = (int)($data['customer_id'] ?? 0);
@@ -2399,29 +2400,107 @@ function studio_save_appointment(array $studio, array $data): int
     if ($values[7] === '') {
         $values[7] = null;
     }
+    $attachment = studio_prepare_appointment_reference($studio, $_FILES ?? []);
 
     if ($id > 0) {
         $stmt = $pdo->prepare(
             'UPDATE appointments
-             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, updated_at = NOW()
+             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, reference_image_path = ?, reference_image_name = ?, reference_image_mime = ?, updated_at = NOW()
              WHERE id = ?'
         );
-        $stmt->execute([...$values, $id]);
+        $stmt->execute([
+            ...$values,
+            $attachment['relativePath'] ?: null,
+            $attachment['fileName'] ?: null,
+            $attachment['mime'] ?: null,
+            $id
+        ]);
         studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
         return $id;
     }
 
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
-            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
-    $stmt->execute($values);
+    $stmt->execute([
+        ...$values,
+        $attachment['relativePath'] ?: null,
+        $attachment['fileName'] ?: null,
+        $attachment['mime'] ?: null,
+    ]);
 
     $appointmentId = (int)$pdo->lastInsertId();
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
 
     return $appointmentId;
+}
+
+function studio_ensure_appointment_reference_columns(array $studio): void
+{
+    $pdo = studio_db($studio);
+    $columns = [
+        'reference_image_path' => 'VARCHAR(255) NULL AFTER deposit_value',
+        'reference_image_name' => 'VARCHAR(180) NULL AFTER reference_image_path',
+        'reference_image_mime' => 'VARCHAR(120) NULL AFTER reference_image_name',
+    ];
+    foreach ($columns as $column => $definition) {
+        try {
+            $pdo->exec('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
+        } catch (Throwable) {
+        }
+    }
+}
+
+function studio_appointment_attachment_dir(array $studio): array
+{
+    $root = realpath(__DIR__ . '/../');
+    if (!$root) {
+        throw new RuntimeException('Nao consegui localizar o diretório do projeto.');
+    }
+    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
+    $folder = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'appointment-references' . DIRECTORY_SEPARATOR . $safeStudio;
+    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
+        throw new RuntimeException('Nao foi possivel criar a pasta de referencias.');
+    }
+    return [
+        'folder' => $folder,
+        'relativePrefix' => 'storage/appointment-references/' . $safeStudio . '/',
+    ];
+}
+
+function studio_prepare_appointment_reference(array $studio, array $files): array
+{
+    $file = $files['reference_image'] ?? null;
+    if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        return ['relativePath' => '', 'mime' => '', 'fileName' => ''];
+    }
+    if (!empty($file['error'])) {
+        throw new RuntimeException('Nao foi possivel ler a imagem de referencia.');
+    }
+    $mime = trim((string)($file['type'] ?? ''));
+    if ($mime === '' && function_exists('mime_content_type')) {
+        $mime = (string)@mime_content_type($file['tmp_name']);
+    }
+    if ($mime !== '' && !str_starts_with($mime, 'image/')) {
+        throw new RuntimeException('A referencia precisa ser uma imagem.');
+    }
+    $mime = $mime !== '' ? $mime : 'image/jpeg';
+    $fileName = trim((string)($file['name'] ?? 'referencia.jpg')) ?: 'referencia.jpg';
+    $ext = strtolower((string)pathinfo($fileName, PATHINFO_EXTENSION)) ?: studio_whatsapp_extension_for_mime($mime, $fileName);
+    $storage = studio_appointment_attachment_dir($studio);
+    $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', pathinfo($fileName, PATHINFO_FILENAME)) ?: 'referencia';
+    $storedName = date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_' . $base . ($ext !== '' ? '.' . $ext : '');
+    $dest = $storage['folder'] . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file($file['tmp_name'], $dest)) {
+        throw new RuntimeException('Nao foi possivel salvar a referencia.');
+    }
+    return [
+        'relativePath' => $storage['relativePrefix'] . $storedName,
+        'mime' => $mime,
+        'fileName' => $fileName,
+    ];
 }
 
 function studio_import_calendar_ics(array $studio, string $icsPath): array

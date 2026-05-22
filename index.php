@@ -1161,6 +1161,42 @@ if ($page === 'studio_whatsapp_conversation') {
         $artists = studio_list_artists($studio);
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
         $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
+        $availabilityStart = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $availabilityEnd = $availabilityStart->modify('+6 days');
+        $availabilityAppointments = studio_calendar_appointments($studio, $availabilityStart->format('Y-m-d'), $availabilityEnd->format('Y-m-d'));
+        $appointmentsByDay = [];
+        foreach ($availabilityAppointments as $appointment) {
+            $appointmentsByDay[(string)$appointment['appointment_date']][] = $appointment;
+        }
+        $availabilityCards = [];
+        $slotCandidates = ['10:00', '11:30', '14:00', '16:00', '18:00'];
+        for ($offset = 0; $offset < 7; $offset++) {
+            $day = $availabilityStart->modify('+' . $offset . ' days');
+            $dateKey = $day->format('Y-m-d');
+            $busy = count($appointmentsByDay[$dateKey] ?? []);
+            $suggestedSlot = '';
+            foreach ($slotCandidates as $slot) {
+                $taken = false;
+                foreach ($appointmentsByDay[$dateKey] ?? [] as $appointment) {
+                    $startTime = substr((string)$appointment['start_time'], 0, 5);
+                    if ($startTime === $slot) {
+                        $taken = true;
+                        break;
+                    }
+                }
+                if (!$taken) {
+                    $suggestedSlot = $slot;
+                    break;
+                }
+            }
+            $availabilityCards[] = [
+                'date' => $day->format('Y-m-d'),
+                'label' => $day->format('D d/m'),
+                'busy' => $busy,
+                'free' => max(0, count($slotCandidates) - $busy),
+                'slot' => $suggestedSlot,
+            ];
+        }
 
         echo '<section class="conversation-layout">';
         echo '<div class="panel conversation-main">';
@@ -1251,11 +1287,12 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div id="appointmentModal" class="crm-modal hidden">';
         echo '<div class="crm-modal-panel" style="max-width:min(96vw,860px)">';
         echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Agendar atendimento</h3></div><button type="button" id="closeAppointmentModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
-        echo '<form class="form action-card compact-action" method="post" style="padding:18px">';
+        echo '<form class="form action-card compact-action" method="post" enctype="multipart/form-data" style="padding:18px">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
         echo '<h3>Criar agendamento</h3>';
-        echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div><div class="field"><label>Imagem de referencia</label><input id="appointmentReferenceInput" type="file" name="reference_image" accept="image/*" hidden><button class="btn secondary" type="button" id="appointmentReferenceButton">Anexar referencia</button></div></div>';
+        echo '<div id="appointmentReferencePreview" class="chat-attachment-preview hidden"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
         render_artist_options($artists);
         echo '</select></div><div class="field"><label>Status</label><select name="status">';
@@ -1264,6 +1301,17 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time"></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="value" value="' . h((string)($conversation['lead_estimated_value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
         echo '<div class="field"><label>Descricao</label><textarea name="description">' . h($conversation['last_message_preview'] ?? '') . '</textarea></div>';
+        echo '<div class="panel" style="padding:12px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Disponibilidade rapida</h3><span class="muted">Clique num dia e horario</span></div>';
+        echo '<div class="availability-strip">';
+        foreach ($availabilityCards as $card) {
+            echo '<button type="button" class="availability-card" data-appointment-date="' . h($card['date']) . '" data-appointment-time="' . h($card['slot'] ?: '10:00') . '">';
+            echo '<strong>' . h($card['label']) . '</strong>';
+            echo '<span>' . h((string)$card['busy']) . ' ocupados</span>';
+            echo '<small>' . h($card['slot'] ? 'Livre: ' . $card['slot'] : 'Sem slot livre rapido') . '</small>';
+            echo '</button>';
+        }
+        echo '</div></div>';
         echo '<button class="btn secondary" type="submit">Criar horario</button>';
         echo '</form></div></div>';
 
@@ -1314,6 +1362,10 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'const appointmentModal = document.getElementById("appointmentModal"); const openAppointmentModalButton = document.getElementById("openAppointmentModalButton"); const closeAppointmentModal = document.getElementById("closeAppointmentModal");';
         echo 'if (openAppointmentModalButton && appointmentModal) { openAppointmentModalButton.addEventListener("click", () => appointmentModal.classList.remove("hidden")); }';
         echo 'if (closeAppointmentModal && appointmentModal) { closeAppointmentModal.addEventListener("click", () => appointmentModal.classList.add("hidden")); appointmentModal.addEventListener("click", event => { if (event.target === appointmentModal) appointmentModal.classList.add("hidden"); }); }';
+        echo 'const appointmentReferenceInput = document.getElementById("appointmentReferenceInput"); const appointmentReferenceButton = document.getElementById("appointmentReferenceButton"); const appointmentReferencePreview = document.getElementById("appointmentReferencePreview");';
+        echo 'if (appointmentReferenceButton && appointmentReferenceInput) { appointmentReferenceButton.addEventListener("click", () => appointmentReferenceInput.click()); }';
+        echo 'if (appointmentReferenceInput && appointmentReferencePreview) { appointmentReferenceInput.addEventListener("change", () => { const file = appointmentReferenceInput.files && appointmentReferenceInput.files[0]; if (!file) { appointmentReferencePreview.classList.add("hidden"); appointmentReferencePreview.innerHTML = ""; return; } const url = URL.createObjectURL(file); appointmentReferencePreview.classList.remove("hidden"); appointmentReferencePreview.innerHTML = `<div class="flex items-center gap-3 flex-wrap"><img src="${url}" style="max-width:160px;max-height:120px;border-radius:8px"><div><strong>${file.name}</strong><div class="muted text-sm">${file.type || "imagem"}</div></div><button type="button" class="btn tiny secondary" id="clearAppointmentReferenceBtn">Remover</button></div>`; const clearBtn = document.getElementById("clearAppointmentReferenceBtn"); if (clearBtn) clearBtn.addEventListener("click", () => { appointmentReferenceInput.value = ""; appointmentReferencePreview.classList.add("hidden"); appointmentReferencePreview.innerHTML = ""; }); }); }';
+        echo 'document.querySelectorAll("[data-appointment-date]").forEach(button => button.addEventListener("click", () => { const dateInput = document.querySelector(\'[name="appointment_date"]\'); const timeInput = document.querySelector(\'[name="start_time"]\'); if (dateInput) dateInput.value = button.dataset.appointmentDate || dateInput.value; if (timeInput) timeInput.value = button.dataset.appointmentTime || timeInput.value; }));';
         echo 'async function postConversationUpdate(payload, errorMessage){ const body = new URLSearchParams({ csrf_token: csrfToken, conversation_id: String(conversationId), ...payload }); const response = await fetch(window.location.pathname + window.location.search, { method: "POST", headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/plain, */*" }, body }); const text = await response.text(); if (!response.ok) { throw new Error(text.trim() || errorMessage); } return text; }';
         echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button => button.addEventListener("click", async () => { try { const payload = { action: "update_whatsapp_profile", attendance_mode: button.dataset.modeToggle === "bot" ? "bot" : "human", needs_human: button.dataset.modeToggle === "bot" ? 0 : 1 }; await postConversationUpdate(payload, "Nao foi possivel atualizar o atendimento."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o atendimento."); } }));';
         echo 'document.querySelectorAll("[data-status-set]").forEach(button => button.addEventListener("click", async () => { try { const payload = { action: "update_whatsapp_profile", status: button.dataset.statusSet || "novo", create_lead: 1 }; await postConversationUpdate(payload, "Nao foi possivel atualizar o status."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o status."); } }));';

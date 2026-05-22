@@ -886,6 +886,47 @@ textarea {
     align-items: center;
 }
 
+.chat-attachment-preview {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.chat-attachment-preview.hidden {
+    display: none;
+}
+
+.availability-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.availability-card {
+    display: grid;
+    gap: 4px;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.availability-card strong {
+    font-size: 14px;
+}
+
+.availability-card span,
+.availability-card small {
+    display: block;
+    color: var(--muted);
+    line-height: 1.2;
+}
+
 .send-box {
     background: #f7fdf8;
     border: 1px solid var(--line);
