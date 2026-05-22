@@ -234,7 +234,7 @@ async function postWebhook(session, payload) {
     ...payload
   };
   try {
-    const response = await axios.post(session.webhookUrl, body, { timeout: 60000 });
+    const response = await axios.post(session.webhookUrl, body, { timeout: 120000 });
     return response.data;
   } catch (error) {
     console.error(`[${session.key}] Falha ao chamar webhook:`, error.message);

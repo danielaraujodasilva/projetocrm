@@ -592,16 +592,29 @@ function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, arra
         return ['ok' => false, 'error' => 'Worker de IA nao encontrado.'];
     }
 
-    $args = [
-        studio_windows_cmd_arg($worker),
-        studio_windows_cmd_arg($sessionKey),
-        studio_windows_cmd_arg((string)((int)$conversation['id'])),
-        studio_windows_cmd_arg(trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? ''))),
+    $logFile = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'services' . DIRECTORY_SEPARATOR . 'whatsapp' . DIRECTORY_SEPARATOR . 'whatsapp_service.log';
+    $launcher = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'projetocrm_ai_worker_' . uniqid() . '.cmd';
+    $lines = [
+        '@echo off',
+        'cd /d "' . str_replace('"', '', dirname($worker)) . '"',
+        'echo [%date% %time%] [ai-worker-launcher] start >> "' . str_replace('"', '', $logFile) . '"',
+        '"' . str_replace('"', '', $php) . '" "' . str_replace('"', '', $worker) . '" "' . str_replace('"', '', $sessionKey) . '" "' . (string)((int)$conversation['id']) . '" "' . str_replace('"', '', trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? ''))) . '" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
     ];
-    $command = 'Start-Process -WindowStyle Hidden -FilePath ' . studio_windows_cmd_arg($php)
-        . ' -WorkingDirectory ' . studio_windows_cmd_arg(dirname($worker))
-        . ' -ArgumentList @(' . implode(',', $args) . ')';
-    studio_windows_start_process($command);
+    if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
+        return ['ok' => false, 'error' => 'Nao consegui preparar o worker de IA.'];
+    }
+
+    $command = 'cmd /c start "" /B ' . studio_windows_cmd_arg($launcher) . ' > NUL 2>&1';
+    if (function_exists('shell_exec')) {
+        @shell_exec($command);
+    } elseif (function_exists('popen')) {
+        $handle = @popen($command, 'r');
+        if (is_resource($handle)) {
+            @pclose($handle);
+        }
+    } else {
+        return ['ok' => false, 'error' => 'PHP nao consegue disparar o worker da IA neste servidor.'];
+    }
 
     return ['ok' => true, 'queued' => true];
 }
@@ -2105,7 +2118,11 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
 
     if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
         try {
-            studio_queue_whatsapp_ai_reply($studio, $conversation, [
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'ai_last_status' => 'Analisando com IA...',
+            ]);
+            $aiResult = studio_whatsapp_ai_reply($studio, $conversation, [
                 'body' => $body,
                 'mensagem' => $body,
                 'from_me' => $fromMe,
@@ -2113,6 +2130,12 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
                 'message_type' => $messageType,
                 'message_id' => $messageId,
             ]);
+            if (empty($aiResult['ok'])) {
+                studio_update_whatsapp_conversation($studio, [
+                    'conversation_id' => (int)$conversation['id'],
+                    'ai_last_status' => 'IA sem resposta: ' . mb_substr((string)($aiResult['error'] ?? 'erro'), 0, 120),
+                ]);
+            }
         } catch (Throwable $e) {
             studio_update_whatsapp_conversation($studio, [
                 'conversation_id' => (int)$conversation['id'],
@@ -2365,8 +2388,8 @@ function studio_openai_config(array $studio): array
         $provider = 'ollama';
     }
     $apiKey = trim((string)($settings['openai_api_key'] ?? getenv('OPENAI_API_KEY') ?: ''));
-    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'qwen3:4b'));
-    $model = $model !== '' ? $model : 'qwen3:4b';
+    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'llama3.2:3b'));
+    $model = $model !== '' ? $model : 'llama3.2:3b';
     $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
     if ($provider === 'ollama') {
         $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'http://localhost:11434/v1';
@@ -2509,7 +2532,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
-         LIMIT 12'
+         LIMIT 6'
     );
     $stmt->execute([(int)$conversation['id']]);
     $history = array_reverse($stmt->fetchAll() ?: []);
