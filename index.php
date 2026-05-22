@@ -663,18 +663,36 @@ if ($page === 'studio_home') {
                 'title' => 'Vagas livres na agenda',
                 'summary' => 'Dias uteis restantes: ' . $remainingWorkDays . ' | slots por dia: ' . $slotCount . ' | vagas livres estimadas: ' . $availableSlots,
                 'type' => 'availability',
-                'items' => array_map(static function (array $card): array {
-                    return [
-                        'date' => $card['date'] ?? '',
-                        'label' => $card['label'] ?? '',
-                        'allowed' => !empty($card['allowed']),
-                        'busy' => (int)($card['busy'] ?? 0),
-                        'free' => (int)($card['free'] ?? 0),
-                        'slot' => $card['slot'] ?? '',
-                        'free_slots' => array_values(array_filter(array_map('strval', $card['free_slots'] ?? []))),
-                        'booked' => array_values($card['booked'] ?? []),
+                'default_range' => '7d',
+                'ranges' => (static function (array $cardsByRange): array {
+                    $rangeLabels = [
+                        '3d' => '3 dias',
+                        '7d' => '7 dias',
+                        '15d' => '15 dias',
+                        'month' => 'Este mes',
+                        'next_month' => 'Mes que vem',
                     ];
-                }, $availabilityCards),
+                    $ranges = [];
+                    foreach ($cardsByRange as $rangeKey => $cards) {
+                        $ranges[$rangeKey] = [
+                            'key' => $rangeKey,
+                            'label' => $rangeLabels[$rangeKey] ?? $rangeKey,
+                            'items' => array_map(static function (array $card): array {
+                                return [
+                                    'date' => $card['date'] ?? '',
+                                    'label' => $card['label'] ?? '',
+                                    'allowed' => !empty($card['allowed']),
+                                    'busy' => (int)($card['busy'] ?? 0),
+                                    'free' => (int)($card['free'] ?? 0),
+                                    'slot' => $card['slot'] ?? '',
+                                    'free_slots' => array_values(array_filter(array_map('strval', $card['free_slots'] ?? []))),
+                                    'booked' => array_values($card['booked'] ?? []),
+                                ];
+                            }, $cards),
+                        ];
+                    }
+                    return $ranges;
+                })($availabilityCardsByRange),
             ],
             'month_result' => [
                 'title' => 'Resultado simples do mes',
@@ -751,7 +769,7 @@ if ($page === 'studio_home') {
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
         echo '<script>(function(){';
         echo 'window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
-        echo 'window.openHomeDrilldown = function(key){const modal=document.getElementById("homeDrilldownModal");const title=document.getElementById("homeDrilldownTitle");const summary=document.getElementById("homeDrilldownSummary");const body=document.getElementById("homeDrilldownBody");const data=(window.homeDrilldowns||{})[key];if(!modal||!title||!summary||!body||!data)return false;const esc=(v)=>String(v??"").replace(/[&<>"\x27]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[c]||c));title.textContent=data.title||"Detalhe rapido";summary.textContent=data.summary||"";const renderCard=(href,titleLine,metaLine,detailLine)=>`<a class="drilldown-card" ${href ? `href="${esc(href)}"` : ""}>${titleLine?`<strong>${esc(titleLine)}</strong>`:""}${metaLine?`<div class="meta-line">${metaLine}</div>`:""}${detailLine?`<div class="muted">${esc(detailLine)}</div>`:""}</a>`;const renderMetric=(item)=>`<button type="button" class="drilldown-card drilldown-card-button" data-drill-item="${esc(item.id || item.label || item.value || "")}"><strong>${esc(item.value)}</strong><div class="muted">${esc(item.label)}</div>${item.detail ? `<div class=\"muted drilldown-card-more\">${esc(item.detail)}</div>` : ""}</button>`;if(data.type==="availability"){body.innerHTML=`<div class="drilldown-grid">${(data.items||[]).map(item=>`<details class="drilldown-card drilldown-details" open><summary><strong>${esc(item.label)}</strong><span class="muted">${esc(item.allowed ? `${item.free} vagas livres` : "Fora dos dias permitidos")}</span></summary><div class="drilldown-detail-list">${(item.free_slots||[]).length ? `<div><span class="muted">Horarios livres</span><div class="drilldown-chip-row">${(item.free_slots||[]).map(slot=>`<button type="button" class="drilldown-chip" data-availability-date="${esc(item.date)}" data-availability-time="${esc(slot)}">${esc(slot)}</button>`).join("")}</div></div>` : `<p class="muted">Sem horario livre rapido nesse dia.</p>`}${(item.booked||[]).length ? `<div style="margin-top:10px"><span class="muted">Ocupados</span><div class="drilldown-chip-row">${(item.booked||[]).map(appt=>`<button type="button" class="drilldown-chip secondary" data-appointment-id="${esc(appt.id || 0)}" data-appointment-date="${esc(item.date)}">${esc(appt.time)}${appt.customer_name ? ` • ${esc(appt.customer_name)}` : ""}</button>`).join("")}</div></div>` : ""}</div></details>`).join("")}</div><p class="muted" style="margin-top:12px">Toque num dia, num horario livre ou num ocupado para navegar direto.</p>`;}else if(data.type==="finance"){body.innerHTML=`<div class="drilldown-grid">${(data.items||[]).map(renderMetric).join("")}</div>`;}else if(data.type==="appointments"){body.innerHTML=`<div class="drilldown-grid">${(data.items||[]).map(item=>renderCard(item.id ? "index.php?page=studio_agenda&date=" + (item.appointment_date || "") + "&appointment_id=" + item.id + "#appointment-form" : "", item.customer_name || item.display_name || item.title || "Agendamento", `<span>${esc(item.appointment_date || item.last_message_at || "-")}</span><span>${esc(item.start_time ? item.start_time.slice(0,5) : "")}</span>`, item.description || item.last_message_preview || item.title || "-")).join("")}</div>`;}else if(data.type==="whatsapp"){body.innerHTML=`<div class="drilldown-grid">${(data.items||[]).map(item=>renderCard("index.php?page=studio_whatsapp_conversation&id=" + esc(item.id), item.display_name || item.phone || "Contato", `<span>${esc(item.last_message_at || "-")}</span><span>${esc(item.attendance_mode || "-")}</span>`, item.last_message_preview || "-")).join("")}</div>`;}else if(data.type==="table"){body.innerHTML=`<div class="drilldown-grid">${(data.items||[]).map(item=>{const titleText=(item.name || item.title || item.customer_name || item.display_name || item.phone || "Item");const meta=[];if(item.status) meta.push(`<span>${esc(item.status)}</span>`);if(item.phone) meta.push(`<span>${esc(item.phone)}</span>`);if(item.last_message_at) meta.push(`<span>${esc(item.last_message_at)}</span>`);if(item.value) meta.push(`<span>${esc(item.value)}</span>`);return renderCard("", titleText, meta.join(""), item.description || item.last_message_preview || item.interest || "");}).join("")}</div>`;}else{body.innerHTML=`<div class="drilldown-card">${esc(data.summary || "")}</div>`;}modal.classList.remove("hidden");return false;};';
+        echo 'window.openHomeDrilldown = function(key){const modal=document.getElementById("homeDrilldownModal");const title=document.getElementById("homeDrilldownTitle");const summary=document.getElementById("homeDrilldownSummary");const body=document.getElementById("homeDrilldownBody");const data=(window.homeDrilldowns||{})[key];if(!modal||!title||!summary||!body||!data)return false;const esc=(v)=>String(v??"").replace(/[&<>"\x27]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[c]||c));title.textContent=data.title||"Detalhe rapido";summary.textContent=data.summary||"";const renderCard=(href,titleLine,metaLine,detailLine)=>`<a class="drilldown-card" ${href ? `href="${esc(href)}"` : ""}>${titleLine?`<strong>${esc(titleLine)}</strong>`:""}${metaLine?`<div class="meta-line">${metaLine}</div>`:""}${detailLine?`<div class="muted">${esc(detailLine)}</div>`:""}</a>`;const renderMetric=(item)=>`<button type="button" class="drilldown-card drilldown-card-button" data-drill-item="${esc(item.id || item.label || item.value || "")}"><strong>${esc(item.value)}</strong><div class="muted">${esc(item.label)}</div>${item.detail ? `<div class=\"muted drilldown-card-more\">${esc(item.detail)}</div>` : ""}</button>`;if(data.type==="availability"){const rangeEntries=Object.entries(data.ranges || {}).map(([key, value])=>({key, ...(value || {})}));const rangeLabels={\"3d\":\"3 dias\",\"7d\":\"7 dias\",\"15d\":\"15 dias\",\"month\":\"Este mes\",\"next_month\":\"Mes que vem\"};const normalizeRange=(value)=>{const raw=String(value||\"7d\");return rangeEntries.some(r=>String(r.key||\"\")===raw)?raw:(rangeEntries[0]?.key||\"7d\");};const renderAvailability=(rangeKey)=>{const range=(rangeEntries.find(r=>String(r.key||\"\")===rangeKey)||rangeEntries[0]||{items:[]});const items=Array.isArray(range.items)?range.items:[];return `<div class=\"availability-toolbar\"><label class=\"field\" style=\"max-width:240px\"><span class=\"muted\">Período</span><select id=\"availabilityRangeSelect\">${rangeEntries.map(r=>`<option value=\"${esc(r.key)}\">${esc(r.label || rangeLabels[r.key] || r.key)}</option>`).join(\"\")}</select></label><p class=\"muted\">Mostrando ${esc(rangeLabels[rangeKey]||range.label||rangeKey)}. Toque num dia ou horario para navegar direto.</p></div><div class=\"drilldown-grid availability-grid\">${items.length ? items.map(item=>`<details class=\"drilldown-card drilldown-details\" open><summary><strong>${esc(item.label)}</strong><span class=\"muted\">${esc(item.allowed ? `${item.free} vagas livres` : \"Fora dos dias permitidos\")}</span></summary><div class=\"drilldown-detail-list\"><div><span class=\"muted\">Horarios livres</span>${(item.free_slots||[]).length ? `<div class=\"drilldown-chip-row\">${(item.free_slots||[]).map(slot=>`<button type=\"button\" class=\"drilldown-chip\" data-availability-date=\"${esc(item.date)}\" data-availability-time=\"${esc(slot)}\">${esc(slot)}</button>`).join(\"\")}</div>` : `<p class=\"muted\">Sem horarios livres nesse dia.</p>`}</div>${(item.booked||[]).length ? `<div style=\"margin-top:10px\"><span class=\"muted\">Ocupados</span><div class=\"drilldown-chip-row\">${(item.booked||[]).map(appt=>`<button type=\"button\" class=\"drilldown-chip secondary\" data-appointment-id=\"${esc(appt.id || 0)}\" data-appointment-date=\"${esc(item.date)}\">${esc(appt.time)}${appt.customer_name ? ` • ${esc(appt.customer_name)}` : \"\"}</button>`).join(\"\")}</div></div>` : \"\"}</div></details>`).join(\"\") : `<div class=\"drilldown-card\"><strong>Nenhuma vaga livre encontrada</strong><div class=\"muted\">Nesse período não apareceu nenhum horário livre rápido dentro das regras do estúdio.</div></div>`}</div>`;};const currentRange=normalizeRange(data.default_range||\"7d\");body.innerHTML=renderAvailability(currentRange);setTimeout(()=>{const sel=document.getElementById(\"availabilityRangeSelect\");if(sel){sel.value=currentRange;sel.addEventListener(\"change\",function(){body.innerHTML=renderAvailability(this.value);setTimeout(()=>{const again=document.getElementById(\"availabilityRangeSelect\");if(again){again.value=this.value;}},0);});}},0);}else if(data.type===\"finance\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(renderMetric).join(\"\")}</div>`;}else if(data.type===\"appointments\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>renderCard(item.id ? \"index.php?page=studio_agenda&date=\" + (item.appointment_date || \"\") + \"&appointment_id=\" + item.id + \"#appointment-form\" : \"\", item.customer_name || item.display_name || item.title || \"Agendamento\", `<span>${esc(item.appointment_date || item.last_message_at || \"-\")}</span><span>${esc(item.start_time ? item.start_time.slice(0,5) : \"\")}</span>`, item.description || item.last_message_preview || item.title || \"-\")).join(\"\")}</div>`;}else if(data.type===\"whatsapp\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>renderCard(\"index.php?page=studio_whatsapp_conversation&id=\" + esc(item.id), item.display_name || item.phone || \"Contato\", `<span>${esc(item.last_message_at || \"-\")}</span><span>${esc(item.attendance_mode || \"-\")}</span>`, item.last_message_preview || \"-\")).join(\"\")}</div>`;}else if(data.type===\"table\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>{const titleText=(item.name || item.title || item.customer_name || item.display_name || item.phone || \"Item\");const meta=[];if(item.status) meta.push(`<span>${esc(item.status)}</span>`);if(item.phone) meta.push(`<span>${esc(item.phone)}</span>`);if(item.last_message_at) meta.push(`<span>${esc(item.last_message_at)}</span>`);if(item.value) meta.push(`<span>${esc(item.value)}</span>`);return renderCard(\"\", titleText, meta.join(\"\"), item.description || item.last_message_preview || item.interest || \"\");}).join(\"\")}</div>`;}else{body.innerHTML=`<div class=\"drilldown-card\">${esc(data.summary || \"\")}</div>`;}modal.classList.remove(\"hidden\");return false;};';
         echo 'document.querySelectorAll("[data-home-focus]").forEach(function(btn){btn.addEventListener("click",function(){return window.openHomeDrilldown && window.openHomeDrilldown(btn.getAttribute("data-home-focus")||"");});});';
         echo 'document.addEventListener("click", function(event){ const availabilityBtn = event.target.closest("[data-availability-date]"); if (availabilityBtn) { const date = availabilityBtn.getAttribute("data-availability-date") || ""; if (date) { window.location.href = "index.php?page=studio_agenda&date=" + encodeURIComponent(date) + "#appointment-form"; } return; } const appointmentBtn = event.target.closest("[data-appointment-id]"); if (appointmentBtn) { const appointmentId = appointmentBtn.getAttribute("data-appointment-id") || ""; const date = appointmentBtn.getAttribute("data-appointment-date") || ""; if (appointmentId && date) { window.location.href = "index.php?page=studio_agenda&date=" + encodeURIComponent(date) + "&appointment_id=" + encodeURIComponent(appointmentId) + "#appointment-form"; } return; } });';
         echo 'var close=document.getElementById("closeHomeDrilldown");var modal=document.getElementById("homeDrilldownModal");if(close&&modal){close.addEventListener("click",function(){modal.classList.add("hidden");});modal.addEventListener("click",function(e){if(e.target===modal)modal.classList.add("hidden");});document.addEventListener("keydown",function(e){if(e.key==="Escape")modal.classList.add("hidden");});}';
@@ -1285,71 +1303,69 @@ if ($page === 'studio_whatsapp_conversation') {
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
         $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
         $availabilityStart = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
-        $availabilityEnd = $availabilityStart->modify('+6 days');
-        $availabilityAppointments = studio_calendar_appointments($studio, $availabilityStart->format('Y-m-d'), $availabilityEnd->format('Y-m-d'));
+        $availabilityRanges = [
+            '3d' => ['label' => '3 dias', 'days' => 3],
+            '7d' => ['label' => '7 dias', 'days' => 7],
+            '15d' => ['label' => '15 dias', 'days' => 15],
+            'month' => ['label' => 'Este mes', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
+            'next_month' => ['label' => 'Mes que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
+        ];
+        $availabilityCardsByRange = [];
         $allowedDays = studio_schedule_days($studio);
         $allowedSlots = studio_schedule_slots($studio);
-        $appointmentsByDay = [];
-        foreach ($availabilityAppointments as $appointment) {
-            $appointmentsByDay[(string)$appointment['appointment_date']][] = $appointment;
-        }
-        $availabilityCards = [];
-        for ($offset = 0; $offset < 7; $offset++) {
-            $day = $availabilityStart->modify('+' . $offset . ' days');
-            $dateKey = $day->format('Y-m-d');
-            $busy = count($appointmentsByDay[$dateKey] ?? []);
-            $suggestedSlot = '';
-            $freeSlots = [];
-            $bookedAppointments = [];
-            $isAllowedDay = in_array((string)$day->format('N'), $allowedDays, true);
-            foreach ($allowedSlots as $slot) {
-                $taken = false;
-                foreach ($appointmentsByDay[$dateKey] ?? [] as $appointment) {
-                    $startTime = substr((string)$appointment['start_time'], 0, 5);
-                    if ($startTime === $slot) {
-                        $taken = true;
-                        $bookedAppointments[] = [
-                            'id' => (int)($appointment['id'] ?? 0),
-                            'time' => $startTime,
-                            'title' => (string)($appointment['title'] ?? ''),
-                            'customer_name' => (string)($appointment['customer_name'] ?? ''),
-                            'status' => (string)($appointment['status'] ?? ''),
-                        ];
-                        break;
+        foreach ($availabilityRanges as $rangeKey => $rangeInfo) {
+            $rangeStart = $rangeInfo['start'] ?? $availabilityStart;
+            $rangeDays = max(1, (int)($rangeInfo['days'] ?? 7));
+            $rangeEnd = $rangeStart->modify('+' . max(0, $rangeDays - 1) . ' days');
+            $availabilityAppointments = studio_calendar_appointments($studio, $rangeStart->format('Y-m-d'), $rangeEnd->format('Y-m-d'));
+            $appointmentsByDay = [];
+            foreach ($availabilityAppointments as $appointment) {
+                $appointmentsByDay[(string)$appointment['appointment_date']][] = $appointment;
+            }
+            $availabilityCards = [];
+            for ($offset = 0; $offset < $rangeDays; $offset++) {
+                $day = $rangeStart->modify('+' . $offset . ' days');
+                $dateKey = $day->format('Y-m-d');
+                $busy = count($appointmentsByDay[$dateKey] ?? []);
+                $suggestedSlot = '';
+                $freeSlots = [];
+                $bookedAppointments = [];
+                $isAllowedDay = in_array((string)$day->format('N'), $allowedDays, true);
+                foreach ($allowedSlots as $slot) {
+                    $taken = false;
+                    foreach ($appointmentsByDay[$dateKey] ?? [] as $appointment) {
+                        $startTime = substr((string)$appointment['start_time'], 0, 5);
+                        if ($startTime === $slot) {
+                            $taken = true;
+                            $bookedAppointments[] = [
+                                'id' => (int)($appointment['id'] ?? 0),
+                                'time' => $startTime,
+                                'title' => (string)($appointment['title'] ?? ''),
+                                'customer_name' => (string)($appointment['customer_name'] ?? ''),
+                                'status' => (string)($appointment['status'] ?? ''),
+                            ];
+                            break;
+                        }
+                    }
+                    if (!$taken) {
+                        $freeSlots[] = $slot;
+                        $suggestedSlot = $slot;
                     }
                 }
-                if (!$taken) {
-                    $freeSlots[] = $slot;
-                    $suggestedSlot = $slot;
-                    break;
-                }
+                $availabilityCards[] = [
+                    'date' => $day->format('Y-m-d'),
+                    'label' => $day->format('D d/m'),
+                    'allowed' => $isAllowedDay,
+                    'busy' => $busy,
+                    'free' => max(0, count($allowedSlots) - $busy),
+                    'slot' => $suggestedSlot,
+                    'free_slots' => $freeSlots,
+                    'booked' => $bookedAppointments,
+                ];
             }
-            foreach ($allowedSlots as $slot) {
-                if (in_array($slot, $freeSlots, true)) {
-                    continue;
-                }
-                $stillFree = true;
-                foreach ($appointmentsByDay[$dateKey] ?? [] as $appointment) {
-                    if (substr((string)$appointment['start_time'], 0, 5) === $slot) {
-                        $stillFree = false;
-                        break;
-                    }
-                }
-                if ($stillFree) {
-                    $freeSlots[] = $slot;
-                }
-            }
-            $availabilityCards[] = [
-                'date' => $day->format('Y-m-d'),
-                'label' => $day->format('D d/m'),
-                'allowed' => $isAllowedDay,
-                'busy' => $busy,
-                'free' => max(0, count($allowedSlots) - $busy),
-                'slot' => $suggestedSlot,
-                'free_slots' => $freeSlots,
-                'booked' => $bookedAppointments,
-            ];
+            $availabilityCardsByRange[$rangeKey] = $availabilityCards;
         }
+        $availabilityCards = $availabilityCardsByRange['7d'] ?? [];
 
         echo '<section class="conversation-layout">';
         echo '<div class="panel conversation-main">';
