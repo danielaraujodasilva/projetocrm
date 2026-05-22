@@ -1967,6 +1967,93 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     ];
 }
 
+function studio_whatsapp_extract_date_context(string $text, array $studio): ?array
+{
+    $text = strtolower(trim($text));
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $today = new DateTimeImmutable('today', $tz);
+    $candidate = null;
+
+    if (preg_match('/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/', $text, $match)) {
+        $day = str_pad((string)(int)$match[1], 2, '0', STR_PAD_LEFT);
+        $month = str_pad((string)(int)$match[2], 2, '0', STR_PAD_LEFT);
+        $year = !empty($match[3]) ? (int)$match[3] : (int)$today->format('Y');
+        if ($year < 100) {
+            $year += 2000;
+        }
+        $candidate = DateTimeImmutable::createFromFormat('Y-m-d', sprintf('%04d-%02d-%02d', $year, (int)$month, (int)$day), $tz) ?: null;
+    } else {
+        $relativeMap = [
+            'hoje' => 'today',
+            'amanha' => '+1 day',
+            'amanhã' => '+1 day',
+            'depois de amanha' => '+2 day',
+            'depois de amanhã' => '+2 day',
+            'semana que vem' => '+1 week',
+            'proxima semana' => '+1 week',
+            'próxima semana' => '+1 week',
+        ];
+        foreach ($relativeMap as $needle => $modifier) {
+            if (str_contains($text, $needle)) {
+                $candidate = new DateTimeImmutable($modifier, $tz);
+                break;
+            }
+        }
+        if (!$candidate) {
+            $weekdayMap = [
+                'segunda' => 'monday',
+                'terca' => 'tuesday',
+                'terça' => 'tuesday',
+                'quarta' => 'wednesday',
+                'quinta' => 'thursday',
+                'sexta' => 'friday',
+                'sabado' => 'saturday',
+                'sábado' => 'saturday',
+            ];
+            foreach ($weekdayMap as $needle => $modifier) {
+                if (str_contains($text, $needle)) {
+                    $candidate = new DateTimeImmutable('next ' . $modifier, $tz);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!$candidate) {
+        return null;
+    }
+
+    $date = $candidate->format('Y-m-d');
+    $daysAhead = max(1, (int)$today->diff($candidate)->days + 1);
+    $availability = studio_schedule_available_slots($studio, max(1, min(60, $daysAhead)));
+    foreach ($availability as $day) {
+        if ((string)($day['date'] ?? '') !== $date) {
+            continue;
+        }
+        return [
+            'date' => $date,
+            'label' => (string)($day['label'] ?? $candidate->format('d/m')),
+            'allowed' => !empty($day['allowed']),
+            'free_slots' => array_values(array_map('strval', $day['free_slots'] ?? [])),
+            'booked' => array_values(array_map(static function (array $appt): array {
+                return [
+                    'time' => (string)($appt['time'] ?? ''),
+                    'customer_name' => (string)($appt['customer_name'] ?? ''),
+                    'status' => (string)($appt['status'] ?? ''),
+                ];
+            }, $day['booked'] ?? [])),
+        ];
+    }
+
+    return [
+        'date' => $date,
+        'label' => $candidate->format('d/m'),
+        'allowed' => studio_schedule_is_allowed_day($studio, $candidate),
+        'free_slots' => [],
+        'booked' => [],
+    ];
+}
+
 function studio_upsert_whatsapp_conversation(array $studio, array $payload): array
 {
     $pdo = studio_db($studio);
@@ -2616,6 +2703,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
     $latestMessages = implode("\n- ", array_slice($historyLines, -6));
     $availability = studio_schedule_available_slots($studio, 14);
+    $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
+    $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
     $availableNotes = [];
     $occupiedNotes = [];
     foreach ($availability as $day) {
@@ -2628,6 +2717,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
     $occupiedPreview = $occupiedNotes ? implode("\n- ", array_slice($occupiedNotes, 0, 6)) : 'Sem ocupacoes no recorte rapido.';
+    $exactDateBlock = "Nao foi citada uma data especifica.";
+    if (is_array($dateContext)) {
+        $freeSlots = array_values(array_map('strval', $dateContext['free_slots'] ?? []));
+        $bookedSlots = array_values(array_map(static fn(array $appt): string => trim(($appt['time'] ?? '') . (($appt['customer_name'] ?? '') !== '' ? ' (' . $appt['customer_name'] . ')' : '')), $dateContext['booked'] ?? []));
+        $exactDateBlock = "Data citada pelo cliente: " . $dateContext['date'] . "\n"
+            . "Esta data esta " . (!empty($dateContext['allowed']) ? 'dentro' : 'fora') . " dos dias permitidos do estúdio.\n"
+            . "Vagas livres exatas nesse dia: " . ($freeSlots ? implode(', ', $freeSlots) : 'nenhuma') . "\n"
+            . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', $bookedSlots) : 'nenhum') . "\n"
+            . "Regra: se vagas livres exatas estiverem vazias, responda que esse dia esta lotado e nao sugira horario inventado.";
+    }
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
         . "Nome do estudio: " . $studioName . "\n"
@@ -2635,6 +2734,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Agenda do estudio: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
         . "Proximas vagas livres reais (data => horarios livres):\n- " . $availabilityPreview . "\n"
         . "Proximos horarios ocupados reais:\n- " . $occupiedPreview . "\n"
+        . $exactDateBlock . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
         . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
@@ -2653,7 +2753,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
         . "- Se a pessoa perguntou de agendamento, puxe para data, horario e sinal.\n"
         . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima e as vagas livres reais listadas acima.\n"
+        . "- Se a ultima mensagem citar uma data especifica, consulte o bloco 'Data citada pelo cliente' e responda apenas com base nele.\n"
+        . "- Se a data citada estiver lotada, diga isso explicitamente e ofereca o proximo horario livre real.\n"
         . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
+        . "- Nunca diga que existe vaga em uma data que tenha vagas livres exatas vazias no contexto.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
