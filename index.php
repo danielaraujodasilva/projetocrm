@@ -1740,13 +1740,134 @@ if ($page === 'studio_reports') {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
+        $pdo = studio_db($studio);
+        $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $monthStart = new DateTimeImmutable('first day of this month', new DateTimeZone('America/Sao_Paulo'));
+        $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
+        $alerts = [];
+        $staleLeads = $pdo->prepare(
+            "SELECT l.id, l.name, l.phone, l.status, l.pipeline_stage, l.lead_score, l.updated_at, l.created_at
+             FROM leads l
+             WHERE l.status NOT IN ('perdido', 'fechado')
+               AND COALESCE(l.updated_at, l.created_at) < ?
+             ORDER BY COALESCE(l.updated_at, l.created_at) ASC
+             LIMIT 8"
+        );
+        $staleLeads->execute([$today->modify('-24 hours')->format('Y-m-d H:i:s')]);
+        $staleLeadsRows = $staleLeads->fetchAll() ?: [];
+        if ($staleLeadsRows) {
+            $alerts[] = [
+                'title' => 'Leads abertos sem atualização há mais de 24h',
+                'count' => count($staleLeadsRows),
+                'tone' => 'warn',
+                'items' => array_map(static function (array $lead): array {
+                    return [
+                        'label' => ($lead['name'] ?: $lead['phone'] ?: 'Lead sem nome'),
+                        'detail' => ($lead['pipeline_stage'] ?: 'Sem etapa') . ' · nota ' . ((string)($lead['lead_score'] ?? 0)) . '/10',
+                        'href' => app_url('studio_lead', ['id' => (int)$lead['id']]),
+                    ];
+                }, $staleLeadsRows),
+            ];
+        }
+        $highScoreUnscheduled = $pdo->query(
+            "SELECT l.id, l.name, l.phone, l.status, l.pipeline_stage, l.lead_score, l.estimated_value
+             FROM leads l
+             LEFT JOIN appointments a ON a.lead_id = l.id AND a.status NOT IN ('cancelado')
+             WHERE COALESCE(l.lead_score, 0) >= 7
+               AND a.id IS NULL
+               AND l.status NOT IN ('perdido', 'fechado')
+             ORDER BY COALESCE(l.lead_score, 0) DESC, COALESCE(l.updated_at, l.created_at) DESC
+             LIMIT 8"
+        )->fetchAll() ?: [];
+        if ($highScoreUnscheduled) {
+            $alerts[] = [
+                'title' => 'Leads com score alto ainda não agendados',
+                'count' => count($highScoreUnscheduled),
+                'tone' => 'ok',
+                'items' => array_map(static function (array $lead): array {
+                    return [
+                        'label' => ($lead['name'] ?: $lead['phone'] ?: 'Lead sem nome'),
+                        'detail' => 'Score ' . ((string)($lead['lead_score'] ?? 0)) . '/10 · ' . format_money($lead['estimated_value'] ?? 0),
+                        'href' => app_url('studio_lead', ['id' => (int)$lead['id']]),
+                    ];
+                }, $highScoreUnscheduled),
+            ];
+        }
+        $preScheduledNoSignal = $pdo->query(
+            "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.value, a.deposit_value,
+                    COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name
+             FROM appointments a
+             LEFT JOIN customers c ON c.id = a.customer_id
+             LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+             WHERE a.status = 'pre_agendado'
+               AND COALESCE(a.deposit_value, 0) = 0
+             ORDER BY a.appointment_date ASC, a.start_time ASC
+             LIMIT 8"
+        )->fetchAll() ?: [];
+        if ($preScheduledNoSignal) {
+            $alerts[] = [
+                'title' => 'Pré-agendamentos sem sinal',
+                'count' => count($preScheduledNoSignal),
+                'tone' => 'warn',
+                'items' => array_map(static function (array $appointment): array {
+                    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                    return [
+                        'label' => ($appointment['customer_name'] ?: 'Agendamento sem nome'),
+                        'detail' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money($appointment['value'] ?? 0),
+                        'href' => $href,
+                    ];
+                }, $preScheduledNoSignal),
+            ];
+        }
+        $todayAppointments = $pdo->query(
+            "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.status, a.value, a.deposit_value,
+                    COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name
+             FROM appointments a
+             LEFT JOIN customers c ON c.id = a.customer_id
+             LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+             WHERE a.appointment_date = '" . $today->format('Y-m-d') . "'
+               AND a.status NOT IN ('cancelado')
+             ORDER BY a.start_time ASC
+             LIMIT 12"
+        )->fetchAll() ?: [];
+        if ($todayAppointments) {
+            $alerts[] = [
+                'title' => 'Agendamentos de hoje',
+                'count' => count($todayAppointments),
+                'tone' => 'neutral',
+                'items' => array_map(static function (array $appointment): array {
+                    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                    return [
+                        'label' => ($appointment['customer_name'] ?: 'Atendimento'),
+                        'detail' => substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money($appointment['value'] ?? 0) . ' · sinal ' . format_money($appointment['deposit_value'] ?? 0),
+                        'href' => $href,
+                    ];
+                }, $todayAppointments),
+            ];
+        }
+        $monthExpenses = (float)($pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "'")->fetchColumn() ?: 0);
+
         $reports = studio_report_data($studio);
+        if ($alerts) {
+            echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Alertas operacionais</h2><p class="muted">Sinais rápidos do que precisa de ação agora.</p></div><span class="badge">Operação</span></div>';
+            echo '<div class="alert-grid">';
+            foreach ($alerts as $alert) {
+                echo '<div class="alert-card">';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>' . h($alert['title']) . '</strong><p class="muted" style="margin:4px 0 0">' . h((string)$alert['count']) . ' itens</p></div><span class="badge ' . h((string)($alert['tone'] ?? 'neutral')) . '">Atenção</span></div>';
+                echo '<div class="stack-list" style="margin-top:10px">';
+                foreach (array_slice($alert['items'], 0, 4) as $item) {
+                    echo '<a class="activity-card" href="' . h($item['href']) . '"><strong>' . h($item['label']) . '</strong><span>' . h($item['detail']) . '</span></a>';
+                }
+                echo '</div></div>';
+            }
+            echo '<div class="alert-card"><strong>Despesas do mês</strong><p class="metric" style="margin:8px 0 0">' . h(format_money($monthExpenses)) . '</p><p class="muted">Total de despesas registradas no período atual.</p><a class="btn tiny secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div>';
+            echo '</div></section>';
+        }
         echo '<section class="panel"><div class="actions" style="justify-content:space-between"><h2>Resumo gerencial</h2><span class="badge">Painel de leitura</span></div><div class="mini-metrics">';
         echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['leads_by_status'] ?? []))) . '</strong><small>Leads totais</small></span>';
         echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['appointments_by_status'] ?? []))) . '</strong><small>Agendamentos</small></span>';
         echo '<span><strong>' . h((string)count($reports['expenses_by_category'] ?? [])) . '</strong><small>Grupos de despesa</small></span>';
         echo '</div></section>';
-        $pdo = studio_db($studio);
         $pivotSource = (string)($_GET['pivot_source'] ?? 'leads');
         $pivotSource = in_array($pivotSource, ['leads', 'appointments', 'expenses'], true) ? $pivotSource : 'leads';
         $pivotDataSets = [

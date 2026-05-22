@@ -980,6 +980,25 @@ textarea {
     font-size: .9rem;
 }
 
+.alert-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.alert-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--surface-soft);
+    display: grid;
+    gap: 10px;
+}
+
+.alert-card .metric {
+    margin: 6px 0 0;
+}
+
 .whatsapp-quick-links .quick-action-card {
     min-height: 118px;
 }
@@ -1943,6 +1962,7 @@ textarea {
     .grid.cols-2,
     .grid.cols-4,
     .grid.cols-5,
+    .alert-grid,
     .filter-bar,
     .module-list,
     .lead-detail-head,
