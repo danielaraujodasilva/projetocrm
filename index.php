@@ -1852,6 +1852,10 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
         echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
         echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Usada para a IA responder no WhatsApp.</small></div>';
+        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'gpt-4o-mini') . '" placeholder="gpt-4o-mini"><small class="muted">Ex: gpt-4o-mini, gpt-4.1-mini, gpt-4.1</small></div>';
+        echo '</div>';
         echo '<div class="settings-switch-grid">';
         echo '<label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label>';
         echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label>';
@@ -1902,6 +1906,7 @@ if ($page === 'studio_settings') {
         echo '</select></label>';
         echo '</div><small class="muted">O fim sera calculado automaticamente. Ex: 5 horas = 10:00 ate 15:00.</small></div>';
         echo '</div></div>';
+        echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Você é o assistente do estúdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em portugues já pronto.</small></div>';
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '<div class="field"><label>Regras e informacoes para IA</label><textarea name="business_rules" placeholder="Endereco, horarios, politicas, estilos, preco minimo, sinal, o que a IA pode prometer e o que precisa confirmar...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea></div>';
         echo '<div class="actions"><button class="btn" type="submit" form="studioSettingsForm">Salvar configuracoes</button><span class="muted">Essas regras ficam no banco isolado do estudio.</span></div>';

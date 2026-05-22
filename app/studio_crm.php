@@ -2051,6 +2051,27 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
             ->execute([$score, $sentAt, (int)$conversation['lead_id']]);
     }
 
+    if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
+        try {
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'ai_last_status' => 'Analisando com IA...',
+            ]);
+            studio_whatsapp_ai_reply($studio, $conversation, [
+                'body' => $body,
+                'mensagem' => $body,
+                'from_me' => $fromMe,
+                'direction' => $direction,
+                'message_type' => $messageType,
+            ]);
+        } catch (Throwable $e) {
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'ai_last_status' => 'IA sem resposta: ' . mb_substr($e->getMessage(), 0, 120),
+            ]);
+        }
+    }
+
     return ['ok' => true, 'conversation_id' => (int)$conversation['id']];
 }
 
@@ -2285,6 +2306,205 @@ function studio_send_whatsapp_message(array $studio, array $data): array
     ]);
 
     return $result;
+}
+
+function studio_openai_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $apiKey = trim((string)($settings['openai_api_key'] ?? getenv('OPENAI_API_KEY') ?: ''));
+    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'gpt-4o-mini'));
+    $model = $model !== '' ? $model : 'gpt-4o-mini';
+    $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
+    if ($systemPrompt === '') {
+        $systemPrompt = <<<TXT
+Você é o assistente do WhatsApp de um estúdio de tatuagem no Brasil.
+Responda sempre em português do Brasil, com tom humano, claro e objetivo.
+Não use inglês.
+Se faltar informação importante, peça esclarecimento curto.
+Se a conversa pedir ajuda humana, avise com educação e sinalize isso no retorno.
+Não invente preços, horários, promessas ou disponibilidade.
+Mantenha as respostas curtas, naturais e adequadas para WhatsApp.
+TXT;
+    }
+
+    return [
+        'api_key' => $apiKey,
+        'model' => $model,
+        'system_prompt' => $systemPrompt,
+    ];
+}
+
+function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt): array
+{
+    if ($apiKey === '') {
+        return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
+    }
+
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'reply_text' => ['type' => 'string'],
+            'needs_human' => ['type' => 'boolean'],
+            'lead_score_delta' => ['type' => 'integer'],
+            'summary' => ['type' => 'string'],
+        ],
+        'required' => ['reply_text', 'needs_human', 'lead_score_delta', 'summary'],
+        'additionalProperties' => false,
+    ];
+
+    $body = [
+        'model' => $model,
+        'messages' => [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => $userPrompt],
+        ],
+        'response_format' => [
+            'type' => 'json_schema',
+            'json_schema' => [
+                'name' => 'whatsapp_reply',
+                'strict' => true,
+                'schema' => $schema,
+            ],
+        ],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'error' => $error ?: 'Falha na chamada da IA.'];
+    }
+
+    $json = json_decode((string)$raw, true);
+    if (!is_array($json)) {
+        return ['ok' => false, 'error' => 'Resposta invalida da IA.'];
+    }
+    if ($status >= 400) {
+        return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))];
+    }
+
+    $content = trim((string)($json['choices'][0]['message']['content'] ?? ''));
+    if ($content === '') {
+        return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
+    }
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA.'];
+    }
+
+    return [
+        'ok' => true,
+        'reply_text' => trim((string)($decoded['reply_text'] ?? '')),
+        'needs_human' => !empty($decoded['needs_human']),
+        'lead_score_delta' => (int)($decoded['lead_score_delta'] ?? 0),
+        'summary' => trim((string)($decoded['summary'] ?? '')),
+    ];
+}
+
+function studio_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
+{
+    $settings = studio_settings($studio);
+    if (empty($settings['ai_enabled'])) {
+        return ['ok' => false, 'error' => 'IA desativada nas configuracoes.'];
+    }
+    if ((string)($conversation['attendance_mode'] ?? 'human') !== 'bot') {
+        return ['ok' => false, 'error' => 'Conversa nao esta em modo IA.'];
+    }
+    if (!empty($newMessage['from_me']) || (string)($newMessage['direction'] ?? '') === 'out') {
+        return ['ok' => false, 'error' => 'Mensagem de saida nao gera resposta.'];
+    }
+
+    $config = studio_openai_config($studio);
+    if ($config['api_key'] === '') {
+        return ['ok' => false, 'error' => 'Configure a chave da OpenAI nas configuracoes do estudio.'];
+    }
+
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare(
+        'SELECT direction, sender_type, body, message_type, media_mime, media_file_name, sent_at
+         FROM whatsapp_messages
+         WHERE conversation_id = ?
+         ORDER BY id DESC
+         LIMIT 12'
+    );
+    $stmt->execute([(int)$conversation['id']]);
+    $history = array_reverse($stmt->fetchAll() ?: []);
+    $historyLines = [];
+    foreach ($history as $item) {
+        $role = (string)($item['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
+        $text = trim((string)($item['body'] ?? ''));
+        if ($text === '') {
+            $text = '[' . (string)($item['message_type'] ?? 'texto') . ']';
+        }
+        $historyLines[] = $role . ': ' . $text;
+    }
+
+    $studioRules = trim((string)($settings['business_rules'] ?? ''));
+    $scheduleDays = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
+    $scheduleSlots = trim((string)($settings['appointment_time_slots'] ?? '10:00,15:00'));
+    $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
+    $aiModel = $config['model'];
+    $prompt = "Contexto do estudio:\n"
+        . "Nome: " . (string)($studio['name'] ?? 'Estudio') . "\n"
+        . "Regras: " . ($studioRules !== '' ? $studioRules : 'Sem regras extras.') . "\n"
+        . "Agenda: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
+        . "Conversa atual:\n"
+        . "Cliente: " . trim((string)($conversation['name'] ?? $conversation['phone'] ?? '')) . "\n"
+        . "Telefone: " . trim((string)($conversation['phone'] ?? '')) . "\n"
+        . "Status da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
+        . "Ultima mensagem do cliente: " . trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '')) . "\n"
+        . "Historico recente:\n- " . implode("\n- ", $historyLines) . "\n\n"
+        . "Responda com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
+
+    $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt);
+    if (empty($result['ok'])) {
+        return $result;
+    }
+
+    $replyText = trim((string)$result['reply_text']);
+    if ($replyText === '') {
+        return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
+    }
+
+    $reply = studio_send_whatsapp_message($studio, [
+        'conversation_id' => (int)$conversation['id'],
+        'phone' => (string)($conversation['phone'] ?? ''),
+        'message' => $replyText,
+    ]);
+
+    $currentScore = (int)($conversation['lead_score'] ?? 0);
+    $scoreDelta = max(0, (int)($result['lead_score_delta'] ?? 0));
+    $newScore = max(0, min(10, $currentScore + $scoreDelta));
+    $aiStatus = $result['needs_human'] ? 'IA sinalizou atendimento humano' : 'IA respondeu automaticamente';
+
+    studio_update_whatsapp_conversation($studio, [
+        'conversation_id' => (int)$conversation['id'],
+        'attendance_mode' => 'bot',
+        'needs_human' => !empty($result['needs_human']) ? 1 : 0,
+        'lead_score' => $newScore,
+        'ai_last_status' => $aiStatus,
+    ]);
+
+    return [
+        'ok' => true,
+        'reply' => $reply,
+        'ai_last_status' => $aiStatus,
+        'needs_human' => !empty($result['needs_human']),
+    ];
 }
 
 function studio_prepare_whatsapp_attachment(array $studio, array $data, array $files, int $conversationId = 0): array
@@ -2984,6 +3204,9 @@ function studio_save_settings(array $studio, array $data): void
     $businessRules = trim((string)($data['business_rules'] ?? ''));
     $aiModel = trim((string)($data['ai_model'] ?? 'llama3:8b'));
     $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
+    $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
+    $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
+    $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
@@ -3010,6 +3233,9 @@ function studio_save_settings(array $studio, array $data): void
         'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
         'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
         'appointment_overwrite_message' => 'TEXT NULL',
+        'openai_api_key' => 'TEXT NULL',
+        'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
+        'ai_whatsapp_prompt' => 'TEXT NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -3020,7 +3246,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -3035,6 +3261,9 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentTimeSlots,
         $appointmentDurationMinutes,
         $appointmentOverwriteMessage,
+        $openAiKey,
+        $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
+        $aiWhatsAppPrompt,
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
