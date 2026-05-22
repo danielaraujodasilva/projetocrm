@@ -1544,22 +1544,43 @@ if ($page === 'studio_people') {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
+        $view = (string)($_GET['view'] ?? 'all');
+        $q = trim((string)($_GET['q'] ?? ''));
         $customers = studio_list_customers($studio);
         $leads = studio_list_leads($studio);
+        if ($q !== '') {
+            $customers = array_values(array_filter($customers, static fn(array $row): bool => stripos((string)($row['name'] ?? ''), $q) !== false || stripos((string)($row['phone'] ?? ''), $q) !== false || stripos((string)($row['email'] ?? ''), $q) !== false || stripos((string)($row['instagram'] ?? ''), $q) !== false));
+            $leads = array_values(array_filter($leads, static fn(array $row): bool => stripos((string)($row['name'] ?? ''), $q) !== false || stripos((string)($row['phone'] ?? ''), $q) !== false || stripos((string)($row['interest'] ?? ''), $q) !== false || stripos((string)($row['source'] ?? ''), $q) !== false));
+        }
         $totalCustomers = count($customers);
         $totalLeads = count($leads);
-        echo '<section class="grid cols-3">';
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Pessoas</h2><p class="muted">Clientes e leads num unico lugar.</p></div><span class="badge">' . h((string)($totalCustomers + $totalLeads)) . ' registros</span></div>';
+        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_people">';
+        echo '<input name="q" placeholder="Buscar por nome, telefone, email ou interesse..." value="' . h($q) . '">';
+        echo '<select name="view">';
+        foreach (['all' => 'Tudo', 'leads' => 'Leads', 'customers' => 'Clientes'] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($view === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_people')) . '">Limpar</a></form>';
+        echo '</section>';
+        echo '<section class="grid cols-3" style="margin-top:16px">';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_customers')) . '"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></a>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_leads')) . '"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads</p><span class="muted">Abrir funil</span></a>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
-        render_leads_table(array_slice($leads, 0, 12));
-        echo '</div>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
-        render_customers_table(array_slice($customers, 0, 12));
-        echo '</div></section>';
+        if ($view !== 'customers') {
+            echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+            render_leads_table(array_slice($leads, 0, 12));
+            echo '</div>';
+        }
+        if ($view !== 'leads') {
+            echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
+            render_customers_table(array_slice($customers, 0, 12));
+            echo '</div>';
+        }
+        echo '</section>';
     }, $flash);
     exit;
 }
@@ -1678,6 +1699,31 @@ if ($page === 'studio_reports') {
             $colLabels[$c] = true;
             $grid[$r][$c] = (float)($row['total'] ?? 0);
         }
+        $buildPivotLink = static function (string $source, string $rowKey, string $rowLabel, string $colKey, string $colLabel) use ($pivotMetric): string {
+            $params = ['page' => 'studio_leads'];
+            if ($source === 'leads') {
+                if ($rowKey === 'status') $params['status'] = $rowLabel;
+                if ($rowKey === 'source') $params['source'] = $rowLabel;
+                if ($rowKey === 'pipeline_stage') $params['q'] = $rowLabel;
+                if ($colKey === 'status') $params['status'] = $colLabel;
+                if ($colKey === 'source') $params['source'] = $colLabel;
+                if ($colKey === 'pipeline_stage') $params['q'] = $colLabel;
+                return app_url('studio_leads', $params);
+            }
+            if ($source === 'appointments') {
+                if ($rowKey === 'appointment_date') {
+                    return app_url('studio_agenda', ['date' => preg_replace('/[^0-9\-]/', '', $rowLabel)]);
+                }
+                if ($colKey === 'appointment_date') {
+                    return app_url('studio_agenda', ['date' => preg_replace('/[^0-9\-]/', '', $colLabel)]);
+                }
+                return app_url('studio_agenda');
+            }
+            if ($rowKey === 'category') {
+                return app_url('studio_finance');
+            }
+            return app_url('studio_finance');
+        };
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Tabela dinamica</h2><span class="badge">Pivot simples</span></div>';
         echo '<form class="filter-bar" method="get">';
         echo '<input type="hidden" name="page" value="studio_reports">';
@@ -1715,15 +1761,18 @@ if ($page === 'studio_reports') {
             echo '<th>Total</th></tr></thead><tbody>';
             $grandTotal = 0;
             foreach (array_keys($rowLabels) as $rowLabel) {
-                echo '<tr><td><strong>' . h($rowLabel) . '</strong></td>';
+                $rowUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, '');
+                echo '<tr><td><a href="' . h($rowUrl) . '"><strong>' . h($rowLabel) . '</strong></a></td>';
                 $rowTotal = 0;
                 foreach (array_keys($colLabels) as $colLabel) {
                     $value = (float)($grid[$rowLabel][$colLabel] ?? 0);
                     $rowTotal += $value;
                     $grandTotal += $value;
-                    echo '<td>' . h($pivotMetric === 'count' ? (string)(int)$value : format_money($value)) . '</td>';
+                    $cellUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, $colLabel);
+                    $cellText = $pivotMetric === 'count' ? (string)(int)$value : format_money($value);
+                    echo '<td><a class="pivot-cell-link" href="' . h($cellUrl) . '">' . h($cellText) . '</a></td>';
                 }
-                echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</strong></td></tr>';
+                echo '<td><a class="pivot-cell-link" href="' . h($rowUrl) . '">' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</a></td></tr>';
             }
             echo '<tr><td><strong>Total</strong></td>';
             foreach (array_keys($colLabels) as $colLabel) {
