@@ -1037,7 +1037,13 @@ function studio_list_pipeline_stages(array $studio): array
 
 function studio_recent_leads(array $studio, int $limit = 8): array
 {
-    $stmt = studio_db($studio)->prepare('SELECT * FROM leads ORDER BY updated_at DESC, id DESC LIMIT ?');
+    $stmt = studio_db($studio)->prepare(
+        "SELECT l.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email, c.instagram AS customer_instagram
+         FROM leads l
+         LEFT JOIN customers c ON c.id = l.customer_id
+         ORDER BY l.updated_at DESC, l.id DESC
+         LIMIT ?"
+    );
     $stmt->bindValue(1, $limit, PDO::PARAM_INT);
     $stmt->execute();
 
@@ -1094,7 +1100,15 @@ function studio_delete_appointment(array $studio, int $id): void
 
 function studio_list_customers(array $studio, int $limit = 180): array
 {
-    $stmt = studio_db($studio)->prepare('SELECT * FROM customers ORDER BY updated_at DESC, id DESC LIMIT ?');
+    $stmt = studio_db($studio)->prepare(
+        "SELECT c.*, COUNT(DISTINCT a.id) AS appointment_count, MAX(a.appointment_date) AS last_appointment_date, MAX(wc.last_message_at) AS last_message_at
+         FROM customers c
+         LEFT JOIN appointments a ON a.customer_id = c.id AND a.status NOT IN ('cancelado')
+         LEFT JOIN whatsapp_conversations wc ON wc.customer_id = c.id
+         GROUP BY c.id
+         ORDER BY c.updated_at DESC, c.id DESC
+         LIMIT ?"
+    );
     $stmt->bindValue(1, $limit, PDO::PARAM_INT);
     $stmt->execute();
 

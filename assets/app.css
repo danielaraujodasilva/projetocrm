@@ -1196,13 +1196,14 @@ textarea {
 .drilldown-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 14px;
+    gap: 8px;
+    padding: 14px 15px;
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--surface-soft);
     color: var(--text);
     text-decoration: none;
+    min-height: 96px;
 }
 
 .drilldown-card:hover {
@@ -1219,6 +1220,92 @@ textarea {
 .drilldown-card strong {
     font-size: 15px;
     line-height: 1.2;
+}
+
+.drilldown-card.compact {
+    min-height: 0;
+}
+
+.drilldown-card-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.drilldown-panel-grid {
+    display: grid;
+    gap: 14px;
+}
+
+.drilldown-panel-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.drilldown-kpi {
+    display: grid;
+    gap: 3px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+}
+
+.drilldown-kpi strong {
+    font-size: 24px;
+    line-height: 1;
+}
+
+.drilldown-kpi span {
+    font-weight: 800;
+}
+
+.drilldown-kpi small {
+    color: var(--muted);
+    line-height: 1.35;
+}
+
+.drilldown-kpi.highlight {
+    background: linear-gradient(180deg, #f7fbf7 0%, #ffffff 100%);
+    border-color: #cfe5cf;
+}
+
+.drilldown-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.drilldown-badge.ok {
+    background: #e5f6e7;
+    color: #0f7a30;
+}
+
+.drilldown-badge.warn {
+    background: #fff4d6;
+    color: #a15d00;
+}
+
+.drilldown-badge.neutral {
+    background: #eef2f7;
+    color: #475569;
+}
+
+.drilldown-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 0;
+    color: var(--primary);
+    font-weight: 800;
+    text-decoration: none;
 }
 
 .drilldown-details {
@@ -1457,6 +1544,10 @@ textarea {
     flex-wrap: wrap;
     gap: 10px;
     align-items: end;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
 }
 
 .availability-toolbar .field {
@@ -1465,18 +1556,78 @@ textarea {
 
 .availability-list {
     display: grid;
-    gap: 10px;
+    gap: 12px;
     margin-top: 12px;
 }
 
-.availability-block {
+.availability-day {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
-    align-items: center;
-    width: 100%;
+}
+
+.availability-day-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.availability-day-head strong {
+    display: block;
+    font-size: 15px;
+}
+
+.availability-day-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+}
+
+.availability-day-body {
+    display: grid;
+    gap: 12px;
+}
+
+.availability-day-section {
+    display: grid;
+    gap: 8px;
+}
+
+.availability-day-section small {
+    color: var(--muted);
+    font-weight: 800;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+}
+
+.availability-day-empty {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 2px 0 6px;
+}
+
+.availability-slot-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.availability-block {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+    min-width: 132px;
     text-align: left;
-    padding: 12px 14px;
+    padding: 10px 12px;
     border: 1px solid var(--line);
     border-radius: 10px;
     background: #fff;
@@ -1490,6 +1641,16 @@ textarea {
 .availability-block span {
     color: var(--muted);
     font-weight: 800;
+}
+
+.availability-block.occupied {
+    background: #fafafa;
+    opacity: .92;
+}
+
+.availability-note {
+    width: 100%;
+    margin: 0;
 }
 
 .send-box {

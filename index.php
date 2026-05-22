@@ -706,24 +706,28 @@ if ($page === 'studio_home') {
             'leads' => [
                 'title' => 'Leads no funil',
                 'summary' => (string)$stats['leads'] . ' leads cadastrados.',
+                'kind' => 'lead',
                 'type' => 'table',
                 'items' => $recentLeads,
             ],
             'customers' => [
                 'title' => 'Clientes cadastrados',
                 'summary' => (string)$stats['customers'] . ' clientes cadastrados.',
+                'kind' => 'customer',
                 'type' => 'table',
                 'items' => studio_list_customers($studio, 8),
             ],
             'appointments' => [
                 'title' => 'Proximos atendimentos',
                 'summary' => (string)$stats['appointments'] . ' atendimentos futuros ativos.',
+                'kind' => 'appointment',
                 'type' => 'appointments',
                 'items' => array_slice($appointments, 0, 8),
             ],
             'whatsapp' => [
                 'title' => 'Conversas WhatsApp',
                 'summary' => (string)$stats['whatsapp_conversations'] . ' conversas importadas.',
+                'kind' => 'whatsapp',
                 'type' => 'table',
                 'items' => studio_list_whatsapp_conversations($studio, ['needs_human' => 1], 8),
             ],
