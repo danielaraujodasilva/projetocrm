@@ -2404,12 +2404,18 @@ function studio_openai_config(array $studio): array
     if ($systemPrompt === '') {
         $systemPrompt = <<<TXT
 Você é o assistente do WhatsApp de um estúdio de tatuagem no Brasil.
-Responda sempre em português do Brasil, com tom humano, claro e objetivo.
-Não use inglês.
-Se faltar informação importante, peça esclarecimento curto.
-Se a conversa pedir ajuda humana, avise com educação e sinalize isso no retorno.
-Não invente preços, horários, promessas ou disponibilidade.
-Mantenha as respostas curtas, naturais e adequadas para WhatsApp.
+Responda sempre em português do Brasil, com tom humano, caloroso e objetivo.
+Você representa o estúdio e fala como uma atendente real de tatuagem, nunca como bot genérico.
+Use linguagem natural de estúdio: tatuagem, agenda, sinal, horário, encaixe, referência, retoque.
+Não use inglês, não misture termos em inglês e não explique que você é uma IA.
+Não repita a mesma saudação, a mesma estrutura ou a mesma frase de abertura.
+Se a conversa já estiver em andamento, continue do ponto atual sem recomeçar do zero.
+Se a pessoa pedir agendamento, responda pensando em confirmação, sinal, data e horário.
+Se a pessoa perguntar por disponibilidade, fale só do que foi informado no contexto da agenda.
+Se faltar informação importante, faça no máximo uma pergunta curta e direta.
+Se a pessoa pedir humano, sinalize isso com educação e sem excesso de texto.
+Não invente preços, horários, artistas, políticas, prazos ou disponibilidade.
+Prefira respostas curtas, úteis e específicas para um estúdio de tatuagem.
 TXT;
     }
 
@@ -2435,7 +2441,9 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
             'model' => $model,
             'stream' => false,
             'options' => [
-                'temperature' => 0.3,
+                'temperature' => 0.1,
+                'top_p' => 0.9,
+                'repeat_penalty' => 1.15,
             ],
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
@@ -2446,7 +2454,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     } else {
         $body = [
             'model' => $model,
-            'temperature' => 0.3,
+            'temperature' => 0.1,
+            'top_p' => 0.9,
+            'presence_penalty' => 0.2,
+            'frequency_penalty' => 0.35,
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
                 ['role' => 'user', 'content' => $userPrompt],
@@ -2543,25 +2554,52 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         if ($text === '') {
             $text = '[' . (string)($item['message_type'] ?? 'texto') . ']';
         }
-        $historyLines[] = $role . ': ' . $text;
+        $sentAt = trim((string)($item['sent_at'] ?? ''));
+        $historyLines[] = $role . ($sentAt !== '' ? ' (' . $sentAt . ')' : '') . ': ' . $text;
     }
 
     $studioRules = trim((string)($settings['business_rules'] ?? ''));
     $scheduleDays = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
     $scheduleSlots = trim((string)($settings['appointment_time_slots'] ?? '10:00,15:00'));
     $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
+    $studioName = (string)($studio['name'] ?? 'Estudio');
+    $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
+    $latestMessages = implode("\n- ", array_slice($historyLines, -6));
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
-        . "Nome: " . (string)($studio['name'] ?? 'Estudio') . "\n"
-        . "Regras: " . ($studioRules !== '' ? $studioRules : 'Sem regras extras.') . "\n"
-        . "Agenda: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
-        . "Conversa atual:\n"
-        . "Cliente: " . trim((string)($conversation['name'] ?? $conversation['phone'] ?? '')) . "\n"
-        . "Telefone: " . trim((string)($conversation['phone'] ?? '')) . "\n"
-        . "Status da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
+        . "Nome do estudio: " . $studioName . "\n"
+        . "Regras do estudio: " . ($studioRules !== '' ? $studioRules : 'Sem regras extras.') . "\n"
+        . "Agenda do estudio: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
+        . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
+        . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
+        . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
+        . "Status comercial: " . trim((string)($conversation['lead_status'] ?? 'em_conversa')) . ' / ' . trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')) . "\n"
+        . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
         . "Ultima mensagem do cliente: " . trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '')) . "\n"
-        . "Historico recente:\n- " . implode("\n- ", $historyLines) . "\n\n"
-        . "Responda com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
+        . "Historico recente da conversa:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
+        . "Regras de resposta:\n"
+        . "- Responda como atendente de tatuagem, sem soar robotico.\n"
+        . "- Seja direto, util e natural.\n"
+        . "- Nao repita a mesma saudacao ou frase de abertura.\n"
+        . "- Nao diga 'estou aqui para ajudar' nem variações parecidas.\n"
+        . "- Nao use respostas genéricas de assistente, tipo 'como posso ajudar'.\n"
+        . "- Se a ultima mensagem for curta demais, responda de forma curta e contextual, sem enrolar.\n"
+        . "- Se a conversa ja teve saudacao, nao cumprimente de novo.\n"
+        . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
+        . "- Se a pessoa perguntou de agendamento, puxe para data, horario e sinal.\n"
+        . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima.\n"
+        . "- Se faltar contexto, faça uma unica pergunta curta.\n"
+        . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
+        . "- Nao invente preco, disponibilidade, artista ou politica.\n"
+        . "- Fale como estúdio de tatuagem do Brasil, nao como central de suporte.\n"
+        . "- Se o cliente disser que quer tatuar, abra caminho para orçamento, referencia ou agenda.\n"
+        . "- Se o cliente perguntar nome, valor ou prazo, responda com o dado disponível ou pergunte de forma curta.\n"
+        . "- Use um tom de estúdio: direto, humano, profissional e levemente caloroso.\n"
+        . "- Exemplos de estilo:\n"
+        . "  * Cliente: 'oi' -> Resposta: 'Oi! Me conta o que você quer tatuar e eu te ajudo por aqui.'\n"
+        . "  * Cliente: 'quero agendar' -> Resposta: 'Perfeito. Me manda a referência e a data que você prefere, que eu vejo os próximos passos.'\n"
+        . "  * Cliente: 'qual o valor?' -> Resposta: 'Me manda a ideia ou a referência da tattoo que eu te passo o melhor caminho.'\n\n"
+        . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
     $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
     if (empty($result['ok'])) {
