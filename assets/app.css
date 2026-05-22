@@ -559,17 +559,19 @@ textarea {
 
 .quick-actions-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 10px;
 }
 
 .quick-action-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 12px 14px;
+    gap: 6px;
+    justify-content: center;
+    min-height: 108px;
+    padding: 14px 16px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--surface-soft);
     color: var(--text);
     text-decoration: none;
@@ -592,6 +594,8 @@ textarea {
 .dashboard-stat {
     display: grid;
     gap: 4px;
+    min-height: 122px;
+    padding: 14px 16px;
     color: var(--text);
     text-decoration: none;
     transition: transform .12s ease, box-shadow .12s ease;
@@ -604,7 +608,8 @@ textarea {
 }
 
 .dashboard-stat .metric {
-    font-size: 28px;
+    font-size: 30px;
+    line-height: 1;
 }
 
 .pivot-cell-link {
