@@ -856,6 +856,62 @@ textarea {
     border-color: rgba(42, 131, 143, .18);
 }
 
+.wdr-shell {
+    display: grid;
+    gap: 12px;
+}
+
+.wdr-source-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.wdr-source-button {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    border-radius: 12px;
+    padding: 10px 12px;
+    text-align: left;
+    min-width: 220px;
+    display: grid;
+    gap: 2px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.wdr-source-button strong {
+    font-size: 0.95rem;
+}
+
+.wdr-source-button span {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.2;
+}
+
+.wdr-source-button.active {
+    border-color: var(--accent);
+    background: rgba(42, 131, 143, .08);
+}
+
+.wdr-source-button:hover {
+    transform: translateY(-1px);
+}
+
+.wdr-frame {
+    min-height: 640px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--panel-2);
+}
+
+.reports-pivot-note {
+    margin-top: 10px;
+    font-size: .9rem;
+}
+
 .whatsapp-quick-links .quick-action-card {
     min-height: 118px;
 }

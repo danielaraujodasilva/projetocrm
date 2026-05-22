@@ -762,14 +762,8 @@ if ($page === 'studio_home') {
         }
         echo '</section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
-        echo '<script>(function(){';
-        echo 'window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
-        echo 'window.openHomeDrilldown = function(key){const modal=document.getElementById("homeDrilldownModal");const title=document.getElementById("homeDrilldownTitle");const summary=document.getElementById("homeDrilldownSummary");const body=document.getElementById("homeDrilldownBody");const data=(window.homeDrilldowns||{})[key];if(!modal||!title||!summary||!body||!data)return false;const esc=(v)=>String(v??"").replace(/[&<>"\x27]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[c]||c));title.textContent=data.title||"Detalhe rapido";summary.textContent=data.summary||"";const renderCard=(href,titleLine,metaLine,detailLine)=>`<a class="drilldown-card" ${href ? `href="${esc(href)}"` : ""}>${titleLine?`<strong>${esc(titleLine)}</strong>`:""}${metaLine?`<div class="meta-line">${metaLine}</div>`:""}${detailLine?`<div class="muted">${esc(detailLine)}</div>`:""}</a>`;const renderMetric=(item)=>`<button type="button" class="drilldown-card drilldown-card-button" data-drill-item="${esc(item.id || item.label || item.value || "")}"><strong>${esc(item.value)}</strong><div class="muted">${esc(item.label)}</div>${item.detail ? `<div class=\"muted drilldown-card-more\">${esc(item.detail)}</div>` : ""}</button>`;if(data.type==="availability"){const rangeEntries=Object.entries(data.ranges || {}).map(([key, value])=>({key, ...(value || {})}));const rangeLabels={\"3d\":\"3 dias\",\"7d\":\"7 dias\",\"15d\":\"15 dias\",\"month\":\"Este mes\",\"next_month\":\"Mes que vem\"};const normalizeRange=(value)=>{const raw=String(value||\"7d\");return rangeEntries.some(r=>String(r.key||\"\")===raw)?raw:(rangeEntries[0]?.key||\"7d\");};const renderAvailability=(rangeKey)=>{const range=(rangeEntries.find(r=>String(r.key||\"\")===rangeKey)||rangeEntries[0]||{items:[]});const items=Array.isArray(range.items)?range.items:[];return `<div class=\"availability-toolbar\"><label class=\"field\" style=\"max-width:240px\"><span class=\"muted\">Período</span><select id=\"availabilityRangeSelect\">${rangeEntries.map(r=>`<option value=\"${esc(r.key)}\">${esc(r.label || rangeLabels[r.key] || r.key)}</option>`).join(\"\")}</select></label><p class=\"muted\">Mostrando ${esc(rangeLabels[rangeKey]||range.label||rangeKey)}. Toque num dia ou horario para navegar direto.</p></div><div class=\"drilldown-grid availability-grid\">${items.length ? items.map(item=>`<details class=\"drilldown-card drilldown-details\" open><summary><strong>${esc(item.label)}</strong><span class=\"muted\">${esc(item.allowed ? `${item.free} vagas livres` : \"Fora dos dias permitidos\")}</span></summary><div class=\"drilldown-detail-list\"><div><span class=\"muted\">Horarios livres</span>${(item.free_slots||[]).length ? `<div class=\"drilldown-chip-row\">${(item.free_slots||[]).map(slot=>`<button type=\"button\" class=\"drilldown-chip\" data-availability-date=\"${esc(item.date)}\" data-availability-time=\"${esc(slot)}\">${esc(slot)}</button>`).join(\"\")}</div>` : `<p class=\"muted\">Sem horarios livres nesse dia.</p>`}</div>${(item.booked||[]).length ? `<div style=\"margin-top:10px\"><span class=\"muted\">Ocupados</span><div class=\"drilldown-chip-row\">${(item.booked||[]).map(appt=>`<button type=\"button\" class=\"drilldown-chip secondary\" data-appointment-id=\"${esc(appt.id || 0)}\" data-appointment-date=\"${esc(item.date)}\">${esc(appt.time)}${appt.customer_name ? ` • ${esc(appt.customer_name)}` : \"\"}</button>`).join(\"\")}</div></div>` : \"\"}</div></details>`).join(\"\") : `<div class=\"drilldown-card\"><strong>Nenhuma vaga livre encontrada</strong><div class=\"muted\">Nesse período não apareceu nenhum horário livre rápido dentro das regras do estúdio.</div></div>`}</div>`;};const currentRange=normalizeRange(data.default_range||\"7d\");body.innerHTML=renderAvailability(currentRange);setTimeout(()=>{const sel=document.getElementById(\"availabilityRangeSelect\");if(sel){sel.value=currentRange;sel.addEventListener(\"change\",function(){body.innerHTML=renderAvailability(this.value);setTimeout(()=>{const again=document.getElementById(\"availabilityRangeSelect\");if(again){again.value=this.value;}},0);});}},0);}else if(data.type===\"finance\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(renderMetric).join(\"\")}</div>`;}else if(data.type===\"appointments\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>renderCard(item.id ? \"index.php?page=studio_agenda&date=\" + (item.appointment_date || \"\") + \"&appointment_id=\" + item.id + \"#appointment-form\" : \"\", item.customer_name || item.display_name || item.title || \"Agendamento\", `<span>${esc(item.appointment_date || item.last_message_at || \"-\")}</span><span>${esc(item.start_time ? item.start_time.slice(0,5) : \"\")}</span>`, item.description || item.last_message_preview || item.title || \"-\")).join(\"\")}</div>`;}else if(data.type===\"whatsapp\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>renderCard(\"index.php?page=studio_whatsapp_conversation&id=\" + esc(item.id), item.display_name || item.phone || \"Contato\", `<span>${esc(item.last_message_at || \"-\")}</span><span>${esc(item.attendance_mode || \"-\")}</span>`, item.last_message_preview || \"-\")).join(\"\")}</div>`;}else if(data.type===\"table\"){body.innerHTML=`<div class=\"drilldown-grid\">${(data.items||[]).map(item=>{const titleText=(item.name || item.title || item.customer_name || item.display_name || item.phone || \"Item\");const meta=[];if(item.status) meta.push(`<span>${esc(item.status)}</span>`);if(item.phone) meta.push(`<span>${esc(item.phone)}</span>`);if(item.last_message_at) meta.push(`<span>${esc(item.last_message_at)}</span>`);if(item.value) meta.push(`<span>${esc(item.value)}</span>`);return renderCard(\"\", titleText, meta.join(\"\"), item.description || item.last_message_preview || item.interest || \"\");}).join(\"\")}</div>`;}else{body.innerHTML=`<div class=\"drilldown-card\">${esc(data.summary || \"\")}</div>`;}modal.classList.remove(\"hidden\");return false;};';
-        echo 'document.querySelectorAll("[data-home-focus]").forEach(function(btn){btn.addEventListener("click",function(){return window.openHomeDrilldown && window.openHomeDrilldown(btn.getAttribute("data-home-focus")||"");});});';
-        echo 'document.addEventListener("click", function(event){ const availabilityBtn = event.target.closest("[data-availability-date]"); if (availabilityBtn) { const date = availabilityBtn.getAttribute("data-availability-date") || ""; if (date) { window.location.href = "index.php?page=studio_agenda&date=" + encodeURIComponent(date) + "#appointment-form"; } return; } const appointmentBtn = event.target.closest("[data-appointment-id]"); if (appointmentBtn) { const appointmentId = appointmentBtn.getAttribute("data-appointment-id") || ""; const date = appointmentBtn.getAttribute("data-appointment-date") || ""; if (appointmentId && date) { window.location.href = "index.php?page=studio_agenda&date=" + encodeURIComponent(date) + "&appointment_id=" + encodeURIComponent(appointmentId) + "#appointment-form"; } return; } });';
-        echo 'var close=document.getElementById("closeHomeDrilldown");var modal=document.getElementById("homeDrilldownModal");if(close&&modal){close.addEventListener("click",function(){modal.classList.add("hidden");});modal.addEventListener("click",function(e){if(e.target===modal)modal.classList.add("hidden");});document.addEventListener("keydown",function(e){if(e.key==="Escape")modal.classList.add("hidden");});}';
-        echo '})();</script>';
-        echo '<script>(function(){const modal=document.getElementById("homeDrilldownModal"),title=document.getElementById("homeDrilldownTitle"),summary=document.getElementById("homeDrilldownSummary"),body=document.getElementById("homeDrilldownBody");if(!modal||!title||!summary||!body)return;function esc(v){return String(v ?? "").replace(/[&<>"\x27]/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[c]||c);});}function card(h,t,m,d){return "<a class=\"drilldown-card\"" + (h ? " href=\"" + esc(h) + "\"" : "") + ">" + (t ? "<strong>" + esc(t) + "</strong>" : "") + (m ? "<div class=\"meta-line\">" + m + "</div>" : "") + (d ? "<div class=\"muted\">" + esc(d) + "</div>" : "") + "</a>";}function renderAvailability(data){const ranges=Object.entries(data.ranges||{});const defaultRange=data.default_range||"7d";const render=(rangeKey)=>{const pair=ranges.find(([k])=>k===rangeKey)||ranges.find(([k])=>k===defaultRange)||ranges[0]||["7d",{items:[],label:"7 dias"}];const keyReal=pair[0];const range=pair[1]||{items:[]};const options=ranges.map(([k,v])=>"<option value=\"" + esc(k) + "\"" + (k===keyReal?" selected":"") + ">" + esc(v.label||k) + "</option>").join("");const days=(range.items||[]).map(function(item){const free=(item.free_slots||[]).map(function(slot){return "<button type=\"button\" class=\"drilldown-chip\" data-availability-date=\"" + esc(item.date) + "\">" + esc(slot) + "</button>";}).join("");const booked=(item.booked||[]).map(function(appt){return "<button type=\"button\" class=\"drilldown-chip secondary\" data-appointment-id=\"" + esc(appt.id||0) + "\" data-appointment-date=\"" + esc(item.date) + "\">" + esc(appt.time) + (appt.customer_name ? " • " + esc(appt.customer_name) : "") + "</button>";}).join("");return "<details class=\"drilldown-card drilldown-details\" open><summary><strong>" + esc(item.label) + "</strong><span class=\"muted\">" + esc(item.allowed ? (item.free + " vagas livres") : "Fora dos dias permitidos") + "</span></summary><div class=\"drilldown-detail-list\"><div><span class=\"muted\">Horarios livres</span>" + (free ? "<div class=\"drilldown-chip-row\">" + free + "</div>" : "<p class=\"muted\">Sem horarios livres nesse dia.</p>") + "</div>" + (booked ? "<div style=\"margin-top:10px\"><span class=\"muted\">Ocupados</span><div class=\"drilldown-chip-row\">" + booked + "</div></div>" : "") + "</div></details>";}).join("");body.innerHTML = "<div class=\"availability-toolbar\"><label class=\"field\" style=\"max-width:240px\"><span class=\"muted\">Período</span><select id=\"availabilityRangeSelect\">" + options + "</select></label><p class=\"muted\">Mostrando " + esc(range.label||keyReal) + ". Toque num dia ou horario para navegar direto.</p></div><div class=\"drilldown-grid availability-grid\">" + (days || "<div class=\"drilldown-card\"><strong>Nenhuma vaga livre encontrada</strong><div class=\"muted\">Nesse período não apareceu nenhum horário livre rápido dentro das regras do estúdio.</div></div>") + "</div>";setTimeout(function(){const sel=document.getElementById("availabilityRangeSelect");if(sel){sel.addEventListener("change",function(){render(this.value);});}},0);};render(defaultRange);}function show(data){title.textContent=data.title||"Detalhe rapido";summary.textContent=data.summary||"";if(data.type==="availability"){renderAvailability(data);}else if(data.type==="finance"){body.innerHTML="<div class=\"drilldown-grid\">" + (data.items||[]).map(function(item){return card("",item.value,item.label,item.detail||"");}).join("") + "</div>";}else if(data.type==="appointments"){body.innerHTML="<div class=\"drilldown-grid\">" + (data.items||[]).map(function(item){return card(item.id ? \"index.php?page=studio_agenda&date=\" + encodeURIComponent(item.appointment_date||\"\") + \"&appointment_id=\" + encodeURIComponent(item.id) + \"#appointment-form\" : \"\",item.customer_name||item.display_name||item.title||\"Agendamento\",\"<span>\" + esc(item.appointment_date||item.last_message_at||\"-\") + \"</span><span>\" + esc(item.start_time ? item.start_time.slice(0,5) : \"\") + \"</span>\",item.description||item.last_message_preview||item.title||\"-\");}).join(\"\") + \"</div>\";}else if(data.type===\"whatsapp\"){body.innerHTML=\"<div class=\\\"drilldown-grid\\\">\" + (data.items||[]).map(function(item){return card(\"index.php?page=studio_whatsapp_conversation&id=\" + encodeURIComponent(item.id),item.display_name||item.phone||\"Contato\",\"<span>\" + esc(item.last_message_at||\"-\") + \"</span><span>\" + esc(item.attendance_mode||\"-\") + \"</span>\",item.last_message_preview||\"-\");}).join(\"\") + \"</div>\";}else if(data.type===\"table\"){body.innerHTML=\"<div class=\\\"drilldown-grid\\\">\" + (data.items||[]).map(function(item){const meta=[];if(item.status)meta.push(\"<span>\" + esc(item.status) + \"</span>\");if(item.phone)meta.push(\"<span>\" + esc(item.phone) + \"</span>\");if(item.last_message_at)meta.push(\"<span>\" + esc(item.last_message_at) + \"</span>\");if(item.value)meta.push(\"<span>\" + esc(item.value) + \"</span>\");return card(\"\",item.name||item.title||item.customer_name||item.display_name||item.phone||\"Item\",meta.join(\"\"),item.description||item.last_message_preview||item.interest||\"\");}).join(\"\") + \"</div>\";}else{body.innerHTML=\"<div class=\\\"drilldown-card\\\">\" + esc(data.summary||\"\") + \"</div>\";}modal.classList.remove(\"hidden\");return false;}window.openHomeDrilldown=function(key){try{return show((window.homeDrilldowns||{})[key]||null);}catch(e){console.error(e);return false;}};document.querySelectorAll(\"[data-home-focus]\").forEach(function(btn){btn.addEventListener(\"click\",function(){return window.openHomeDrilldown(btn.getAttribute(\"data-home-focus\")||\"\");});});})();</script>';
+        echo '<script>window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script src="assets/home_drilldown.js"></script>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
         if (!$recentLeads) {
@@ -1662,299 +1656,117 @@ if ($page === 'studio_reports') {
         echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['appointments_by_status'] ?? []))) . '</strong><small>Agendamentos</small></span>';
         echo '<span><strong>' . h((string)count($reports['expenses_by_category'] ?? [])) . '</strong><small>Grupos de despesa</small></span>';
         echo '</div></section>';
+        $pdo = studio_db($studio);
         $pivotSource = (string)($_GET['pivot_source'] ?? 'leads');
-        $pivotRow = (string)($_GET['pivot_row'] ?? 'status');
-        $pivotCol = (string)($_GET['pivot_col'] ?? 'source');
-        $pivotMetric = (string)($_GET['pivot_metric'] ?? 'count');
-        $pivotPeriod = (string)($_GET['pivot_period'] ?? 'all');
-        $pivotSearch = trim((string)($_GET['pivot_search'] ?? ''));
-        $pivotSort = (string)($_GET['pivot_sort'] ?? 'alpha');
-        $pivotHideZeros = !empty($_GET['pivot_hide_zeros']);
-        $pivotTopRows = max(0, (int)($_GET['pivot_top_rows'] ?? 0));
-        $pivotTopCols = max(0, (int)($_GET['pivot_top_cols'] ?? 0));
-        $pivotDefinitions = [
+        $pivotSource = in_array($pivotSource, ['leads', 'appointments', 'expenses'], true) ? $pivotSource : 'leads';
+        $pivotDataSets = [
             'leads' => [
                 'label' => 'Leads',
-                'table' => 'leads',
-                'rows' => ['status' => 'Status', 'source' => 'Origem', 'pipeline_stage' => 'Etapa', 'attendance_mode' => 'Atendimento'],
-                'cols' => ['source' => 'Origem', 'status' => 'Status', 'pipeline_stage' => 'Etapa'],
-                'metrics' => ['count' => 'Qtd', 'estimated_value' => 'Valor estimado'],
-                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'year' => 'Este ano'],
-                'default_row' => 'status',
-                'default_col' => 'source',
+                'subtitle' => 'Funil, origem, etapa e nota',
+                'data' => $pdo->query(
+                    "SELECT
+                        COALESCE(name, 'Sem nome') AS nome,
+                        COALESCE(phone, '') AS telefone,
+                        COALESCE(status, 'Sem status') AS status,
+                        COALESCE(source, 'Sem origem') AS origem,
+                        COALESCE(pipeline_stage, 'Sem etapa') AS etapa,
+                        COALESCE(lead_score, 0) AS nota,
+                        COALESCE(estimated_value, 0) AS valor_estimado,
+                        COALESCE(interest, '') AS interesse,
+                        DATE(COALESCE(created_at, updated_at)) AS data_criacao,
+                        DATE_FORMAT(COALESCE(created_at, updated_at), '%Y-%m') AS mes,
+                        1 AS total
+                     FROM leads
+                     ORDER BY COALESCE(created_at, updated_at) DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'status']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'origem']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int']],
+                    ],
+                ],
             ],
             'appointments' => [
                 'label' => 'Agenda',
-                'table' => 'appointments',
-                'rows' => ['status' => 'Status', 'appointment_date' => 'Data', 'artist' => 'Tatuador'],
-                'cols' => ['artist' => 'Tatuador', 'status' => 'Status'],
-                'metrics' => ['count' => 'Qtd', 'value' => 'Valor'],
-                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'next30' => 'Proximos 30 dias'],
-                'default_row' => 'status',
-                'default_col' => 'artist',
+                'subtitle' => 'Status, tatuador, valor e sinal',
+                'data' => $pdo->query(
+                    "SELECT
+                        a.id,
+                        COALESCE(c.name, a.title, 'Sem nome') AS cliente,
+                        COALESCE(a.status, 'Sem status') AS status,
+                        COALESCE(ta.name, 'Sem tatuador') AS tatuador,
+                        COALESCE(a.title, '') AS titulo,
+                        COALESCE(a.appointment_date, CURDATE()) AS data_agendamento,
+                        DATE_FORMAT(a.appointment_date, '%Y-%m') AS mes,
+                        COALESCE(a.start_time, '') AS horario,
+                        COALESCE(a.end_time, '') AS horario_fim,
+                        COALESCE(a.value, 0) AS valor,
+                        COALESCE(a.deposit_value, 0) AS sinal,
+                        1 AS total
+                     FROM appointments a
+                     LEFT JOIN customers c ON c.id = a.customer_id
+                     LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+                     ORDER BY a.appointment_date DESC, a.start_time DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'status']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'tatuador']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int'], ['uniqueName' => 'valor', 'aggregation' => 'sum', 'format' => 'currency']],
+                    ],
+                ],
             ],
             'expenses' => [
                 'label' => 'Despesas',
-                'table' => 'expenses',
-                'rows' => ['category' => 'Categoria', 'payment_method' => 'Pagamento', 'expense_date' => 'Data'],
-                'cols' => ['payment_method' => 'Pagamento', 'category' => 'Categoria'],
-                'metrics' => ['count' => 'Qtd', 'amount' => 'Valor'],
-                'periods' => ['all' => 'Tudo', 'month' => 'Este mes', 'last30' => 'Ultimos 30 dias', 'year' => 'Este ano'],
-                'default_row' => 'category',
-                'default_col' => 'payment_method',
+                'subtitle' => 'Categorias, meio, data e valor',
+                'data' => $pdo->query(
+                    "SELECT
+                        COALESCE(category, 'Sem categoria') AS categoria,
+                        COALESCE(payment_method, 'Sem pagamento') AS meio,
+                        COALESCE(description, '') AS descricao,
+                        COALESCE(notes, '') AS notas,
+                        COALESCE(expense_date, CURDATE()) AS data_despesa,
+                        DATE_FORMAT(expense_date, '%Y-%m') AS mes,
+                        COALESCE(amount, 0) AS valor,
+                        1 AS total
+                     FROM expenses
+                     ORDER BY expense_date DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'categoria']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'meio']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int'], ['uniqueName' => 'valor', 'aggregation' => 'sum', 'format' => 'currency']],
+                    ],
+                ],
             ],
         ];
-        $pivot = $pivotDefinitions[$pivotSource] ?? $pivotDefinitions['leads'];
-        $pivotRowsConfig = $pivot['rows'];
-        $pivotColsConfig = $pivot['cols'];
-        $pivotMetricsConfig = $pivot['metrics'];
-        $pivotPeriodsConfig = $pivot['periods'];
-        $pivotRow = array_key_exists($pivotRow, $pivot['rows']) ? $pivotRow : $pivot['default_row'];
-        $pivotCol = array_key_exists($pivotCol, $pivot['cols']) ? $pivotCol : $pivot['default_col'];
-        $pivotMetric = array_key_exists($pivotMetric, $pivot['metrics']) ? $pivotMetric : 'count';
-        $pivotPeriod = array_key_exists($pivotPeriod, $pivot['periods']) ? $pivotPeriod : 'all';
-        $pdo = studio_db($studio);
-        $selectRow = $pivotRow === 'artist' ? "COALESCE(ta.name, 'Sem tatuador')" : ($pivotRow === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotRow, 'Sem valor')");
-        $selectCol = $pivotCol === 'artist' ? "COALESCE(tb.name, 'Sem tatuador')" : ($pivotCol === 'appointment_date' ? "DATE_FORMAT(a.appointment_date, '%Y-%m')" : "COALESCE(a.$pivotCol, 'Sem valor')");
-        $metricSql = $pivotMetric === 'amount' || $pivotMetric === 'estimated_value' || $pivotMetric === 'value' ? "COALESCE(SUM(metric_value), 0)" : "COUNT(*)";
-        $whereParts = ['1=1'];
-        if ($pivotSearch !== '') {
-            $escapedSearch = str_replace("'", "''", $pivotSearch);
-            if ($pivotSource === 'leads') {
-                $whereParts[] = "(COALESCE(a.name,'') LIKE '%$escapedSearch%' OR COALESCE(a.phone,'') LIKE '%$escapedSearch%' OR COALESCE(a.source,'') LIKE '%$escapedSearch%' OR COALESCE(a.status,'') LIKE '%$escapedSearch%' OR COALESCE(a.pipeline_stage,'') LIKE '%$escapedSearch%' OR COALESCE(a.interest,'') LIKE '%$escapedSearch%')";
-            } elseif ($pivotSource === 'appointments') {
-                $whereParts[] = "(COALESCE(a.title,'') LIKE '%$escapedSearch%' OR COALESCE(a.status,'') LIKE '%$escapedSearch%' OR COALESCE(a.notes,'') LIKE '%$escapedSearch%' OR COALESCE(ta.name,'') LIKE '%$escapedSearch%' OR COALESCE(c.name,'') LIKE '%$escapedSearch%')";
-            } else {
-                $whereParts[] = "(COALESCE(a.description,'') LIKE '%$escapedSearch%' OR COALESCE(a.category,'') LIKE '%$escapedSearch%' OR COALESCE(a.payment_method,'') LIKE '%$escapedSearch%' OR COALESCE(a.notes,'') LIKE '%$escapedSearch%')";
-            }
-        }
-        if ($pivotSource === 'leads') {
-            if ($pivotPeriod === 'month') {
-                $whereParts[] = "DATE(COALESCE(a.created_at, a.updated_at)) BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
-            } elseif ($pivotPeriod === 'last30') {
-                $whereParts[] = "DATE(COALESCE(a.created_at, a.updated_at)) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-            } elseif ($pivotPeriod === 'year') {
-                $whereParts[] = "YEAR(COALESCE(a.created_at, a.updated_at)) = YEAR(CURDATE())";
-            }
-        } elseif ($pivotSource === 'appointments') {
-            if ($pivotPeriod === 'month') {
-                $whereParts[] = "a.appointment_date BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
-            } elseif ($pivotPeriod === 'last30') {
-                $whereParts[] = "a.appointment_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-            } elseif ($pivotPeriod === 'next30') {
-                $whereParts[] = "a.appointment_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)";
-            }
-        } else {
-            if ($pivotPeriod === 'month') {
-                $whereParts[] = "a.expense_date BETWEEN DATE_FORMAT(CURDATE(), '%Y-%m-01') AND LAST_DAY(CURDATE())";
-            } elseif ($pivotPeriod === 'last30') {
-                $whereParts[] = "a.expense_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-            } elseif ($pivotPeriod === 'year') {
-                $whereParts[] = "YEAR(a.expense_date) = YEAR(CURDATE())";
-            }
-        }
-        $whereSql = implode(' AND ', $whereParts);
-        $joins = '';
-        $metricExpression = '1';
-        if ($pivotSource === 'leads') {
-            $fromSql = 'FROM leads a';
-            $metricExpression = $pivotMetric === 'estimated_value' ? 'COALESCE(a.estimated_value, 0)' : '1';
-        } elseif ($pivotSource === 'appointments') {
-            $fromSql = 'FROM appointments a LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id LEFT JOIN tattoo_artists tb ON tb.id = a.artist_id';
-            $metricExpression = $pivotMetric === 'value' ? 'COALESCE(a.value, 0)' : '1';
-        } else {
-            $fromSql = 'FROM expenses a';
-            $metricExpression = $pivotMetric === 'amount' ? 'COALESCE(a.amount, 0)' : '1';
-        }
-        $sql = "SELECT row_label, col_label, $metricSql AS total
-                FROM (
-                    SELECT $selectRow AS row_label, $selectCol AS col_label, $metricExpression AS metric_value
-                    $fromSql
-                    WHERE $whereSql
-                ) pivot_source
-                GROUP BY row_label, col_label
-                ORDER BY row_label, col_label";
-        $pivotRows = $pdo->query($sql)->fetchAll() ?: [];
-        $rowLabels = [];
-        $colLabels = [];
-        $grid = [];
-        foreach ($pivotRows as $row) {
-            $r = (string)($row['row_label'] ?? 'Sem valor');
-            $c = (string)($row['col_label'] ?? 'Sem valor');
-            $rowLabels[$r] = true;
-            $colLabels[$c] = true;
-            $grid[$r][$c] = (float)($row['total'] ?? 0);
-        }
-        $rowTotals = [];
-        $colTotals = [];
-        foreach ($grid as $rowLabel => $cols) {
-            foreach ($cols as $colLabel => $value) {
-                $rowTotals[$rowLabel] = ($rowTotals[$rowLabel] ?? 0) + $value;
-                $colTotals[$colLabel] = ($colTotals[$colLabel] ?? 0) + $value;
-            }
-        }
-        if ($pivotHideZeros) {
-            foreach ($grid as $rowLabel => $cols) {
-                foreach ($cols as $colLabel => $value) {
-                    if ((float)$value === 0.0) {
-                        unset($grid[$rowLabel][$colLabel]);
-                    }
-                }
-                if (!isset($rowTotals[$rowLabel]) || (float)$rowTotals[$rowLabel] === 0.0) {
-                    unset($grid[$rowLabel], $rowTotals[$rowLabel]);
-                }
-            }
-            foreach ($colTotals as $colLabel => $total) {
-                if ((float)$total === 0.0) {
-                    unset($colTotals[$colLabel]);
-                }
-            }
-        }
-        if ($pivotSort === 'total_desc') {
-            arsort($rowTotals);
-            arsort($colTotals);
-        } elseif ($pivotSort === 'total_asc') {
-            asort($rowTotals);
-            asort($colTotals);
-        } else {
-            ksort($rowTotals);
-            ksort($colTotals);
-        }
-        if ($pivotTopRows > 0) {
-            $rowTotals = array_slice($rowTotals, 0, $pivotTopRows, true);
-        }
-        if ($pivotTopCols > 0) {
-            $colTotals = array_slice($colTotals, 0, $pivotTopCols, true);
-        }
-        $buildPivotLink = static function (string $source, string $rowKey, string $rowLabel, string $colKey, string $colLabel) use ($pivotMetric): string {
-            $params = ['page' => 'studio_reports'];
-            if ($source === 'leads') {
-                $params = ['page' => 'studio_leads'];
-                if ($rowKey === 'status') $params['status'] = $rowLabel;
-                if ($rowKey === 'source') $params['source'] = $rowLabel;
-                if ($rowKey === 'pipeline_stage') $params['q'] = $rowLabel;
-                if ($colKey === 'status') $params['status'] = $colLabel;
-                if ($colKey === 'source') $params['source'] = $colLabel;
-                if ($colKey === 'pipeline_stage') $params['q'] = $colLabel;
-                return app_url('studio_leads', $params);
-            }
-            if ($source === 'appointments') {
-                if ($rowKey === 'appointment_date') {
-                    return app_url('studio_agenda', ['date' => preg_replace('/[^0-9\-]/', '', $rowLabel)]);
-                }
-                if ($colKey === 'appointment_date') {
-                    return app_url('studio_agenda', ['date' => preg_replace('/[^0-9\-]/', '', $colLabel)]);
-                }
-                return app_url('studio_agenda');
-            }
-            if ($rowKey === 'category') {
-                return app_url('studio_finance');
-            }
-            return app_url('studio_finance');
-        };
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Tabela dinamica</h2><span class="badge">Pivot simples</span></div>';
-        echo '<div class="pivot-builder" data-pivot-builder>';
-        echo '<form class="filter-bar pivot-builder-form" method="get" id="pivotBuilderForm">';
-        echo '<input type="hidden" name="page" value="studio_reports">';
-        echo '<input type="hidden" name="pivot_source" id="pivot_source" value="' . h($pivotSource) . '">';
-        echo '<input type="hidden" name="pivot_row" id="pivot_row" value="' . h($pivotRow) . '">';
-        echo '<input type="hidden" name="pivot_col" id="pivot_col" value="' . h($pivotCol) . '">';
-        echo '<input type="hidden" name="pivot_metric" id="pivot_metric" value="' . h($pivotMetric) . '">';
-        echo '<input type="hidden" name="pivot_period" id="pivot_period" value="' . h($pivotPeriod) . '">';
-        echo '<input type="hidden" name="pivot_search" id="pivot_search" value="' . h($pivotSearch) . '">';
-        echo '<input type="hidden" name="pivot_sort" id="pivot_sort" value="' . h($pivotSort) . '">';
-        echo '<input type="hidden" name="pivot_top_rows" id="pivot_top_rows" value="' . h((string)$pivotTopRows) . '">';
-        echo '<input type="hidden" name="pivot_top_cols" id="pivot_top_cols" value="' . h((string)$pivotTopCols) . '">';
-        echo '<input type="hidden" name="pivot_hide_zeros" id="pivot_hide_zeros" value="' . ($pivotHideZeros ? '1' : '0') . '">';
-        echo '<div class="pivot-builder-top">';
-        echo '<div class="pivot-dropzone" data-drop-target="source"><span class="muted">Fonte</span><div class="pivot-dropzone-slot" data-current="' . h($pivotSource) . '">' . h($pivotDefinitions[$pivotSource]['label'] ?? 'Leads') . '</div></div>';
-        echo '<div class="pivot-dropzone" data-drop-target="row"><span class="muted">Linhas</span><div class="pivot-dropzone-slot" data-current="' . h($pivotRow) . '">' . h($pivot['rows'][$pivotRow]) . '</div></div>';
-        echo '<div class="pivot-dropzone" data-drop-target="col"><span class="muted">Colunas</span><div class="pivot-dropzone-slot" data-current="' . h($pivotCol) . '">' . h($pivot['cols'][$pivotCol]) . '</div></div>';
-        echo '<div class="pivot-dropzone" data-drop-target="metric"><span class="muted">Métrica</span><div class="pivot-dropzone-slot" data-current="' . h($pivotMetric) . '">' . h($pivot['metrics'][$pivotMetric]) . '</div></div>';
-        echo '<div class="pivot-dropzone" data-drop-target="period"><span class="muted">Período</span><div class="pivot-dropzone-slot" data-current="' . h($pivotPeriod) . '">' . h($pivot['periods'][$pivotPeriod]) . '</div></div>';
-        echo '</div>';
-        echo '<div class="pivot-toolbar">';
-        echo '<input name="pivot_search" value="' . h($pivotSearch) . '" placeholder="Buscar na pivot">';
-        echo '<select name="pivot_sort"><option value="alpha" ' . ($pivotSort === 'alpha' ? 'selected' : '') . '>Ordem alfabetica</option><option value="total_desc" ' . ($pivotSort === 'total_desc' ? 'selected' : '') . '>Maior total primeiro</option><option value="total_asc" ' . ($pivotSort === 'total_asc' ? 'selected' : '') . '>Menor total primeiro</option></select>';
-        echo '<input type="number" min="0" name="pivot_top_rows" value="' . h((string)$pivotTopRows) . '" placeholder="Top linhas">';
-        echo '<input type="number" min="0" name="pivot_top_cols" value="' . h((string)$pivotTopCols) . '" placeholder="Top colunas">';
-        echo '<label class="checkline" style="margin:0"><input type="checkbox" name="pivot_hide_zeros" value="1" ' . ($pivotHideZeros ? 'checked' : '') . '> Esconder zeros</label>';
-        echo '<button class="btn secondary" type="submit">Atualizar</button>';
-        echo '</div>';
-        echo '</form>';
-        echo '<div class="pivot-field-bank">';
-        foreach ($pivotDefinitions as $sourceKey => $sourceDef) {
-            echo '<div class="pivot-field-group">';
-            echo '<h3>' . h($sourceDef['label']) . '</h3>';
-            echo '<div class="pivot-field-row">';
-            echo '<button type="button" class="pivot-field-chip pivot-field-chip-source" draggable="true" data-pivot-kind="source" data-pivot-value="' . h($sourceKey) . '">' . h($sourceDef['label']) . '</button>';
-            foreach ($sourceDef['rows'] as $key => $label) {
-                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="row" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
-            }
-            foreach ($sourceDef['cols'] as $key => $label) {
-                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="col" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
-            }
-            foreach ($sourceDef['metrics'] as $key => $label) {
-                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="metric" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
-            }
-            foreach ($sourceDef['periods'] as $key => $label) {
-                echo '<button type="button" class="pivot-field-chip" draggable="true" data-pivot-kind="period" data-pivot-source="' . h($sourceKey) . '" data-pivot-value="' . h($key) . '">' . h($label) . '</button>';
-            }
-            echo '</div></div>';
+        $pivotConfig = $pivotDataSets[$pivotSource];
+        echo '<section class="panel" style="margin-top:16px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Arraste os campos, filtre e explore os dados como uma planilha de verdade.</p></div><span class="badge">Excel-like</span></div>';
+        echo '<div class="wdr-shell">';
+        echo '<div class="wdr-source-bar">';
+        foreach ($pivotDataSets as $key => $def) {
+            echo '<button type="button" class="wdr-source-button' . ($key === $pivotSource ? ' active' : '') . '" data-pivot-source="' . h($key) . '"><strong>' . h($def['label']) . '</strong><span>' . h($def['subtitle']) . '</span></button>';
         }
         echo '</div>';
-        if (!$grid) {
-            echo '<p class="muted">Sem dados suficientes para montar a tabela dinamica com esses filtros.</p>';
-        } else {
-            $rowLabels = array_fill_keys(array_keys($rowTotals), true);
-            $colLabels = array_fill_keys(array_keys($colTotals), true);
-            $maxCell = 0.0;
-            foreach ($grid as $row) {
-                foreach ($row as $value) {
-                    $maxCell = max($maxCell, (float)$value);
-                }
-            }
-            echo '<div class="table-scroll"><table class="table pivot-table"><thead><tr><th>' . h($pivot['rows'][$pivotRow]) . '</th>';
-            foreach (array_keys($colLabels) as $colLabel) {
-                echo '<th>' . h($colLabel) . '</th>';
-            }
-            echo '<th>Total</th></tr></thead><tbody>';
-            $grandTotal = 0;
-            foreach (array_keys($rowTotals) as $rowLabel) {
-                $rowUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, '');
-                echo '<tr><td><a href="' . h($rowUrl) . '"><strong>' . h($rowLabel) . '</strong></a></td>';
-                $rowTotal = 0;
-                foreach (array_keys($colLabels) as $colLabel) {
-                    $value = (float)($grid[$rowLabel][$colLabel] ?? 0);
-                    $rowTotal += $value;
-                    $grandTotal += $value;
-                    $cellUrl = $buildPivotLink($pivotSource, $pivotRow, $rowLabel, $pivotCol, $colLabel);
-                    $cellText = $pivotMetric === 'count' ? (string)(int)$value : format_money($value);
-                    $cellClass = 'pivot-cell-link';
-                    if ($value > 0 && $maxCell > 0) {
-                        $ratio = $value / $maxCell;
-                        if ($ratio >= 0.75) {
-                            $cellClass .= ' heat-high';
-                        } elseif ($ratio >= 0.45) {
-                            $cellClass .= ' heat-mid';
-                        } else {
-                            $cellClass .= ' heat-low';
-                        }
-                    }
-                    echo '<td><a class="' . h($cellClass) . '" href="' . h($cellUrl) . '">' . h($cellText) . '</a></td>';
-                }
-                echo '<td><a class="pivot-cell-link pivot-total-link" href="' . h($rowUrl) . '">' . h($pivotMetric === 'count' ? (string)(int)$rowTotal : format_money($rowTotal)) . '</a></td></tr>';
-            }
-            echo '<tr class="pivot-grand-total"><td><strong>Total</strong></td>';
-            foreach (array_keys($colLabels) as $colLabel) {
-                $colTotal = (float)($colTotals[$colLabel] ?? 0);
-                echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$colTotal : format_money($colTotal)) . '</strong></td>';
-            }
-            echo '<td><strong>' . h($pivotMetric === 'count' ? (string)(int)$grandTotal : format_money($grandTotal)) . '</strong></td></tr>';
-            echo '</tbody></table></div>';
-        }
+        echo '<div id="reportsPivot" class="wdr-frame"></div>';
+        echo '</div>';
+        echo '<div class="reports-pivot-note muted">Use o painel lateral do pivot para adicionar campos em Linhas, Colunas, Medidas e Filtros. Exportação e drill-down ficam no toolbar do componente.</div>';
+        echo '</section>';
+        echo '<script src="https://cdn.webdatarocks.com/latest/webdatarocks.min.js"></script>';
+        echo '<script src="https://cdn.webdatarocks.com/latest/webdatarocks.toolbar.min.js"></script>';
         echo '<script>';
-        echo '(function(){const form=document.getElementById("pivotBuilderForm");if(!form)return;const submitIfChanged=()=>form.requestSubmit();const slots={source:document.querySelector("[data-drop-target=\\"source\\"] .pivot-dropzone-slot"),row:document.querySelector("[data-drop-target=\\"row\\"] .pivot-dropzone-slot"),col:document.querySelector("[data-drop-target=\\"col\\"] .pivot-dropzone-slot"),metric:document.querySelector("[data-drop-target=\\"metric\\"] .pivot-dropzone-slot"),period:document.querySelector("[data-drop-target=\\"period\\"] .pivot-dropzone-slot")};const fields={source:document.getElementById("pivot_source"),row:document.getElementById("pivot_row"),col:document.getElementById("pivot_col"),metric:document.getElementById("pivot_metric"),period:document.getElementById("pivot_period")};const labels={source:' . json_encode(array_map(static fn($d) => $d['label'], $pivotDefinitions), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',row:' . json_encode($pivot['rows'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',col:' . json_encode($pivot['cols'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',metric:' . json_encode($pivot['metrics'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',period:' . json_encode($pivot['periods'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '};function sync(target,value){if(!fields[target]||!slots[target])return;fields[target].value=value;slots[target].textContent=labels[target][value]||value;slots[target].dataset.current=value;}document.querySelectorAll(".pivot-field-chip").forEach(chip=>{chip.addEventListener("dragstart",ev=>{ev.dataTransfer.setData("text/plain", JSON.stringify({kind:chip.dataset.pivotKind||"", source:chip.dataset.pivotSource||"", value:chip.dataset.pivotValue||""}));ev.dataTransfer.effectAllowed="copy";});chip.addEventListener("click",()=>{const kind=chip.dataset.pivotKind||"";const value=chip.dataset.pivotValue||"";if(kind&&fields[kind]){sync(kind,value);submitIfChanged();}});});Object.entries(slots).forEach(([target,slot])=>{if(!slot)return;const zone=slot.closest("[data-drop-target]");zone.addEventListener("dragover",ev=>{ev.preventDefault();zone.classList.add("is-over");});zone.addEventListener("dragleave",()=>zone.classList.remove("is-over"));zone.addEventListener("drop",ev=>{ev.preventDefault();zone.classList.remove("is-over");try{const data=JSON.parse(ev.dataTransfer.getData("text/plain")||"{}");const kind=zone.getAttribute("data-drop-target");if(!data.value)return;if(kind==="source"){sync("source",data.value);const firstRow=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].rows||{})[0]||"";const firstCol=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].cols||{})[0]||"";const firstMetric=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].metrics||{})[0]||"";const firstPeriod=Object.keys(' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[data.value].periods||{})[0]||"";sync("row",firstRow);sync("col",firstCol);sync("metric",firstMetric);sync("period",firstPeriod);}else if(kind==="row"||kind==="col"||kind==="metric"||kind==="period"){const currentSource=fields.source.value;const def=' . json_encode($pivotDefinitions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '[currentSource];if(def&&def[kind+"s"]&&Object.prototype.hasOwnProperty.call(def[kind+"s"], data.value)){sync(kind,data.value);}}submitIfChanged();}catch(e){}});});})();';
+        echo 'window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
+        echo 'window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';';
+        echo '(function(){const mount=document.getElementById("reportsPivot");if(!mount||!window.WebDataRocks)return;const makeReport=function(source){const def=(window.reportsPivotData||{})[source]||window.reportsPivotData.leads;return {dataSource:{dataSourceType:"json",data:def.data},slice:def.report.slice,options:{grid:{showGrandTotals:"on",showTotals:"on",type:"flat"},configuratorButton:true,sorting:"on",drillThrough:true,drillThroughMaxRows:50},formats:[{name:"currency",thousandsSeparator:".",decimalSeparator:",",decimalPlaces:2,currencySymbol:"R$ ",currencySymbolAlign:"left"},{name:"int",thousandsSeparator:".",decimalPlaces:0}]};};const initPivot=function(source){mount.innerHTML="";const active=(window.reportsPivotData||{})[source]||window.reportsPivotData.leads;document.querySelectorAll("[data-pivot-source]").forEach(btn=>btn.classList.toggle("active",(btn.getAttribute("data-pivot-source")||"")==source));window.reportsPivot=new WebDataRocks({container:"#reportsPivot",toolbar:true,height:640,report:makeReport(source),global:{options:{grid:{showFilter:true,showReportFiltersArea:true},configuratorButton:true,sorting:"on",drillThrough:true}}});};document.querySelectorAll("[data-pivot-source]").forEach(btn=>btn.addEventListener("click",function(){const source=this.getAttribute("data-pivot-source")||"leads";initPivot(source);}));initPivot(window.reportsPivotSource||"leads");})();';
         echo '</script>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
