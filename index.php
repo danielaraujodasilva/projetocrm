@@ -642,6 +642,11 @@ if ($page === 'studio_home') {
         $attentionLeads = array_slice($attentionLeads, 0, 8);
         $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
         $metaCampaignRanges = [
+            'today' => [
+                'label' => 'Hoje',
+                'start' => $current->setTime(0, 0, 0),
+                'end' => $current->setTime(23, 59, 59),
+            ],
             '7d' => [
                 'label' => 'Últimos 7 dias',
                 'start' => $current->modify('-6 days')->setTime(0, 0, 0),
@@ -663,6 +668,11 @@ if ($page === 'studio_home') {
                 'end' => $monthEnd,
             ],
         ];
+        $metaCampaignAllItems = studio_meta_campaign_entries(
+            $studio,
+            $current->modify('-180 days')->setTime(0, 0, 0)->format('Y-m-d H:i:s'),
+            $current->setTime(23, 59, 59)->format('Y-m-d H:i:s')
+        );
         $metaCampaignRangeMap = [];
         foreach ($metaCampaignRanges as $rangeKey => $rangeConfig) {
             $metaCampaignRangeMap[$rangeKey] = studio_meta_campaign_entries(
@@ -671,8 +681,8 @@ if ($page === 'studio_home') {
                 $rangeConfig['end']->format('Y-m-d H:i:s')
             );
         }
-        $metaCampaignItems = $metaCampaignRangeMap['month'] ?? [];
-        $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada neste mês.';
+        $metaCampaignItems = $metaCampaignRangeMap['today'] ?? [];
+        $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada hoje.';
         $focus = (string)($_GET['focus'] ?? '');
         $homeDrilldowns = [
             'scheduled_month' => [
@@ -803,10 +813,13 @@ if ($page === 'studio_home') {
                 'title' => 'Leads da campanha META',
                 'summary' => $metaCampaignSummary,
                 'type' => 'meta_campaign',
+                'default_range' => 'today',
                 'tracking_hint' => implode(' | ', studio_meta_campaign_phrases($studio)),
                 'items' => $metaCampaignItems,
                 'filters' => array_map(static fn(array $range): string => (string)$range['label'], $metaCampaignRanges),
                 'rangeMap' => $metaCampaignRangeMap,
+                'all_items' => $metaCampaignAllItems,
+                'today_iso' => $current->format('Y-m-d'),
             ],
         ];
 

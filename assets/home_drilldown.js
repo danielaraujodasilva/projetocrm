@@ -319,6 +319,18 @@
     const filters = data.filters || {};
     const filterEntries = Object.entries(filters);
     const trackedPhrases = data.tracking_hint || '';
+    const allItems = Array.isArray(data.all_items) ? data.all_items : items;
+    const defaultRange = data.default_range || 'today';
+    const todayIso = data.today_iso || '';
+
+    const applyDateRange = (rows, startDate, endDate) => {
+      if (!startDate || !endDate) return rows;
+      return rows.filter((item) => {
+        const value = String(item.first_message_at || '').slice(0, 10);
+        if (!value) return false;
+        return value >= startDate && value <= endDate;
+      });
+    };
 
     const renderList = (periodLabel, rows) => {
       const totalCount = rows.length;
@@ -343,7 +355,10 @@
 
       body.innerHTML = `
         <div class="availability-toolbar">
-          ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === 'month' ? '' : 'secondary'}" data-meta-filter="${esc(key)}">${esc(label)}</button>`).join('')}
+          ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === defaultRange ? '' : 'secondary'}" data-meta-filter="${esc(key)}">${esc(label)}</button>`).join('')}
+          <label class="field availability-custom-field"><span class="muted">De</span><input id="metaCampaignStartDate" type="date" value="${esc(todayIso)}"></label>
+          <label class="field availability-custom-field"><span class="muted">Até</span><input id="metaCampaignEndDate" type="date" value="${esc(todayIso)}"></label>
+          <button type="button" class="btn secondary" id="metaCampaignApplyDates">Aplicar</button>
           <div class="drilldown-toolbar-summary">
             <strong>${esc(totalCount)} contatos</strong>
             <span>${esc(periodLabel)}</span>
@@ -362,10 +377,24 @@
             renderList(nextLabel, nextItems);
           });
         });
+        const startInput = document.getElementById('metaCampaignStartDate');
+        const endInput = document.getElementById('metaCampaignEndDate');
+        const applyButton = document.getElementById('metaCampaignApplyDates');
+        if (applyButton && startInput && endInput) {
+          applyButton.addEventListener('click', () => {
+            const startDate = startInput.value || '';
+            const endDate = endInput.value || '';
+            const filtered = applyDateRange(allItems, startDate, endDate);
+            const label = startDate && endDate
+              ? `Período livre: ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`
+              : 'Período personalizado';
+            renderList(label, filtered);
+          });
+        }
       }, 0);
     };
 
-    renderList(data.summary || 'Período selecionado', items);
+    renderList(filters[defaultRange] || data.summary || 'Período selecionado', items);
   }
 
   function renderWhatsapp(data) {
