@@ -1,0 +1,26 @@
+{
+  "name": "projetocrm",
+  "version": "1.0.0",
+  "description": "Alpha da plataforma multi-estudio.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielaraujodasilva/projetocrm.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/danielaraujodasilva/projetocrm/issues"
+  },
+  "homepage": "https://github.com/danielaraujodasilva/projetocrm#readme",
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
+}
