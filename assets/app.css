@@ -822,6 +822,16 @@ textarea {
     padding: 14px;
 }
 
+.side-tool-panel summary {
+    cursor: pointer;
+    font-weight: 800;
+    list-style: none;
+}
+
+.side-tool-panel summary::-webkit-details-marker {
+    display: none;
+}
+
 .side-tool-panel h3 {
     margin: 0;
     font-size: 15px;
@@ -881,5 +891,43 @@ textarea {
     .calendar-grid.month,
     .calendar-grid.week {
         grid-template-columns: 1fr;
+    }
+
+    .conversation-layout {
+        gap: 10px;
+    }
+
+    .conversation-main,
+    .conversation-side {
+        gap: 8px;
+    }
+
+    .chat-thread {
+        max-height: 360px;
+        padding: 8px;
+    }
+
+    .chat-bubble {
+        max-width: 100%;
+    }
+
+    .send-box {
+        padding: 10px;
+    }
+
+    .side-tool-panel {
+        padding: 12px;
+    }
+
+    .mini-metrics {
+        gap: 6px;
+    }
+
+    .mini-metrics span {
+        padding: 10px;
+    }
+
+    .send-box .field textarea {
+        min-height: 72px;
     }
 }

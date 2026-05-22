@@ -1219,8 +1219,8 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<button class="btn" type="submit">Salvar cadastro</button>';
         echo '</form>';
 
-        echo '<div class="panel side-tool-panel">';
-        echo '<h3>Respostas rapidas</h3>';
+        echo '<details class="panel side-tool-panel" open>';
+        echo '<summary>Respostas rapidas</summary>';
         if ($quickReplies) {
             echo '<div class="quick-reply-list side-reply-list">';
             foreach (array_slice($quickReplies, 0, 12) as $reply) {
@@ -1230,10 +1230,10 @@ if ($page === 'studio_whatsapp_conversation') {
         } else {
             echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
         }
-        echo '</div>';
+        echo '</details>';
 
-        echo '<div class="panel side-tool-panel">';
-        echo '<h3>Sugestao de agendamento</h3>';
+        echo '<details class="panel side-tool-panel">';
+        echo '<summary>Sugestao de agendamento</summary>';
         if ($scheduleSuggestion) {
             echo '<p class="muted">' . h($scheduleSuggestion['reason']) . '</p>';
             echo '<div class="mini-metrics side-suggestion-metrics">';
@@ -1245,7 +1245,7 @@ if ($page === 'studio_whatsapp_conversation') {
         } else {
             echo '<p class="muted">Ainda sem sugestao para esta conversa.</p>';
         }
-        echo '</div>';
+        echo '</details>';
 
         echo '<form class="form action-card compact-action" method="post">';
         echo csrf_field();
