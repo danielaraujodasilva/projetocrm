@@ -2079,11 +2079,13 @@ if ($page === 'studio_settings') {
         ];
         foreach ($tabs as $key => $label) {
             $activeClass = $activeTab === $key ? ' active' : '';
-            echo '<button type="button" class="settings-tab' . h($activeClass) . '" data-settings-tab="' . h($key) . '">' . h($label) . '</button>';
+            echo '<button type="button" class="settings-tab' . h($activeClass) . '" data-settings-tab="' . h($key) . '" aria-selected="' . ($activeTab === $key ? 'true' : 'false') . '">' . h($label) . '</button>';
         }
         echo '</div>';
 
-        echo '<div class="settings-panel" data-settings-panel="studio">';
+        $panelHidden = static fn(string $key): string => $activeTab === $key ? '' : ' hidden';
+
+        echo '<div class="settings-panel' . h($panelHidden('studio')) . '" data-settings-panel="studio">';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
         echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integração</label></div>';
@@ -2096,7 +2098,7 @@ if ($page === 'studio_settings') {
         $durationMinutes = max(0, (int)($settings['appointment_duration_minutes'] ?? '300'));
         $durationHours = intdiv($durationMinutes, 60);
         $durationMins = $durationMinutes % 60;
-        echo '<div class="settings-panel" data-settings-panel="agenda">';
+        echo '<div class="settings-panel' . h($panelHidden('agenda')) . '" data-settings-panel="agenda">';
         echo '<div class="panel soft">';
         echo '<h3 style="margin-top:0">Regras de agenda</h3>';
         echo '<div class="grid cols-3">';
@@ -2126,7 +2128,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '</div>';
 
-        echo '<div class="settings-panel" data-settings-panel="whatsapp">';
+        echo '<div class="settings-panel' . h($panelHidden('whatsapp')) . '" data-settings-panel="whatsapp">';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Padrao das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
@@ -2136,7 +2138,7 @@ if ($page === 'studio_settings') {
         echo '<p class="muted">Controle a porta de entrada e o modo inicial das conversas do WhatsApp.</p>';
         echo '</div>';
 
-        echo '<div class="settings-panel" data-settings-panel="ia">';
+        echo '<div class="settings-panel' . h($panelHidden('ia')) . '" data-settings-panel="ia">';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
         echo '<div class="field"><label>Fornecedor da IA</label><select name="ai_provider"><option value="ollama"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'ollama' ? ' selected' : '') . '>Ollama local</option><option value="openai"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'openai' ? ' selected' : '') . '>OpenAI</option></select></div>';
@@ -2151,7 +2153,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '</div>';
 
-        echo '<div class="settings-panel" data-settings-panel="rules">';
+        echo '<div class="settings-panel' . h($panelHidden('rules')) . '" data-settings-panel="rules">';
         echo '<div class="field"><label>Regras e informações para IA</label><textarea name="business_rules" placeholder="Exemplo: Estúdio aberto de terça a sábado. Dois tatuadores. Responder sempre em português do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigatório. Não inventar preço. Se faltar informação, perguntar só uma coisa por vez. Priorize datas, horários e referências reais do estúdio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do estúdio, tom de atendimento, limites e informações que a IA deve respeitar sempre.</small></div>';
         echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Você é o assistente do estúdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em português já pronto.</small></div>';
         echo '</div>';
@@ -2159,7 +2161,7 @@ if ($page === 'studio_settings') {
         echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit" form="studioSettingsForm">Salvar configurações</button></div>';
         echo '</form>';
 
-        echo '<div class="settings-panel" data-settings-panel="quick_replies">';
+        echo '<div class="settings-panel' . h($panelHidden('quick_replies')) . '" data-settings-panel="quick_replies">';
         echo '<div class="actions" style="justify-content:space-between"><div><h3 style="margin:0">Respostas rápidas</h3><p class="muted">Esses textos prontos ficam disponíveis no atendimento e continuam editáveis por aqui.</p></div><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
         $replies = studio_list_quick_replies($studio);
         echo '<div class="grid cols-2">';
