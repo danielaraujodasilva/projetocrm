@@ -670,6 +670,7 @@ textarea {
 
 .lead-detail-head,
 .conversation-layout {
+    display: grid;
     grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr);
     gap: 12px;
 }
