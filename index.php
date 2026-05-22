@@ -608,7 +608,7 @@ if ($page === 'studio_home') {
             }
         }
         $slotCount = max(1, count($allowedSlots));
-        $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
+        $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
         $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
         $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
         $waitingReplies = (int)($pdo->query(
@@ -653,10 +653,10 @@ if ($page === 'studio_home') {
                 )->fetchAll() ?: [],
             ],
             'scheduled_month' => [
-                'title' => 'Agendado ate o fim do mes',
-                'summary' => 'Total projetado: ' . format_money($scheduledToEndOfMonth),
+                'title' => 'Agendado de hoje ate o fim do mes',
+                'summary' => 'Total projetado a partir de hoje: ' . format_money($scheduledToEndOfMonth),
                 'type' => 'appointments',
-                'items' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: [],
+                'items' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: [],
             ],
             'available_slots' => [
                 'title' => 'Vagas livres na agenda',
@@ -721,7 +721,7 @@ if ($page === 'studio_home') {
         echo '<section class="grid cols-4">';
         foreach ([
             ['value' => $waitingReplies, 'label' => 'Conversas sem resposta', 'focus' => 'waiting_replies'],
-            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado ate o fim do mes', 'focus' => 'scheduled_month'],
+            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Agendado de hoje ate o fim do mes', 'focus' => 'scheduled_month'],
             ['value' => (string)$availableSlots, 'label' => 'Vagas livres na agenda', 'focus' => 'available_slots'],
             ['value' => format_money($stats['month_revenue'] - $stats['month_expenses']), 'label' => 'Resultado simples do mes', 'focus' => 'month_result'],
         ] as $stat) {
