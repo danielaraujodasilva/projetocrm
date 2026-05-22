@@ -2502,6 +2502,7 @@ function studio_save_appointment(array $studio, array $data): int
         trim((string)($data['status'] ?? 'pre_agendado')),
         money_to_float((string)($data['value'] ?? '0')),
         money_to_float((string)($data['deposit_value'] ?? '0')),
+        max(0, (int)($data['pomadas_quantity'] ?? 0)),
     ];
     if ($values[7] === '') {
         $values[7] = null;
@@ -2511,7 +2512,7 @@ function studio_save_appointment(array $studio, array $data): int
     if ($id > 0) {
         $stmt = $pdo->prepare(
             'UPDATE appointments
-             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, reference_image_path = ?, reference_image_name = ?, reference_image_mime = ?, updated_at = NOW()
+             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, pomadas_quantity = ?, reference_image_path = ?, reference_image_name = ?, reference_image_mime = ?, updated_at = NOW()
              WHERE id = ?'
         );
         $stmt->execute([
@@ -2527,8 +2528,8 @@ function studio_save_appointment(array $studio, array $data): int
 
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
-            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomadas_quantity, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
         ...$values,
@@ -2547,6 +2548,7 @@ function studio_ensure_appointment_reference_columns(array $studio): void
 {
     $pdo = studio_db($studio);
     $columns = [
+        'pomadas_quantity' => 'INT NOT NULL DEFAULT 0 AFTER deposit_value',
         'reference_image_path' => 'VARCHAR(255) NULL AFTER deposit_value',
         'reference_image_name' => 'VARCHAR(180) NULL AFTER reference_image_path',
         'reference_image_mime' => 'VARCHAR(120) NULL AFTER reference_image_name',
