@@ -25,27 +25,62 @@ function api_whatsapp_transcribe_exec(string $command): array
     ];
 }
 
-function api_whatsapp_transcribe_find_audio_path(string $mediaUrl): ?string
+function api_whatsapp_transcribe_find_audio_path(string ...$mediaLocations): array
 {
-    $mediaUrl = trim($mediaUrl);
-    if ($mediaUrl === '') {
-        return null;
-    }
-
     $candidates = [];
-    if (str_starts_with($mediaUrl, 'storage/')) {
-        $candidates[] = __DIR__ . '/../' . $mediaUrl;
+    foreach ($mediaLocations as $mediaUrl) {
+        $mediaUrl = trim($mediaUrl);
+        if ($mediaUrl === '') {
+            continue;
+        }
+
+        $normalized = ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $mediaUrl), DIRECTORY_SEPARATOR);
+        if (str_starts_with($mediaUrl, 'storage/') || str_starts_with($normalized, 'storage' . DIRECTORY_SEPARATOR)) {
+            $candidates[] = dirname(__DIR__) . DIRECTORY_SEPARATOR . $normalized;
+        }
+        $candidates[] = $mediaUrl;
     }
-    $candidates[] = $mediaUrl;
 
     foreach ($candidates as $candidate) {
         $real = realpath($candidate);
         if ($real && is_file($real)) {
-            return $real;
+            return ['path' => $real, 'temporary' => false];
         }
     }
 
-    return null;
+    foreach ($mediaLocations as $mediaUrl) {
+        $mediaUrl = trim($mediaUrl);
+        if ($mediaUrl === '' || !str_starts_with($mediaUrl, 'storage/')) {
+            continue;
+        }
+
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = trim((string)($_SERVER['HTTP_HOST'] ?? ''));
+        if ($host === '') {
+            continue;
+        }
+
+        $scriptDir = trim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/'))), '/');
+        $basePath = $scriptDir !== '' ? preg_replace('#/api$#', '', '/' . $scriptDir) : '';
+        $downloadUrl = $scheme . '://' . $host . rtrim((string)$basePath, '/') . '/' . ltrim($mediaUrl, '/');
+        $binary = @file_get_contents($downloadUrl);
+        if ($binary === false || $binary === '') {
+            continue;
+        }
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'wa_audio_');
+        if ($tempPath === false) {
+            continue;
+        }
+        if (@file_put_contents($tempPath, $binary) === false) {
+            @unlink($tempPath);
+            continue;
+        }
+
+        return ['path' => $tempPath, 'temporary' => true];
+    }
+
+    return ['path' => null, 'temporary' => false];
 }
 
 $studio = require_studio();
@@ -63,15 +98,20 @@ if ($conversationId <= 0 || ($messageId === '' && $mediaUrl === '')) {
 }
 
 $pdo = studio_db($studio);
-$stmt = $pdo->prepare('SELECT media_url, media_mime, message_id FROM whatsapp_messages WHERE conversation_id = ? AND (message_id = ? OR media_url = ?) LIMIT 1');
-$stmt->execute([$conversationId, $messageId, $mediaUrl]);
+$stmt = $pdo->prepare('SELECT media_url, media_file_path, media_mime, message_id FROM whatsapp_messages WHERE conversation_id = ? AND (message_id = ? OR media_url = ? OR media_file_path = ?) LIMIT 1');
+$stmt->execute([$conversationId, $messageId, $mediaUrl, $mediaUrl]);
 $message = $stmt->fetch();
 if (!$message) {
     api_whatsapp_transcribe_json(['ok' => false, 'error' => 'Audio nao encontrado nesta conversa.'], 404);
 }
 
-$audioPath = api_whatsapp_transcribe_find_audio_path((string)($message['media_url'] ?? ''));
-if (!$audioPath) {
+$audioFile = api_whatsapp_transcribe_find_audio_path(
+    (string)($message['media_url'] ?? ''),
+    (string)($message['media_file_path'] ?? ''),
+    $mediaUrl
+);
+$audioPath = (string)($audioFile['path'] ?? '');
+if ($audioPath === '') {
     api_whatsapp_transcribe_json(['ok' => false, 'error' => 'Arquivo de audio nao encontrado.'], 404);
 }
 
@@ -94,6 +134,9 @@ if (is_file($stderr)) {
 }
 
 $decoded = json_decode($output, true);
+if (!empty($audioFile['temporary']) && is_file($audioPath)) {
+    @unlink($audioPath);
+}
 if (!is_array($decoded) || empty($decoded['ok']) || empty($decoded['text'])) {
     try {
         studio_update_whatsapp_message_transcription($studio, [

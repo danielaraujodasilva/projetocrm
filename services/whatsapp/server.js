@@ -111,6 +111,13 @@ function normalizeBaileysStatus(status) {
   return map[String(status).toLowerCase()] || String(status);
 }
 
+function normalizeOutboundAudioMime(mime) {
+  const value = String(mime || "").toLowerCase().trim();
+  if (!value) return "audio/ogg; codecs=opus";
+  if (value.startsWith("audio/ogg") || value.startsWith("audio/opus")) return "audio/ogg; codecs=opus";
+  return value;
+}
+
 function extractContactNumber(session, key) {
   const jid = key?.remoteJid || "";
   const phoneCandidates = [
@@ -691,12 +698,11 @@ app.post("/studios/:sessionKey/send", async (req, res) => {
     const fileName = String(media.fileName || "arquivo");
     const kind = String(media.kind || "").toLowerCase();
     if (kind === "image" || mime.startsWith("image/")) {
-      payload = { image: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
+      payload = { image: buffer, mimetype: mime, caption: mensagem || undefined };
     } else if (kind === "video" || mime.startsWith("video/")) {
-      payload = { video: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
+      payload = { video: buffer, mimetype: mime, caption: mensagem || undefined };
     } else if (kind === "audio" || mime.startsWith("audio/")) {
-      payload = { audio: buffer, mimetype: mime, fileName, ptt: false };
-      if (mensagem) payload.caption = mensagem;
+      payload = { audio: buffer, mimetype: normalizeOutboundAudioMime(mime), ptt: /audio_\d+\.(ogg|opus|webm)$/i.test(fileName) };
     } else {
       payload = { document: buffer, mimetype: mime, fileName, caption: mensagem || undefined };
     }

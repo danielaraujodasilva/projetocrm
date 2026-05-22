@@ -1854,19 +1854,40 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     $needsHuman = studio_whatsapp_needs_human($body);
     $hasMedia = !empty($payload['mediaBase64']) || !empty($payload['mediaUrl']);
     $score = studio_whatsapp_lead_score($body, $hasMedia);
+    $mediaUrl = trim((string)($payload['mediaUrl'] ?? ''));
+    $mediaFileName = trim((string)($payload['mediaFileName'] ?? $payload['media_file_name'] ?? ''));
+    $mediaFilePath = trim((string)($payload['mediaFilePath'] ?? $payload['media_file_path'] ?? ''));
+    if ($mediaUrl === '' && !empty($payload['mediaBase64'])) {
+        $storedMedia = studio_store_whatsapp_media(
+            $studio,
+            (int)$conversation['id'],
+            (string)$payload['mediaBase64'],
+            $mediaMime,
+            $messageType,
+            trim((string)($payload['mediaFileName'] ?? ''))
+        );
+        $mediaUrl = $storedMedia['relativePath'];
+        $mediaFilePath = $storedMedia['relativePath'];
+        $mediaFileName = (string)$storedMedia['fileName'];
+        if ($mediaMime === '') {
+            $mediaMime = (string)$storedMedia['mime'];
+        }
+    }
 
     $stmt = $pdo->prepare(
         'INSERT INTO whatsapp_messages
-            (conversation_id, direction, sender_type, body, media_url, media_mime, message_type, message_id, remote_jid, from_me, status, sent_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+            (conversation_id, direction, sender_type, body, media_url, media_mime, media_file_name, media_file_path, message_type, message_id, remote_jid, from_me, status, sent_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
     );
     $stmt->execute([
         (int)$conversation['id'],
         $direction,
         $senderType,
         $body,
-        trim((string)($payload['mediaUrl'] ?? '')),
+        $mediaUrl,
         $mediaMime,
+        $mediaFileName !== '' ? $mediaFileName : null,
+        $mediaFilePath !== '' ? $mediaFilePath : null,
         $messageType,
         $messageId !== '' ? $messageId : null,
         $remoteJid,
@@ -1874,6 +1895,9 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         $fromMe ? 'sent' : null,
         $sentAt,
     ]);
+    if ($messageType === 'audio' && $mediaUrl !== '' && $messageId !== '') {
+        studio_attempt_whatsapp_audio_transcription($studio, $messageId, $mediaUrl);
+    }
 
     $preview = $body !== '' ? mb_substr($body, 0, 250) : '[' . $messageType . ']';
     $stmt = $pdo->prepare(
@@ -1911,13 +1935,16 @@ function studio_update_whatsapp_message_transcription(array $studio, array $payl
     $sql = 'UPDATE whatsapp_messages SET ';
     $params = [];
     if ($text !== '') {
-        $sql .= 'transcricao = ?, transcricao_erro = NULL, ';
+        $sql .= 'transcricao = ?, transcript = ?, transcricao_erro = NULL, transcript_error = NULL, ';
+        $params[] = $text;
         $params[] = $text;
     } else {
-        $sql .= 'transcricao_erro = ?, ';
+        $sql .= 'transcricao_erro = ?, transcript_error = ?, ';
+        $params[] = $error;
         $params[] = $error;
     }
-    $sql .= 'updated_at = NOW() WHERE ';
+    $sql = rtrim($sql, ', ');
+    $sql .= ' WHERE ';
     if ($messageId !== '') {
         $sql .= 'message_id = ?';
         $params[] = $messageId;
@@ -1931,6 +1958,146 @@ function studio_update_whatsapp_message_transcription(array $studio, array $payl
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     return ['ok' => true, 'updated' => $stmt->rowCount()];
+}
+
+function studio_whatsapp_attachment_dir(array $studio, int $conversationId = 0): array
+{
+    $root = realpath(__DIR__ . '/../');
+    if (!$root) {
+        throw new RuntimeException('Nao consegui localizar o diretório do projeto.');
+    }
+
+    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
+    $safeConversation = $conversationId > 0 ? 'conv_' . $conversationId : 'conv';
+    $folder = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'whatsapp-attachments' . DIRECTORY_SEPARATOR . $safeStudio . DIRECTORY_SEPARATOR . $safeConversation;
+    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
+        throw new RuntimeException('Nao foi possivel criar a pasta de anexos.');
+    }
+
+    return [
+        'folder' => $folder,
+        'relativePrefix' => 'storage/whatsapp-attachments/' . $safeStudio . '/' . $safeConversation . '/',
+    ];
+}
+
+function studio_whatsapp_extension_for_mime(string $mime, string $fallbackName = ''): string
+{
+    $fallbackExt = strtolower((string)pathinfo($fallbackName, PATHINFO_EXTENSION));
+    if ($fallbackExt !== '') {
+        return $fallbackExt;
+    }
+
+    return match (strtolower(trim($mime))) {
+        'image/jpeg', 'image/jpg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+        'video/mp4' => 'mp4',
+        'video/webm' => 'webm',
+        'audio/ogg', 'audio/ogg; codecs=opus' => 'ogg',
+        'audio/webm', 'audio/webm; codecs=opus' => 'webm',
+        'audio/mpeg' => 'mp3',
+        'audio/mp4', 'audio/m4a' => 'm4a',
+        'application/pdf' => 'pdf',
+        default => '',
+    };
+}
+
+function studio_store_whatsapp_media(array $studio, int $conversationId, string $base64, string $mime, string $messageType, string $fileName = ''): array
+{
+    $base64 = trim($base64);
+    if ($base64 === '') {
+        return ['relativePath' => '', 'mime' => $mime, 'fileName' => $fileName];
+    }
+
+    $binary = base64_decode($base64, true);
+    if ($binary === false || $binary === '') {
+        throw new RuntimeException('Nao foi possivel decodificar a midia do WhatsApp.');
+    }
+
+    $storage = studio_whatsapp_attachment_dir($studio, $conversationId);
+    $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', pathinfo($fileName !== '' ? $fileName : $messageType, PATHINFO_FILENAME)) ?: ($messageType !== '' ? $messageType : 'arquivo');
+    $ext = studio_whatsapp_extension_for_mime($mime, $fileName);
+    $stamp = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+    $storedName = $stamp . '_' . $base . ($ext !== '' ? '.' . $ext : '');
+    $dest = $storage['folder'] . DIRECTORY_SEPARATOR . $storedName;
+
+    if (file_put_contents($dest, $binary) === false) {
+        throw new RuntimeException('Nao foi possivel salvar a midia recebida.');
+    }
+
+    return [
+        'relativePath' => $storage['relativePrefix'] . $storedName,
+        'mime' => $mime,
+        'fileName' => $fileName !== '' ? $fileName : $storedName,
+    ];
+}
+
+function studio_whatsapp_media_absolute_path(string $mediaPath): ?string
+{
+    $mediaPath = trim($mediaPath);
+    if ($mediaPath === '') {
+        return null;
+    }
+
+    if (preg_match('~^[A-Za-z]:[\\\\/]~', $mediaPath) || str_starts_with($mediaPath, DIRECTORY_SEPARATOR)) {
+        return is_file($mediaPath) ? $mediaPath : null;
+    }
+
+    $candidate = realpath(__DIR__ . '/../' . ltrim(str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $mediaPath), DIRECTORY_SEPARATOR));
+    return ($candidate && is_file($candidate)) ? $candidate : null;
+}
+
+function studio_attempt_whatsapp_audio_transcription(array $studio, string $messageId, string $mediaPath): void
+{
+    $messageId = trim($messageId);
+    $absolutePath = studio_whatsapp_media_absolute_path($mediaPath);
+    if ($messageId === '' || !$absolutePath) {
+        return;
+    }
+
+    $script = realpath(__DIR__ . '/../tools/transcription/transcribe_audio.py');
+    if (!$script) {
+        return;
+    }
+
+    $stdout = tempnam(sys_get_temp_dir(), 'wa_auto_transcribe_out_');
+    $stderr = tempnam(sys_get_temp_dir(), 'wa_auto_transcribe_err_');
+    if ($stdout === false || $stderr === false) {
+        return;
+    }
+
+    $command = 'py -3 ' . escapeshellarg($script) . ' ' . escapeshellarg($absolutePath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+    $output = [];
+    $exitCode = null;
+    exec($command, $output, $exitCode);
+    $json = is_file($stdout) ? trim((string)file_get_contents($stdout)) : '';
+    $error = is_file($stderr) ? trim((string)file_get_contents($stderr)) : '';
+    if (is_file($stdout)) {
+        @unlink($stdout);
+    }
+    if (is_file($stderr)) {
+        @unlink($stderr);
+    }
+
+    $decoded = json_decode($json, true);
+    try {
+        if (is_array($decoded) && !empty($decoded['ok']) && !empty($decoded['text'])) {
+            studio_update_whatsapp_message_transcription($studio, [
+                'messageId' => $messageId,
+                'mediaUrl' => $mediaPath,
+                'text' => (string)$decoded['text'],
+            ]);
+            return;
+        }
+
+        studio_update_whatsapp_message_transcription($studio, [
+            'messageId' => $messageId,
+            'mediaUrl' => $mediaPath,
+            'error' => (string)($decoded['error'] ?? $error ?: 'Nao foi possivel reconhecer fala nesse audio'),
+        ]);
+    } catch (Throwable $ignore) {
+    }
 }
 
 function studio_send_whatsapp_message(array $studio, array $data): array
@@ -2020,28 +2187,18 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
         $kind = 'audio';
     }
 
-    $root = realpath(__DIR__ . '/../');
-    if (!$root) {
-        throw new RuntimeException('Nao consegui localizar o diretório do projeto.');
-    }
-
-    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
-    $safeConversation = $conversationId > 0 ? 'conv_' . $conversationId : 'conv';
-    $folder = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'whatsapp-attachments' . DIRECTORY_SEPARATOR . $safeStudio . DIRECTORY_SEPARATOR . $safeConversation;
-    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
-        throw new RuntimeException('Nao foi possivel criar a pasta de anexos.');
-    }
+    $storage = studio_whatsapp_attachment_dir($studio, $conversationId);
 
     $base = pathinfo($fileName, PATHINFO_FILENAME);
     $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $base) ?: 'arquivo';
     $stamp = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
     $storedName = $stamp . '_' . $base . ($ext !== '' ? '.' . $ext : '');
-    $dest = $folder . DIRECTORY_SEPARATOR . $storedName;
+    $dest = $storage['folder'] . DIRECTORY_SEPARATOR . $storedName;
     if (!move_uploaded_file($file['tmp_name'], $dest)) {
         throw new RuntimeException('Nao foi possivel salvar o anexo.');
     }
 
-    $relativePath = 'storage/whatsapp-attachments/' . $safeStudio . '/' . $safeConversation . '/' . $storedName;
+    $relativePath = $storage['relativePrefix'] . $storedName;
     $base64 = base64_encode((string)file_get_contents($dest));
 
     return [

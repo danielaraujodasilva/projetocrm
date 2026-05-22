@@ -5,6 +5,9 @@ declare(strict_types=1);
 require __DIR__ . '/../app/bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 
 function api_chat_json(array $payload, int $status = 200): never
 {
