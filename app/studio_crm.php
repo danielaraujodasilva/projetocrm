@@ -2529,7 +2529,7 @@ function studio_save_appointment(array $studio, array $data): int
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
             (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomadas_quantity, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
         ...$values,
