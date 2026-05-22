@@ -330,17 +330,28 @@ textarea {
     left: 8px;
     bottom: 8px;
     z-index: 9999;
-    padding: 1px 4px;
+    padding: 2px 6px;
     border-radius: 999px;
-    font-size: 8px;
+    font-size: 10px;
     line-height: 1;
     letter-spacing: 0;
-    color: rgba(38, 49, 64, .52);
-    background: rgba(255, 255, 255, .65);
+    color: rgba(38, 49, 64, .72);
+    background: rgba(255, 255, 255, .82);
     border: 1px solid rgba(141, 158, 175, .22);
     box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
     pointer-events: none;
-    user-select: none;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.chat-media-thumb {
+    display: inline-flex;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: zoom-in;
+    max-width: 100%;
+    width: fit-content;
 }
 
 .wa-session-summary {
