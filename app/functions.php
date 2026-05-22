@@ -47,7 +47,8 @@ function csrf_token(): string
 
 function csrf_field(): string
 {
-    return '<input type="hidden" name="csrf_token" value="' . h(csrf_token()) . '">';
+    $escape = function_exists('h') ? 'h' : static fn(mixed $value): string => htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    return '<input type="hidden" name="csrf_token" value="' . $escape(csrf_token()) . '">';
 }
 
 function csrf_verify(): void
