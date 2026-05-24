@@ -482,6 +482,227 @@ function resolve_studio_plan(array $studio): ?array
     return null;
 }
 
+function current_studio_context(): ?array
+{
+    if (function_exists('current_studio')) {
+        $studio = current_studio();
+        if (is_array($studio)) {
+            return $studio;
+        }
+    }
+
+    $user = current_studio_user();
+    if (is_array($user)) {
+        return $user;
+    }
+
+    return null;
+}
+
+function plan_default_access(): array
+{
+    return [
+        'whatsapp' => true,
+        'finance' => true,
+        'reports' => true,
+        'basic_dashboard' => true,
+        'ai' => false,
+        'ai_data_assistant' => false,
+        'advanced_reports' => false,
+        'automations' => false,
+        'multi_studio' => false,
+        'api_integrations' => false,
+        'custom_pipeline' => false,
+    ];
+}
+
+function plan_feature_map(): array
+{
+    return [
+        'whatsapp' => ['column' => 'allow_whatsapp', 'default' => true],
+        'finance' => ['column' => 'allow_finance', 'default' => true],
+        'reports' => ['column' => 'allow_advanced_reports', 'default' => true],
+        'ai' => ['column' => 'allow_ai', 'default' => false],
+        'ai_data_assistant' => ['column' => 'allow_data_assistant', 'default' => false],
+        'advanced_reports' => ['column' => 'allow_advanced_reports', 'default' => false],
+        'automations' => ['column' => 'allow_automations', 'default' => false],
+        'multi_studio' => ['column' => 'allow_multi_studio', 'default' => false],
+        'api_integrations' => ['column' => 'allow_external_integrations', 'default' => false],
+        'custom_pipeline' => ['column' => 'allow_advanced_customization', 'default' => false],
+    ];
+}
+
+function plan_limit_map(): array
+{
+    return [
+        'max_studios' => ['column' => 'studio_limit', 'default' => 1],
+        'max_users' => ['column' => 'user_limit', 'default' => 1],
+        'max_tattooers' => ['column' => 'tattoo_artist_limit', 'default' => 1],
+        'max_clients' => ['column' => 'lead_limit', 'default' => 100],
+        'max_whatsapp_sessions' => ['column' => 'whatsapp_session_limit', 'default' => 0],
+        'max_ai_requests_month' => ['column' => null, 'default' => 0],
+    ];
+}
+
+function current_studio_plan(): ?array
+{
+    static $cached = null;
+    static $hasCached = false;
+
+    if ($hasCached) {
+        return $cached;
+    }
+    $hasCached = true;
+
+    $studio = current_studio_context();
+    if (!$studio) {
+        return $cached = null;
+    }
+
+    $plan = resolve_studio_plan($studio);
+    if ($plan) {
+        return $cached = $plan;
+    }
+
+    $fallbackSlug = trim((string)($studio['plan_name'] ?? 'basico'));
+    return $cached = [
+        'id' => null,
+        'name' => $fallbackSlug !== '' ? ucfirst(str_replace(['-', '_'], ' ', $fallbackSlug)) : 'Basico',
+        'slug' => $fallbackSlug !== '' ? $fallbackSlug : 'basico',
+        'short_description' => null,
+        'description' => null,
+        'monthly_price' => 0,
+        'annual_price' => 0,
+        'currency_code' => 'BRL',
+        'recommended' => 0,
+        'studio_limit' => 1,
+        'user_limit' => 1,
+        'tattoo_artist_limit' => 1,
+        'lead_limit' => 100,
+        'whatsapp_session_limit' => 0,
+        'allow_whatsapp' => 1,
+        'allow_ai' => 0,
+        'allow_data_assistant' => 0,
+        'allow_finance' => 1,
+        'allow_advanced_reports' => 0,
+        'allow_automations' => 0,
+        'allow_multi_studio' => 0,
+        'allow_external_integrations' => 0,
+        'allow_advanced_customization' => 0,
+        'features_text' => null,
+        'limits_text' => null,
+        'sort_order' => 0,
+        'is_active' => 1,
+        'created_at' => null,
+        'updated_at' => null,
+    ];
+}
+
+function plan_allows(string $resource): bool
+{
+    $resource = strtolower(trim($resource));
+    if ($resource === '') {
+        return false;
+    }
+
+    $plan = current_studio_plan();
+    $map = plan_feature_map();
+    $config = $map[$resource] ?? null;
+    if (!$config) {
+        return false;
+    }
+
+    if (!$plan) {
+        return (bool)($config['default'] ?? false);
+    }
+
+    $column = (string)($config['column'] ?? '');
+    if ($column !== '' && array_key_exists($column, $plan)) {
+        return !empty($plan[$column]);
+    }
+
+    return (bool)($config['default'] ?? false);
+}
+
+function plan_limit(string $limitKey): int
+{
+    $limitKey = strtolower(trim($limitKey));
+    if ($limitKey === '') {
+        return 0;
+    }
+
+    $plan = current_studio_plan();
+    $map = plan_limit_map();
+    $config = $map[$limitKey] ?? null;
+    if (!$config) {
+        return 0;
+    }
+
+    if (!$plan) {
+        return (int)($config['default'] ?? 0);
+    }
+
+    $column = (string)($config['column'] ?? '');
+    if ($column !== '' && array_key_exists($column, $plan) && $plan[$column] !== null && $plan[$column] !== '') {
+        return max(0, (int)$plan[$column]);
+    }
+
+    if ($limitKey === 'max_ai_requests_month') {
+        $slug = (string)($plan['slug'] ?? '');
+        return match ($slug) {
+            'avancado' => 10000,
+            'profissional' => 2000,
+            'basico' => 0,
+            default => 0,
+        };
+    }
+
+    return (int)($config['default'] ?? 0);
+}
+
+function plan_blocked_message(string $resource, ?string $minimumPlan = null): string
+{
+    $resource = strtolower(trim($resource));
+    $labels = [
+        'whatsapp' => 'WhatsApp',
+        'ai' => 'IA',
+        'ai_data_assistant' => 'assistente de dados',
+        'advanced_reports' => 'relatórios avançados',
+        'automations' => 'automações',
+        'multi_studio' => 'multi-estúdio',
+        'api_integrations' => 'integrações externas',
+        'custom_pipeline' => 'funil personalizado',
+    ];
+
+    $label = $labels[$resource] ?? 'este recurso';
+    $planName = trim((string)($minimumPlan ?? ''));
+    if ($planName === '') {
+        $planName = match ($resource) {
+            'whatsapp', 'finance' => 'Básico',
+            'ai', 'ai_data_assistant', 'advanced_reports', 'automations', 'multi_studio', 'api_integrations', 'custom_pipeline' => 'Profissional',
+            default => 'Profissional',
+        };
+    }
+
+    return 'Este recurso (' . $label . ') está disponível a partir do plano ' . $planName . '.';
+}
+
+function current_studio_plan_name(): string
+{
+    $plan = current_studio_plan();
+    if (is_array($plan) && trim((string)($plan['name'] ?? '')) !== '') {
+        return (string)$plan['name'];
+    }
+
+    $studio = current_studio_context();
+    $fallback = $studio ? trim((string)($studio['plan_name'] ?? '')) : '';
+    if ($fallback !== '') {
+        return ucfirst(str_replace(['-', '_'], ' ', $fallback));
+    }
+
+    return 'Basico';
+}
+
 function commercial_plan_display_name(?array $plan, ?string $fallback = null): string
 {
     if (is_array($plan) && trim((string)($plan['name'] ?? '')) !== '') {
