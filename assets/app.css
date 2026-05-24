@@ -760,6 +760,77 @@ textarea {
     line-height: 1;
 }
 
+.dashboard-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: start;
+}
+
+.dashboard-hero-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard-hero-title h2 {
+    margin: 0;
+}
+
+.dashboard-hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    min-width: min(100%, 380px);
+}
+
+.dashboard-kpis {
+    margin-top: 0;
+}
+
+.home-drill-card {
+    display: grid;
+    gap: 6px;
+    align-content: start;
+}
+
+.home-drill-card-title {
+    margin: 0;
+    color: var(--text);
+    font-weight: 800;
+    font-size: 14px;
+    line-height: 1.25;
+}
+
+.quick-action-card {
+    display: grid;
+    gap: 4px;
+    min-height: 92px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+    transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.quick-action-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
+    text-decoration: none;
+}
+
+.quick-action-card strong {
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.quick-action-card .muted {
+    font-weight: 800;
+}
+
 .pivot-cell-link {
     display: inline-flex;
     align-items: center;
@@ -993,6 +1064,16 @@ textarea {
     background: var(--surface-soft);
     display: grid;
     gap: 10px;
+}
+
+.alert-card p {
+    margin: 0;
+    color: var(--text);
+    line-height: 1.45;
+}
+
+.alert-card .btn {
+    width: fit-content;
 }
 
 .alert-card .metric {
@@ -2342,6 +2423,7 @@ textarea {
     .grid.cols-2,
     .grid.cols-4,
     .grid.cols-5,
+    .dashboard-hero,
     .alert-grid,
     .filter-bar,
     .module-list,
@@ -2349,6 +2431,11 @@ textarea {
     .conversation-layout,
     .mini-metrics {
         grid-template-columns: 1fr;
+    }
+
+    .dashboard-hero-actions {
+        min-width: 0;
+        width: 100%;
     }
 
     .quick-actions-grid {

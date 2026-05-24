@@ -848,7 +848,9 @@ if ($page === 'studio_home') {
             return;
         }
         $stats = studio_stats($studio);
+        $financeSummary = studio_finance_summary($studio);
         $pdo = studio_db($studio);
+        $paidAppointmentsMonth = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado') AND COALESCE(deposit_value, 0) > 0")->fetchColumn();
         $recentLeads = studio_recent_leads($studio, 6);
         $appointments = studio_upcoming_appointments($studio, 6);
         $monthStart = new DateTimeImmutable('first day of this month', new DateTimeZone('America/Sao_Paulo'));
@@ -860,6 +862,7 @@ if ($page === 'studio_home') {
         $allowedSlots = studio_schedule_slots($studio);
         $allowedDaySet = array_fill_keys(array_map('strval', $allowedDays), true);
         $current = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $todayIso = $current->format('Y-m-d');
         $remainingWorkDays = 0;
         for ($day = $current; $day <= $monthEnd; $day = $day->modify('+1 day')) {
             if (isset($allowedDaySet[$day->format('N')])) {
@@ -871,6 +874,10 @@ if ($page === 'studio_home') {
         $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
         $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
         $todayAppointments = array_values(array_filter(studio_calendar_appointments($studio, $current->format('Y-m-d'), $current->format('Y-m-d')), static fn(array $appointment): bool => (string)($appointment['status'] ?? '') !== 'cancelado'));
+        $todayAppointmentsCount = count($todayAppointments);
+        $newLeadsTodayStmt = $pdo->prepare("SELECT COUNT(*) FROM leads WHERE DATE(created_at) = ?");
+        $newLeadsTodayStmt->execute([$todayIso]);
+        $newLeadsToday = (int)$newLeadsTodayStmt->fetchColumn();
         $attentionLeads = array_values(array_filter(studio_list_leads($studio, [], 120), static function (array $lead) use ($current): bool {
             $score = (int)($lead['lead_score'] ?? 0);
             $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
@@ -894,7 +901,52 @@ if ($page === 'studio_home') {
             return strcmp((string)($right['updated_at'] ?? ''), (string)($left['updated_at'] ?? ''));
         });
         $attentionLeads = array_slice($attentionLeads, 0, 8);
+        $attentionLeadsTotal = count($attentionLeads);
+        $staleAttentionLeadsCount = count(array_filter($attentionLeads, static function (array $lead) use ($current): bool {
+            $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
+            if ($updatedAt === '') {
+                return false;
+            }
+            try {
+                return new DateTimeImmutable($updatedAt, new DateTimeZone('America/Sao_Paulo')) < $current->modify('-24 hours');
+            } catch (Throwable) {
+                return false;
+            }
+        }));
         $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
+        $financeSummary = studio_finance_summary($studio);
+        $whatsappSummary = plan_allows('whatsapp') ? studio_whatsapp_summary($studio) : ['total' => 0, 'bot' => 0, 'human' => 0, 'analyzed' => 0, 'needs_human' => 0, 'avg_score' => 0];
+        $whatsappStatusData = null;
+        if (plan_allows('whatsapp')) {
+            try {
+                $whatsappStatusData = studio_whatsapp_service_status($studio, 1);
+            } catch (Throwable) {
+                $whatsappStatusData = null;
+            }
+        }
+        $whatsappState = 'desconectado';
+        if (is_array($whatsappStatusData) && !empty($whatsappStatusData['ok'])) {
+            $rawState = (string)($whatsappStatusData['status'] ?? '');
+            $whatsappState = match ($rawState) {
+                'connected' => 'conectado',
+                'waiting_qr' => 'aguardando QR',
+                'starting' => 'iniciando',
+                'disconnected' => 'desconectado',
+                default => 'erro',
+            };
+            if (!empty($whatsappStatusData['phone'])) {
+                $whatsappState .= ' · ' . preg_replace('/\D+/', '', (string)$whatsappStatusData['phone']);
+            }
+        }
+        $pendingWhatsappConversations = plan_allows('whatsapp') ? studio_list_whatsapp_conversations($studio, ['filter' => 'unreplied'], 10) : [];
+        $needsHumanConversations = plan_allows('whatsapp') ? studio_list_whatsapp_conversations($studio, ['filter' => 'needs_human'], 10) : [];
+        $whatsappConversationItems = [];
+        foreach (array_merge($pendingWhatsappConversations, $needsHumanConversations) as $conversation) {
+            $conversationId = (int)($conversation['id'] ?? 0);
+            if ($conversationId > 0 && !isset($whatsappConversationItems[$conversationId])) {
+                $whatsappConversationItems[$conversationId] = $conversation;
+            }
+        }
         $metaCampaignRanges = [
             'today' => [
                 'label' => 'Hoje',
@@ -937,6 +989,87 @@ if ($page === 'studio_home') {
         }
         $metaCampaignItems = $metaCampaignRangeMap['today'] ?? [];
         $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada hoje.';
+        $alerts = [];
+        if ($staleAttentionLeadsCount > 0) {
+            $alerts[] = [
+                'title' => 'Leads sem atualização há mais de 24h',
+                'description' => 'Você tem ' . $staleAttentionLeadsCount . ' leads parados ou frios que merecem retorno.',
+                'href' => app_url('studio_leads'),
+                'tone' => 'warn',
+            ];
+        }
+        $preScheduledNoSignalCount = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= '" . $current->format('Y-m-d') . "' AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
+        if ($preScheduledNoSignalCount > 0) {
+            $alerts[] = [
+                'title' => 'Pré-agendamentos sem sinal',
+                'description' => 'Há ' . $preScheduledNoSignalCount . ' pré-agendamentos aguardando sinal.',
+                'href' => app_url('studio_agenda'),
+                'tone' => 'warn',
+            ];
+        }
+        if ($todayAppointmentsCount > 0) {
+            $alerts[] = [
+                'title' => 'Agendamentos de hoje',
+                'description' => 'Você tem ' . $todayAppointmentsCount . ' agendamentos marcados para hoje.',
+                'href' => app_url('studio_agenda', ['date' => $todayIso]),
+                'tone' => 'ok',
+            ];
+        }
+        if (plan_allows('whatsapp')) {
+            if (($whatsappStatusData['ok'] ?? false) && in_array((string)($whatsappStatusData['status'] ?? ''), ['disconnected', 'error'], true)) {
+                $alerts[] = [
+                    'title' => 'WhatsApp desconectado',
+                    'description' => 'Verifique a sessão do WhatsApp para continuar recebendo e respondendo conversas.',
+                    'href' => app_url('studio_whatsapp'),
+                    'tone' => 'danger',
+                ];
+            }
+            $pendingWhatsappCount = count($pendingWhatsappConversations);
+            if ($pendingWhatsappCount > 0) {
+                $alerts[] = [
+                    'title' => 'Conversas esperando resposta',
+                    'description' => 'Há ' . $pendingWhatsappCount . ' conversas que ainda aguardam retorno.',
+                    'href' => app_url('studio_whatsapp'),
+                    'tone' => 'warn',
+                ];
+            }
+            $needsHumanCount = count($needsHumanConversations);
+            if ($needsHumanCount > 0) {
+                $alerts[] = [
+                    'title' => 'Conversas pedindo humano',
+                    'description' => 'Existem ' . $needsHumanCount . ' conversas marcadas para atendimento humano.',
+                    'href' => app_url('studio_whatsapp', ['filter' => 'needs_human']),
+                    'tone' => 'warn',
+                ];
+            }
+        } else {
+            $alerts[] = [
+                'title' => 'WhatsApp indisponível no plano atual',
+                'description' => 'A integração com WhatsApp aparece a partir do plano Profissional.',
+                'href' => app_url('studio_settings'),
+                'tone' => 'warn',
+            ];
+        }
+        $plan = current_studio_plan();
+        if (is_array($plan)) {
+            $planLimits = [
+                'max_users' => ['label' => 'usuários', 'count' => studio_user_count((int)$studio['id'])],
+                'max_tattooers' => ['label' => 'tatuadores', 'count' => studio_artist_count($studio)],
+                'max_clients' => ['label' => 'clientes/leads', 'count' => studio_lead_count($studio)],
+                'max_whatsapp_sessions' => ['label' => 'sessões WhatsApp', 'count' => studio_whatsapp_session_count($studio)],
+            ];
+            foreach ($planLimits as $limitKey => $info) {
+                $limitValue = plan_limit($limitKey);
+                if ($limitValue > 0 && $info['count'] >= (int)ceil($limitValue * 0.8) && $info['count'] < $limitValue) {
+                    $alerts[] = [
+                        'title' => 'Limite de ' . $info['label'] . ' próximo',
+                        'description' => 'Seu plano está próximo do limite de ' . $info['label'] . '. Considere alterar para um plano superior.',
+                        'href' => app_url('studio_settings'),
+                        'tone' => 'warn',
+                    ];
+                }
+            }
+        }
         $focus = (string)($_GET['focus'] ?? '');
         $homeDrilldowns = [
             'scheduled_month' => [
@@ -969,6 +1102,15 @@ if ($page === 'studio_home') {
                 'summary' => 'Leads parados, com score alto ou que ainda precisam de retorno.',
                 'type' => 'leads',
                 'items' => $attentionLeads,
+            ],
+            'whatsapp_conversations' => [
+                'title' => 'Conversas do WhatsApp que precisam de resposta',
+                'summary' => plan_allows('whatsapp')
+                    ? ('Aguardando resposta: ' . count($pendingWhatsappConversations) . ' | Pediram humano: ' . count($needsHumanConversations))
+                    : 'WhatsApp não liberado no plano atual.',
+                'type' => 'whatsapp',
+                'items' => array_slice(array_values($whatsappConversationItems), 0, 10),
+                'filterLabel' => 'Filtrar conversas',
             ],
             'free_windows' => [
                 'title' => 'Proximos horarios livres',
@@ -1077,36 +1219,45 @@ if ($page === 'studio_home') {
             ],
         ];
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Acoes rapidas</h2><p class="muted">Atalhos para o que mais se usa no dia a dia.</p></div></div>';
-        echo '<div class="quick-actions-grid">';
+        echo '<section class="panel dashboard-hero" style="margin-bottom:16px">';
+        echo '<div class="dashboard-hero-copy">';
+        echo '<p class="muted" style="margin:0 0 6px">Hoje, ' . h($current->format('d/m/Y')) . '</p>';
+        echo '<div class="dashboard-hero-title"><h2 style="margin:0">' . h($studio['name'] ?? 'Estudio') . '</h2><span class="badge ' . h($dbStatus['ok'] ? 'ok' : 'danger') . '">' . h(current_studio_plan_name()) . '</span><span class="badge ' . h($plan_allows('whatsapp') ? 'ok' : 'warn') . '">' . h($whatsappState) . '</span></div>';
+        echo '<p class="muted" style="margin:8px 0 0">Painel operacional do estúdio com agenda, leads, WhatsApp, financeiro e alertas do dia.</p>';
+        echo '</div>';
+        echo '<div class="dashboard-hero-actions">';
         foreach ([
-            ['label' => 'Pessoas', 'href' => app_url('studio_people')],
-            ['label' => 'Abrir agenda', 'href' => app_url('studio_agenda')],
-            ['label' => 'WhatsApp', 'href' => app_url('studio_whatsapp')],
-            ['label' => 'Financeiro', 'href' => app_url('studio_finance')],
-            ['label' => 'Configuracoes', 'href' => app_url('studio_settings')],
+            ['label' => 'Novo lead', 'href' => app_url('studio_leads')],
+            ['label' => 'Novo cliente', 'href' => app_url('studio_customers')],
+            ['label' => 'Novo agendamento', 'href' => app_url('studio_agenda')],
+            ['label' => 'Abrir WhatsApp', 'href' => plan_allows('whatsapp') ? app_url('studio_whatsapp') : app_url('studio_settings')],
         ] as $action) {
             echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
         }
-        echo '</div></section>';
+        echo '</div>';
+        echo '</section>';
 
-        echo '<section class="grid cols-5">';
+        echo '<section class="grid cols-4 dashboard-kpis">';
         foreach ([
-            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Total previsto no mês', 'focus' => 'scheduled_month'],
-            ['value' => format_money($stats['month_signals']), 'label' => 'Sinais recebidos no mês', 'focus' => 'month_result'],
-            ['value' => (string)$stats['appointments'], 'label' => 'Agendamentos futuros', 'focus' => 'appointments'],
             ['value' => (string)$stats['open_leads'], 'label' => 'Leads abertos', 'focus' => 'attention_leads'],
-            ['value' => (string)$stats['human_conversations'], 'label' => 'Conversas pedindo humano', 'focus' => 'open_value'],
+            ['value' => (string)$newLeadsToday, 'label' => 'Leads novos hoje', 'focus' => 'attention_leads'],
+            ['value' => (string)$todayAppointmentsCount, 'label' => 'Agendamentos hoje', 'focus' => 'today_agenda'],
+            ['value' => (string)$stats['appointments'], 'label' => 'Agendamentos futuros', 'focus' => 'appointments'],
+            ['value' => format_money($scheduledToEndOfMonth), 'label' => 'Valor previsto no mês', 'focus' => 'scheduled_month'],
+            ['value' => format_money($stats['month_signals']), 'label' => 'Sinais recebidos no mês', 'focus' => 'month_result'],
+            ['value' => format_money($financeSummary['expenses_month'] ?? $stats['month_expenses']), 'label' => 'Despesas do mês', 'focus' => 'month_result'],
+            ['value' => format_money(($financeSummary['appointments_month'] ?? $stats['month_revenue']) - ($financeSummary['expenses_month'] ?? $stats['month_expenses'])), 'label' => 'Resultado estimado do mês', 'focus' => 'month_result'],
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
 
-        echo '<section class="grid cols-3">';
+        echo '<section class="grid cols-4 dashboard-kpis" style="margin-top:16px">';
         foreach ([
-            ['value' => $stats['appointments'], 'label' => 'Proximos atendimentos', 'focus' => 'appointments'],
-            ['value' => format_money($stats['open_value']), 'label' => 'Valor em oportunidades abertas', 'focus' => 'open_value'],
-            ['value' => (string)count($metaCampaignItems), 'label' => 'Leads da campanha META', 'focus' => 'meta_campaign'],
+            ['value' => (string)count($pendingWhatsappConversations), 'label' => 'Conversas aguardando resposta', 'focus' => 'whatsapp_conversations'],
+            ['value' => (string)count($needsHumanConversations), 'label' => 'Conversas pedindo humano', 'focus' => 'whatsapp_conversations'],
+            ['value' => (string)($whatsappSummary['total'] ?? 0), 'label' => 'Conversas WhatsApp', 'focus' => 'whatsapp_conversations'],
+            ['value' => number_format((float)($whatsappSummary['avg_score'] ?? 0), 1, ',', '.'), 'label' => 'Média de score WhatsApp', 'focus' => 'whatsapp_conversations'],
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
@@ -1119,14 +1270,18 @@ if ($page === 'studio_home') {
         if (!$todayAppointments) {
             echo '<p class="muted">Nenhum atendimento agendado para hoje.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Hora</th><th>Cliente / Lead</th><th>Status</th><th>Valor</th><th>Sinal</th></tr></thead><tbody>';
+            echo '<table class="table"><thead><tr><th>Hora</th><th>Cliente / Lead</th><th>Tatuador</th><th>Status</th><th>Valor</th><th>Sinal</th><th>Obs</th></tr></thead><tbody>';
             foreach ($todayAppointments as $appointment) {
                 $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                $status = strtolower((string)($appointment['status'] ?? '-'));
+                $statusTone = in_array($status, ['confirmado', 'agendado'], true) ? 'ok' : (in_array($status, ['pre_agendado'], true) ? 'warn' : (in_array($status, ['cancelado', 'perdido'], true) ? 'danger' : 'neutral'));
                 echo '<tr><td><a href="' . h($href) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong></a></td>';
                 echo '<td>' . h($appointment['customer_name'] ?: $appointment['title'] ?: '-') . '</td>';
-                echo '<td><span class="badge">' . h((string)($appointment['status'] ?? '-')) . '</span></td>';
+                echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
+                echo '<td><span class="badge ' . h($statusTone) . '">' . h((string)($appointment['status'] ?? '-')) . '</span></td>';
                 echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '</td>';
-                echo '<td>' . h(format_money($appointment['deposit_value'] ?? 0)) . '</td></tr>';
+                echo '<td>' . h(format_money($appointment['deposit_value'] ?? 0)) . '</td>';
+                echo '<td>' . h(mb_substr((string)($appointment['description'] ?? $appointment['notes'] ?? '-'), 0, 80)) . '</td></tr>';
             }
             echo '</tbody></table>';
         }
@@ -1135,7 +1290,7 @@ if ($page === 'studio_home') {
         if (!$attentionLeads) {
             echo '<p class="muted">Nenhum lead com atenção prioritária no momento.</p>';
         } else {
-            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Score</th><th>Atualização</th></tr></thead><tbody>';
+            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Score</th><th>Atualização</th><th>Ações</th></tr></thead><tbody>';
             foreach ($attentionLeads as $lead) {
                 $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
                 $stale = false;
@@ -1145,10 +1300,13 @@ if ($page === 'studio_home') {
                 } catch (Throwable) {
                     $stale = false;
                 }
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+                $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
                 echo '<tr><td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest'] ?: '-') . '</span></td>';
                 echo '<td><span class="badge">' . h((string)($lead['status'] ?? '-')) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
                 echo '<td><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong>' . ($stale ? '<br><span class="badge warn">parado há 24h+</span>' : '') . '</td>';
-                echo '<td>' . h($lead['updated_at'] ?: $lead['created_at'] ?: '-') . '</td></tr>';
+                echo '<td>' . h($lead['updated_at'] ?: $lead['created_at'] ?: '-') . '</td>';
+                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($href) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-appointment-form') . '">Agendar</a></div></td></tr>';
             }
             echo '</tbody></table>';
         }
@@ -1166,7 +1324,19 @@ if ($page === 'studio_home') {
             echo '</div>';
         }
         echo '</div>';
-        echo '<div class="panel"><h2>Resultado simples do mês</h2><p class="metric">' . h(format_money($stats['month_revenue'] - $stats['month_expenses'])) . '</p><p class="muted">Agenda do mês menos despesas cadastradas.</p><div class="mini-metrics"><span><strong>' . h(format_money($stats['month_revenue'])) . '</strong><small>Receita</small></span><span><strong>' . h(format_money($stats['month_expenses'])) . '</strong><small>Despesa</small></span><span><strong>' . h(format_money($stats['month_signals'])) . '</strong><small>Sinais</small></span></div></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Financeiro do mês</h2><a class="btn secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div><p class="metric">' . h(format_money(($financeSummary['appointments_month'] ?? $stats['month_revenue']) - ($financeSummary['expenses_month'] ?? $stats['month_expenses']))) . '</p><p class="muted">Agenda do mês menos despesas cadastradas.</p><div class="mini-metrics"><span><strong>' . h(format_money($financeSummary['appointments_month'] ?? $stats['month_revenue'])) . '</strong><small>Valor previsto</small></span><span><strong>' . h(format_money($financeSummary['expenses_month'] ?? $stats['month_expenses'])) . '</strong><small>Despesas</small></span><span><strong>' . h((string)$paidAppointmentsMonth) . '</strong><small>Agendamentos com sinal</small></span><span><strong>' . h(($stats['appointments_month'] > 0 ? number_format((float)((float)($financeSummary['appointments_month'] ?? $stats['month_revenue']) / max(1, (int)$stats['appointments_month'])), 2, ',', '.') : '0,00')) . '</strong><small>Ticket médio</small></span></div></div>';
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Alertas operacionais</h2><p class="muted">Situações que pedem ação agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relatórios</a></div>';
+        if (!$alerts) {
+            echo '<p class="muted">Sem alertas importantes no momento.</p>';
+        } else {
+            echo '<div class="alert-grid">';
+            foreach ($alerts as $alert) {
+                $tone = (string)($alert['tone'] ?? 'warn');
+                echo '<article class="alert-card"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><p>' . h($alert['description'] ?? '') . '</p>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir área</a>' : '') . '</article>';
+            }
+            echo '</div>';
+        }
         echo '</section>';
     }, $flash);
     exit;
