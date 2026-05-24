@@ -703,6 +703,56 @@ function current_studio_plan_name(): string
     return 'Basico';
 }
 
+function studio_user_count(int $studioId): int
+{
+    if ($studioId <= 0 || !table_exists('studio_users')) {
+        return 0;
+    }
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM studio_users WHERE studio_id = ?');
+    $stmt->execute([$studioId]);
+
+    return (int)$stmt->fetchColumn();
+}
+
+function studio_artist_count(array $studio): int
+{
+    try {
+        return (int)studio_db($studio)->query('SELECT COUNT(*) FROM tattoo_artists')->fetchColumn();
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
+function studio_customer_count(array $studio): int
+{
+    try {
+        return (int)studio_db($studio)->query('SELECT COUNT(*) FROM customers')->fetchColumn();
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
+function studio_lead_count(array $studio): int
+{
+    try {
+        return (int)studio_db($studio)->query('SELECT COUNT(*) FROM leads')->fetchColumn();
+    } catch (Throwable) {
+        return 0;
+    }
+}
+
+function studio_whatsapp_session_count(array $studio): int
+{
+    $sessionKey = trim((string)($studio['whatsapp_session_key'] ?? ''));
+    $status = trim((string)($studio['whatsapp_status'] ?? ''));
+    if ($sessionKey === '' && $status === '') {
+        return 0;
+    }
+
+    return 1;
+}
+
 function commercial_plan_display_name(?array $plan, ?string $fallback = null): string
 {
     if (is_array($plan) && trim((string)($plan['name'] ?? '')) !== '') {
@@ -1081,9 +1131,21 @@ function create_or_update_studio_owner_user(array $studio, string $name, string 
         throw new RuntimeException('A senha do usuario do estudio precisa ter pelo menos 8 caracteres.');
     }
 
-    $stmt = db()->prepare('SELECT id FROM studio_users WHERE email = ? LIMIT 1');
-    $stmt->execute([$email]);
-    $existingId = (int)($stmt->fetchColumn() ?: 0);
+    $existingStmt = db()->prepare('SELECT id, studio_id FROM studio_users WHERE email = ? LIMIT 1');
+    $existingStmt->execute([$email]);
+    $existingUser = $existingStmt->fetch();
+    $existingId = (int)($existingUser['id'] ?? 0);
+    $existingStudioId = (int)($existingUser['studio_id'] ?? 0);
+    $studioId = (int)$studio['id'];
+    $userLimit = plan_limit('max_users');
+
+    if ($userLimit > 0) {
+        $currentCount = studio_user_count($studioId);
+        $isSameStudioEdit = $existingId > 0 && $existingStudioId === $studioId;
+        if (!$isSameStudioEdit && $currentCount >= $userLimit) {
+            throw new RuntimeException('Seu plano atual permite até ' . $userLimit . ' usuários. Para adicionar mais usuários, altere para um plano superior.');
+        }
+    }
 
     if ($existingId > 0) {
         $stmt = db()->prepare(

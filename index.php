@@ -2085,25 +2085,31 @@ if ($page === 'studio_reports') {
                 ],
             ],
         ];
-        $pivotConfig = $pivotDataSets[$pivotSource];
-        echo '<section class="panel" style="margin-top:16px">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Análise</span></div>';
-        echo '<div class="wdr-shell">';
-        echo '<div class="wdr-source-bar">';
-        foreach ($pivotDataSets as $key => $def) {
-            echo '<button type="button" class="wdr-source-button' . ($key === $pivotSource ? ' active' : '') . '" data-pivot-source="' . h($key) . '"><strong>' . h($def['label']) . '</strong><span>' . h($def['subtitle']) . '</span></button>';
+        if (plan_allows('advanced_reports')) {
+            $pivotConfig = $pivotDataSets[$pivotSource];
+            echo '<section class="panel" style="margin-top:16px">';
+            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Análise</span></div>';
+            echo '<div class="wdr-shell">';
+            echo '<div class="wdr-source-bar">';
+            foreach ($pivotDataSets as $key => $def) {
+                echo '<button type="button" class="wdr-source-button' . ($key === $pivotSource ? ' active' : '') . '" data-pivot-source="' . h($key) . '"><strong>' . h($def['label']) . '</strong><span>' . h($def['subtitle']) . '</span></button>';
+            }
+            echo '</div>';
+            echo '<div id="reportsPivot" class="wdr-frame"></div>';
+            echo '</div>';
+            echo '<div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div>';
+            echo '</section>';
+            echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/theme/teal/webdatarocks.min.css">';
+            echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
+            echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
+            echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+            echo '<script src="assets/reports_pivot.js"></script>';
+            echo '</section>';
+        } else {
+            echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Este bloco avançado fica disponível a partir do plano Profissional ou Avançado.</p></div><span class="badge warn">Bloqueado</span></div>';
+            echo '<p class="muted">O restante dos relatórios continua disponível normalmente. Para liberar a pivot, considere alterar para um plano superior.</p>';
+            echo '</section>';
         }
-        echo '</div>';
-        echo '<div id="reportsPivot" class="wdr-frame"></div>';
-        echo '</div>';
-        echo '<div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div>';
-        echo '</section>';
-        echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/theme/teal/webdatarocks.min.css">';
-        echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
-        echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
-        echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script src="assets/reports_pivot.js"></script>';
-        echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><h2>Leads por status</h2>';
         render_report_table($reports['leads_by_status'], 'status');
@@ -2126,6 +2132,10 @@ if ($page === 'studio_data_assistant') {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        if (!plan_allows('ai_data_assistant')) {
+            echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Assistente IA de dados</h2><p class="muted">Os recursos de IA estão disponíveis no plano Avançado.</p></div><span class="badge warn">Bloqueado</span></div><p class="muted">Esse assistente continua somente leitura e não altera dados. Para usar as respostas por IA, altere para um plano superior.</p></section>';
             return;
         }
         $result = $_SESSION['studio_data_assistant_result'] ?? null;

@@ -624,6 +624,17 @@ function studio_whatsapp_ai_timeout(array $studio): int
 
 function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
+    if (!plan_allows('ai')) {
+        try {
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'ai_last_status' => 'IA indisponivel no plano atual',
+            ]);
+        } catch (Throwable) {
+        }
+        return ['ok' => false, 'error' => 'Os recursos de IA estão disponíveis no plano Avançado.'];
+    }
+
     $sessionKey = studio_session_key($studio);
     if ($sessionKey === '') {
         return ['ok' => false, 'error' => 'Sessao WhatsApp invalida.'];
@@ -984,6 +995,15 @@ function studio_update_whatsapp_platform_status(array $studio, string $status): 
 
 function studio_start_whatsapp_session(array $studio): array
 {
+    if (!plan_allows('whatsapp')) {
+        return ['ok' => false, 'error' => 'A integração com WhatsApp está disponível a partir do plano Profissional.'];
+    }
+
+    $limit = plan_limit('max_whatsapp_sessions');
+    if ($limit > 0 && studio_whatsapp_session_count($studio) >= $limit && trim((string)($studio['whatsapp_session_key'] ?? '')) === '') {
+        return ['ok' => false, 'error' => 'Seu plano atual permite até ' . $limit . ' sessões WhatsApp. Para conectar mais sessões, altere para um plano superior.'];
+    }
+
     $ctx = studio_whatsapp_background_context($studio);
     studio_append_whatsapp_service_log('CRM start requested for session ' . $ctx['sessionKey']);
 
@@ -1006,6 +1026,15 @@ function studio_start_whatsapp_session(array $studio): array
 
 function studio_request_whatsapp_pairing_code(array $studio, string $phone): array
 {
+    if (!plan_allows('whatsapp')) {
+        return ['ok' => false, 'error' => 'A integração com WhatsApp está disponível a partir do plano Profissional.'];
+    }
+
+    $limit = plan_limit('max_whatsapp_sessions');
+    if ($limit > 0 && studio_whatsapp_session_count($studio) >= $limit && trim((string)($studio['whatsapp_session_key'] ?? '')) === '') {
+        return ['ok' => false, 'error' => 'Seu plano atual permite até ' . $limit . ' sessões WhatsApp. Para conectar mais sessões, altere para um plano superior.'];
+    }
+
     $phone = preg_replace('/\D+/', '', $phone) ?: '';
     if (strlen($phone) < 10) {
         return ['ok' => false, 'error' => 'Informe o telefone com DDI e DDD, somente numeros. Exemplo: 5521999999999.'];
@@ -1262,6 +1291,13 @@ function studio_save_artist(array $studio, array $data): int
 
     if ($values[0] === '') {
         throw new RuntimeException('Informe o nome do tatuador.');
+    }
+
+    if ($id <= 0) {
+        $limit = plan_limit('max_tattooers');
+        if ($limit > 0 && studio_artist_count($studio) >= $limit) {
+            throw new RuntimeException('Seu plano atual permite até ' . $limit . ' tatuadores. Para adicionar mais tatuadores, altere para um plano superior.');
+        }
     }
 
     if ($id > 0) {
@@ -3079,6 +3115,10 @@ function studio_data_assistant_answer(array $studio, string $question): array
         throw new RuntimeException('Digite uma pergunta para o assistente.');
     }
 
+    if (!plan_allows('ai_data_assistant')) {
+        throw new RuntimeException('Os recursos de IA estão disponíveis no plano Avançado.');
+    }
+
     $context = studio_data_assistant_context($studio);
     $pdo = studio_db($studio);
     $config = studio_openai_config($studio);
@@ -3311,6 +3351,11 @@ function studio_save_customer(array $studio, array $data): int
         return $id;
     }
 
+    $limit = plan_limit('max_clients');
+    if ($limit > 0 && studio_customer_count($studio) >= $limit) {
+        throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
+    }
+
     $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
     $stmt->execute($values);
 
@@ -3341,6 +3386,11 @@ function studio_save_lead(array $studio, array $data): int
         );
         $stmt->execute([...$values, $id]);
         return $id;
+    }
+
+    $limit = plan_limit('max_clients');
+    if ($limit > 0 && studio_lead_count($studio) >= $limit) {
+        throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
     }
 
     $stmt = $pdo->prepare(
