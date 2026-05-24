@@ -1399,6 +1399,49 @@ function studio_pipeline_board(array $studio, array $filters = []): array
         $board[$stageName]['total_value'] += (float)($lead['estimated_value'] ?? 0);
     }
 
+    foreach ($board as &$column) {
+        usort($column['leads'], static function (array $left, array $right): int {
+            $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+            $scoreLeft = (int)($left['lead_score'] ?? 0);
+            $scoreRight = (int)($right['lead_score'] ?? 0);
+            $leftUpdated = (string)($left['updated_at'] ?? $left['created_at'] ?? '');
+            $rightUpdated = (string)($right['updated_at'] ?? $right['created_at'] ?? '');
+            $leftStale = false;
+            $rightStale = false;
+            if ($leftUpdated !== '') {
+                try {
+                    $leftStale = new DateTimeImmutable($leftUpdated, new DateTimeZone('America/Sao_Paulo')) < $today->modify('-24 hours');
+                } catch (Throwable) {
+                    $leftStale = false;
+                }
+            }
+            if ($rightUpdated !== '') {
+                try {
+                    $rightStale = new DateTimeImmutable($rightUpdated, new DateTimeZone('America/Sao_Paulo')) < $today->modify('-24 hours');
+                } catch (Throwable) {
+                    $rightStale = false;
+                }
+            }
+            $leftPriority = in_array((string)($left['status'] ?? ''), ['pre_agendado', 'agendado'], true) ? 1 : 0;
+            $rightPriority = in_array((string)($right['status'] ?? ''), ['pre_agendado', 'agendado'], true) ? 1 : 0;
+            if ($leftPriority !== $rightPriority) {
+                return $rightPriority <=> $leftPriority;
+            }
+            if ($leftStale !== $rightStale) {
+                return ($rightStale <=> $leftStale);
+            }
+            if ($scoreLeft !== $scoreRight) {
+                return $scoreRight <=> $scoreLeft;
+            }
+            if ($leftUpdated !== $rightUpdated) {
+                return strcmp($rightUpdated, $leftUpdated);
+            }
+            return (float)($right['estimated_value'] ?? 0) <=> (float)($left['estimated_value'] ?? 0);
+        });
+        $column['total_count'] = count($column['leads']);
+    }
+    unset($column);
+
     uasort($board, static fn(array $a, array $b): int => ((int)($a['stage']['sort_order'] ?? 999)) <=> ((int)($b['stage']['sort_order'] ?? 999)));
 
     return $board;

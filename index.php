@@ -1414,7 +1414,232 @@ if ($page === 'studio_customer') {
 }
 
 if ($page === 'studio_leads') {
-    redirect_to('studio_people', ['view' => 'leads']);
+    $studio = require_studio();
+    render_studio_shell('Funil de Leads', 'Acompanhe oportunidades, orçamentos e agendamentos do estúdio.', 'leads', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+
+        $current = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        $filters = [
+            'q' => trim((string)($_GET['q'] ?? '')),
+            'status' => trim((string)($_GET['status'] ?? '')),
+            'source' => trim((string)($_GET['source'] ?? '')),
+            'min_score' => (int)($_GET['min_score'] ?? 0),
+        ];
+        $focus = strtolower(trim((string)($_GET['focus'] ?? '')));
+        $stageFilter = trim((string)($_GET['stage'] ?? ''));
+        $board = studio_pipeline_board($studio, $filters);
+        $allLeads = [];
+        $stageNames = [];
+        foreach ($board as $stageName => $column) {
+            $stageNames[] = (string)$stageName;
+            foreach (($column['leads'] ?? []) as $lead) {
+                $allLeads[] = $lead;
+            }
+        }
+
+        $isStaleLead = static function (array $lead) use ($current): bool {
+            $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
+            if ($updatedAt === '') {
+                return false;
+            }
+            try {
+                return new DateTimeImmutable($updatedAt, new DateTimeZone('America/Sao_Paulo')) < $current->modify('-24 hours');
+            } catch (Throwable) {
+                return false;
+            }
+        };
+        $isNewToday = static function (array $lead) use ($current): bool {
+            $createdAt = (string)($lead['created_at'] ?? '');
+            if ($createdAt === '') {
+                return false;
+            }
+            try {
+                return (new DateTimeImmutable($createdAt, new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') === $current->format('Y-m-d');
+            } catch (Throwable) {
+                return false;
+            }
+        };
+        $matchesFocus = static function (array $lead) use ($focus, $isStaleLead, $isNewToday): bool {
+            return match ($focus) {
+                'hot' => (int)($lead['lead_score'] ?? 0) >= 8,
+                'stale' => $isStaleLead($lead),
+                'today' => $isNewToday($lead),
+                'pre_agendado', 'agendado' => (string)($lead['status'] ?? '') === $focus,
+                default => true,
+            };
+        };
+        $matchesStage = static function (array $lead) use ($stageFilter): bool {
+            return $stageFilter === '' || (string)($lead['pipeline_stage'] ?? '') === $stageFilter;
+        };
+
+        if ($focus !== '' || $stageFilter !== '') {
+            foreach ($board as $stageName => $column) {
+                $filtered = array_values(array_filter($column['leads'] ?? [], static function (array $lead) use ($matchesFocus, $matchesStage): bool {
+                    return $matchesFocus($lead) && $matchesStage($lead);
+                }));
+                $board[$stageName]['leads'] = $filtered;
+                $board[$stageName]['total_value'] = array_reduce($filtered, static fn(float $sum, array $lead): float => $sum + (float)($lead['estimated_value'] ?? 0), 0.0);
+                $board[$stageName]['total_count'] = count($filtered);
+            }
+            unset($stageName, $column);
+            $allLeads = array_values(array_filter($allLeads, static function (array $lead) use ($matchesFocus, $matchesStage): bool {
+                return $matchesFocus($lead) && $matchesStage($lead);
+            }));
+        }
+
+        $openLeads = array_values(array_filter($allLeads, static fn(array $lead): bool => !in_array((string)($lead['status'] ?? ''), ['perdido', 'fechado'], true)));
+        $openValue = array_reduce($openLeads, static fn(float $sum, array $lead): float => $sum + (float)($lead['estimated_value'] ?? 0), 0.0);
+        $newLeadsToday = count(array_filter($openLeads, $isNewToday));
+        $staleLeads = array_values(array_filter($openLeads, $isStaleLead));
+        $hotLeads = array_values(array_filter($openLeads, static fn(array $lead): bool => (int)($lead['lead_score'] ?? 0) >= 8));
+        $preScheduledLeads = array_values(array_filter($openLeads, static fn(array $lead): bool => (string)($lead['status'] ?? '') === 'pre_agendado'));
+        $scheduledLeads = array_values(array_filter($openLeads, static fn(array $lead): bool => (string)($lead['status'] ?? '') === 'agendado'));
+
+        $sources = [];
+        foreach ($allLeads as $lead) {
+            $source = trim((string)($lead['source'] ?? ''));
+            if ($source !== '') {
+                $sources[$source] = $source;
+            }
+        }
+        asort($sources, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $leadLinks = [
+            ['label' => 'Novo lead', 'href' => app_url('studio_lead', ['id' => 0]), 'safe' => false],
+            ['label' => 'Ver todos', 'href' => app_url('studio_people', ['view' => 'leads']), 'safe' => true],
+            ['label' => 'Abrir agenda', 'href' => app_url('studio_agenda'), 'safe' => true],
+        ];
+        if (function_exists('studio_lead_stage_export_url')) {
+            $leadLinks[] = ['label' => 'Exportar', 'href' => studio_lead_stage_export_url($studio), 'safe' => true];
+        }
+
+        echo '<section class="panel dashboard-hero" style="margin-bottom:16px">';
+        echo '<div class="dashboard-hero-copy">';
+        echo '<p class="muted" style="margin:0 0 6px">Funil comercial do estúdio</p>';
+        echo '<div class="dashboard-hero-title"><h2 style="margin:0">Funil de Leads</h2><span class="badge ok">' . h(current_studio_plan_name()) . '</span></div>';
+        echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, orçamentos e agendamentos do estúdio.</p>';
+        echo '</div>';
+        echo '<div class="dashboard-hero-actions">';
+        foreach ($leadLinks as $action) {
+            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
+        }
+        echo '</div>';
+        echo '</section>';
+
+        echo '<form class="filter-bar panel" method="get" style="margin-bottom:16px">';
+        echo '<input type="hidden" name="page" value="studio_leads">';
+        echo '<input name="q" placeholder="Buscar por nome, telefone, interesse ou origem..." value="' . h($filters['q']) . '">';
+        echo '<select name="status"><option value="">Todos os status</option>';
+        foreach (lead_status_options() as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($filters['status'] === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="source"><option value="">Todas as origens</option>';
+        foreach ($sources as $source) {
+            echo '<option value="' . h($source) . '" ' . ($filters['source'] === $source ? 'selected' : '') . '>' . h($source) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="min_score">';
+        foreach ([0 => 'Qualquer nota', 4 => 'Nota mínima 4', 7 => 'Nota mínima 7', 8 => 'Quentes (8+)'] as $key => $label) {
+            echo '<option value="' . h((string)$key) . '" ' . ($filters['min_score'] === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<select name="focus"><option value="">Todos os leads</option>';
+        foreach ([
+            'hot' => 'Quentes',
+            'stale' => 'Parados',
+            'today' => 'Hoje',
+            'pre_agendado' => 'Pré-agendados',
+            'agendado' => 'Agendados',
+        ] as $key => $label) {
+            echo '<option value="' . h($key) . '" ' . ($focus === $key ? 'selected' : '') . '>' . h($label) . '</option>';
+        }
+        echo '</select>';
+        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Limpar</a>';
+        echo '</form>';
+
+        echo '<section class="grid cols-4 dashboard-kpis">';
+        foreach ([
+            ['value' => (string)count($openLeads), 'label' => 'Leads abertos'],
+            ['value' => format_money($openValue), 'label' => 'Valor estimado total aberto'],
+            ['value' => (string)$newLeadsToday, 'label' => 'Leads novos hoje'],
+            ['value' => (string)count($staleLeads), 'label' => 'Leads parados 24h+'],
+            ['value' => (string)count($hotLeads), 'label' => 'Leads quentes'],
+            ['value' => (string)count($preScheduledLeads), 'label' => 'Pré-agendados'],
+            ['value' => (string)count($scheduledLeads), 'label' => 'Agendados'],
+        ] as $stat) {
+            echo '<div class="panel dashboard-stat"><strong class="metric">' . h($stat['value']) . '</strong><p class="muted" style="margin:0">' . h($stat['label']) . '</p></div>';
+        }
+        echo '</section>';
+
+        echo '<section class="panel" style="margin-top:16px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapas ordenadas, total por coluna e cartões com ação comercial.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
+        if (!$allLeads) {
+            echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para começar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
+        }
+        render_pipeline_board($board, $stages);
+        echo '</section>';
+
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads que pedem atenção</h2><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
+        if (!$hotLeads && !$staleLeads) {
+            echo '<p class="muted">Sem leads pendentes no momento.</p>';
+        } else {
+            $attentionCards = [];
+            foreach (array_merge($hotLeads, $staleLeads) as $lead) {
+                $leadId = (int)($lead['id'] ?? 0);
+                if ($leadId <= 0 || isset($attentionCards[$leadId])) {
+                    continue;
+                }
+                $attentionCards[$leadId] = $lead;
+            }
+            $attentionCards = array_slice(array_values($attentionCards), 0, 8);
+            echo '<div class="stack-list">';
+            foreach ($attentionCards as $lead) {
+                $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+                $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
+                echo '<a class="activity-card" href="' . h($href) . '">';
+                echo '<strong>' . h($lead['name'] ?: 'Sem nome') . '</strong>';
+                echo '<span class="muted">' . h(($lead['status'] ?: '-') . ' · ' . ($lead['pipeline_stage'] ?: '-') . ' · ' . ($lead['source'] ?: 'Sem origem')) . '</span>';
+                echo '<span>' . h(($lead['interest'] ?: 'Sem interesse descrito.') . ' · ' . format_money($lead['estimated_value'] ?? 0)) . '</span>';
+                echo '<div class="lead-card-actions lead-card-actions-quick">';
+                echo '<span class="badge">' . h((string)($lead['lead_score'] ?? 0)) . '/10</span>';
+                if ((int)($lead['lead_score'] ?? 0) >= 8) {
+                    echo '<span class="badge ok">Quente</span>';
+                }
+                if ($phoneLink !== '') {
+                    echo '<span class="badge">WhatsApp</span>';
+                }
+                echo '</div>';
+                echo '</a>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Filtro rápido de etapas</h2><span class="badge">Status comercial</span></div>';
+        echo '<div class="stack-list">';
+        foreach ($board as $stageName => $column) {
+            $count = count($column['leads'] ?? []);
+            $value = (float)($column['total_value'] ?? 0);
+            $href = app_url('studio_leads', [
+                'q' => $filters['q'],
+                'status' => $filters['status'],
+                'source' => $filters['source'],
+                'min_score' => $filters['min_score'] > 0 ? (string)$filters['min_score'] : '',
+                'focus' => $focus,
+                'stage' => $stageName,
+            ]);
+            echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h($stageName) . '</strong><span class="muted">' . h($count . ' leads · ' . format_money($value)) . '</span><span>Clique para focar nesta etapa.</span></a>';
+        }
+        echo '</div></div>';
+        echo '</section>';
+    }, $flash);
     exit;
 }
 
@@ -1427,6 +1652,37 @@ if ($page === 'studio_lead') {
             return;
         }
         $leadId = (int)($_GET['id'] ?? 0);
+        if ($leadId <= 0) {
+            $customers = studio_list_customers($studio);
+            $stages = studio_list_pipeline_stages($studio);
+            $artists = studio_list_artists($studio);
+            echo '<section class="lead-detail-head">';
+            echo '<form class="form panel" method="post" id="lead-appointment-form">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="return_to_detail" value="1">';
+            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Novo lead</h2><p class="muted">Crie uma oportunidade nova para o funil do estúdio.</p></div><span class="badge">Cadastro</span></div>';
+            echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do lead"></div><div class="field"><label>Telefone</label><input name="phone" placeholder="(11) 99999-9999"></div></div>';
+            echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
+            render_customer_options($customers, 0);
+            echo '</select></div>';
+            echo '<div class="field"><label>Interesse</label><input name="interest" placeholder="Ex.: tatuagem fina no antebraço"></div>';
+            echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
+            render_options(lead_status_options(), 'novo');
+            echo '</select></div><div class="field"><label>Etapa</label><select name="pipeline_stage">';
+            foreach ($stages as $stage) {
+                echo '<option value="' . h($stage['name']) . '">' . h($stage['name']) . '</option>';
+            }
+            echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="0"></div></div>';
+            echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="0"></div><div class="field"><label>Origem</label><input name="source" placeholder="Instagram, WhatsApp, indicação..."></div></div>';
+            echo '<div class="field"><label>Tatuador / responsável</label><select name="artist_id"><option value="">Sem tatuador</option>';
+            render_artist_options($artists);
+            echo '</select></div>';
+            echo '<button class="btn" type="submit">Salvar lead</button>';
+            echo '</form>';
+            echo '<div class="panel soft"><p class="muted">Dica</p><h3 style="margin-top:0">Depois de salvo, o lead já entra no funil e pode ser movido entre etapas com os botões do card.</h3></div>';
+            echo '</section>';
+            return;
+        }
         $lead = studio_find_lead($studio, $leadId);
         if (!$lead) {
             echo '<section class="panel"><h2>Lead nao encontrado</h2><p class="muted">Volte para o funil e escolha outro lead.</p><a class="btn" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></section>';
@@ -3336,21 +3592,28 @@ function render_pipeline_board(array $board, array $stages): void
     }
 
     $stageNames = array_values(array_map(static fn(array $stage): string => (string)$stage['name'], $stages));
+    $totalLeads = 0;
+    $totalValue = 0.0;
+    foreach ($board as $column) {
+        $totalLeads += count($column['leads'] ?? []);
+        $totalValue += (float)($column['total_value'] ?? 0);
+    }
     echo '<div class="pipeline-board">';
     foreach ($board as $stageName => $column) {
         $stage = $column['stage'];
         $leads = $column['leads'];
         $stageCount = count($leads);
         $stageTotalValue = (float)($column['total_value'] ?? 0);
+        $share = $totalLeads > 0 ? (int)round(($stageCount / $totalLeads) * 100) : 0;
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($stage['color'] ?? '')) ? $stage['color'] : '#667085';
         echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '">';
         echo '<div class="pipeline-column-head">';
         echo '<div><strong>' . h($stageName) . '</strong><span class="muted">Etapa do funil</span></div>';
-        echo '<span class="badge">' . h((string)$stageCount) . '</span>';
+        echo '<span class="badge">' . h((string)$stageCount) . ' leads</span>';
         echo '</div>';
-        echo '<div class="pipeline-column-summary"><span><strong>' . h((string)$stageCount) . '</strong><small>Leads</small></span><span><strong>' . h(format_money($stageTotalValue)) . '</strong><small>Valor total</small></span></div>';
+        echo '<div class="pipeline-column-summary"><span><strong>' . h((string)$stageCount) . '</strong><small>Leads</small></span><span><strong>' . h(format_money($stageTotalValue)) . '</strong><small>Valor total</small></span><span><strong>' . h((string)$share) . '%</strong><small>Do funil</small></span></div>';
         if (!$leads) {
-            echo '<p class="muted">Sem leads nesta etapa.</p>';
+            echo '<p class="muted pipeline-empty">Nenhum lead nesta etapa.</p>';
         }
         foreach ($leads as $lead) {
             render_pipeline_card($lead, $stageNames);
@@ -3380,7 +3643,23 @@ function render_pipeline_card(array $lead, array $stageNames): void
     }
     $phone = normalize_phone((string)($lead['phone'] ?? ''));
     $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
+    $createdAt = (string)($lead['created_at'] ?? '');
     $createdOrUpdated = $updatedAt !== '' ? (function_exists('studio_relative_time_label') ? studio_relative_time_label($updatedAt) : $updatedAt) : '-';
+    $createdLabel = $createdAt !== '' ? (function_exists('studio_relative_time_label') ? studio_relative_time_label($createdAt) : $createdAt) : '-';
+    $isNew = false;
+    if ($createdAt !== '') {
+        try {
+            $isNew = new DateTimeImmutable($createdAt, new DateTimeZone('America/Sao_Paulo')) >= new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+        } catch (Throwable) {
+            $isNew = false;
+        }
+    }
+    $score = (int)($lead['lead_score'] ?? 0);
+    $isHot = $score >= 8;
+    $isHighValue = (float)($lead['estimated_value'] ?? 0) >= 1000;
+    $status = strtolower((string)($lead['status'] ?? ''));
+    $artistName = trim((string)($lead['artist_name'] ?? $lead['tattoo_artist_name'] ?? $lead['responsible_name'] ?? ''));
+    $isScheduled = in_array($status, ['agendado', 'pre_agendado'], true);
 
     echo '<article class="lead-card' . ($isStale ? ' stale' : '') . '">';
     echo '<a class="lead-card-title" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">' . h($lead['name'] ?: 'Lead sem nome') . '</a>';
@@ -3389,7 +3668,25 @@ function render_pipeline_card(array $lead, array $stageNames): void
     echo '<div class="lead-card-meta"><span><small>Valor estimado</small><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong></span><span><small>Nota</small><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></span></div>';
     echo '<div class="lead-card-submeta">';
     echo '<span class="badge">' . h($lead['source'] ?: 'Sem origem') . '</span>';
+    $statusTone = in_array($status, ['agendado', 'pre_agendado'], true) ? 'warn' : (in_array($status, ['fechado'], true) ? 'ok' : (in_array($status, ['perdido'], true) ? 'danger' : ($isStale ? 'warn' : 'neutral')));
+    echo '<span class="badge ' . h($statusTone) . '">' . h($status !== '' ? $status : 'sem status') . '</span>';
+    if ($isNew) {
+        echo '<span class="badge ok">Novo</span>';
+    }
+    if ($isHot) {
+        echo '<span class="badge ok">Quente</span>';
+    }
+    if ($isHighValue) {
+        echo '<span class="badge">Alto valor</span>';
+    }
+    if ($isScheduled) {
+        echo '<span class="badge warn">' . h($status === 'agendado' ? 'Agendado' : 'Pré-agendado') . '</span>';
+    }
+    if ($artistName !== '') {
+        echo '<span class="badge">' . h($artistName) . '</span>';
+    }
     echo '<span class="muted">' . h($createdOrUpdated !== '' ? 'Atualizado ' . $createdOrUpdated : '-') . '</span>';
+    echo '<span class="muted">' . h($createdLabel !== '' ? 'Criado ' . $createdLabel : '-') . '</span>';
     if ($isStale) {
         echo '<span class="badge warn">parado há mais de 24h</span>';
     }
