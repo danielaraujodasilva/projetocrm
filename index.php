@@ -58,7 +58,7 @@ $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans') {
     csrf_verify();
     $action = (string)($_POST['action'] ?? '');
 
@@ -444,6 +444,17 @@ function render_head(string $title): void
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
+function render_public_head(string $title, string $description): void
+{
+    echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
+    echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
+    echo '<meta name="description" content="' . h($description) . '">';
+    echo '<title>' . h($title) . '</title>';
+    echo '<link rel="stylesheet" href="assets/app.css">';
+    echo '</head><body class="public-page">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
+}
+
 function render_flash(?array $flash): void
 {
     if (!$flash) {
@@ -548,6 +559,16 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '</body></html>';
 }
 
+function render_public_page(string $title, string $subtitle, callable $content): void
+{
+    render_public_head($title, $subtitle);
+    echo '<div class="public-page-wrap">';
+    $content();
+    echo '</div>';
+    render_scripts();
+    echo '</body></html>';
+}
+
 function render_public_agent_page(): void
 {
     $version = app_build_version();
@@ -612,6 +633,170 @@ if (!$dbStatus['ok'] || !$schemaReady) {
         echo '<p class="muted">Configuracao padrao: banco <code>projetocrm_platform</code>, usuario <code>root</code>, senha vazia. Se precisar trocar, crie <code>config/database.local.php</code>.</p>';
         echo '</div>';
     }, $flash);
+    exit;
+}
+
+if ($page === 'public_plans') {
+    $publicPlans = list_commercial_plans(true);
+    render_public_page('Planos do CRM para Estúdios de Tatuagem', 'CRM para tatuadores com leads, agenda, WhatsApp, financeiro, relatórios e IA.', function () use ($publicPlans) {
+        $heroCta = public_sales_whatsapp_url();
+        $heroPlanCta = !empty($publicPlans[0]['name']) ? public_sales_whatsapp_url((string)$publicPlans[0]['name']) : $heroCta;
+        echo '<section class="public-hero">';
+        echo '<div class="public-hero-copy">';
+        echo '<span class="public-kicker">Venda mais. Responda melhor. Organize sua operação.</span>';
+        echo '<h1>CRM para estúdios de tatuagem</h1>';
+        echo '<p class="public-lead">Organize leads, clientes, agenda, WhatsApp e financeiro em um só lugar.</p>';
+        echo '<p class="public-copy">Feito para tatuadores que precisam vender mais, responder melhor e parar de perder cliente no WhatsApp.</p>';
+        echo '<div class="actions public-actions">';
+        echo '<a class="btn" href="#planos">Ver planos</a>';
+        echo '<a class="btn secondary" href="' . h($heroCta) . '" target="_blank" rel="noopener">Falar no WhatsApp</a>';
+        echo '</div>';
+        echo '</div>';
+        echo '<div class="public-hero-aside">';
+        echo '<div class="public-hero-card">';
+        echo '<p class="muted">Pensado para vender para estúdios reais, com preço, limite e recurso editáveis pelo painel administrativo.</p>';
+        echo '<div class="hero-stats">';
+        foreach ([
+            ['label' => 'Planos ativos', 'value' => count($publicPlans)],
+            ['label' => 'WhatsApp de vendas', 'value' => public_sales_whatsapp_number()],
+            ['label' => 'Acesso', 'value' => 'Sem login'],
+        ] as $item) {
+            echo '<div class="hero-stat"><strong>' . h((string)$item['value']) . '</strong><span>' . h($item['label']) . '</span></div>';
+        }
+        echo '</div>';
+        echo '<a class="btn secondary hero-side-cta" href="' . h($heroPlanCta) . '" target="_blank" rel="noopener">Tenho interesse no plano destaque</a>';
+        echo '</div>';
+        echo '</div>';
+        echo '</section>';
+
+        if (!$publicPlans) {
+            echo '<section class="public-section"><div class="public-empty">Nenhum plano disponível no momento.</div></section>';
+            return;
+        }
+
+        echo '<section class="public-section" id="planos">';
+        echo '<div class="section-head"><h2>Escolha o plano certo para o seu estúdio</h2><p>Os valores, limites e recursos abaixo vêm do banco e acompanham as alterações do painel administrativo.</p></div>';
+        echo '<div class="public-plan-grid">';
+        foreach ($publicPlans as $plan) {
+            $planName = (string)($plan['name'] ?? '');
+            $recommended = !empty($plan['recommended']);
+            $monthly = (float)($plan['monthly_price'] ?? 0);
+            $annual = (float)($plan['annual_price'] ?? 0);
+            $savings = $annual > 0 ? max(0.0, ($monthly * 12) - $annual) : 0.0;
+            $shortDescription = trim((string)($plan['short_description'] ?? $plan['description'] ?? ''));
+            $features = commercial_plan_public_features($plan);
+            $limits = commercial_plan_public_limits($plan);
+            echo '<article class="public-plan-card' . ($recommended ? ' recommended' : '') . '">';
+            echo '<div class="public-plan-top">';
+            echo '<div>';
+            echo '<div class="public-plan-name-row"><h3>' . h($planName) . '</h3>' . ($recommended ? '<span class="badge ok">Recomendado</span>' : '') . '</div>';
+            if ($shortDescription !== '') {
+                echo '<p class="public-plan-subtitle">' . h($shortDescription) . '</p>';
+            }
+            echo '</div>';
+            echo '<div class="public-plan-price">';
+            echo '<strong>' . h(format_money($monthly)) . '</strong>';
+            echo '<span>/mês</span>';
+            echo '</div>';
+            echo '</div>';
+            echo '<div class="public-plan-annual">';
+            echo '<span>' . h(format_money($annual)) . '/ano</span>';
+            if ($savings > 0) {
+                echo '<small>Economize ' . h(format_money($savings)) . ' no anual</small>';
+            }
+            echo '</div>';
+            if ($features) {
+                echo '<div class="public-plan-block"><strong>Recursos</strong><ul class="public-feature-list">';
+                foreach ($features as $feature) {
+                    echo '<li>' . h($feature) . '</li>';
+                }
+                echo '</ul></div>';
+            }
+            echo '<div class="public-plan-block"><strong>Limites</strong><div class="public-limits-grid">';
+            foreach ($limits as $limit) {
+                echo '<div class="public-limit-pill"><span>' . h($limit['label']) . '</span><strong>' . h($limit['value']) . '</strong></div>';
+            }
+            echo '</div></div>';
+            if (trim((string)($plan['description'] ?? '')) !== '') {
+                echo '<p class="public-plan-description">' . h((string)$plan['description']) . '</p>';
+            }
+            echo '<div class="actions public-plan-actions">';
+            echo '<a class="btn" href="' . h(public_sales_whatsapp_url($planName)) . '" target="_blank" rel="noopener">Tenho interesse</a>';
+            echo '</div>';
+            echo '</article>';
+        }
+        echo '</div>';
+        echo '</section>';
+
+        echo '<section class="public-section public-compare">';
+        echo '<div class="section-head"><h2>Compare os planos</h2><p>Uma leitura simples para bater o olho e entender onde cada plano faz sentido.</p></div>';
+        echo '<div class="table-wrap"><table class="table public-compare-table"><thead><tr><th>Recurso</th>';
+        foreach ($publicPlans as $plan) {
+            echo '<th>' . h((string)($plan['name'] ?? 'Plano')) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+        $compareRows = [
+            ['label' => 'Usuários', 'key' => 'user_limit'],
+            ['label' => 'Tatuadores', 'key' => 'tattoo_artist_limit'],
+            ['label' => 'Clientes/leads', 'key' => 'lead_limit'],
+            ['label' => 'WhatsApp', 'key' => 'allow_whatsapp'],
+            ['label' => 'IA', 'key' => 'allow_ai'],
+            ['label' => 'Automações', 'key' => 'allow_automations'],
+            ['label' => 'Relatórios avançados', 'key' => 'allow_advanced_reports'],
+            ['label' => 'Multi-estúdio', 'key' => 'allow_multi_studio'],
+        ];
+        foreach ($compareRows as $row) {
+            echo '<tr><td><strong>' . h($row['label']) . '</strong></td>';
+            foreach ($publicPlans as $plan) {
+                $key = (string)$row['key'];
+                $value = $plan[$key] ?? null;
+                if (str_starts_with($key, 'allow_')) {
+                    echo '<td>' . (!empty($value) ? '<span class="badge ok">Sim</span>' : '<span class="badge warn">Não</span>') . '</td>';
+                } else {
+                    echo '<td>' . h($value === null || $value === '' ? 'Ilimitado' : (string)$value) . '</td>';
+                }
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table></div>';
+        echo '</section>';
+
+        echo '<section class="public-section public-audience">';
+        echo '<div class="section-head"><h2>Para quem é</h2><p>Os textos abaixo podem ser refinados depois pelo painel, mas já ajudam o visitante a se enxergar em cada plano.</p></div>';
+        echo '<div class="public-audience-grid">';
+        foreach ($publicPlans as $plan) {
+            echo '<article class="public-audience-card">';
+            echo '<h3>' . h((string)($plan['name'] ?? 'Plano')) . '</h3>';
+            echo '<p>' . h(trim((string)($plan['description'] ?? $plan['short_description'] ?? '')) ?: 'Plano comercial do CRM.') . '</p>';
+            echo '</article>';
+        }
+        echo '</div>';
+        echo '</section>';
+
+        echo '<section class="public-section public-benefits">';
+        echo '<div class="section-head"><h2>Benefícios do CRM</h2><p>Um resumo simples do que o sistema resolve no dia a dia do estúdio.</p></div>';
+        echo '<div class="public-benefits-grid">';
+        foreach ([
+            'Pare de perder orçamento no WhatsApp.',
+            'Veja quais leads estão quentes.',
+            'Controle agenda e sinais.',
+            'Organize clientes e histórico.',
+            'Acompanhe financeiro do estúdio.',
+            'Use respostas rápidas e IA para acelerar atendimento.',
+            'Tenha relatórios para tomar decisões melhores.',
+        ] as $benefit) {
+            echo '<div class="public-benefit">' . h($benefit) . '</div>';
+        }
+        echo '</div>';
+        echo '</section>';
+
+        echo '<section class="public-section public-final-cta">';
+        echo '<div class="public-final-card">';
+        echo '<div><h2>Quer testar no seu estúdio?</h2><p>Fale comigo e veja qual plano faz sentido para sua operação.</p></div>';
+        echo '<a class="btn" href="' . h(public_sales_whatsapp_url()) . '" target="_blank" rel="noopener">Chamar no WhatsApp</a>';
+        echo '</div>';
+        echo '</section>';
+    });
     exit;
 }
 
@@ -2332,23 +2517,6 @@ if ($page === 'studio_settings') {
         echo '</div></div>';
         echo '</div>';
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
-    }, $flash);
-    exit;
-}
-
-if (!current_admin() && $page !== 'login') {
-    redirect_to('login');
-}
-
-if ($page === 'login') {
-    render_auth_page('Entrar', 'Acesse o painel de gerenciamento dos estudios.', function () {
-        echo '<form class="form" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="login">';
-        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
-        echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
-        echo '<button class="btn" type="submit">Entrar</button>';
-        echo '</form>';
     }, $flash);
     exit;
 }

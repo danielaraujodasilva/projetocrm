@@ -24,13 +24,18 @@ define('APP_BASE_PATH', dirname(__DIR__));
 $baseConfig = require APP_BASE_PATH . '/config/database.php';
 $localConfigPath = APP_BASE_PATH . '/config/database.local.php';
 $localConfig = is_file($localConfigPath) ? require $localConfigPath : [];
+$baseAppConfig = is_file(APP_BASE_PATH . '/config/app.php') ? require APP_BASE_PATH . '/config/app.php' : [];
 
 if (!is_array($localConfig)) {
     $localConfig = [];
 }
+if (!is_array($baseAppConfig)) {
+    $baseAppConfig = [];
+}
 
 $GLOBALS['app_config'] = [
     'database' => array_merge($baseConfig, $localConfig),
+    'app' => $baseAppConfig,
 ];
 
 require APP_BASE_PATH . '/app/functions.php';

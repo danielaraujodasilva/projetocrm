@@ -703,6 +703,116 @@ function current_studio_plan_name(): string
     return 'Basico';
 }
 
+function public_sales_whatsapp_number(): string
+{
+    $config = app_config('app');
+    $raw = trim((string)($config['sales_whatsapp_number'] ?? getenv('CRM_SALES_WHATSAPP_NUMBER') ?? ''));
+    $number = preg_replace('/\D+/', '', $raw) ?: '';
+
+    if ($number !== '') {
+        return $number;
+    }
+
+    return '5511999999999';
+}
+
+function public_sales_whatsapp_url(?string $planName = null): string
+{
+    $planName = trim((string)($planName ?? ''));
+    $message = $planName !== ''
+        ? 'Olá! Tenho interesse no plano ' . $planName . ' do CRM para estúdio de tatuagem.'
+        : 'Olá! Tenho interesse nos planos do CRM para estúdio de tatuagem.';
+
+    return 'https://wa.me/' . public_sales_whatsapp_number() . '?text=' . rawurlencode($message);
+}
+
+function commercial_plan_public_features(array $plan): array
+{
+    $features = [];
+    $featuresText = trim((string)($plan['features_text'] ?? ''));
+    if ($featuresText !== '') {
+        foreach (preg_split('/\R+/', $featuresText) ?: [] as $line) {
+            $line = trim((string)$line);
+            if ($line !== '') {
+                $features[] = $line;
+            }
+        }
+    }
+
+    if (!$features) {
+        $map = [
+            'allow_whatsapp' => 'WhatsApp integrado',
+            'allow_ai' => 'IA',
+            'allow_data_assistant' => 'Assistente de dados',
+            'allow_finance' => 'Financeiro',
+            'allow_advanced_reports' => 'Relatórios avançados',
+            'allow_automations' => 'Automações',
+            'allow_multi_studio' => 'Multi-estúdio',
+            'allow_external_integrations' => 'Integrações externas/API',
+            'allow_advanced_customization' => 'Personalização avançada do funil',
+        ];
+
+        foreach ($map as $column => $label) {
+            if (!empty($plan[$column])) {
+                $features[] = $label;
+            }
+        }
+
+        if (empty($features)) {
+            $fallback = [
+                'Clientes e leads',
+                'Funil de vendas',
+                'Agenda',
+                'Respostas rápidas',
+            ];
+            $features = $fallback;
+        }
+    }
+
+    return array_values(array_unique(array_filter($features)));
+}
+
+function commercial_plan_public_limits(array $plan): array
+{
+    $toLabel = static function ($value): string {
+        if ($value === null || $value === '') {
+            return 'Ilimitado';
+        }
+
+        $value = max(0, (int)$value);
+        return $value === 0 ? '0' : (string)$value;
+    };
+
+    return [
+        ['label' => 'Estúdios', 'value' => $toLabel($plan['studio_limit'] ?? null)],
+        ['label' => 'Usuários', 'value' => $toLabel($plan['user_limit'] ?? null)],
+        ['label' => 'Tatuadores', 'value' => $toLabel($plan['tattoo_artist_limit'] ?? null)],
+        ['label' => 'Clientes/leads', 'value' => $toLabel($plan['lead_limit'] ?? null)],
+        ['label' => 'Sessões WhatsApp', 'value' => $toLabel($plan['whatsapp_session_limit'] ?? null)],
+    ];
+}
+
+function commercial_plan_public_flag_rows(array $plan): array
+{
+    $rows = [
+        ['label' => 'Clientes e leads', 'enabled' => true],
+        ['label' => 'Funil de vendas', 'enabled' => true],
+        ['label' => 'Agenda', 'enabled' => true],
+        ['label' => 'Financeiro', 'enabled' => !empty($plan['allow_finance'])],
+        ['label' => 'Respostas rápidas', 'enabled' => true],
+        ['label' => 'WhatsApp integrado', 'enabled' => !empty($plan['allow_whatsapp'])],
+        ['label' => 'IA', 'enabled' => !empty($plan['allow_ai'])],
+        ['label' => 'Assistente de dados', 'enabled' => !empty($plan['allow_data_assistant'])],
+        ['label' => 'Automações', 'enabled' => !empty($plan['allow_automations'])],
+        ['label' => 'Relatórios avançados', 'enabled' => !empty($plan['allow_advanced_reports'])],
+        ['label' => 'Multi-estúdio', 'enabled' => !empty($plan['allow_multi_studio'])],
+        ['label' => 'Integrações externas/API', 'enabled' => !empty($plan['allow_external_integrations'])],
+        ['label' => 'Personalização avançada do funil', 'enabled' => !empty($plan['allow_advanced_customization'])],
+    ];
+
+    return array_values(array_filter($rows, static fn(array $row): bool => true));
+}
+
 function studio_user_count(int $studioId): int
 {
     if ($studioId <= 0 || !table_exists('studio_users')) {

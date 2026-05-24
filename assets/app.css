@@ -1936,6 +1936,386 @@ textarea {
     line-height: 1.5;
 }
 
+.public-page {
+    background:
+        radial-gradient(circle at top, rgba(146, 152, 160, 0.18), transparent 36%),
+        linear-gradient(180deg, #0f1418 0%, #141920 42%, #0c1014 100%);
+    color: #f5f7fa;
+}
+
+.public-page a {
+    color: #f3d1b8;
+}
+
+.public-page .app-build-badge-input {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+.public-page-wrap {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 24px 0 72px;
+}
+
+.public-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+    gap: 18px;
+    align-items: stretch;
+    padding: 20px 0 8px;
+}
+
+.public-hero-copy,
+.public-hero-card,
+.public-plan-card,
+.public-audience-card,
+.public-benefit,
+.public-final-card,
+.public-empty {
+    background: rgba(15, 20, 26, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+}
+
+.public-hero-copy {
+    padding: 28px;
+}
+
+.public-kicker {
+    display: inline-flex;
+    margin-bottom: 14px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(199, 77, 64, 0.14);
+    color: #f3c2b8;
+    border: 1px solid rgba(199, 77, 64, 0.28);
+    font-size: 12px;
+    letter-spacing: .02em;
+    font-weight: 700;
+}
+
+.public-hero h1 {
+    margin: 0;
+    font-size: clamp(32px, 4.6vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -.02em;
+}
+
+.public-lead {
+    margin: 16px 0 0;
+    font-size: 18px;
+    color: #f0f3f7;
+    max-width: 42rem;
+}
+
+.public-copy {
+    margin: 12px 0 0;
+    color: #c8d0d8;
+    max-width: 44rem;
+    line-height: 1.6;
+}
+
+.public-actions {
+    margin-top: 20px;
+}
+
+.public-actions .btn {
+    width: auto;
+}
+
+.public-hero-card {
+    padding: 24px;
+    display: grid;
+    gap: 16px;
+}
+
+.hero-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.hero-stat {
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: grid;
+    gap: 4px;
+}
+
+.hero-stat strong {
+    font-size: 18px;
+    line-height: 1.1;
+    color: #fff;
+}
+
+.hero-stat span {
+    color: #c7cdd5;
+    font-size: 12px;
+}
+
+.hero-side-cta {
+    justify-content: center;
+    text-align: center;
+}
+
+.public-section {
+    margin-top: 22px;
+}
+
+.section-head {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.section-head h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #fff;
+}
+
+.section-head p {
+    margin: 0;
+    color: #bec7cf;
+    max-width: 60rem;
+}
+
+.public-plan-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.public-plan-card {
+    padding: 22px;
+    display: grid;
+    gap: 14px;
+    color: #e8edf1;
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.public-plan-card.recommended {
+    border-color: rgba(211, 76, 65, 0.46);
+    box-shadow: 0 0 0 1px rgba(211, 76, 65, 0.16), 0 24px 60px rgba(0, 0, 0, 0.24);
+}
+
+.public-plan-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.public-plan-name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.public-plan-name-row h3 {
+    margin: 0;
+    font-size: 22px;
+    color: #fff;
+}
+
+.public-plan-subtitle {
+    margin: 8px 0 0;
+    color: #c6ced5;
+    line-height: 1.5;
+}
+
+.public-plan-price {
+    display: grid;
+    justify-items: end;
+    gap: 3px;
+    min-width: 110px;
+}
+
+.public-plan-price strong {
+    font-size: 28px;
+    line-height: 1;
+    color: #fff;
+}
+
+.public-plan-price span,
+.public-plan-annual,
+.public-plan-description {
+    color: #c7d0d8;
+}
+
+.public-plan-annual {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: baseline;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.public-plan-annual span {
+    color: #fff;
+    font-weight: 700;
+}
+
+.public-plan-annual small {
+    color: #d9b0a0;
+}
+
+.public-plan-block {
+    display: grid;
+    gap: 10px;
+}
+
+.public-plan-block > strong {
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.public-feature-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.public-feature-list li {
+    position: relative;
+    padding-left: 16px;
+    color: #d8e0e7;
+    line-height: 1.4;
+}
+
+.public-feature-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #d34c41;
+}
+
+.public-limits-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.public-limit-pill {
+    display: grid;
+    gap: 4px;
+    padding: 11px 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.public-limit-pill span {
+    color: #c8d0d7;
+    font-size: 12px;
+}
+
+.public-limit-pill strong {
+    color: #fff;
+    font-size: 16px;
+}
+
+.public-plan-actions {
+    margin-top: 2px;
+}
+
+.public-plan-description {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.public-compare .table-wrap {
+    overflow-x: auto;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 20, 26, 0.82);
+}
+
+.public-compare-table {
+    min-width: 680px;
+    margin: 0;
+    color: #eef2f5;
+}
+
+.public-compare-table th,
+.public-compare-table td {
+    border-color: rgba(255, 255, 255, 0.08);
+    padding: 14px 16px;
+}
+
+.public-compare-table thead th {
+    background: rgba(255, 255, 255, 0.04);
+    color: #fff;
+}
+
+.public-compare-table tbody tr:nth-child(odd) td {
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.public-audience-grid,
+.public-benefits-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.public-audience-card,
+.public-benefit {
+    padding: 18px;
+}
+
+.public-audience-card h3 {
+    margin: 0 0 10px;
+    color: #fff;
+}
+
+.public-audience-card p,
+.public-benefit {
+    color: #d3dae0;
+    line-height: 1.55;
+}
+
+.public-benefit {
+    min-height: 100%;
+}
+
+.public-empty {
+    padding: 26px;
+    color: #fff;
+}
+
+.public-final-card {
+    padding: 24px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: center;
+}
+
+.public-final-card h2 {
+    margin: 0;
+    color: #fff;
+}
+
+.public-final-card p {
+    margin: 8px 0 0;
+    color: #c9d1d9;
+}
+
 @media (max-width: 900px) {
     .shell {
         grid-template-columns: 1fr;
@@ -2044,5 +2424,43 @@ textarea {
     .actions .btn,
     .inline-form .btn {
         width: auto;
+    }
+
+    .public-page-wrap {
+        width: min(100% - 20px, 1180px);
+        padding-top: 18px;
+    }
+
+    .public-hero,
+    .public-plan-grid,
+    .public-audience-grid,
+    .public-benefits-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .public-hero-copy,
+    .public-hero-card,
+    .public-plan-card,
+    .public-audience-card,
+    .public-benefit,
+    .public-final-card {
+        padding: 18px;
+    }
+
+    .public-plan-top,
+    .public-final-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .public-plan-price {
+        justify-items: start;
+        min-width: 0;
+    }
+
+    .public-feature-list,
+    .public-limits-grid,
+    .hero-stats {
+        grid-template-columns: 1fr;
     }
 }
