@@ -278,8 +278,20 @@ function money_to_float(string $value): float
     if ($value === '') {
         return 0.0;
     }
-    $value = str_replace(['R$', ' ', '.'], '', $value);
-    $value = str_replace(',', '.', $value);
+    $value = preg_replace('/[^\d,.\-]/', '', str_replace(['R$', ' '], '', $value)) ?? '';
+    if ($value === '') {
+        return 0.0;
+    }
+
+    if (str_contains($value, ',') && str_contains($value, '.')) {
+        $value = str_replace('.', '', $value);
+        $value = str_replace(',', '.', $value);
+    } elseif (str_contains($value, ',')) {
+        $value = str_replace('.', '', $value);
+        $value = str_replace(',', '.', $value);
+    } elseif (preg_match('/^-?\d{1,3}(?:\.\d{3})+$/', $value)) {
+        $value = str_replace('.', '', $value);
+    }
 
     return is_numeric($value) ? (float)$value : 0.0;
 }
