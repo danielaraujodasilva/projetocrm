@@ -12,10 +12,27 @@ function app_config(string $key): array
     return $GLOBALS['app_config'][$key] ?? [];
 }
 
+function app_base_path(): string
+{
+    $scriptName = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
+    $basePath = rtrim(str_replace('/index.php', '', dirname($scriptName)), '/');
+    if ($basePath === '' || $basePath === '.' || $basePath === '/') {
+        return '';
+    }
+
+    return $basePath;
+}
+
 function app_url(string $page = 'dashboard', array $params = []): string
 {
     $params = array_merge(['page' => $page], $params);
-    return 'index.php?' . http_build_query($params);
+    return app_base_path() . '/index.php?' . http_build_query($params);
+}
+
+function app_asset_url(string $path): string
+{
+    $path = ltrim($path, '/');
+    return app_base_path() . '/' . $path;
 }
 
 function redirect_to(string $page = 'dashboard', array $params = []): never

@@ -440,7 +440,7 @@ function render_head(string $title): void
     echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
-    echo '<link rel="stylesheet" href="assets/app.css"></head><body>';
+    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body>';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
@@ -450,7 +450,7 @@ function render_public_head(string $title, string $description): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<meta name="description" content="' . h($description) . '">';
     echo '<title>' . h($title) . '</title>';
-    echo '<link rel="stylesheet" href="assets/app.css">';
+    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
     echo '</head><body class="public-page">';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
@@ -1264,7 +1264,7 @@ if ($page === 'studio_home') {
         echo '</section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script src="assets/home_drilldown.js"></script>';
+        echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '"></script>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda de hoje</h2><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $current->format('Y-m-d')])) . '">Abrir agenda</a></div>';
         if (!$todayAppointments) {
@@ -2726,11 +2726,11 @@ if ($page === 'studio_reports') {
             echo '</div>';
             echo '<div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div>';
             echo '</section>';
-            echo '<link rel="stylesheet" href="assets/vendor/webdatarocks/theme/teal/webdatarocks.min.css">';
-            echo '<script src="assets/vendor/webdatarocks/webdatarocks.js"></script>';
-            echo '<script src="assets/vendor/webdatarocks/webdatarocks.toolbar.min.js"></script>';
+            echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/vendor/webdatarocks/theme/teal/webdatarocks.min.css')) . '">';
+            echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.js')) . '"></script>';
+            echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.toolbar.min.js')) . '"></script>';
             echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-            echo '<script src="assets/reports_pivot.js"></script>';
+            echo '<script src="' . h(app_asset_url('assets/reports_pivot.js')) . '"></script>';
             echo '</section>';
         } else {
             echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Este bloco avançado fica disponível a partir do plano Profissional ou Avançado.</p></div><span class="badge warn">Bloqueado</span></div>';
