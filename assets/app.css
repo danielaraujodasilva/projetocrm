@@ -1595,6 +1595,51 @@ textarea {
     align-content: start;
 }
 
+.conversation-tools-panel {
+    width: min(96vw, 860px);
+}
+
+.conversation-tools-body {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+}
+
+.conversation-tools-actions {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8fbfd;
+}
+
+.conversation-tools-actions .actions {
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.conversation-tools-actions .badge {
+    white-space: nowrap;
+}
+
+.conversation-tools-body .info-list {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+}
+
+.conversation-tools-body .info-list p {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: baseline;
+}
+
 .score-pill {
     display: inline-flex;
     align-items: center;

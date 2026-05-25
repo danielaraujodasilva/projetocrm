@@ -2418,12 +2418,9 @@ if ($page === 'studio_whatsapp_conversation') {
             $aiStateTone = 'warn';
         }
 
-        echo '<section class="conversation-layout">';
+        echo '<section class="conversation-layout" style="grid-template-columns:minmax(0,1fr)">';
         echo '<div class="panel conversation-main">';
-        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><span class="badge ' . h($aiStateTone) . '" data-ai-state-badge>' . h($aiStateLabel) . '</span><button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button><button class="btn secondary" type="button" data-mode-toggle="human">Humano</button><button class="btn secondary" type="button" data-status-set="novo">Novo</button><button class="btn secondary" type="button" id="openAppointmentModalButton">Agendar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
-        echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span></div>';
-        echo '<div class="wa-session-summary conversation-status-summary"><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><span data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'pedindo humano' : 'sem pedido humano') . '</span><span data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
-        echo '<div class="mini-metrics conversation-metrics"><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Confiança da leitura</small></span><span><strong>' . h((string)max(0, 100 - $assistantConfidence)) . '%</strong><small>Espaço para melhorar</small></span></div>';
+        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><button class="btn secondary" type="button" id="openConversationToolsButton">Ferramentas</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
         render_chat_messages($messages);
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
@@ -2444,8 +2441,26 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<button class="btn" type="submit">Enviar mensagem</button>';
         echo '</form></div>';
 
-        echo '<aside class="panel conversation-side">';
-        echo '<h2>Cadastro e lead</h2>';
+        echo '<div id="conversationToolsOverlay" class="crm-modal hidden">';
+        echo '<div class="crm-modal-panel conversation-tools-panel" style="max-width:min(96vw,860px)">';
+        echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um só lugar.</p></div><button type="button" id="closeConversationToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
+        echo '<div class="panel conversation-tools-body">';
+        echo '<div class="conversation-tools-actions">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center">';
+        echo '<div class="actions">';
+        echo '<span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span>';
+        echo '<span class="badge ' . h($aiStateTone) . '" data-ai-state-badge>' . h($aiStateLabel) . '</span>';
+        echo '<span class="badge" data-conversation-confidence>' . h((string)$assistantConfidence) . '% leitura</span>';
+        echo '</div>';
+        echo '<div class="actions">';
+        echo '<button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button>';
+        echo '<button class="btn secondary" type="button" data-mode-toggle="human">Humano</button>';
+        echo '<button class="btn secondary" type="button" data-status-set="novo">Novo</button>';
+        echo '<button class="btn secondary" type="button" id="openAppointmentModalButton">Agendar</button>';
+        echo '</div>';
+        echo '</div>';
+        echo '</div>';
+        echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span><span><strong data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</strong><small>Funil</small></span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
@@ -2528,17 +2543,25 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<summary>Sugestao de agendamento</summary>';
         if ($scheduleSuggestion) {
             echo '<p class="muted">' . h($scheduleSuggestion['reason']) . '</p>';
-        echo '<div class="mini-metrics side-suggestion-metrics">';
-        echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
-        echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
-        echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
-        echo '<span><strong>' . h($scheduleSuggestion['end_time'] ?? '') . '</strong><small>Fim</small></span>';
-        echo '</div>';
+            echo '<div class="mini-metrics side-suggestion-metrics">';
+            echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
+            echo '<span><strong>' . h($scheduleSuggestion['end_time'] ?? '') . '</strong><small>Fim</small></span>';
+            echo '</div>';
             echo '<button class="btn secondary" type="button" id="applyScheduleSuggestionButton" style="margin-top:10px">Usar sugestao</button>';
         } else {
             echo '<p class="muted">Ainda sem sugestao para esta conversa.</p>';
         }
         echo '</details>';
+        echo '<div class="info-list">';
+        echo '<p><strong>Cliente:</strong> ' . ($conversation['customer_id'] ? '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '">' . h($conversation['customer_name'] ?: 'Abrir cliente') . '</a>' : '<span class="muted">sem cliente vinculado</span>') . '</p>';
+        echo '<p><strong>Lead:</strong> ' . ($conversation['lead_id'] ? '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">' . h($conversation['lead_name'] ?: 'Abrir lead') . '</a>' : '<span class="muted">sem lead vinculado</span>') . '</p>';
+        echo '<p><strong>Interesse:</strong> ' . h($conversation['lead_interest'] ?: '-') . '</p>';
+        echo '<p><strong>Funil:</strong> ' . h(($conversation['lead_status'] ?: '-') . ' / ' . ($conversation['lead_pipeline_stage'] ?: '-')) . '</p>';
+        echo '<p><strong>Ultima mensagem:</strong> ' . h($conversation['last_message_at'] ?: '-') . '</p>';
+        echo '</div>';
+        echo '</div></div>';
 
         echo '<div id="appointmentModal" class="crm-modal hidden">';
         echo '<div class="crm-modal-panel" style="max-width:min(96vw,860px)">';
@@ -2571,14 +2594,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '</div></div>';
         echo '<button class="btn secondary" type="submit">Criar horario</button>';
         echo '</form></div></div>';
-
-        echo '<div class="info-list">';
-        echo '<p><strong>Cliente:</strong> ' . ($conversation['customer_id'] ? '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '">' . h($conversation['customer_name'] ?: 'Abrir cliente') . '</a>' : '<span class="muted">sem cliente vinculado</span>') . '</p>';
-        echo '<p><strong>Lead:</strong> ' . ($conversation['lead_id'] ? '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">' . h($conversation['lead_name'] ?: 'Abrir lead') . '</a>' : '<span class="muted">sem lead vinculado</span>') . '</p>';
-        echo '<p><strong>Interesse:</strong> ' . h($conversation['lead_interest'] ?: '-') . '</p>';
-        echo '<p><strong>Funil:</strong> ' . h(($conversation['lead_status'] ?: '-') . ' / ' . ($conversation['lead_pipeline_stage'] ?: '-')) . '</p>';
-        echo '<p><strong>Ultima mensagem:</strong> ' . h($conversation['last_message_at'] ?: '-') . '</p>';
-        echo '</div></aside></section>';
+        echo '</section>';
         echo '<div id="mediaOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="mediaOverlayTitle" class="crm-panel-title">Midia</h3></div><button type="button" id="closeMediaOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="mediaOverlayBody" class="p-4 flex items-center justify-center"></div></div></div>';
         echo '<script>';
         echo '(() => {';
@@ -2594,6 +2610,9 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'const mediaOverlayTitle = document.getElementById("mediaOverlayTitle");';
         echo 'const mediaOverlayBody = document.getElementById("mediaOverlayBody");';
         echo 'const closeMediaOverlay = document.getElementById("closeMediaOverlay");';
+        echo 'const conversationToolsOverlay = document.getElementById("conversationToolsOverlay");';
+        echo 'const openConversationToolsButton = document.getElementById("openConversationToolsButton");';
+        echo 'const closeConversationToolsOverlay = document.getElementById("closeConversationToolsOverlay");';
         echo 'const chatThread = document.querySelector(".chat-thread");';
         echo 'const messageCountLabel = document.querySelector("[data-message-count]");';
         echo 'const conversationId = ' . (int)$conversationId . ';';
@@ -2616,7 +2635,10 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'document.querySelectorAll(".quick-reply-copy").forEach(button => button.addEventListener("click", () => { const reply = button.dataset.reply || ""; textarea.value = textarea.value ? textarea.value + "\\n" + reply : reply; textarea.focus(); }));';
         echo 'function openMediaOverlay(src, title, kind){ if (!src || !mediaOverlay || !mediaOverlayBody || !mediaOverlayTitle) return; mediaOverlayTitle.textContent = title || "Midia"; if (kind === "video") { mediaOverlayBody.innerHTML = `<video src="${src}" controls autoplay style="max-width:100%;max-height:82vh;border-radius:10px"></video>`; } else if (kind === "audio") { mediaOverlayBody.innerHTML = `<audio src="${src}" controls autoplay style="width:min(680px,100%)"></audio>`; } else { mediaOverlayBody.innerHTML = `<div style="width:100%;display:flex;justify-content:center"><img src="${src}" alt="${title || "Midia"}" style="max-width:100%;max-height:82vh;object-fit:contain;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.35)"></div>`; } mediaOverlay.classList.remove("hidden"); } window.openMediaOverlay = openMediaOverlay;';
         echo 'document.addEventListener("click", (event) => { const button = event.target.closest(".chat-media-thumb"); if (!button) return; const src = button.dataset.mediaSrc || ""; const title = button.dataset.mediaTitle || "Midia"; const kind = button.dataset.mediaKind || "image"; openMediaOverlay(src, title, kind); });';
-        echo 'if (closeMediaOverlay && mediaOverlay) { closeMediaOverlay.addEventListener("click", () => mediaOverlay.classList.add("hidden")); mediaOverlay.addEventListener("click", event => { if (event.target === mediaOverlay) mediaOverlay.classList.add("hidden"); }); document.addEventListener("keydown", event => { if (event.key === "Escape") mediaOverlay.classList.add("hidden"); }); }';
+        echo 'if (closeMediaOverlay && mediaOverlay) { closeMediaOverlay.addEventListener("click", () => mediaOverlay.classList.add("hidden")); mediaOverlay.addEventListener("click", event => { if (event.target === mediaOverlay) mediaOverlay.classList.add("hidden"); }); }';
+        echo 'if (openConversationToolsButton && conversationToolsOverlay) { openConversationToolsButton.addEventListener("click", () => conversationToolsOverlay.classList.remove("hidden")); }';
+        echo 'if (closeConversationToolsOverlay && conversationToolsOverlay) { closeConversationToolsOverlay.addEventListener("click", () => conversationToolsOverlay.classList.add("hidden")); conversationToolsOverlay.addEventListener("click", event => { if (event.target === conversationToolsOverlay) conversationToolsOverlay.classList.add("hidden"); }); }';
+        echo 'document.addEventListener("keydown", event => { if (event.key === "Escape") { if (mediaOverlay) mediaOverlay.classList.add("hidden"); if (conversationToolsOverlay) conversationToolsOverlay.classList.add("hidden"); if (appointmentModal) appointmentModal.classList.add("hidden"); } });';
         echo 'if (applyScheduleSuggestionButton) { applyScheduleSuggestionButton.addEventListener("click", () => { const title = ' . json_encode($scheduleSuggestion['title'] ?? '') . '; const date = ' . json_encode($scheduleSuggestion['date'] ?? '') . '; const time = ' . json_encode($scheduleSuggestion['time'] ?? '') . '; const desc = ' . json_encode($scheduleSuggestion['description'] ?? '') . '; const artist = ' . json_encode($scheduleSuggestion['artist_id'] ?? '') . '; const titleInput = document.querySelector(\'[name="title"]\'); const dateInput = document.querySelector(\'[name="appointment_date"]\'); const startTimeInput = document.querySelector(\'[name="start_time"]\'); const descInput = document.querySelector(\'[name="description"]\'); const artistInput = document.querySelector(\'[name="artist_id"]\'); if (titleInput) titleInput.value = title; if (dateInput) dateInput.value = date; if (startTimeInput) startTimeInput.value = time; if (descInput) descInput.value = desc; if (artistInput && artist) artistInput.value = artist; syncAppointmentEndTime(); document.getElementById("scheduleButton").click(); }); }';
         echo 'const csrfToken = document.querySelector(\'input[name="csrf_token"]\')?.value || "";';
         echo 'const attendanceLabel = document.querySelector("[data-wa-attendance]"); const needsHumanLabel = document.querySelector("[data-wa-needs-human]"); const leadStatusLabel = document.querySelector("[data-wa-lead-status]"); const aiStateLabel = document.querySelector("[data-ai-state]"); const aiStateBadge = document.querySelector("[data-ai-state-badge]"); const attendanceSelect = document.querySelector(\'[name="attendance_mode"]\'); const statusSelect = document.querySelector(\'[name="status"]\'); const pipelineSelect = document.querySelector(\'[name="pipeline_stage"]\'); const needsHumanCheckbox = document.querySelector(\'[name="needs_human"]\'); const assistantAutofillEnabled = ' . (!empty(studio_settings($studio)['assistant_autofill_enabled']) ? 'true' : 'false') . ';';
