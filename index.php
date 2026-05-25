@@ -876,6 +876,7 @@ if ($page === 'studio_home') {
         $stats = studio_stats($studio);
         $financeSummary = studio_finance_summary($studio);
         $pdo = studio_db($studio);
+        $pomadaUnitPrice = (float)(studio_settings($studio)['pomada_unit_price'] ?? (app_config('app')['pomada_unit_price'] ?? 100));
         $paidAppointmentsMonth = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado') AND COALESCE(deposit_value, 0) > 0")->fetchColumn();
         $recentLeads = studio_recent_leads($studio, 6);
         $appointments = studio_upcoming_appointments($studio, 6);
