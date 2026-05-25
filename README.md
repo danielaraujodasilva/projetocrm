@@ -66,7 +66,7 @@ Primeira execucao:
 ```bash
 cd services/whatsapp
 npm install
-npm start
+node server.js
 ```
 
 Por padrao ele roda em `http://localhost:3010` e envia eventos para `http://localhost/projetocrm/api/whatsapp_webhook.php`.

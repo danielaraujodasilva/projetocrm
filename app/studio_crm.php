@@ -515,7 +515,7 @@ function studio_whatsapp_start_local_service(array $studio): array
 
         $startCommand = 'cd ' . escapeshellarg($servicePath)
             . ' && WHATSAPP_PORT=' . escapeshellarg($port)
-            . ' nohup npm start > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
+            . ' nohup node server.js > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
         $startOutput = trim((string)shell_exec($startCommand));
         if ($startOutput !== '') {
             file_put_contents($pidFile, $startOutput);
@@ -661,7 +661,7 @@ function studio_reset_whatsapp_session_locally(array $studio): array
         $command = '(lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill; rm -rf ' . escapeshellarg($sessionPath)
             . '; cd ' . escapeshellarg($servicePath) . ' && ' . $install
             . ' WHATSAPP_PORT=' . escapeshellarg($port)
-            . ' nohup npm start >> ' . escapeshellarg($logFile) . ' 2>&1 &) 2>&1';
+            . ' nohup node server.js >> ' . escapeshellarg($logFile) . ' 2>&1 &) 2>&1';
         shell_exec($command);
     }
 
@@ -707,11 +707,11 @@ function studio_windows_whatsapp_start_cmd(string $servicePath, string $logFile)
 {
     $nodeExe = trim((string)(getenv('NODE_EXE') ?: 'node'));
 
-    return 'start "" /B cmd /C ""'
+    return '"' 
         . str_replace('"', '', $nodeExe)
         . '" server.js >> "'
         . str_replace('"', '', $logFile)
-        . '" 2>&1"';
+        . '" 2>&1';
 }
 
 function studio_windows_port_guard_line(string $port, string $startCommand, string $logFile): string
@@ -1022,7 +1022,7 @@ function studio_launch_whatsapp_service(array $studio, array $ctx): array
     $command = 'cd ' . escapeshellarg($ctx['servicePath'])
         . ' && ' . $install
         . ' WHATSAPP_PORT=' . escapeshellarg($ctx['port'])
-        . ' nohup npm start >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 &';
+        . ' nohup node server.js >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 &';
     @shell_exec($command);
 
     return ['ok' => true, 'command' => $command, 'log_file' => $ctx['logFile']];

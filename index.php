@@ -1973,7 +1973,7 @@ if ($page === 'studio_whatsapp') {
         }
         echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
-            echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>npm start</code> em <code>services/whatsapp</code>.</p>';
+            echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>node server.js</code> em <code>services/whatsapp</code>.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
             echo '<p class="muted">Parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . ' agora.</p>';

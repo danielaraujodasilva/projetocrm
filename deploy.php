@@ -133,7 +133,7 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
         }
         $startCommand = 'cd ' . escapeshellarg($servicePath)
             . ' && ' . $env
-            . ' nohup npm start > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
+            . ' nohup node server.js > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
         $lines[] = '$ ' . $startCommand;
         $pid = trim((string)shell_exec($startCommand));
         if ($pid !== '') {
@@ -177,7 +177,7 @@ function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string 
         $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
     }
 
-    $lines[] = 'call npm.cmd start >> "' . str_replace('"', '', $logFile) . '" 2>&1';
+    $lines[] = 'node server.js >> "' . str_replace('"', '', $logFile) . '" 2>&1';
     $lines[] = 'del "%~f0"';
     file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
 
