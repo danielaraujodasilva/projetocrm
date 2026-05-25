@@ -2437,6 +2437,203 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     ];
 }
 
+function studio_whatsapp_assistant_insights(array $studio, array $conversation, array $messages = []): array
+{
+    $settings = studio_settings($studio);
+    $enabled = !empty($settings['ai_enabled']) && !empty($settings['assistant_autofill_enabled']);
+    $history = array_slice(array_reverse($messages), 0, 8);
+    $currentName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
+    $currentInterest = trim((string)($conversation['lead_interest'] ?? ''));
+    $currentNotes = trim((string)($conversation['customer_notes'] ?? ''));
+    $currentPhone = trim((string)($conversation['phone'] ?? ''));
+    $genericName = $currentName === '' || in_array(function_exists('mb_strtolower') ? mb_strtolower($currentName, 'UTF-8') : strtolower($currentName), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true);
+
+    $result = [
+        'source' => 'heuristic',
+        'confidence' => 0,
+        'suggested_name' => '',
+        'suggested_interest' => '',
+        'suggested_notes' => '',
+        'suggested_date' => '',
+        'suggested_time' => '',
+        'schedule_reason' => '',
+        'summary' => '',
+    ];
+
+    $parseNameFromText = static function (string $text): string {
+        $patterns = [
+            '/\bmeu nome e[áa]\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
+            '/\bsou\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
+            '/\bme chamo\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
+            '/\b(aqui e|aqui é)\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text, $matches)) {
+                return trim((string)($matches[2] ?? $matches[1] ?? ''));
+            }
+        }
+        return '';
+    };
+    $parseInterestFromText = static function (string $text): string {
+        $lower = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
+        foreach (['quero tatuar', 'quero fazer', 'quero agendar', 'tenho interesse', 'valor', 'orcamento', 'referencia', 'tattoo'] as $needle) {
+            if (str_contains($lower, $needle)) {
+                return mb_substr(trim($text), 0, 180);
+            }
+        }
+        return '';
+    };
+
+    foreach ($history as $message) {
+        $body = trim((string)($message['body'] ?? ''));
+        if ($body === '') {
+            continue;
+        }
+        if ($result['suggested_name'] === '') {
+            $candidate = $parseNameFromText($body);
+            if ($candidate !== '') {
+                $result['suggested_name'] = $candidate;
+                $result['confidence'] = max($result['confidence'], 7);
+            }
+        }
+        if ($result['suggested_interest'] === '') {
+            $candidate = $parseInterestFromText($body);
+            if ($candidate !== '') {
+                $result['suggested_interest'] = $candidate;
+                $result['confidence'] = max($result['confidence'], 5);
+            }
+        }
+        if ($result['suggested_notes'] === '' && str_contains(function_exists('mb_strtolower') ? mb_strtolower($body, 'UTF-8') : strtolower($body), 'pomada')) {
+            $result['suggested_notes'] = mb_substr($body, 0, 180);
+        }
+    }
+
+    $schedule = studio_whatsapp_schedule_suggestion($conversation, $messages, []);
+    if (!empty($schedule['date']) && !empty($schedule['time'])) {
+        $result['suggested_date'] = (string)$schedule['date'];
+        $result['suggested_time'] = (string)$schedule['time'];
+        $result['schedule_reason'] = (string)($schedule['reason'] ?? '');
+        $result['confidence'] = max($result['confidence'], 5);
+    }
+
+    if ($enabled) {
+        $historyText = [];
+        foreach ($history as $message) {
+            $direction = (string)($message['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
+            $body = trim((string)($message['body'] ?? ''));
+            if ($body === '') {
+                $body = '[' . (string)($message['message_type'] ?? 'texto') . ']';
+            }
+            $historyText[] = $direction . ': ' . $body;
+        }
+
+        $systemPrompt = "Você extrai dados úteis de conversas de WhatsApp de um estúdio de tatuagem.\n"
+            . "Responda somente com JSON válido e curto contendo: suggested_name, suggested_interest, suggested_notes, suggested_date, suggested_time, schedule_reason, confidence.\n"
+            . "Use apenas o que estiver claramente explícito na conversa. Se não houver dado, deixe vazio.\n"
+            . "Não invente nome, data, horário, interesse ou observação.";
+        $userPrompt = json_encode([
+            'nome_atual' => $currentName,
+            'telefone' => $currentPhone,
+            'interesse_atual' => $currentInterest,
+            'observacoes_atual' => $currentNotes,
+            'mensagens_recentes' => $historyText,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $userPrompt = is_string($userPrompt) ? $userPrompt : '{}';
+
+        try {
+            $config = studio_openai_config($studio);
+            if ($config['api_key'] !== '') {
+                $aiResult = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $userPrompt, $config['base_url'], 40);
+                if (!empty($aiResult['ok']) && !empty($aiResult['reply_text'])) {
+                    $decoded = json_decode((string)$aiResult['reply_text'], true);
+                    if (!is_array($decoded) && preg_match('/\{.*\}/s', (string)$aiResult['reply_text'], $matches)) {
+                        $decoded = json_decode($matches[0], true);
+                    }
+                    if (is_array($decoded)) {
+                        foreach (['suggested_name', 'suggested_interest', 'suggested_notes', 'suggested_date', 'suggested_time', 'schedule_reason'] as $key) {
+                            if (!empty($decoded[$key]) && is_string($decoded[$key])) {
+                                $result[$key] = trim($decoded[$key]);
+                            }
+                        }
+                        if (isset($decoded['confidence'])) {
+                            $result['confidence'] = max($result['confidence'], min(10, max(0, (int)$decoded['confidence'])));
+                        }
+                        $result['source'] = 'ai';
+                    }
+                }
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    if ($result['suggested_name'] === '' && $genericName && $currentPhone !== '') {
+        $result['suggested_name'] = 'Cliente ' . $currentPhone;
+    }
+
+    return $result;
+}
+
+function studio_apply_whatsapp_assistant_enrichment(array $studio, array $conversation, array $insights): void
+{
+    $conversationId = (int)($conversation['id'] ?? 0);
+    if ($conversationId <= 0 || !$insights) {
+        return;
+    }
+
+    $pdo = studio_db($studio);
+    $suggestedName = trim((string)($insights['suggested_name'] ?? ''));
+    $suggestedInterest = trim((string)($insights['suggested_interest'] ?? ''));
+    $suggestedNotes = trim((string)($insights['suggested_notes'] ?? ''));
+    $conversationName = trim((string)($conversation['name'] ?? ''));
+    $conversationNameLower = function_exists('mb_strtolower') ? mb_strtolower($conversationName, 'UTF-8') : strtolower($conversationName);
+    $isGenericConversationName = $conversationName === '' || in_array($conversationNameLower, ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true);
+
+    $conversationUpdates = [];
+    $conversationParams = [];
+    if ($suggestedName !== '' && $isGenericConversationName) {
+        $conversationUpdates[] = 'name = ?';
+        $conversationParams[] = mb_substr($suggestedName, 0, 120);
+    }
+    if ($suggestedInterest !== '' && trim((string)($conversation['lead_interest'] ?? '')) === '') {
+        $conversationUpdates[] = 'lead_interest = ?';
+        $conversationParams[] = mb_substr($suggestedInterest, 0, 220);
+    }
+    if ($suggestedNotes !== '' && trim((string)($conversation['customer_notes'] ?? '')) === '') {
+        $conversationUpdates[] = 'customer_notes = ?';
+        $conversationParams[] = mb_substr($suggestedNotes, 0, 500);
+    }
+
+    if ($conversationUpdates) {
+        $conversationUpdates[] = 'updated_at = NOW()';
+        $conversationParams[] = $conversationId;
+        $stmt = $pdo->prepare('UPDATE whatsapp_conversations SET ' . implode(', ', $conversationUpdates) . ' WHERE id = ?');
+        $stmt->execute($conversationParams);
+    }
+
+    if (!empty($conversation['lead_id']) && ($suggestedName !== '' || $suggestedInterest !== '')) {
+        $leadUpdates = [];
+        $leadParams = [];
+        if ($suggestedName !== '' && $isGenericConversationName) {
+            $leadUpdates[] = 'name = COALESCE(NULLIF(name, ""), ?)';
+            $leadParams[] = mb_substr($suggestedName, 0, 120);
+        }
+        if ($suggestedInterest !== '' && trim((string)($conversation['lead_interest'] ?? '')) === '') {
+            $leadUpdates[] = 'interest = COALESCE(NULLIF(interest, ""), ?)';
+            $leadParams[] = mb_substr($suggestedInterest, 0, 220);
+        }
+        if ($leadUpdates) {
+            $leadParams[] = (int)$conversation['lead_id'];
+            $stmt = $pdo->prepare('UPDATE leads SET ' . implode(', ', $leadUpdates) . ', updated_at = NOW() WHERE id = ?');
+            $stmt->execute($leadParams);
+        }
+    }
+
+    if (!empty($conversation['customer_id']) && $suggestedName !== '' && $isGenericConversationName) {
+        $stmt = $pdo->prepare('UPDATE customers SET name = COALESCE(NULLIF(name, ""), ?) WHERE id = ?');
+        $stmt->execute([mb_substr($suggestedName, 0, 120), (int)$conversation['customer_id']]);
+    }
+}
+
 function studio_whatsapp_extract_date_context(string $text, array $studio): ?array
 {
     $text = strtolower(trim($text));
@@ -2721,6 +2918,18 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     if (!empty($conversation['lead_id'])) {
         $pdo->prepare('UPDATE leads SET lead_score = GREATEST(COALESCE(lead_score, 0), ?), last_contact_at = ?, updated_at = NOW() WHERE id = ?')
             ->execute([$score, $sentAt, (int)$conversation['lead_id']]);
+    }
+
+    $assistantSettings = studio_settings($studio);
+    if (!$fromMe && !empty($assistantSettings['assistant_autofill_enabled'])) {
+        try {
+            $assistantInsights = studio_whatsapp_assistant_insights($studio, $conversation, studio_whatsapp_messages($studio, (int)$conversation['id'], 12, $conversation));
+            if (!empty($assistantInsights)) {
+                studio_apply_whatsapp_assistant_enrichment($studio, $conversation, $assistantInsights);
+                $conversation = studio_find_whatsapp_conversation($studio, (int)$conversation['id']) ?: $conversation;
+            }
+        } catch (Throwable) {
+        }
     }
 
     if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
@@ -4253,6 +4462,7 @@ function studio_save_settings(array $studio, array $data): void
     $businessRules = trim((string)($data['business_rules'] ?? ''));
     $aiModel = trim((string)($data['ai_model'] ?? 'llama3:8b'));
     $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
+    $assistantAutofillEnabled = !empty($data['assistant_autofill_enabled']) ? 1 : 0;
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
     $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
     $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
@@ -4299,6 +4509,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_whatsapp_prompt' => 'TEXT NULL',
         'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "ollama"',
         'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
+        'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -4308,7 +4519,7 @@ function studio_save_settings(array $studio, array $data): void
 
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
-         SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
+         SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
              whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
@@ -4316,6 +4527,7 @@ function studio_save_settings(array $studio, array $data): void
         $studioName,
         $businessRules,
         $aiEnabled,
+        $assistantAutofillEnabled,
         $aiModel,
         $whatsappEnabled,
         $whatsappDefaultMode,

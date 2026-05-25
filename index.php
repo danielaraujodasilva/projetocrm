@@ -2293,12 +2293,26 @@ if ($page === 'studio_whatsapp_conversation') {
             return;
         }
         $messages = studio_whatsapp_messages($studio, $conversationId, 80, $conversation);
+        $assistantInsights = studio_whatsapp_assistant_insights($studio, $conversation, $messages);
         $displayName = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'));
+        if (($displayName === 'Cliente WhatsApp' || $displayName === 'Contato WhatsApp' || $displayName === '') && !empty($assistantInsights['suggested_name'])) {
+            $displayName = (string)$assistantInsights['suggested_name'];
+        }
         $customers = studio_list_customers($studio);
         $leads = studio_list_leads($studio);
         $artists = studio_list_artists($studio);
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
         $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
+        if (!empty($assistantInsights['suggested_date']) && !empty($assistantInsights['suggested_time'])) {
+            $scheduleSuggestion['date'] = (string)$assistantInsights['suggested_date'];
+            $scheduleSuggestion['time'] = (string)$assistantInsights['suggested_time'];
+        }
+        if (!empty($assistantInsights['schedule_reason'])) {
+            $scheduleSuggestion['reason'] = (string)$assistantInsights['schedule_reason'];
+        }
+        if (!empty($assistantInsights['suggested_interest']) && trim((string)($conversation['lead_interest'] ?? '')) === '') {
+            $scheduleSuggestion['title'] = (string)$assistantInsights['suggested_interest'];
+        }
         $availabilityStart = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
         $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
         $availabilityRanges = [
@@ -2396,7 +2410,11 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($displayName) . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($conversation['phone']) . '"></div></div>';
+        $nameFieldValue = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: ''));
+        if (($nameFieldValue === '' || in_array(function_exists('mb_strtolower') ? mb_strtolower($nameFieldValue, 'UTF-8') : strtolower($nameFieldValue), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true)) && !empty($assistantInsights['suggested_name'])) {
+            $nameFieldValue = (string)$assistantInsights['suggested_name'];
+        }
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($nameFieldValue !== '' ? $nameFieldValue : $displayName) . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($conversation['phone']) . '"></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($conversation['customer_email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($conversation['customer_instagram'] ?? '') . '"></div></div>';
         echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Criar/sem cliente</option>';
         render_customer_options($customers, (int)($conversation['customer_id'] ?? 0));
@@ -2404,7 +2422,11 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="field"><label>Lead vinculado</label><select name="lead_id"><option value="">Criar/sem lead</option>';
         render_lead_options($leads, (int)($conversation['lead_id'] ?? 0));
         echo '</select></div>';
-        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h($conversation['lead_interest'] ?: $conversation['last_message_preview'] ?: '') . '"></div>';
+        $interestFieldValue = $conversation['lead_interest'] ?: $conversation['last_message_preview'] ?: '';
+        if ($interestFieldValue === '' && !empty($assistantInsights['suggested_interest'])) {
+            $interestFieldValue = (string)$assistantInsights['suggested_interest'];
+        }
+        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h($interestFieldValue) . '"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Status</label><select name="status">';
         render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
         echo '</select></div><div class="field"><label>Etapa</label><select name="pipeline_stage">';
@@ -2417,12 +2439,38 @@ if ($page === 'studio_whatsapp_conversation') {
         render_options(['human' => 'Humano', 'bot' => 'IA'], (string)$conversation['attendance_mode']);
         echo '</select></div><div class="field"><label>Nota do lead</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></div></div>';
         echo '<div class="field"><label>Status da analise</label><input name="ai_last_status" value="' . h($conversation['ai_last_status'] ?? '') . '" placeholder="ex: precisa retorno"></div>';
-        echo '<div class="field"><label>Observacoes do cliente</label><textarea name="notes">' . h($conversation['customer_notes'] ?? '') . '</textarea></div>';
+        $notesFieldValue = (string)($conversation['customer_notes'] ?? '');
+        if ($notesFieldValue === '' && !empty($assistantInsights['suggested_notes'])) {
+            $notesFieldValue = (string)$assistantInsights['suggested_notes'];
+        }
+        echo '<div class="field"><label>Observacoes do cliente</label><textarea name="notes">' . h($notesFieldValue) . '</textarea></div>';
         echo '<label class="checkline"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label>';
         echo '<label class="checkline"><input type="checkbox" name="create_customer" value="1" ' . (empty($conversation['customer_id']) ? 'checked' : '') . '> Criar/atualizar ficha de cliente</label>';
         echo '<label class="checkline"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label>';
         echo '<button class="btn" type="submit">Salvar cadastro</button>';
         echo '</form>';
+
+        echo '<details class="panel side-tool-panel" ' . (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['schedule_reason']) ? 'open' : '') . '>';
+        echo '<summary>Sugestões da IA</summary>';
+        if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
+            echo '<div class="stack-list">';
+            if (!empty($assistantInsights['suggested_name'])) {
+                echo '<div class="drilldown-card compact"><strong>Nome sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_name']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['suggested_interest'])) {
+                echo '<div class="drilldown-card compact"><strong>Interesse sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_interest']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['suggested_notes'])) {
+                echo '<div class="drilldown-card compact"><strong>Observação sugerida</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['schedule_reason'])) {
+                echo '<div class="drilldown-card compact"><strong>Sugestão de agendamento</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div><div class="mini-metrics side-suggestion-metrics"><span><strong>' . h((string)($scheduleSuggestion['date'] ?? '')) . '</strong><small>Data</small></span><span><strong>' . h((string)($scheduleSuggestion['time'] ?? '')) . '</strong><small>Hora</small></span><span><strong>' . h((string)($scheduleSuggestion['end_time'] ?? '')) . '</strong><small>Fim</small></span></div></div>';
+            }
+            echo '<p class="muted">Quando o assistente encontra nome, interesse ou uma janela boa de agenda, ele preenche os campos acima para agilizar o atendimento.</p>';
+        } else {
+            echo '<p class="muted">Nenhuma sugestão clara detectada ainda.</p>';
+        }
+        echo '</details>';
 
         echo '<details class="panel side-tool-panel" open>';
         echo '<summary>Respostas rapidas</summary>';
@@ -3095,7 +3143,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
         echo '</div>';
         echo '</div>';
 
