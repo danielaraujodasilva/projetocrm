@@ -1730,10 +1730,11 @@ if ($page === 'studio_leads') {
                 }
                 echo '</div>';
                 echo '<div class="lead-card-actions lead-card-actions-quick">';
-                $leadConversationHref = $conversationHref !== '' ? $conversationHref : app_url('studio_whatsapp');
-                echo '<a class="btn tiny secondary" href="' . h($leadConversationHref) . '">Ver</a>';
                 if ($conversationHref !== '') {
+                    echo '<a class="btn tiny secondary" href="' . h($conversationHref) . '">Ver</a>';
                     echo '<a class="btn tiny secondary" href="' . h($conversationHref) . '">Abrir conversa</a>';
+                } else {
+                    echo '<span class="btn tiny secondary" aria-disabled="true" title="Sem conversa vinculada">Ver</span>';
                 }
                 if ($phoneLink !== '') {
                     echo '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>';
