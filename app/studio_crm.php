@@ -3647,6 +3647,8 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $isLeadQuestion = str_contains($lower, 'lead') || str_contains($lower, 'funil') || str_contains($lower, 'pipeline') || str_contains($lower, 'orçamento') || str_contains($lower, 'orcamento') || str_contains($lower, 'prioridade') || str_contains($lower, 'quente') || str_contains($lower, 'oportunidade') || str_contains($lower, 'prospec') || str_contains($lower, 'venda');
     $isCustomerQuestion = str_contains($lower, 'cliente') || str_contains($lower, 'clientes') || str_contains($lower, 'cadastro') || str_contains($lower, 'contato') || str_contains($lower, 'contatos');
     $isArtistQuestion = str_contains($lower, 'tatuador') || str_contains($lower, 'artista') || str_contains($lower, 'tatuadores') || str_contains($lower, 'equipe');
+    $wantsNextAppointmentName = (str_contains($lower, 'próximo') || str_contains($lower, 'proximo') || str_contains($lower, 'seguinte') || str_contains($lower, 'primeiro')) && (str_contains($lower, 'cliente') || str_contains($lower, 'agend') || str_contains($lower, 'atendimento') || str_contains($lower, 'horário') || str_contains($lower, 'horario') || str_contains($lower, 'consulta') || str_contains($lower, 'sessão') || str_contains($lower, 'sessao') || str_contains($lower, 'cita') || str_contains($lower, 'marcado'));
+    $isAgendaQuestion = $isAgendaQuestion || $wantsNextAppointmentName;
     $hasRecognizedTopic = $isAgendaQuestion || $isFinanceQuestion || $isWhatsappQuestion || $isLeadQuestion || $isCustomerQuestion || $isArtistQuestion;
     $needsClarification = !$hasRecognizedTopic;
 
@@ -3724,7 +3726,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
 
     $assistantContext = [
         'pergunta' => $question,
-        'intencao' => $isAgendaQuestion ? 'agenda' : ($isFinanceQuestion ? 'financeiro' : ($isWhatsappQuestion ? 'whatsapp' : ($isLeadQuestion ? 'leads' : ($isCustomerQuestion ? 'clientes' : ($isArtistQuestion ? 'tatuadores' : 'geral'))))),
+        'intencao' => $wantsNextAppointmentName ? 'agenda_proximo' : ($isAgendaQuestion ? 'agenda' : ($isFinanceQuestion ? 'financeiro' : ($isWhatsappQuestion ? 'whatsapp' : ($isLeadQuestion ? 'leads' : ($isCustomerQuestion ? 'clientes' : ($isArtistQuestion ? 'tatuadores' : 'geral')))))),
         'estudio' => [
             'nome' => (string)($studio['name'] ?? 'Estudio'),
             'regras' => trim((string)($context['settings']['business_rules'] ?? '')),
@@ -3832,6 +3834,26 @@ function studio_data_assistant_answer(array $studio, string $question): array
     }
 
     if ($isAgendaQuestion) {
+        if ($wantsNextAppointmentName) {
+            $next = $context['upcoming_appointments'][0] ?? null;
+            if (is_array($next) && !empty($next)) {
+                $customerName = (string)(($next['customer_name'] ?? '') ?: ($next['lead_name'] ?? '') ?: ($next['title'] ?? ''));
+                if ($customerName === '') {
+                    $customerName = 'Sem nome';
+                }
+                $artistName = (string)(($next['artist_name'] ?? '') ?: 'tatuador nao definido');
+                $answer = 'O próximo cliente agendado é ' . $customerName . ', em ' . format_date_pt((string)($next['appointment_date'] ?? '')) . ' às ' . substr((string)($next['start_time'] ?? ''), 0, 5) . ', com ' . $artistName . '.';
+            } else {
+                $answer = 'Não encontrei um próximo agendamento no recorte atual.';
+            }
+            return [
+                'question' => $question,
+                'answer' => $answer,
+                'context' => $context,
+                'generated_at' => date('Y-m-d H:i:s'),
+                'source' => 'fallback',
+            ];
+        }
         if (str_contains($lower, 'livre') || str_contains($lower, 'vaga')) {
             $nextFreeSlot = '';
             $nextFreeDay = '';
