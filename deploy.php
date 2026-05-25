@@ -94,14 +94,8 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     $pidFile = $servicePath . '/whatsapp_service.pid';
     $logFile = $servicePath . '/whatsapp_service.log';
     $port = (string)($config['port'] ?? getenv('WHATSAPP_PORT') ?: '3010');
-    $install = array_key_exists('install', $config) ? (bool)$config['install'] : true;
+    $install = false;
     $restart = array_key_exists('restart', $config) ? (bool)$config['restart'] : true;
-
-    if ($install) {
-        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev 2>&1';
-        $lines[] = '$ ' . $installCommand;
-        $lines[] = trim((string)shell_exec($installCommand));
-    }
 
     if (!$restart) {
         $lines[] = 'Reinicio automatico desativado.';
@@ -172,10 +166,6 @@ function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string 
         'cd /d "' . str_replace('"', '', $servicePath) . '"',
         'set "WHATSAPP_PORT=' . projetocrm_windows_env_value($port) . '"',
     ];
-
-    if ($install) {
-        $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-    }
 
     $lines[] = 'node server.js >> "' . str_replace('"', '', $logFile) . '" 2>&1';
     $lines[] = 'del "%~f0"';

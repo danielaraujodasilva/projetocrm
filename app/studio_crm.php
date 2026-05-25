@@ -486,7 +486,7 @@ function studio_whatsapp_start_local_service(array $studio): array
     $logFile = $logDir . '/whatsapp_service.log';
     $pidFile = $servicePath . '/whatsapp_service.pid';
     $startOutput = '';
-    $needsInstall = !is_dir($servicePath . '/node_modules');
+    $needsInstall = false;
     $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
 
     if (studio_whatsapp_health_is_current($health)) {
@@ -503,9 +503,6 @@ function studio_whatsapp_start_local_service(array $studio): array
             'cd /d "' . str_replace('"', '', $servicePath) . '"',
             'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
         ];
-        if ($needsInstall) {
-            $startLines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-        }
         $startLines[] = studio_windows_port_guard_line(
             $port,
             studio_windows_whatsapp_start_cmd($servicePath, $logFile),
@@ -514,17 +511,6 @@ function studio_whatsapp_start_local_service(array $studio): array
         studio_windows_start_process(implode(' && ', $startLines));
         $startOutput = 'Inicio disparado em background.';
     } else {
-        if ($needsInstall) {
-            $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1';
-            shell_exec($installCommand . ' &');
-            return [
-                'ok' => false,
-                'pending' => true,
-                'error' => 'Dependencias do servico WhatsApp estao sendo instaladas em background. Aguarde alguns segundos e clique novamente.',
-                'log_file' => $logFile,
-            ];
-        }
-
         $startCommand = 'cd ' . escapeshellarg($servicePath)
             . ' && WHATSAPP_PORT=' . escapeshellarg($port)
             . ' nohup node server.js > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
@@ -556,10 +542,8 @@ function studio_whatsapp_start_local_service(array $studio): array
 
     return [
         'ok' => false,
-        'pending' => $needsInstall,
-        'error' => $needsInstall
-            ? 'O servico WhatsApp foi disparado e esta instalando dependencias em background. Aguarde alguns segundos e clique novamente.'
-            : 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
+        'pending' => false,
+        'error' => 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
         'start_output' => mb_substr($startOutput, 0, 500),
         'health_error' => (string)($health['error'] ?? ''),
         'log_tail' => $logTail,
@@ -650,7 +634,7 @@ function studio_reset_whatsapp_session_locally(array $studio): array
         mkdir($logDir, 0775, true);
     }
     $logFile = $logDir . '/whatsapp_service.log';
-    $needsInstall = !is_dir($servicePath . '/node_modules');
+    $needsInstall = false;
 
     if (PHP_OS_FAMILY === 'Windows') {
         $resetLines = [
@@ -659,9 +643,6 @@ function studio_reset_whatsapp_session_locally(array $studio): array
             'cd /d "' . str_replace('"', '', $servicePath) . '"',
             'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
         ];
-        if ($needsInstall) {
-            $resetLines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-        }
         $resetLines[] = studio_windows_port_guard_line(
             $port,
             studio_windows_whatsapp_start_cmd($servicePath, $logFile),
@@ -669,9 +650,8 @@ function studio_reset_whatsapp_session_locally(array $studio): array
         );
         studio_windows_start_process(implode(' && ', $resetLines));
     } else {
-        $install = $needsInstall ? 'npm install --omit=dev >> ' . escapeshellarg($logFile) . ' 2>&1 && ' : '';
         $command = '(lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill; rm -rf ' . escapeshellarg($sessionPath)
-            . '; cd ' . escapeshellarg($servicePath) . ' && ' . $install
+            . '; cd ' . escapeshellarg($servicePath)
             . ' WHATSAPP_PORT=' . escapeshellarg($port)
             . ' nohup node server.js >> ' . escapeshellarg($logFile) . ' 2>&1 &) 2>&1';
         shell_exec($command);
@@ -852,9 +832,6 @@ function studio_write_windows_whatsapp_action_launcher(
         if ($action === 'restart') {
             $lines[] = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$pids = @(Get-NetTCPConnection -LocalPort ' . preg_replace('/\D+/', '', $port) . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output \"Stopped PID $procId\" }" >> "' . $log . '" 2>&1';
         }
-        if ($install) {
-            $lines[] = 'call npm.cmd install --omit=dev >> "' . $log . '" 2>&1';
-        }
         $lines[] = studio_windows_port_guard_line($port, studio_windows_whatsapp_start_cmd($servicePath, $logFile), $logFile);
         $lines[] = 'timeout /T 8 /NOBREAK > nul';
     }
@@ -888,9 +865,6 @@ function studio_write_windows_whatsapp_reset_launcher(string $servicePath, strin
         'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
     ];
 
-    if ($install) {
-        $lines[] = 'call npm.cmd install --omit=dev >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-    }
     $lines[] = studio_windows_port_guard_line($port, studio_windows_whatsapp_start_cmd($servicePath, $logFile), $logFile);
     if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
         throw new RuntimeException('Nao consegui gravar o iniciador de limpeza do WhatsApp.');
@@ -918,7 +892,7 @@ function studio_whatsapp_background_context(array $studio): array
         'port' => (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010),
         'sessionKey' => $sessionKey,
         'sessionPath' => $servicePath . '/sessions/' . $sessionKey,
-        'needsInstall' => !is_dir($servicePath . '/node_modules'),
+        'needsInstall' => false,
         'payload' => [
             'studioId' => (int)$studio['id'],
             'studioSlug' => (string)$studio['slug'],
@@ -1018,9 +992,6 @@ function studio_launch_whatsapp_service(array $studio, array $ctx): array
 
     if (PHP_OS_FAMILY === 'Windows') {
         $command = 'cd /d "' . str_replace('"', '', $ctx['servicePath']) . '" && set "WHATSAPP_PORT=' . studio_windows_env_value($ctx['port']) . '"';
-        if ($ctx['needsInstall']) {
-            $command .= ' && call npm.cmd install --omit=dev >> "' . str_replace('"', '', $ctx['logFile']) . '" 2>&1';
-        }
         $command .= ' && ' . studio_windows_port_guard_line(
             $ctx['port'],
             studio_windows_whatsapp_start_cmd($ctx['servicePath'], $ctx['logFile']),
@@ -1030,9 +1001,8 @@ function studio_launch_whatsapp_service(array $studio, array $ctx): array
         return ['ok' => true, 'log_file' => $ctx['logFile']];
     }
 
-    $install = $ctx['needsInstall'] ? 'npm install --omit=dev >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 && ' : '';
     $command = 'cd ' . escapeshellarg($ctx['servicePath'])
-        . ' && ' . $install
+        . ' && '
         . ' WHATSAPP_PORT=' . escapeshellarg($ctx['port'])
         . ' nohup node server.js >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 &';
     @shell_exec($command);
