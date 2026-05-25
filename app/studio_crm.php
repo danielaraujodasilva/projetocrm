@@ -1748,7 +1748,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
     return is_array($conversation) ? $conversation : null;
 }
 
-function studio_whatsapp_messages(array $studio, int $conversationId, int $limit = 80): array
+function studio_whatsapp_messages(array $studio, int $conversationId, int $limit = 80, array $conversation = []): array
 {
     $stmt = studio_db($studio)->prepare(
         'SELECT *
@@ -1761,6 +1761,29 @@ function studio_whatsapp_messages(array $studio, int $conversationId, int $limit
     $stmt->bindValue(2, $limit, PDO::PARAM_INT);
     $stmt->execute();
     $messages = $stmt->fetchAll() ?: [];
+
+    if (!$messages && !empty($conversation['last_message_preview'])) {
+        $messages = [[
+            'id' => 0,
+            'conversation_id' => $conversationId,
+            'direction' => (string)($conversation['last_message_direction'] ?? 'in'),
+            'sender_type' => (string)($conversation['last_message_direction'] ?? 'in') === 'out' ? 'human' : 'customer',
+            'body' => (string)$conversation['last_message_preview'],
+            'media_url' => '',
+            'media_mime' => '',
+            'media_file_name' => '',
+            'media_file_path' => '',
+            'message_type' => 'texto',
+            'message_id' => '',
+            'remote_jid' => (string)($conversation['remote_jid'] ?? ''),
+            'from_me' => (string)($conversation['last_message_direction'] ?? 'in') === 'out' ? 1 : 0,
+            'status' => '',
+            'sent_at' => (string)($conversation['last_message_at'] ?? $conversation['updated_at'] ?? ''),
+            'created_at' => (string)($conversation['last_message_at'] ?? $conversation['updated_at'] ?? ''),
+            'transcricao' => '',
+            'transcript' => '',
+        ]];
+    }
 
     return array_reverse($messages);
 }

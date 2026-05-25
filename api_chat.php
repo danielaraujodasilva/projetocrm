@@ -25,7 +25,7 @@ try {
         api_chat_json(['ok' => false, 'error' => 'Conversa nao encontrada.'], 404);
     }
 
-    $messages = studio_whatsapp_messages($studio, $conversationId);
+    $messages = studio_whatsapp_messages($studio, $conversationId, 80, $conversation);
     api_chat_json([
         'ok' => true,
         'conversation' => $conversation,

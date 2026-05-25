@@ -2139,7 +2139,7 @@ if ($page === 'studio_whatsapp_conversation') {
             echo '<section class="panel"><h2>Conversa nao encontrada</h2><p class="muted">Volte para a central e escolha outra conversa.</p><a class="btn" href="' . h(app_url('studio_whatsapp')) . '">Abrir WhatsApp</a></section>';
             return;
         }
-        $messages = studio_whatsapp_messages($studio, $conversationId);
+        $messages = studio_whatsapp_messages($studio, $conversationId, 80, $conversation);
         $displayName = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'));
         $customers = studio_list_customers($studio);
         $leads = studio_list_leads($studio);
