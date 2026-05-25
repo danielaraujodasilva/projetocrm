@@ -2028,6 +2028,7 @@ function studio_validate_appointment_payload(array $studio, array $data, int $ex
     $appointmentDate = trim((string)($data['appointment_date'] ?? ''));
     $startTime = substr(trim((string)($data['start_time'] ?? '')), 0, 5);
     $endTime = substr(trim((string)($data['end_time'] ?? '')), 0, 5);
+    $importSource = trim((string)($data['import_source'] ?? 'manual'));
     $artistId = (int)($data['artist_id'] ?? 0);
     $leadId = (int)($data['lead_id'] ?? 0);
     $customerId = (int)($data['customer_id'] ?? 0);
@@ -2056,7 +2057,7 @@ function studio_validate_appointment_payload(array $studio, array $data, int $ex
     if ($artistId <= 0) {
         throw new RuntimeException('Selecione um tatuador para o agendamento.');
     }
-    if ($leadId <= 0 && $customerId <= 0) {
+    if ($leadId <= 0 && $customerId <= 0 && $importSource === 'manual') {
         throw new RuntimeException('Vincule o agendamento a um cliente ou lead.');
     }
     if ($value < 0) {
@@ -2096,6 +2097,7 @@ function studio_validate_appointment_payload(array $studio, array $data, int $ex
         'artist_id' => $artistId,
         'lead_id' => $leadId,
         'customer_id' => $customerId,
+        'import_source' => $importSource !== '' ? $importSource : 'manual',
         'value' => $value,
         'deposit_value' => $depositValue,
         'artist_name' => (string)($artist['name'] ?? ''),
@@ -3565,12 +3567,22 @@ function studio_save_appointment(array $studio, array $data): int
     $pdo = studio_db($studio);
     studio_ensure_appointment_reference_columns($studio);
     $id = (int)($data['id'] ?? 0);
+    $existingAppointment = $id > 0 ? studio_find_appointment($studio, $id) : null;
     $durationMinutes = studio_schedule_duration_minutes($studio);
     $leadId = (int)($data['lead_id'] ?? 0);
     $customerId = (int)($data['customer_id'] ?? 0);
     if ($customerId <= 0 && $leadId > 0) {
         $lead = studio_find_lead($studio, $leadId);
         $customerId = (int)($lead['customer_id'] ?? 0);
+    }
+    $importSource = trim((string)($data['import_source'] ?? ($existingAppointment['import_source'] ?? 'manual')));
+    if ($importSource === '') {
+        $importSource = 'manual';
+    }
+    $importUid = trim((string)($data['import_uid'] ?? ($existingAppointment['import_uid'] ?? '')));
+    $rawTitle = trim((string)($data['raw_title'] ?? ($existingAppointment['raw_title'] ?? '')));
+    if ($rawTitle === '' && $importSource !== 'manual') {
+        $rawTitle = trim((string)($existingAppointment['raw_title'] ?? $data['title'] ?? ''));
     }
     $normalized = studio_validate_appointment_payload($studio, $data, $id);
     $appointmentDate = $normalized['appointment_date'];
@@ -3594,6 +3606,9 @@ function studio_save_appointment(array $studio, array $data): int
         money_to_float((string)($data['value'] ?? '0')),
         $depositValue,
         max(0, (int)($data['pomadas_quantity'] ?? 0)),
+        $importSource,
+        $importUid !== '' ? $importUid : null,
+        $rawTitle !== '' ? $rawTitle : null,
     ];
     if ($values[7] === '') {
         $values[7] = null;
@@ -3629,7 +3644,7 @@ function studio_save_appointment(array $studio, array $data): int
     if ($id > 0) {
         $stmt = $pdo->prepare(
             'UPDATE appointments
-             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, pomadas_quantity = ?, reference_image_path = ?, reference_image_name = ?, reference_image_mime = ?, updated_at = NOW()
+             SET customer_id = ?, lead_id = ?, artist_id = ?, title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, value = ?, deposit_value = ?, pomadas_quantity = ?, import_source = ?, import_uid = ?, raw_title = ?, reference_image_path = ?, reference_image_name = ?, reference_image_mime = ?, updated_at = NOW()
              WHERE id = ?'
         );
         $stmt->execute([
@@ -3645,8 +3660,8 @@ function studio_save_appointment(array $studio, array $data): int
 
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
-            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomadas_quantity, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomadas_quantity, import_source, import_uid, raw_title, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
         ...$values,
@@ -3665,6 +3680,9 @@ function studio_ensure_appointment_reference_columns(array $studio): void
     $pdo = studio_db($studio);
     $columns = [
         'pomadas_quantity' => 'INT NOT NULL DEFAULT 0 AFTER deposit_value',
+        'import_source' => 'VARCHAR(40) NULL AFTER deposit_value',
+        'import_uid' => 'VARCHAR(190) NULL AFTER import_source',
+        'raw_title' => 'VARCHAR(260) NULL AFTER import_uid',
         'reference_image_path' => 'VARCHAR(255) NULL AFTER deposit_value',
         'reference_image_name' => 'VARCHAR(180) NULL AFTER reference_image_path',
         'reference_image_mime' => 'VARCHAR(120) NULL AFTER reference_image_name',

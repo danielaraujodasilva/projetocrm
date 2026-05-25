@@ -1400,7 +1400,7 @@ if ($page === 'studio_customer') {
         echo '</div>';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)$customerId) . '"><input type="hidden" name="return_to_customer" value="' . h((string)$customerId) . '">';
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)$customerId) . '"><input type="hidden" name="import_source" value="customer"><input type="hidden" name="return_to_customer" value="' . h((string)$customerId) . '">';
         echo '<h2>Novo agendamento</h2>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
@@ -1752,7 +1752,7 @@ if ($page === 'studio_lead') {
 
         echo '<form class="form panel" method="post" id="lead-schedule-form">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="lead"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Agendar este lead</h2><span class="badge">Proximo passo</span></div>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($lead['interest'] ?: 'Atendimento') . '"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
@@ -1847,6 +1847,7 @@ if ($page === 'studio_agenda') {
             echo '<div class="panel soft"><p class="muted">Cliente / Lead</p><h3 style="margin-top:0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
             echo '<div class="panel soft"><p class="muted">Valor</p><h3 style="margin-top:0">' . h(format_money($selectedAppointment['value'] ?? 0)) . '</h3><p class="muted">Sinal ' . h(format_money($selectedAppointment['deposit_value'] ?? 0)) . '</p></div>';
             echo '<div class="panel soft"><p class="muted">Pomadas</p><h3 style="margin-top:0">' . h((string)($selectedAppointment['pomadas_quantity'] ?? 0)) . '</h3><p class="muted">Quantidade vinculada ao agendamento</p></div>';
+            echo '<div class="panel soft"><p class="muted">Origem</p><h3 style="margin-top:0">' . h(appointment_origin_label((string)($selectedAppointment['import_source'] ?? 'manual'))) . '</h3><p class="muted">' . h((string)($selectedAppointment['raw_title'] ?? '')) . '</p></div>';
             echo '</div>';
             if (!empty($selectedAppointment['description'])) {
                 echo '<div class="field"><label>Descricao</label><div class="info-box">' . h($selectedAppointment['description']) . '</div></div>';
@@ -1874,6 +1875,9 @@ if ($page === 'studio_agenda') {
         echo '<input type="hidden" name="id" value="' . h((string)($selectedAppointment['id'] ?? 0)) . '">';
         echo '<h2>' . h($selectedAppointment ? 'Editar horario' : 'Novo horario') . '</h2>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($selectedAppointment['title'] ?? 'Atendimento') . '"></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Origem</label><select name="import_source">';
+        render_options(appointment_origin_options(), (string)($selectedAppointment['import_source'] ?? 'manual'));
+        echo '</select></div><div class="field"><label>Origem bruta</label><input name="raw_title" value="' . h($selectedAppointment['raw_title'] ?? '') . '" placeholder="Titulo original importado, se houver"></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Cliente</label><select name="customer_id"><option value="">Sem cliente</option>';
         render_customer_options($customers);
         echo '</select></div><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
@@ -2305,7 +2309,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Agendar atendimento</h3></div><button type="button" id="closeAppointmentModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
         echo '<form class="form action-card compact-action" method="post" enctype="multipart/form-data" style="padding:18px">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
+        echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="whatsapp"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
         echo '<h3>Criar agendamento</h3>';
         echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div><div class="field"><label>Imagem de referencia</label><input id="appointmentReferenceInput" type="file" name="reference_image" accept="image/*" hidden><button class="btn secondary" type="button" id="appointmentReferenceButton">Anexar referencia</button></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Quantidade de pomadas</label><input type="number" min="0" step="1" name="pomadas_quantity" value="0" placeholder="0"><small class="muted">Quantas pomadas o cliente vai levar/fechar junto com o atendimento.</small></div><div class="field"><label>&nbsp;</label><div class="muted" style="padding-top:10px">Esse valor vai junto no agendamento.</div></div></div>';
@@ -3371,6 +3375,22 @@ function appointment_status_options(): array
         'finalizado' => 'Finalizado',
         'cancelado' => 'Cancelado',
     ];
+}
+
+function appointment_origin_options(): array
+{
+    return [
+        'manual' => 'Manual',
+        'google_ics' => 'Google Calendar',
+        'whatsapp' => 'WhatsApp',
+        'lead' => 'Lead',
+        'customer' => 'Cliente',
+    ];
+}
+
+function appointment_origin_label(string $origin): string
+{
+    return appointment_origin_options()[$origin] ?? ($origin !== '' ? ucfirst(str_replace('_', ' ', $origin)) : 'Manual');
 }
 
 function studio_data_assistant_suggestions(): array
