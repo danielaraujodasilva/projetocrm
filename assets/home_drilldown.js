@@ -12,8 +12,20 @@
     );
 
   const money = (value) => {
-    const numeric = Number(String(value ?? 0).replace(/[^\d,-]/g, '').replace(/\./g, '').replace(',', '.'));
-    const safe = Number.isFinite(numeric) ? numeric : Number(value ?? 0) || 0;
+    const raw = String(value ?? 0).trim();
+    if (!raw) {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(0);
+    }
+    let normalized = raw.replace(/[^\d,.\-]/g, '');
+    if (normalized.includes(',') && normalized.includes('.')) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.');
+    } else if (normalized.includes(',')) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.');
+    } else if (/^-?\d{1,3}(?:\.\d{3})+$/.test(normalized)) {
+      normalized = normalized.replace(/\./g, '');
+    }
+    const numeric = Number(normalized);
+    const safe = Number.isFinite(numeric) ? numeric : Number(raw) || 0;
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(safe);
   };
 
