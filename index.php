@@ -3821,7 +3821,8 @@ function render_lead_conversations(array $conversations): void
         echo '<a class="activity-card" href="' . h(app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']])) . '">';
         echo '<strong>' . h($name) . '</strong>';
         echo '<span class="muted">' . h(($conversation['message_count'] ?? 0) . ' mensagens | ' . ($conversation['message_last_at'] ?: '-')) . '</span>';
-        echo '<span>' . h($conversation['last_message_preview'] ?: '-') . '</span>';
+        $lastMessage = trim((string)($conversation['last_message_preview'] ?? $conversation['latest_message_preview'] ?? ''));
+        echo '<span>' . h($lastMessage !== '' ? $lastMessage : '-') . '</span>';
         echo '</a>';
     }
     echo '</div>';
@@ -3985,7 +3986,8 @@ function render_whatsapp_table(array $conversations): void
         echo '<tr>';
         echo '<td><a href="' . h($href) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span><br><span class="muted">' . h((string)($conversation['message_count'] ?? 0)) . ' mensagens</span></td>';
         $messageMoment = (string)($conversation['message_last_at'] ?? $conversation['last_message_at'] ?? '');
-        echo '<td><strong>' . h($conversation['last_message_preview'] ?: '-') . '</strong><br><span class="muted">' . h(studio_relative_time_label($messageMoment)) . '</span></td>';
+        $lastMessage = trim((string)($conversation['last_message_preview'] ?? $conversation['latest_message_preview'] ?? ''));
+        echo '<td><strong>' . h($lastMessage !== '' ? $lastMessage : '-') . '</strong><br><span class="muted">' . h(studio_relative_time_label($messageMoment)) . '</span></td>';
         echo '<td>' . implode('<br>', $statusBadges) . '</td>';
         echo '<td><span class="badge ' . h($linkBadgeClass) . '">' . h($linkedLabel) . '</span></td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';

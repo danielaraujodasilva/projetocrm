@@ -1681,18 +1681,29 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
 
     $sql =
         "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count,
-                COALESCE(wc.last_message_at, MAX(wm.sent_at)) AS message_last_at,
+                COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at)) AS message_last_at,
+                COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
+                COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
+                COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
+                COALESCE(wc.last_message_direction, wm_last.direction) AS last_message_direction,
                 MAX(CASE WHEN wm.direction IN ('in', 'customer') THEN wm.sent_at END) AS last_incoming_at,
                 MAX(CASE WHEN wm.direction IN ('out', 'human', 'bot') THEN wm.sent_at END) AS last_outgoing_at
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id";
+         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
+         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
+             SELECT wm2.id
+             FROM whatsapp_messages wm2
+             WHERE wm2.conversation_id = wc.id
+             ORDER BY wm2.sent_at DESC, wm2.id DESC
+             LIMIT 1
+         )";
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
     $sql .= " GROUP BY wc.id
-         ORDER BY COALESCE(wc.last_message_at, MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
+         ORDER BY COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
          LIMIT ?";
 
     $stmt = studio_db($studio)->prepare($sql);
@@ -1735,10 +1746,22 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
 
     $stmt = studio_db($studio)->prepare(
         "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
-                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value
+                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value,
+                COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
+                COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
+                COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
+                COALESCE(wc.last_message_direction, wm_last.direction) AS last_message_direction,
+                COALESCE(wc.last_message_at, wm_last.sent_at) AS message_last_at
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
+         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
+             SELECT wm2.id
+             FROM whatsapp_messages wm2
+             WHERE wm2.conversation_id = wc.id
+             ORDER BY wm2.sent_at DESC, wm2.id DESC
+             LIMIT 1
+         )
          WHERE wc.id = ?
          LIMIT 1"
     );
@@ -1762,13 +1785,18 @@ function studio_whatsapp_messages(array $studio, int $conversationId, int $limit
     $stmt->execute();
     $messages = $stmt->fetchAll() ?: [];
 
-    if (!$messages && !empty($conversation['last_message_preview'])) {
+    $fallbackBody = trim((string)($conversation['last_message_preview'] ?? ''));
+    if ($fallbackBody === '') {
+        $fallbackBody = trim((string)($conversation['latest_message_preview'] ?? ''));
+    }
+
+    if (!$messages && $fallbackBody !== '') {
         $messages = [[
             'id' => 0,
             'conversation_id' => $conversationId,
             'direction' => (string)($conversation['last_message_direction'] ?? 'in'),
             'sender_type' => (string)($conversation['last_message_direction'] ?? 'in') === 'out' ? 'human' : 'customer',
-            'body' => (string)$conversation['last_message_preview'],
+            'body' => $fallbackBody,
             'media_url' => '',
             'media_mime' => '',
             'media_file_name' => '',
