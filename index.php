@@ -1477,12 +1477,36 @@ if ($page === 'studio_leads') {
         $stageFilter = trim((string)($_GET['stage'] ?? ''));
         $stages = studio_list_pipeline_stages($studio);
         $board = studio_pipeline_board($studio, $filters);
+        $pipelineLeadIndex = [];
         $allLeads = [];
         $stageNames = [];
         foreach ($board as $stageName => $column) {
             $stageNames[] = (string)$stageName;
             foreach (($column['leads'] ?? []) as $lead) {
                 $allLeads[] = $lead;
+                $leadId = (int)($lead['id'] ?? 0);
+                if ($leadId > 0) {
+                    $pipelineLeadIndex[$leadId] = [
+                        'id' => $leadId,
+                        'name' => (string)($lead['name'] ?? ''),
+                        'phone' => (string)($lead['phone'] ?? ''),
+                        'interest' => (string)($lead['interest'] ?? ''),
+                        'status' => (string)($lead['status'] ?? ''),
+                        'pipeline_stage' => (string)($lead['pipeline_stage'] ?? ''),
+                        'source' => (string)($lead['source'] ?? ''),
+                        'lead_score' => (int)($lead['lead_score'] ?? 0),
+                        'estimated_value' => (float)($lead['estimated_value'] ?? 0),
+                        'created_at' => (string)($lead['created_at'] ?? ''),
+                        'updated_at' => (string)($lead['updated_at'] ?? ''),
+                        'customer_name' => (string)($lead['customer_name'] ?? ''),
+                        'customer_id' => (int)($lead['customer_id'] ?? 0),
+                        'artist_name' => (string)($lead['artist_name'] ?? $lead['tattoo_artist_name'] ?? $lead['responsible_name'] ?? ''),
+                        'email' => (string)($lead['email'] ?? ''),
+                        'notes' => (string)($lead['notes'] ?? ''),
+                        'last_message_preview' => (string)($lead['last_message_preview'] ?? ''),
+                        'description' => (string)($lead['description'] ?? ''),
+                    ];
+                }
             }
         }
         $initialLeadCount = count($allLeads);
@@ -1632,6 +1656,9 @@ if ($page === 'studio_leads') {
             }
         }
         render_pipeline_board($board, $stages);
+        echo '<div id="pipelineLeadModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 id="pipelineLeadModalTitle" class="crm-panel-title">Detalhe do lead</h3><p id="pipelineLeadModalSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closePipelineLeadModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="pipelineLeadModalBody" class="p-4"></div></div></div>';
+        echo '<script>window.pipelineLeadIndex = ' . json_encode($pipelineLeadIndex, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineLeadMoveToken = ' . json_encode(csrf_token(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineStageNames = ' . json_encode($stageNames, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script>(function(){const modal=document.getElementById("pipelineLeadModal");const title=document.getElementById("pipelineLeadModalTitle");const summary=document.getElementById("pipelineLeadModalSummary");const body=document.getElementById("pipelineLeadModalBody");const closeBtn=document.getElementById("closePipelineLeadModal");const index=window.pipelineLeadIndex||{};const token=window.pipelineLeadMoveToken||"";if(!modal||!title||!summary||!body)return;const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const money=(value)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value)||0);const formatDate=(value)=>{if(!value)return"-";try{return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(value.replace(" ","T")));}catch(e){return value;}};const statusTone=(status, stale)=>{if(["agendado","pre_agendado"].includes(status)) return "warn"; if(status==="fechado") return "ok"; if(["perdido","cancelado"].includes(status)) return "danger"; return stale ? "warn" : "neutral";};const postMove=async(leadId, stage, status)=>{const formData=new FormData();formData.append("csrf_token",token);formData.append("action","move_lead");formData.append("lead_id",leadId);formData.append("pipeline_stage",stage);formData.append("status",status||"");const response=await fetch(window.location.pathname+window.location.search,{method:"POST",body:formData});if(!response.ok) throw new Error("Nao foi possivel mover o lead."); location.reload();};const close=()=>modal.classList.add("hidden");const open=(leadId)=>{const lead=index[String(leadId)]||null;if(!lead)return;const status=String(lead.status||"");const score=Number(lead.lead_score||0);const stale=lead.updated_at&&lead.updated_at!==""?(()=>{try{return new Date(lead.updated_at) < new Date(Date.now()-24*60*60*1000);}catch(e){return false;}})():false;const badges=[];badges.push(`<span class="drilldown-badge ${statusTone(status, stale)}">${esc(status || "sem status")}</span>`);badges.push(`<span class="drilldown-badge neutral">${esc(String(score))}/10</span>`);if(score>=8) badges.push(`<span class="drilldown-badge ok">Quente</span>`);if((lead.estimated_value||0)>=1000) badges.push(`<span class="drilldown-badge neutral">Alto valor</span>`);if(stale) badges.push(`<span class="drilldown-badge warn">Parado 24h+</span>`);if(lead.artist_name) badges.push(`<span class="drilldown-badge neutral">${esc(lead.artist_name)}</span>`);title.textContent=lead.name || "Lead sem nome";summary.textContent=[lead.phone?`Telefone: ${lead.phone}`:"",lead.source?`Origem: ${lead.source}`:"",lead.pipeline_stage?`Etapa: ${lead.pipeline_stage}`:""].filter(Boolean).join(" · ");const currentIndex=Array.isArray(window.pipelineStageNames)?window.pipelineStageNames.indexOf(String(lead.pipeline_stage||"")):-1;const prevStage=currentIndex>0?window.pipelineStageNames[currentIndex-1]:"";const nextStage=currentIndex>=0&&currentIndex<window.pipelineStageNames.length-1?window.pipelineStageNames[currentIndex+1]:"";body.innerHTML=`<div class="drilldown-panel-grid"><div class="drilldown-panel-summary"><div class="drilldown-kpi"><strong>${esc(money(lead.estimated_value || 0))}</strong><span>Valor estimado</span><small>${esc(lead.interest || "Sem interesse descrito.")}</small></div><div class="drilldown-kpi"><strong>${esc(String(score))}/10</strong><span>Nota</span><small>Criado ${esc(formatDate(lead.created_at))}</small></div><div class="drilldown-kpi highlight"><strong>${esc(formatDate(lead.updated_at || lead.created_at))}</strong><span>Última atualização</span><small>${esc(lead.customer_name || lead.email || lead.notes || "Sem dados adicionais.")}</small></div></div><div class="drilldown-card compact"><div class="lead-card-badges">${badges.join("")}</div><div class="lead-card-submeta"><span class="muted">${esc(lead.phone || "Sem telefone")}</span><span class="muted">Cliente: ${esc(lead.customer_name || "-")}</span><span class="muted">Contato recente: ${esc(lead.last_message_preview || "-")}</span></div><div class="lead-card-actions lead-card-actions-quick">${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}">Ver lead</a>` : ""}${lead.phone ? `<a class="btn tiny secondary" href="https://wa.me/${String(lead.phone).replace(/\\D+/g,"")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}#lead-schedule-form">Agendar</a>` : ""}</div><div class="lead-card-actions">${prevStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(prevStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Voltar</button>`:""}${nextStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(nextStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Avancar</button>`:""}</div></div></div>`;modal.classList.remove("hidden");};document.querySelectorAll("[data-lead-open]").forEach((btn)=>{btn.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();open(btn.getAttribute("data-lead-open"));});});document.querySelectorAll("[data-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-lead-id")||"0", btn.getAttribute("data-move-stage")||"", btn.getAttribute("data-current-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll("[data-modal-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-modal-lead-id")||"0", btn.getAttribute("data-modal-move-stage")||"", btn.getAttribute("data-modal-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});let dragLeadId="";document.querySelectorAll(".pipeline-column").forEach((column)=>{column.addEventListener("dragover",(event)=>{event.preventDefault();column.classList.add("drag-over");});column.addEventListener("dragleave",()=>column.classList.remove("drag-over"));column.addEventListener("drop",async(event)=>{event.preventDefault();column.classList.remove("drag-over");const leadId=dragLeadId||event.dataTransfer.getData("text/plain");const stage=column.getAttribute("data-stage")||"";if(!leadId||!stage)return;const lead=index[String(leadId)];if(!lead)return;try{await postMove(leadId, stage, lead.status || "");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll(".lead-card[draggable=\"true\"]").forEach((card)=>{card.addEventListener("dragstart",(event)=>{dragLeadId=card.getAttribute("data-lead-id")||"";event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",dragLeadId);card.classList.add("dragging");});card.addEventListener("dragend",()=>{dragLeadId="";card.classList.remove("dragging");});card.addEventListener("click",(event)=>{if(event.target.closest("a,button")) return; const id=card.getAttribute("data-lead-id"); if(id) open(id);});});if(closeBtn) closeBtn.addEventListener("click",close);modal.addEventListener("click",(event)=>{if(event.target===modal) close();});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") close();});})();</script>';
         echo '</section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
@@ -3814,7 +3841,7 @@ function render_pipeline_board(array $board, array $stages): void
         $stageTotalValue = (float)($column['total_value'] ?? 0);
         $share = $totalLeads > 0 ? (int)round(($stageCount / $totalLeads) * 100) : 0;
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($stage['color'] ?? '')) ? $stage['color'] : '#667085';
-        echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '">';
+        echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '" data-stage="' . h($stageName) . '">';
         echo '<div class="pipeline-column-head">';
         echo '<div><strong>' . h($stageName) . '</strong><span class="muted">Etapa do funil</span></div>';
         echo '<span class="badge">' . h((string)$stageCount) . ' leads</span>';
@@ -3869,15 +3896,17 @@ function render_pipeline_card(array $lead, array $stageNames): void
     $artistName = trim((string)($lead['artist_name'] ?? $lead['tattoo_artist_name'] ?? $lead['responsible_name'] ?? ''));
     $isScheduled = in_array($status, ['agendado', 'pre_agendado'], true);
 
-    echo '<article class="lead-card' . ($isStale ? ' stale' : '') . '">';
-    echo '<a class="lead-card-title" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">' . h($lead['name'] ?: 'Lead sem nome') . '</a>';
-    echo '<p class="muted">' . h($lead['phone'] ?: 'Sem telefone') . '</p>';
-    echo '<p class="lead-card-interest">' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
-    echo '<div class="lead-card-meta"><span><small>Valor estimado</small><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong></span><span><small>Nota</small><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></span></div>';
-    echo '<div class="lead-card-submeta">';
-    echo '<span class="badge">' . h($lead['source'] ?: 'Sem origem') . '</span>';
+    echo '<article class="lead-card' . ($isStale ? ' stale' : '') . '" draggable="true" data-lead-id="' . h((string)$leadId) . '" data-stage-name="' . h($currentStage) . '">';
+    echo '<button type="button" class="lead-card-title-button" data-lead-open="' . h((string)$leadId) . '"><strong class="lead-card-title">' . h($lead['name'] ?: 'Lead sem nome') . '</strong></button>';
+    echo '<div class="lead-card-submeta compact">';
+    echo '<span class="badge">' . h($status !== '' ? $status : 'sem status') . '</span>';
+    echo '<span class="badge">' . h((string)$score) . '/10</span>';
+    if ($phoneLink !== '') {
+        echo '<span class="badge">WhatsApp</span>';
+    }
     $statusTone = in_array($status, ['agendado', 'pre_agendado'], true) ? 'warn' : (in_array($status, ['fechado'], true) ? 'ok' : (in_array($status, ['perdido'], true) ? 'danger' : ($isStale ? 'warn' : 'neutral')));
-    echo '<span class="badge ' . h($statusTone) . '">' . h($status !== '' ? $status : 'sem status') . '</span>';
+    echo '</div>';
+    echo '<div class="lead-card-badges">';
     if ($isNew) {
         echo '<span class="badge ok">Novo</span>';
     }
@@ -3893,29 +3922,26 @@ function render_pipeline_card(array $lead, array $stageNames): void
     if ($artistName !== '') {
         echo '<span class="badge">' . h($artistName) . '</span>';
     }
-    echo '<span class="muted">' . h($createdOrUpdated !== '' ? 'Atualizado ' . $createdOrUpdated : '-') . '</span>';
-    echo '<span class="muted">' . h($createdLabel !== '' ? 'Criado ' . $createdLabel : '-') . '</span>';
     if ($isStale) {
         echo '<span class="badge warn">parado há mais de 24h</span>';
     }
     echo '</div>';
+    echo '<p class="lead-card-interest">' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
+    echo '<div class="lead-card-submeta">';
+    echo '<span class="muted">' . h($lead['phone'] ?: 'Sem telefone') . '</span>';
+    echo '<span class="muted">Origem: ' . h($lead['source'] ?: 'Sem origem') . '</span>';
+    echo '<span class="muted">Atualizado ' . h($createdOrUpdated !== '' ? $createdOrUpdated : '-') . '</span>';
+    echo '</div>';
     echo '<div class="lead-card-actions lead-card-actions-quick">';
     echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">Ver</a>';
-    if ($phoneLink !== '') {
-        echo '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>';
-    }
-    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '#lead-schedule-form">Agendar</a>';
+    echo '<button type="button" class="btn tiny secondary" data-lead-open="' . h((string)$leadId) . '">Detalhes</button>';
     echo '</div>';
     echo '<div class="lead-card-actions">';
     foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
         if ($move['stage'] === '') {
             continue;
         }
-        echo '<form method="post" class="inline-form">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="pipeline_stage" value="' . h($move['stage']) . '"><input type="hidden" name="status" value="' . h($lead['status']) . '">';
-        echo '<button class="btn tiny secondary" type="submit">' . h($move['label']) . '</button>';
-        echo '</form>';
+        echo '<button type="button" class="btn tiny secondary" data-move-stage="' . h($move['stage']) . '" data-lead-id="' . h((string)$leadId) . '" data-current-status="' . h($lead['status']) . '">' . h($move['label']) . '</button>';
     }
     echo '</div></article>';
 }

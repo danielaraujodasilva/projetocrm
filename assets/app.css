@@ -1370,6 +1370,47 @@ textarea {
     background: #fff;
 }
 
+.lead-card.dragging {
+    opacity: .55;
+    transform: scale(.99);
+}
+
+.pipeline-column.drag-over {
+    border-color: rgba(45, 137, 146, .65);
+    box-shadow: 0 0 0 4px rgba(45, 137, 146, .08);
+}
+
+.lead-card-title-button {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.lead-card-title-button:hover .lead-card-title {
+    text-decoration: underline;
+}
+
+.lead-card-title-button:focus-visible {
+    outline: 2px solid rgba(45, 137, 146, .35);
+    outline-offset: 3px;
+    border-radius: 6px;
+}
+
+.lead-card-badges,
+.lead-card-submeta.compact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lead-card-submeta.compact .muted {
+    font-size: 12px;
+}
+
 .lead-card.stale {
     border-color: #f0b35b;
     box-shadow: 0 0 0 1px rgba(240, 179, 91, .18), 0 8px 18px rgba(0, 0, 0, .04);
