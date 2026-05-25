@@ -25,7 +25,10 @@
       normalized = normalized.replace(/\./g, '');
     }
     const numeric = Number(normalized);
-    const safe = Number.isFinite(numeric) ? numeric : Number(raw) || 0;
+    let safe = Number.isFinite(numeric) ? numeric : Number(raw) || 0;
+    if (Number.isFinite(safe) && safe >= 10000 && Number.isInteger(safe) && safe % 100 === 0) {
+      safe /= 100;
+    }
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(safe);
   };
 
@@ -157,7 +160,7 @@
           item.start_time ? badge(item.start_time.slice(0, 5)) : '',
           item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
-        const detail = `${item.title || item.customer_name || 'Atendimento'} · ${money(item.value || 0)}`;
+        const detail = `${item.title || item.customer_name || 'Atendimento'} · ${item.value_label || money(item.value || 0)}`;
         return card(href, item.customer_name || item.title || 'Agendamento', meta, detail, 'compact');
       }).join('');
 
@@ -295,7 +298,7 @@
           item.artist_name ? badge(item.artist_name, 'neutral') : '',
           item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
-        const detailParts = [item.title, item.value ? `Valor ${money(item.value)}` : '', item.deposit_value ? `Sinal ${money(item.deposit_value)}` : ''].filter(Boolean);
+        const detailParts = [item.title, item.value_label ? `Valor ${item.value_label}` : (item.value ? `Valor ${money(item.value)}` : ''), item.deposit_label ? `Sinal ${item.deposit_label}` : (item.deposit_value ? `Sinal ${money(item.deposit_value)}` : '')].filter(Boolean);
         return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join(' · ') : 'Abra para editar ou ver detalhes.', 'compact');
       }).join('');
 

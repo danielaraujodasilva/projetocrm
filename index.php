@@ -208,6 +208,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'mark_appointment_status') {
+            $studio = require_studio();
+            $appointmentId = (int)($_POST['appointment_id'] ?? 0);
+            $newStatus = trim((string)($_POST['status'] ?? 'falta'));
+            studio_update_appointment_status($studio, $appointmentId, $newStatus);
+            flash_set('success', 'Status do agendamento atualizado.');
+            $redirectDate = trim((string)($_POST['appointment_date'] ?? ''));
+            if ($redirectDate !== '') {
+                redirect_to('studio_agenda', ['date' => $redirectDate, 'appointment_id' => $appointmentId]);
+            }
+            redirect_to('studio_agenda');
+        }
+
         if ($action === 'delete_appointment') {
             $studio = require_studio();
             $appointmentId = (int)($_POST['appointment_id'] ?? 0);
@@ -1002,6 +1015,21 @@ if ($page === 'studio_home') {
         }
         $metaCampaignItems = $metaCampaignRangeMap['today'] ?? [];
         $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada hoje.';
+        $decorateAppointmentCard = static function (array $appointment) use ($pomadaUnitPrice): array {
+            $rawValue = appointment_display_amount($appointment['value'] ?? 0);
+            $rawDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
+            $pomadas = max(0, (int)($appointment['pomadas_quantity'] ?? 0));
+            $effective = max(0.0, $rawValue + ($pomadas * $pomadaUnitPrice) - $rawDeposit);
+            $appointment['value_label'] = format_money($rawValue);
+            $appointment['deposit_label'] = format_money($rawDeposit);
+            $appointment['effective_value_label'] = format_money($effective);
+            $appointment['start_time_label'] = substr((string)($appointment['start_time'] ?? ''), 0, 5);
+            $appointment['end_time_label'] = substr((string)($appointment['end_time'] ?? ''), 0, 5);
+            return $appointment;
+        };
+        $scheduledMonthItems = array_map($decorateAppointmentCard, $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: []);
+        $appointmentsMonthItems = array_map($decorateAppointmentCard, $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: []);
+        $nextMonthItems = array_map($decorateAppointmentCard, $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: []);
         $alerts = [];
         if ($staleAttentionLeadsCount > 0) {
             $alerts[] = [
@@ -1089,7 +1117,7 @@ if ($page === 'studio_home') {
                 'title' => 'Agendado de hoje ate o fim do mes',
                 'summary' => 'Total projetado a partir de hoje: ' . format_money($scheduledToEndOfMonth),
                 'type' => 'scheduled_month',
-                'items' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 12")->fetchAll() ?: [],
+                'items' => $scheduledMonthItems,
                 'filters' => [
                     '7d' => 'Próximos 7 dias',
                     '15d' => 'Próximos 15 dias',
@@ -1097,10 +1125,10 @@ if ($page === 'studio_home') {
                     'next_month' => 'Mês que vem',
                 ],
                 'rangeMap' => [
-                    '7d' => studio_upcoming_appointments($studio, 7),
-                    '15d' => studio_upcoming_appointments($studio, 15),
-                    'month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
-                    'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                    '7d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 7)),
+                    '15d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 15)),
+                    'month' => $appointmentsMonthItems,
+                    'next_month' => $nextMonthItems,
                 ],
             ],
             'today_agenda' => [
@@ -1204,7 +1232,7 @@ if ($page === 'studio_home') {
                 'summary' => (string)$stats['appointments'] . ' atendimentos futuros ativos.',
                 'kind' => 'appointment',
                 'type' => 'appointments',
-                'items' => array_slice($appointments, 0, 8),
+                'items' => array_slice(array_map($decorateAppointmentCard, $appointments), 0, 8),
                 'filters' => [
                     '7d' => 'Próximos 7 dias',
                     '15d' => 'Próximos 15 dias',
@@ -1212,10 +1240,10 @@ if ($page === 'studio_home') {
                     'next_month' => 'Mês que vem',
                 ],
                 'rangeMap' => [
-                    '7d' => studio_upcoming_appointments($studio, 7),
-                    '15d' => studio_upcoming_appointments($studio, 15),
-                    'month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
-                    'next_month' => $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: [],
+                    '7d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 7)),
+                    '15d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 15)),
+                    'month' => $appointmentsMonthItems,
+                    'next_month' => $nextMonthItems,
                 ],
             ],
             'meta_campaign' => [
@@ -1292,8 +1320,10 @@ if ($page === 'studio_home') {
                 echo '<td>' . h($appointment['customer_name'] ?: $appointment['title'] ?: '-') . '</td>';
                 echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
                 echo '<td><span class="badge ' . h($statusTone) . '">' . h((string)($appointment['status'] ?? '-')) . '</span></td>';
-                echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '</td>';
-                echo '<td>' . h(format_money($appointment['deposit_value'] ?? 0)) . '</td>';
+$appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
+$appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
+echo '<td>' . h(format_money($appointmentValue)) . '</td>';
+echo '<td>' . h(format_money($appointmentDeposit)) . '</td>';
                 echo '<td>' . h(mb_substr((string)($appointment['description'] ?? $appointment['notes'] ?? '-'), 0, 80)) . '</td></tr>';
             }
             echo '</tbody></table>';
@@ -1846,7 +1876,13 @@ if ($page === 'studio_agenda') {
             echo '<div class="grid cols-2">';
             echo '<div class="panel soft"><p class="muted">Quando</p><h3 style="margin-top:0">' . h(date('d/m/Y', strtotime($selectedDate)) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted">' . h($selectedAppointment['status']) . '</p></div>';
             echo '<div class="panel soft"><p class="muted">Cliente / Lead</p><h3 style="margin-top:0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
-            echo '<div class="panel soft"><p class="muted">Valor</p><h3 style="margin-top:0">' . h(format_money($selectedAppointment['value'] ?? 0)) . '</h3><p class="muted">Sinal ' . h(format_money($selectedAppointment['deposit_value'] ?? 0)) . '</p></div>';
+            $selectedValue = appointment_display_amount($selectedAppointment['value'] ?? 0);
+            $selectedDeposit = appointment_display_amount($selectedAppointment['deposit_value'] ?? 0);
+            $selectedPomadaUnit = isset($selectedAppointment['pomada_unit_price']) && $selectedAppointment['pomada_unit_price'] !== null && $selectedAppointment['pomada_unit_price'] !== ''
+                ? appointment_display_amount($selectedAppointment['pomada_unit_price'])
+                : $pomadaUnitPrice;
+            $selectedEffective = max(0.0, $selectedValue + (max(0, (int)($selectedAppointment['pomadas_quantity'] ?? 0)) * $selectedPomadaUnit) - $selectedDeposit);
+            echo '<div class="panel soft"><p class="muted">Valor</p><h3 style="margin-top:0">' . h(format_money($selectedValue)) . '</h3><p class="muted">Sinal ' . h(format_money($selectedDeposit)) . '</p><p class="muted">Total efetivo ' . h(format_money($selectedEffective)) . '</p></div>';
             echo '<div class="panel soft"><p class="muted">Pomadas</p><h3 style="margin-top:0">' . h((string)($selectedAppointment['pomadas_quantity'] ?? 0)) . '</h3><p class="muted">Quantidade vinculada ao agendamento</p></div>';
             echo '<div class="panel soft"><p class="muted">Origem</p><h3 style="margin-top:0">' . h(appointment_origin_label((string)($selectedAppointment['import_source'] ?? 'manual'))) . '</h3><p class="muted">' . h((string)($selectedAppointment['raw_title'] ?? '')) . '</p></div>';
             echo '</div>';
@@ -1858,6 +1894,14 @@ if ($page === 'studio_agenda') {
                 echo '<div class="field"><label>Referencia</label><a class="btn secondary" href="' . h($refUrl) . '" target="_blank" rel="noopener">Abrir imagem de referencia</a></div>';
             }
             echo '<div class="actions" style="margin-top:14px">';
+            echo '<form method="post" class="inline-form">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="mark_appointment_status">';
+            echo '<input type="hidden" name="appointment_id" value="' . h((string)(int)$selectedAppointment['id']) . '">';
+            echo '<input type="hidden" name="appointment_date" value="' . h($selectedDate) . '">';
+            echo '<input type="hidden" name="status" value="falta">';
+            echo '<button class="btn secondary" type="submit" onclick="return confirm(\'Marcar este agendamento como falta?\')">Marcar falta</button>';
+            echo '</form>';
             echo '<a class="btn" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '&appointment_id=' . h((string)(int)$selectedAppointment['id']) . '#appointment-form">Editar este agendamento</a>';
             echo '<form method="post" onsubmit="return confirm(\'Excluir este agendamento?\')" class="inline-form">';
             echo csrf_field();
@@ -2575,7 +2619,7 @@ if ($page === 'studio_reports') {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Agendamento sem nome'),
-                        'detail' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money($appointment['value'] ?? 0),
+'detail' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $preScheduledNoSignal),
@@ -2601,7 +2645,7 @@ if ($page === 'studio_reports') {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Atendimento'),
-                        'detail' => substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money($appointment['value'] ?? 0) . ' · sinal ' . format_money($appointment['deposit_value'] ?? 0),
+'detail' => substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)) . ' · sinal ' . format_money(appointment_display_amount($appointment['deposit_value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $todayAppointments),
@@ -3386,6 +3430,7 @@ function appointment_status_options(): array
         'atendido' => 'Atendido',
         'concluido' => 'Concluido',
         'finalizado' => 'Finalizado',
+        'falta' => 'Falta',
         'cancelado' => 'Cancelado',
     ];
 }
@@ -3516,13 +3561,22 @@ function appointments_by_day(array $appointments): array
     return $grouped;
 }
 
+function appointment_display_amount(float|int|string $value): float
+{
+    $amount = money_to_float((string)$value);
+    if ($amount >= 10000 && fmod($amount, 100.0) === 0.0) {
+        $amount /= 100.0;
+    }
+    return max(0.0, $amount);
+}
+
 function appointment_effective_value(array $appointment, ?float $pomadaUnit = null): float
 {
-    $value = money_to_float((string)($appointment['value'] ?? '0'));
-    $deposit = money_to_float((string)($appointment['deposit_value'] ?? '0'));
+    $value = appointment_display_amount($appointment['value'] ?? 0);
+    $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     $pomadas = max(0, (int)($appointment['pomadas_quantity'] ?? 0));
     $unit = isset($appointment['pomada_unit_price']) && $appointment['pomada_unit_price'] !== null && $appointment['pomada_unit_price'] !== ''
-        ? (float)$appointment['pomada_unit_price']
+        ? appointment_display_amount($appointment['pomada_unit_price'])
         : ($pomadaUnit ?? (float)(app_config('app')['pomada_unit_price'] ?? 100));
     $effective = $value + ($pomadas * $unit) - $deposit;
 
@@ -3643,10 +3697,12 @@ function render_calendar_block(array $appointment): void
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+    $value = appointment_display_amount($appointment['value'] ?? 0);
+    $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     echo '<a class="appointment-block" href="' . h($href) . '" style="border-left-color:' . h($color) . '">';
     echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
     echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
-    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($appointment['value'] ?? 0) . ' | sinal ' . format_money($appointment['deposit_value'] ?? 0)) . '</span>';
+    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     echo '<span class="badge ' . h(appointment_status_tone((string)($appointment['status'] ?? ''))) . '">' . h((string)($appointment['status'] ?? 'sem status')) . '</span>';
     echo '</a>';
 }
@@ -3870,7 +3926,9 @@ function render_appointments_table(array $appointments): void
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
         echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
-        echo '<td>' . h(format_money($appointment['value'] ?? 0)) . '<br><span class="muted">Sinal ' . h(format_money($appointment['deposit_value'] ?? 0)) . '</span></td>';
+$appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
+$appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
+echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sinal ' . h(format_money($appointmentDeposit)) . '</span></td>';
         echo '<td><span class="badge">' . h($appointment['status']) . '</span><br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
@@ -3934,7 +3992,7 @@ function appointment_status_tone(string $status): string
         'agendado', 'confirmado' => 'ok',
         'em_atendimento' => 'info',
         'atendido', 'concluido', 'finalizado' => 'neutral',
-        'cancelado', 'perdido' => 'danger',
+        'cancelado', 'perdido', 'falta' => 'danger',
         'pendente' => 'warn',
         default => 'neutral',
     };

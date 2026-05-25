@@ -2186,6 +2186,21 @@ function studio_appointment_non_blocking_statuses(): array
     return ['cancelado', 'perdido', 'concluido', 'atendido', 'finalizado'];
 }
 
+function studio_appointment_allowed_statuses(): array
+{
+    return [
+        'pre_agendado',
+        'agendado',
+        'confirmado',
+        'em_atendimento',
+        'atendido',
+        'concluido',
+        'finalizado',
+        'falta',
+        'cancelado',
+    ];
+}
+
 function studio_validate_appointment_payload(array $studio, array $data, int $excludeId = 0): array
 {
     $pdo = studio_db($studio);
@@ -3753,7 +3768,10 @@ function studio_save_appointment(array $studio, array $data): int
     $startTime = $normalized['start_time'];
     $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $normalized['end_time'], $durationMinutes);
     $depositValue = $normalized['deposit_value'];
-    $status = $depositValue > 0 ? 'confirmado' : 'pre_agendado';
+    $requestedStatus = trim((string)($data['status'] ?? ''));
+    $status = in_array($requestedStatus, studio_appointment_allowed_statuses(), true)
+        ? $requestedStatus
+        : ($depositValue > 0 ? 'confirmado' : 'pre_agendado');
     $artistId = $normalized['artist_id'] ?: null;
     $leadId = (int)$normalized['lead_id'];
     $customerId = (int)$normalized['customer_id'];
@@ -3853,6 +3871,33 @@ function studio_save_appointment(array $studio, array $data): int
     $appointmentId = (int)$pdo->lastInsertId();
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
     return $appointmentId;
+}
+
+function studio_update_appointment_status(array $studio, int $appointmentId, string $status): void
+{
+    $pdo = studio_db($studio);
+    $appointment = studio_find_appointment($studio, $appointmentId);
+    if (!$appointment) {
+        throw new RuntimeException('Agendamento nao encontrado.');
+    }
+
+    if (!in_array($status, studio_appointment_allowed_statuses(), true)) {
+        throw new RuntimeException('Status de agendamento invalido.');
+    }
+
+    $stmt = $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? LIMIT 1');
+    $stmt->execute([$status, $appointmentId]);
+
+    $leadId = (int)($appointment['lead_id'] ?? 0);
+    if ($leadId > 0 && $status !== 'falta') {
+        studio_sync_lead_from_appointment(
+            $studio,
+            $leadId,
+            $status,
+            (string)($appointment['value'] ?? 0),
+            (string)($appointment['appointment_date'] ?? '') . ' ' . (string)($appointment['start_time'] ?? '')
+        );
+    }
 }
 
 function studio_ensure_appointment_reference_columns(array $studio): void
