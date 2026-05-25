@@ -1730,7 +1730,8 @@ if ($page === 'studio_leads') {
                 }
                 echo '</div>';
                 echo '<div class="lead-card-actions lead-card-actions-quick">';
-                echo '<a class="btn tiny secondary" href="' . h($href) . '">Ver lead</a>';
+                $leadConversationHref = $conversationHref !== '' ? $conversationHref : app_url('studio_whatsapp');
+                echo '<a class="btn tiny secondary" href="' . h($leadConversationHref) . '">Ver</a>';
                 if ($conversationHref !== '') {
                     echo '<a class="btn tiny secondary" href="' . h($conversationHref) . '">Abrir conversa</a>';
                 }

@@ -485,10 +485,103 @@ textarea {
     width: min(96vw, 1100px);
     max-height: 92vh;
     overflow: auto;
+    display: flex;
+    flex-direction: column;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
     box-shadow: 0 28px 80px rgba(0, 0, 0, .35);
+}
+
+.crm-modal-panel .crm-panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(255, 255, 255, .96) 100%);
+    border-bottom: 1px solid rgba(141, 158, 175, .18);
+    backdrop-filter: blur(8px);
+}
+
+.crm-modal-panel .crm-panel-title {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.15;
+    letter-spacing: -.01em;
+}
+
+.crm-modal-panel .crm-panel-header .muted {
+    margin-top: 4px;
+}
+
+.crm-modal-panel > .p-4 {
+    display: grid;
+    gap: 14px;
+    padding: 20px !important;
+}
+
+.crm-modal-panel .panel,
+.crm-modal-panel .drilldown-card,
+.crm-modal-panel .drilldown-toolbar-summary,
+.crm-modal-panel .drilldown-kpi,
+.crm-modal-panel .activity-card,
+.crm-modal-panel .mini-metrics > * {
+    box-shadow: 0 1px 0 rgba(15, 23, 42, .03), 0 8px 24px rgba(15, 23, 42, .05);
+}
+
+.crm-modal-panel .panel {
+    border-radius: 12px;
+    background: #fff;
+}
+
+.crm-modal-panel .actions {
+    gap: 10px;
+}
+
+.crm-modal-panel .actions .btn,
+.crm-modal-panel .actions .badge {
+    white-space: nowrap;
+}
+
+.crm-modal-panel .actions {
+    flex-wrap: wrap;
+}
+
+.crm-modal-panel .muted {
+    line-height: 1.45;
+}
+
+.crm-modal-panel .drilldown-empty {
+    display: grid;
+    gap: 10px;
+    padding: 18px 20px;
+    border: 1px dashed rgba(141, 158, 175, .35);
+    border-radius: 12px;
+    background: rgba(248, 250, 252, .9);
+}
+
+.crm-modal-panel .drilldown-empty strong {
+    font-size: 16px;
+}
+
+.crm-modal-panel .drilldown-empty .muted {
+    max-width: 60ch;
+}
+
+.crm-modal-panel .drilldown-empty .btn {
+    justify-self: start;
+}
+
+.crm-modal-panel .stack-list > * {
+    border-radius: 12px;
+}
+
+.crm-modal-panel .stack-list > *:hover {
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .05);
 }
 
 .chat-media-thumb {
@@ -1656,31 +1749,34 @@ textarea {
 
 .drilldown-panel-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
 }
 
 .drilldown-kpi {
     display: grid;
-    gap: 3px;
-    padding: 12px 14px;
+    gap: 6px;
+    padding: 14px 15px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: #fff;
+    min-height: 100px;
 }
 
 .drilldown-kpi strong {
-    font-size: 24px;
-    line-height: 1;
+    font-size: 28px;
+    line-height: 1.02;
+    letter-spacing: -.01em;
 }
 
 .drilldown-kpi span {
     font-weight: 800;
+    color: #334155;
 }
 
 .drilldown-kpi small {
     color: var(--muted);
-    line-height: 1.35;
+    line-height: 1.45;
 }
 
 .drilldown-kpi.highlight {
@@ -1692,7 +1788,7 @@ textarea {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 4px 8px;
+    padding: 5px 9px;
     border-radius: 999px;
     background: #f1f5f9;
     color: #334155;
@@ -1776,6 +1872,57 @@ textarea {
     line-height: 1.4;
 }
 
+.activity-card,
+.drilldown-card.compact {
+    border-radius: 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+    border-color: rgba(141, 158, 175, .28);
+}
+
+.activity-card {
+    padding: 14px 15px;
+    gap: 10px;
+    border-left: 4px solid rgba(45, 137, 146, .35);
+}
+
+.activity-card strong {
+    font-size: 15px;
+    line-height: 1.25;
+}
+
+.activity-card span {
+    line-height: 1.45;
+}
+
+.activity-card .lead-card-actions-quick {
+    gap: 6px;
+}
+
+.drilldown-card.compact {
+    padding: 16px;
+    gap: 12px;
+}
+
+.drilldown-card.compact .lead-card-badges {
+    gap: 8px;
+}
+
+.drilldown-card.compact .lead-card-submeta {
+    display: grid;
+    gap: 8px;
+}
+
+.drilldown-card.compact .lead-card-submeta .muted {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-soft);
+}
+
+.drilldown-card.compact .lead-card-actions {
+    gap: 8px;
+}
+
 .drilldown-card .meta-line {
     display: flex;
     flex-wrap: wrap;
@@ -1786,6 +1933,45 @@ textarea {
 .drilldown-card .meta-line span {
     font-size: 12px;
     color: var(--muted);
+}
+
+.crm-modal-panel table {
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+}
+
+.crm-modal-panel table thead th {
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.crm-modal-panel table tbody tr:hover td {
+    background: rgba(45, 137, 146, .03);
+}
+
+.crm-modal-panel table td,
+.crm-modal-panel table th {
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+.crm-modal-panel .table {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.crm-modal-panel .table .btn.tiny {
+    margin-right: 4px;
+    margin-bottom: 4px;
+}
+
+.crm-modal-panel .stack-list {
+    display: grid;
+    gap: 10px;
 }
 
 .activity-card {
