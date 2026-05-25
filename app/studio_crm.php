@@ -1989,6 +1989,97 @@ function studio_schedule_normalize_end_time(string $date, string $startTime, ?st
     return $calculated;
 }
 
+function studio_appointment_blocking_statuses(): array
+{
+    return ['pre_agendado', 'agendado', 'confirmado', 'em_atendimento', 'pendente'];
+}
+
+function studio_appointment_non_blocking_statuses(): array
+{
+    return ['cancelado', 'perdido', 'concluido', 'atendido', 'finalizado'];
+}
+
+function studio_validate_appointment_payload(array $studio, array $data, int $excludeId = 0): array
+{
+    $pdo = studio_db($studio);
+    $appointmentDate = trim((string)($data['appointment_date'] ?? ''));
+    $startTime = substr(trim((string)($data['start_time'] ?? '')), 0, 5);
+    $endTime = substr(trim((string)($data['end_time'] ?? '')), 0, 5);
+    $artistId = (int)($data['artist_id'] ?? 0);
+    $leadId = (int)($data['lead_id'] ?? 0);
+    $customerId = (int)($data['customer_id'] ?? 0);
+    $value = money_to_float((string)($data['value'] ?? '0'));
+    $depositValue = money_to_float((string)($data['deposit_value'] ?? '0'));
+
+    if ($appointmentDate === '') {
+        throw new RuntimeException('Informe a data do agendamento.');
+    }
+    if ($startTime === '') {
+        throw new RuntimeException('Informe o horário de início.');
+    }
+    $dateObject = DateTimeImmutable::createFromFormat('Y-m-d', $appointmentDate, new DateTimeZone('America/Sao_Paulo'));
+    if (!$dateObject) {
+        throw new RuntimeException('Informe uma data válida para o agendamento.');
+    }
+    if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $startTime)) {
+        throw new RuntimeException('Informe horários válidos para início e fim.');
+    }
+    if ($endTime !== '' && !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $endTime)) {
+        throw new RuntimeException('Informe horários válidos para início e fim.');
+    }
+    if ($endTime !== '' && $endTime <= $startTime) {
+        throw new RuntimeException('O horário final precisa ser maior que o horário inicial.');
+    }
+    if ($artistId <= 0) {
+        throw new RuntimeException('Selecione um tatuador para o agendamento.');
+    }
+    if ($leadId <= 0 && $customerId <= 0) {
+        throw new RuntimeException('Vincule o agendamento a um cliente ou lead.');
+    }
+    if ($value < 0) {
+        throw new RuntimeException('O valor não pode ser negativo.');
+    }
+    if ($depositValue < 0) {
+        throw new RuntimeException('O sinal não pode ser negativo.');
+    }
+    if ($depositValue > $value && $value > 0) {
+        throw new RuntimeException('O sinal não pode ser maior que o valor total.');
+    }
+    if ($leadId > 0) {
+        $stmt = $pdo->prepare('SELECT id FROM leads WHERE id = ? LIMIT 1');
+        $stmt->execute([$leadId]);
+        if (!$stmt->fetchColumn()) {
+            throw new RuntimeException('O lead informado não pertence a este estúdio.');
+        }
+    }
+    if ($customerId > 0) {
+        $stmt = $pdo->prepare('SELECT id FROM customers WHERE id = ? LIMIT 1');
+        $stmt->execute([$customerId]);
+        if (!$stmt->fetchColumn()) {
+            throw new RuntimeException('O cliente informado não pertence a este estúdio.');
+        }
+    }
+    $artistStmt = $pdo->prepare('SELECT id, name FROM tattoo_artists WHERE id = ? LIMIT 1');
+    $artistStmt->execute([$artistId]);
+    $artist = $artistStmt->fetch();
+    if (!$artist) {
+        throw new RuntimeException('Selecione um tatuador válido deste estúdio.');
+    }
+
+    return [
+        'appointment_date' => $appointmentDate,
+        'start_time' => $startTime,
+        'end_time' => $endTime,
+        'artist_id' => $artistId,
+        'lead_id' => $leadId,
+        'customer_id' => $customerId,
+        'value' => $value,
+        'deposit_value' => $depositValue,
+        'artist_name' => (string)($artist['name'] ?? ''),
+        'exclude_id' => $excludeId,
+    ];
+}
+
 function studio_schedule_is_allowed_day(array $studio, DateTimeImmutable $date): bool
 {
     return in_array((string)$date->format('N'), studio_schedule_days($studio), true);
@@ -3451,19 +3542,22 @@ function studio_save_appointment(array $studio, array $data): int
     $pdo = studio_db($studio);
     studio_ensure_appointment_reference_columns($studio);
     $id = (int)($data['id'] ?? 0);
+    $durationMinutes = studio_schedule_duration_minutes($studio);
     $leadId = (int)($data['lead_id'] ?? 0);
     $customerId = (int)($data['customer_id'] ?? 0);
     if ($customerId <= 0 && $leadId > 0) {
         $lead = studio_find_lead($studio, $leadId);
         $customerId = (int)($lead['customer_id'] ?? 0);
     }
-    $durationMinutes = studio_schedule_duration_minutes($studio);
-    $appointmentDate = trim((string)($data['appointment_date'] ?? date('Y-m-d')));
-    $startTime = trim((string)($data['start_time'] ?? '10:00'));
-    $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $data['end_time'] ?? '', $durationMinutes);
-    $depositValue = money_to_float((string)($data['deposit_value'] ?? '0'));
+    $normalized = studio_validate_appointment_payload($studio, $data, $id);
+    $appointmentDate = $normalized['appointment_date'];
+    $startTime = $normalized['start_time'];
+    $endTime = studio_schedule_normalize_end_time($appointmentDate, $startTime, $normalized['end_time'], $durationMinutes);
+    $depositValue = $normalized['deposit_value'];
     $status = $depositValue > 0 ? 'confirmado' : 'pre_agendado';
-    $artistId = (int)($data['artist_id'] ?? 0) ?: null;
+    $artistId = $normalized['artist_id'] ?: null;
+    $leadId = (int)$normalized['lead_id'];
+    $customerId = (int)$normalized['customer_id'];
     $values = [
         $customerId ?: null,
         $leadId ?: null,
@@ -3483,7 +3577,7 @@ function studio_save_appointment(array $studio, array $data): int
     }
     $attachment = studio_prepare_appointment_reference($studio, $_FILES ?? []);
     $replacedAppointments = [];
-    $activeStatuses = ['pre_agendado', 'confirmado', 'em_atendimento'];
+    $activeStatuses = studio_appointment_blocking_statuses();
     $overlappingAppointments = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $artistId, $activeStatuses, $id);
     if ($overlappingAppointments) {
         $conflict = $overlappingAppointments[0];
@@ -3502,8 +3596,10 @@ function studio_save_appointment(array $studio, array $data): int
         $conflictDate = date('d/m/Y', strtotime((string)$conflict['appointment_date']));
         $conflictStart = substr((string)$conflict['start_time'], 0, 5);
         $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time']), 0, 5);
+        $conflictCustomer = trim((string)($conflict['customer_name'] ?? ''));
+        $conflictLabel = $conflictCustomer !== '' ? ' com o cliente ' . $conflictCustomer : '';
         throw new RuntimeException(
-            'Conflito de agenda: ' . $conflictDate . ' às ' . $conflictStart . '–' . $conflictEnd . ' já está ocupado para ' . $artistName . '.'
+            'Este horário já está ocupado para o tatuador ' . $artistName . $conflictLabel . ', em ' . $conflictDate . ', das ' . $conflictStart . ' às ' . $conflictEnd . '.'
         );
     }
 

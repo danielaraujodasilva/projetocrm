@@ -1306,7 +1306,7 @@ if ($page === 'studio_home') {
                 echo '<td><span class="badge">' . h((string)($lead['status'] ?? '-')) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
                 echo '<td><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong>' . ($stale ? '<br><span class="badge warn">parado há 24h+</span>' : '') . '</td>';
                 echo '<td>' . h($lead['updated_at'] ?: $lead['created_at'] ?: '-') . '</td>';
-                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($href) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-appointment-form') . '">Agendar</a></div></td></tr>';
+                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($href) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-schedule-form') . '">Agendar</a></div></td></tr>';
             }
             echo '</tbody></table>';
         }
@@ -1440,6 +1440,7 @@ if ($page === 'studio_leads') {
                 $allLeads[] = $lead;
             }
         }
+        $initialLeadCount = count($allLeads);
 
         $isStaleLead = static function (array $lead) use ($current): bool {
             $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
@@ -1579,7 +1580,11 @@ if ($page === 'studio_leads') {
         echo '<section class="panel" style="margin-top:16px">';
         echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapas ordenadas, total por coluna e cartões com ação comercial.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
         if (!$allLeads) {
-            echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para começar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
+            if ($initialLeadCount === 0) {
+                echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para começar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
+            } else {
+                echo '<div class="drilldown-empty"><strong>Nenhum lead encontrado para este filtro.</strong><div class="muted">Tente limpar os filtros ou buscar outra combinação.</div><a class="btn" href="' . h(app_url('studio_leads')) . '">Limpar filtros</a></div>';
+            }
         }
         render_pipeline_board($board, $stages);
         echo '</section>';
@@ -1657,7 +1662,7 @@ if ($page === 'studio_lead') {
             $stages = studio_list_pipeline_stages($studio);
             $artists = studio_list_artists($studio);
             echo '<section class="lead-detail-head">';
-            echo '<form class="form panel" method="post" id="lead-appointment-form">';
+            echo '<form class="form panel" method="post" id="lead-new-form">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="return_to_detail" value="1">';
             echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Novo lead</h2><p class="muted">Crie uma oportunidade nova para o funil do estúdio.</p></div><span class="badge">Cadastro</span></div>';
@@ -1698,7 +1703,7 @@ if ($page === 'studio_lead') {
         echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
         echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa</small></span></div>';
         echo '</div>';
-        echo '<form class="form panel" method="post" id="lead-appointment-form">';
+        echo '<form class="form panel" method="post" id="lead-move-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="move_lead"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Mover no funil</h2><span class="badge">Fluxo</span></div>';
@@ -1712,7 +1717,7 @@ if ($page === 'studio_lead') {
         echo '</form></section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<form class="form panel" method="post" id="lead-appointment-form">';
+        echo '<form class="form panel" method="post" id="lead-edit-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="id" value="' . h((string)$leadId) . '"><input type="hidden" name="return_to_detail" value="1">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Editar lead</h2><span class="badge">Dados</span></div>';
@@ -1732,7 +1737,7 @@ if ($page === 'studio_lead') {
         echo '<button class="btn" type="submit">Salvar alteracoes</button>';
         echo '</form>';
 
-        echo '<form class="form panel" method="post">';
+        echo '<form class="form panel" method="post" id="lead-schedule-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Agendar este lead</h2><span class="badge">Proximo passo</span></div>';
@@ -1778,6 +1783,11 @@ if ($page === 'studio_agenda') {
         $focus = parse_calendar_date((string)($_GET['date'] ?? date('Y-m-d')));
         [$startDate, $endDate] = calendar_range_for($view, $focus);
         $calendarAppointments = studio_calendar_appointments($studio, $startDate, $endDate);
+        $todayDate = date('Y-m-d');
+        $todayAppointments = studio_calendar_appointments($studio, $todayDate, $todayDate);
+        $preScheduledNoSignalCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
+        $missingArtistCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(artist_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
+        $missingContactCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(customer_id, 0) = 0 AND COALESCE(lead_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
         $selectedAppointmentId = (int)($_GET['appointment_id'] ?? 0);
         $selectedAppointment = $selectedAppointmentId > 0 ? studio_find_appointment($studio, $selectedAppointmentId) : null;
 
@@ -1798,6 +1808,12 @@ if ($page === 'studio_agenda') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
+        echo '</div>';
+        echo '<div class="alert-grid" style="margin-top:14px">';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
+        echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
+        echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
         echo '</div>';
         if ($view === 'month') {
             render_calendar_month($calendarAppointments, $focus);
@@ -3334,9 +3350,12 @@ function appointment_status_options(): array
 {
     return [
         'pre_agendado' => 'Pre-agendado',
+        'agendado' => 'Agendado',
         'confirmado' => 'Confirmado',
         'em_atendimento' => 'Em atendimento',
+        'atendido' => 'Atendido',
         'concluido' => 'Concluido',
+        'finalizado' => 'Finalizado',
         'cancelado' => 'Cancelado',
     ];
 }
@@ -3466,11 +3485,29 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus): v
     while ($cursor <= $end) {
         $date = $cursor->format('Y-m-d');
         $outside = $cursor->format('m') !== $focus->format('m') ? ' muted-day' : '';
-        echo '<div class="calendar-cell' . h($outside) . '"><div class="calendar-date">' . h($cursor->format('d')) . '</div>';
-        foreach (array_slice($byDay[$date] ?? [], 0, 4) as $appointment) {
+        $dayAppointments = $byDay[$date] ?? [];
+        $dayCount = count($dayAppointments);
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + (float)($appointment['value'] ?? 0), 0.0);
+        $dayTone = 'neutral';
+        foreach ($dayAppointments as $appointment) {
+            $tone = appointment_status_tone((string)($appointment['status'] ?? ''));
+            if ($tone === 'danger') {
+                $dayTone = 'danger';
+                break;
+            }
+            if ($tone === 'warn') {
+                $dayTone = 'warn';
+            } elseif ($tone === 'ok' && $dayTone !== 'warn') {
+                $dayTone = 'ok';
+            }
+        }
+        $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
+        echo '<div class="calendar-cell' . h($outside) . '"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($cursor->format('d')) . '</strong></a><span class="badge ' . h($dayTone) . '">' . h((string)$dayCount) . '</span></div>';
+        echo '<div class="calendar-day-summary"><small>' . h(format_money($dayValue)) . '</small><span class="muted">previsto no dia</span></div>';
+        foreach (array_slice($dayAppointments, 0, 4) as $appointment) {
             render_calendar_event($appointment);
         }
-        $extra = count($byDay[$date] ?? []) - 4;
+        $extra = $dayCount - 4;
         if ($extra > 0) {
             echo '<span class="muted">+' . h($extra) . ' horarios</span>';
         }
@@ -3488,11 +3525,15 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus): vo
     for ($i = 0; $i < 7; $i++) {
         $day = $start->modify('+' . $i . ' days');
         $date = $day->format('Y-m-d');
-        echo '<div class="calendar-cell"><div class="calendar-date"><strong>' . h($day->format('d/m')) . '</strong><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
-        foreach ($byDay[$date] ?? [] as $appointment) {
+        $dayAppointments = $byDay[$date] ?? [];
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + (float)($appointment['value'] ?? 0), 0.0);
+        $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
+        echo '<div class="calendar-cell"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong></a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
+        echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos · ' . format_money($dayValue)) . '</small></div>';
+        foreach ($dayAppointments as $appointment) {
             render_calendar_event($appointment);
         }
-        if (empty($byDay[$date])) {
+        if (empty($dayAppointments)) {
             echo '<span class="muted">Livre</span>';
         }
         echo '</div>';
@@ -3532,7 +3573,8 @@ function render_calendar_event(array $appointment): void
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
-    echo '<a class="calendar-event" href="' . h($href) . '" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '</a>';
+    $status = (string)($appointment['status'] ?? '');
+    echo '<a class="calendar-event" href="' . h($href) . '" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span></a>';
 }
 
 function render_calendar_block(array $appointment): void
@@ -3541,9 +3583,10 @@ function render_calendar_block(array $appointment): void
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
     echo '<a class="appointment-block" href="' . h($href) . '" style="border-left-color:' . h($color) . '">';
-    echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5)) . '</strong>';
-    echo '<span>' . h($name) . ' - ' . h($appointment['title']) . '</span>';
-    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . $appointment['status'] . ' | ' . format_money($appointment['value'] ?? 0)) . '</span>';
+    echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
+    echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
+    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($appointment['value'] ?? 0) . ' | sinal ' . format_money($appointment['deposit_value'] ?? 0)) . '</span>';
+    echo '<span class="badge ' . h(appointment_status_tone((string)($appointment['status'] ?? ''))) . '">' . h((string)($appointment['status'] ?? 'sem status')) . '</span>';
     echo '</a>';
 }
 
@@ -3696,7 +3739,7 @@ function render_pipeline_card(array $lead, array $stageNames): void
     if ($phoneLink !== '') {
         echo '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>';
     }
-    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '#lead-appointment-form">Agendar</a>';
+    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '#lead-schedule-form">Agendar</a>';
     echo '</div>';
     echo '<div class="lead-card-actions">';
     foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
@@ -3819,6 +3862,20 @@ function render_quick_replies_table(array $replies): void
         echo '</tr>';
     }
     echo '</tbody></table>';
+}
+
+function appointment_status_tone(string $status): string
+{
+    $status = strtolower(trim($status));
+    return match ($status) {
+        'pre_agendado' => 'warn',
+        'agendado', 'confirmado' => 'ok',
+        'em_atendimento' => 'info',
+        'atendido', 'concluido', 'finalizado' => 'neutral',
+        'cancelado', 'perdido' => 'danger',
+        'pendente' => 'warn',
+        default => 'neutral',
+    };
 }
 
 function studio_relative_time_label(?string $value): string

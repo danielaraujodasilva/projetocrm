@@ -1155,6 +1155,8 @@ textarea {
     background: var(--surface-soft);
     padding: 8px;
     overflow: hidden;
+    display: grid;
+    gap: 8px;
 }
 
 .calendar-cell.muted-day {
@@ -1162,8 +1164,36 @@ textarea {
 }
 
 .calendar-date {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     font-weight: 800;
-    margin-bottom: 7px;
+    margin-bottom: 0;
+}
+
+.calendar-date a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.calendar-date a:hover {
+    text-decoration: underline;
+}
+
+.calendar-day-summary {
+    display: grid;
+    gap: 2px;
+}
+
+.calendar-day-summary small {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.calendar-day-summary .muted {
+    font-size: 11px;
 }
 
 .calendar-event {
@@ -1206,6 +1236,20 @@ textarea {
     padding: 12px;
     cursor: pointer;
     transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.appointment-block .badge {
+    width: fit-content;
+    font-size: 11px;
+}
+
+.appointment-block strong {
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.appointment-block span {
+    line-height: 1.35;
 }
 
 .color-dot {
@@ -2473,6 +2517,10 @@ textarea {
     .calendar-grid.week {
         grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         overflow-x: auto;
+    }
+
+    .pipeline-board {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     }
 
     .conversation-layout {
