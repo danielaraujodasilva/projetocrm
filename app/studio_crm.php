@@ -3787,6 +3787,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $configPrompt = trim((string)($context['settings']['business_rules'] ?? ''));
     $systemPrompt = "Você é o assistente interno de dados do CRM de um estúdio de tatuagem no Brasil.\n"
         . "Responda apenas com base no contexto fornecido no JSON.\n"
+        . "Se a pergunta for curta e objetiva, responda de forma curta e objetiva, sem acrescentar tópicos não solicitados.\n"
         . "Se a pergunta for sobre agenda ou disponibilidade, use o recorte de data e os agendamentos listados, sem inventar horário.\n"
         . "Se a data citada estiver lotada, diga isso de forma curta e aponte o próximo horário livre real, se houver.\n"
         . "Se a pergunta não for claramente sobre agenda, finanças, WhatsApp, leads, clientes ou tatuadores, responda que precisa de mais contexto e sugira reformular.\n"
@@ -3831,6 +3832,32 @@ function studio_data_assistant_answer(array $studio, string $question): array
 
     $lines[] = 'Com base nos dados atuais do estudio:';
     if ($isAgendaQuestion) {
+        if (str_contains($lower, 'livre') || str_contains($lower, 'vaga')) {
+            $nextFreeSlot = '';
+            $nextFreeDay = '';
+            foreach ($availabilityPreview as $day) {
+                $freeSlots = array_values(array_filter(array_map('trim', (array)($day['vagas_livres'] ?? [])), static fn(string $slot): bool => $slot !== ''));
+                if ($freeSlots) {
+                    $nextFreeDay = (string)($day['rotulo'] ?? $day['data'] ?? '');
+                    $nextFreeSlot = $freeSlots[0];
+                    break;
+                }
+            }
+            if ($nextFreeSlot !== '') {
+                $lines[] = '- Proximo horario livre encontrado: ' . $nextFreeDay . ' as ' . $nextFreeSlot . '.';
+                $lines[] = '- Se quiser, eu posso recortar por dia e te mostrar os horarios livres de uma data especifica.';
+            } else {
+                $lines[] = '- Nao encontrei um horario livre rapido no recorte atual.';
+                $lines[] = '- Se quiser, posso analisar uma data especifica.';
+            }
+            return [
+                'question' => $question,
+                'answer' => implode("\n", $lines),
+                'context' => $context,
+                'generated_at' => date('Y-m-d H:i:s'),
+                'source' => 'fallback',
+            ];
+        }
         $appointments = $context['upcoming_appointments'];
         $lines[] = '- Existem ' . count($appointments) . ' proximos agendamentos no recorte rapido.';
         foreach (array_slice($appointments, 0, 6) as $appointment) {
@@ -3858,22 +3885,16 @@ function studio_data_assistant_answer(array $studio, string $question): array
             $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: $conversation['phone']));
             $lines[] = '- ' . $name . ': nota ' . (($conversation['lead_score'] ?? '-') ?: '-') . '/10, modo ' . $conversation['attendance_mode'] . ', ultima mensagem: ' . (($conversation['last_message_preview'] ?? '') ?: '-');
         }
-    } else {
-        $stats = $context['stats'];
-        $lines[] = '- Leads no funil: ' . $stats['leads'] . ', clientes cadastrados: ' . $stats['customers'] . '.';
-        $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($stats['open_value']) . '.';
-        $lines[] = '- Proximos atendimentos: ' . $stats['appointments'] . '.';
-        $lines[] = '- Resultado simples do mes: ' . format_money($stats['month_revenue'] - $stats['month_expenses']) . '.';
-        if ($context['hot_leads']) {
-            $lines[] = 'Leads mais promissores pelo score:';
-        foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
-            $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
-        }
     } elseif ($isCustomerQuestion) {
         $stats = $context['stats'];
-        $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
-        $lines[] = '- Leads cadastrados: ' . $stats['leads'] . '.';
-        $lines[] = '- Conversas WhatsApp: ' . $context['whatsapp']['total'] . '.';
+        if (str_contains($lower, 'lead')) {
+            $lines[] = '- Leads cadastrados: ' . $stats['leads'] . '.';
+        } elseif (str_contains($lower, 'cadastro') || str_contains($lower, 'total')) {
+            $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
+            $lines[] = '- Conversas WhatsApp: ' . $context['whatsapp']['total'] . '.';
+        } else {
+            $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
+        }
     } elseif ($isArtistQuestion) {
         $artists = array_slice($context['artists'] ?: [], 0, 8);
         if (!$artists) {
@@ -3884,13 +3905,34 @@ function studio_data_assistant_answer(array $studio, string $question): array
             }
         }
     } elseif ($isLeadQuestion) {
-        $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
-        $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
-        $lines[] = '- Leads mais promissores pelo score:';
-        foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
-            $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+        if (str_contains($lower, 'quente') || str_contains($lower, 'prior')) {
+            $hotLeads = array_slice($context['hot_leads'], 0, 5);
+            $lines[] = '- Leads mais promissores pelo score:';
+            foreach ($hotLeads as $lead) {
+                $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+            }
+            if (!$hotLeads) {
+                $lines[] = '- Nenhum lead quente encontrado no momento.';
+            }
+        } elseif (str_contains($lower, 'quant') || str_contains($lower, 'tem')) {
+            $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
+            $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
+        } else {
+            $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
+            $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
         }
-    }
+    } else {
+        $stats = $context['stats'];
+        $lines[] = '- Leads no funil: ' . $stats['leads'] . ', clientes cadastrados: ' . $stats['customers'] . '.';
+        $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($stats['open_value']) . '.';
+        $lines[] = '- Proximos atendimentos: ' . $stats['appointments'] . '.';
+        $lines[] = '- Resultado simples do mes: ' . format_money($stats['month_revenue'] - $stats['month_expenses']) . '.';
+        if ($context['hot_leads']) {
+            $lines[] = 'Leads mais promissores pelo score:';
+            foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
+                $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+            }
+        }
     }
 
     $lines[] = '';
