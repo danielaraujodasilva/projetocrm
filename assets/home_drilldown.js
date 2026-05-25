@@ -34,6 +34,22 @@
 
   const badge = (text, tone = 'neutral') => `<span class="drilldown-badge ${tone}">${esc(text)}</span>`;
 
+  const formatDatePt = (value, withTime = false) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '-';
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const date = new Date(normalized);
+    if (Number.isNaN(date.getTime())) return raw;
+    const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    const weekday = (weekdays[date.getDay()] || '').toUpperCase();
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const yyyy = date.getFullYear();
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mi = String(date.getMinutes()).padStart(2, '0');
+    return withTime ? `${weekday} - ${dd}/${mm}/${yyyy} ${hh}:${mi}` : `${weekday} - ${dd}/${mm}/${yyyy}`;
+  };
+
   const card = (href, heading, metaHtml, detail, extraClass = '') =>
     `<a class="drilldown-card ${extraClass}"${href ? ` href="${esc(href)}"` : ''}>` +
     `<strong>${esc(heading)}</strong>` +
@@ -95,7 +111,7 @@
               <div>
                 <strong>${esc(item.label)}</strong>
                 <div class="availability-day-meta">
-                  <span>${esc(item.date)}</span>
+                  <span>${esc(formatDatePt(item.date))}</span>
                   <span>${esc(item.free || freeSlots.length)} livres · ${esc(bookedSlots.length)} ocupadas</span>
                 </div>
               </div>
@@ -156,7 +172,7 @@
       const list = rows.map((item) => {
         const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
         const meta = [
-          item.appointment_date ? badge(item.appointment_date) : '',
+          item.appointment_date ? badge(formatDatePt(item.appointment_date)) : '',
           item.start_time ? badge(item.start_time.slice(0, 5)) : '',
           item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
@@ -203,7 +219,7 @@
     const rows = items.map((item) => {
       const href = item.id ? `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}` : '';
       const meta = [
-        item.last_message_at ? badge(item.last_message_at, 'neutral') : '',
+        item.last_message_at ? badge(formatDatePt(item.last_message_at, true), 'neutral') : '',
         item.attendance_mode ? badge(item.attendance_mode === 'bot' ? 'bot' : 'human', item.attendance_mode === 'bot' ? 'ok' : 'neutral') : '',
       ].filter(Boolean).join('');
       return card(href, item.display_name || item.phone || 'Contato', meta, item.last_message_preview || 'Sem prévia recente.', 'compact');
@@ -259,7 +275,7 @@
       const detail = [
         item.phone ? `Telefone ${item.phone}` : '',
         item.interest || item.description || '',
-        item.updated_at ? `Atualizado ${item.updated_at}` : '',
+        item.updated_at ? `Atualizado ${formatDatePt(item.updated_at, true)}` : '',
       ].filter(Boolean).join(' · ');
       return `
         <div class="drilldown-card compact">
@@ -292,11 +308,11 @@
       const totalValue = rows.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
       const list = rows.map((item) => {
         const href = item.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(item.appointment_date || '')}&appointment_id=${encodeURIComponent(item.id)}#appointment-form` : '';
-        const meta = [
-          item.appointment_date ? badge(item.appointment_date) : '',
-          item.start_time ? badge(item.start_time.slice(0, 5)) : '',
-          item.artist_name ? badge(item.artist_name, 'neutral') : '',
-          item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
+          const meta = [
+            item.appointment_date ? badge(formatDatePt(item.appointment_date)) : '',
+            item.start_time ? badge(item.start_time.slice(0, 5)) : '',
+            item.artist_name ? badge(item.artist_name, 'neutral') : '',
+            item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
         const detailParts = [item.title, item.value_label ? `Valor ${item.value_label}` : (item.value ? `Valor ${money(item.value)}` : ''), item.deposit_label ? `Sinal ${item.deposit_label}` : (item.deposit_value ? `Sinal ${money(item.deposit_value)}` : '')].filter(Boolean);
         return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join(' · ') : 'Abra para editar ou ver detalhes.', 'compact');
@@ -355,7 +371,7 @@
           : `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}`;
         const heading = item.lead_name || item.customer_name || item.name || item.phone || 'Contato da campanha';
         const meta = [
-          item.first_message_at ? badge(item.first_message_at, 'neutral') : '',
+          item.first_message_at ? badge(formatDatePt(item.first_message_at, true), 'neutral') : '',
           item.pipeline_stage ? badge(item.pipeline_stage, 'neutral') : '',
           item.lead_status ? badge(item.lead_status, item.lead_status === 'fechado' ? 'ok' : 'neutral') : '',
           item.phone ? badge(item.phone, 'neutral') : '',
@@ -419,7 +435,7 @@
         ${items.map((item) => {
           const href = `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}`;
           const meta = [
-            item.last_message_at ? badge(item.last_message_at, 'neutral') : '',
+            item.last_message_at ? badge(formatDatePt(item.last_message_at, true), 'neutral') : '',
             item.attendance_mode ? badge(item.attendance_mode === 'bot' ? 'bot' : 'human', item.attendance_mode === 'bot' ? 'ok' : 'neutral') : '',
             item.needs_human ? badge('precisa humano', 'warn') : '',
             item.ai_last_status ? badge(item.ai_last_status, 'neutral') : '',
@@ -444,7 +460,7 @@
           if (kind === 'whatsapp') {
             if (item.status) meta.push(badge(item.status, 'neutral'));
             if (item.phone) meta.push(badge(item.phone, 'neutral'));
-            if (item.last_message_at) meta.push(badge(item.last_message_at, 'neutral'));
+            if (item.last_message_at) meta.push(badge(formatDatePt(item.last_message_at, true), 'neutral'));
             if (item.value) meta.push(badge(item.value, 'ok'));
             const href = item.id ? `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}` : '';
             const detail = [item.description, item.last_message_preview, item.attendance_mode ? `Atendimento ${item.attendance_mode}` : ''].filter(Boolean).join(' · ');
@@ -453,7 +469,7 @@
 
           if (item.status) meta.push(badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral'));
           if (item.phone) meta.push(badge(item.phone, 'neutral'));
-          if (item.last_message_at) meta.push(badge(item.last_message_at, 'neutral'));
+          if (item.last_message_at) meta.push(badge(formatDatePt(item.last_message_at, true), 'neutral'));
           if (item.value) meta.push(badge(item.value, 'ok'));
           const href = item.id ? `index.php?page=studio_lead&id=${encodeURIComponent(item.id)}` : '';
           const detail = item.description || item.last_message_preview || item.interest || item.source || item.email || '';
