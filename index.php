@@ -1335,8 +1335,44 @@ echo '<td>' . h(format_money($appointmentDeposit)) . '</td>';
             echo '<p class="muted">Nenhum lead com atenção prioritária no momento.</p>';
         } else {
             echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Score</th><th>Atualização</th><th>Ações</th></tr></thead><tbody>';
+            $resolveAttentionConversationHref = static function (array $lead) use ($studio): string {
+                $pdo = studio_db($studio);
+                $leadId = (int)($lead['id'] ?? 0);
+                $customerId = (int)($lead['customer_id'] ?? 0);
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+
+                if ($leadId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE lead_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$leadId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                if ($customerId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE customer_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$customerId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                if ($phone !== '') {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE phone = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$phone]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                return app_url('studio_whatsapp');
+            };
             foreach ($attentionLeads as $lead) {
                 $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
+                $conversationHref = $resolveAttentionConversationHref($lead);
                 $stale = false;
                 try {
                     $updatedAt = new DateTimeImmutable((string)($lead['updated_at'] ?? $lead['created_at'] ?? 'now'), new DateTimeZone('America/Sao_Paulo'));
@@ -1350,7 +1386,7 @@ echo '<td>' . h(format_money($appointmentDeposit)) . '</td>';
                 echo '<td><span class="badge">' . h((string)($lead['status'] ?? '-')) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
                 echo '<td><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong>' . ($stale ? '<br><span class="badge warn">parado há 24h+</span>' : '') . '</td>';
                 echo '<td>' . h($lead['updated_at'] ?: $lead['created_at'] ?: '-') . '</td>';
-                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($href) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-schedule-form') . '">Agendar</a></div></td></tr>';
+                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($conversationHref) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-schedule-form') . '">Agendar</a></div></td></tr>';
             }
             echo '</tbody></table>';
         }
