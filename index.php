@@ -814,6 +814,19 @@ if (admin_count() === 0) {
     exit;
 }
 
+if ($page === 'login') {
+    render_auth_page('Entrar como gerente', 'Acesso administrativo da plataforma.', function () {
+        echo '<form class="form" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="login">';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
+        echo '<button class="btn" type="submit">Entrar no painel</button>';
+        echo '</form>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_login') {
     render_auth_page('Entrar no CRM do estudio', 'Acesso operacional do estudio cadastrado.', function () {
         echo '<form class="form" method="post">';
