@@ -13,6 +13,10 @@
     --warn: #a86300;
     --danger: #a33b3b;
     font-family: Arial, Helvetica, sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -22,7 +26,10 @@
 body {
     margin: 0;
     min-height: 100vh;
-    background: var(--bg);
+    background:
+        radial-gradient(circle at top right, rgba(45, 137, 146, .08), transparent 26%),
+        radial-gradient(circle at top left, rgba(179, 84, 65, .06), transparent 28%),
+        var(--bg);
     color: var(--text);
 }
 
@@ -39,12 +46,16 @@ a:hover {
     min-height: 100vh;
     display: grid;
     grid-template-columns: 260px 1fr;
+    align-items: start;
 }
 
 .sidebar {
     background: #16232b;
     color: #eff5f7;
     padding: 22px;
+    position: sticky;
+    top: 0;
+    min-height: 100vh;
 }
 
 .brand {
@@ -84,6 +95,8 @@ a:hover {
 
 .main {
     padding: 26px;
+    width: 100%;
+    min-width: 0;
 }
 
 .topbar {
@@ -92,6 +105,7 @@ a:hover {
     align-items: center;
     gap: 18px;
     margin-bottom: 22px;
+    flex-wrap: wrap;
 }
 
 .topbar h1 {
@@ -157,8 +171,9 @@ a:hover {
 .panel {
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 18px;
+    box-shadow: 0 10px 28px rgba(18, 28, 37, .05);
 }
 
 .panel h2 {
@@ -197,11 +212,20 @@ select,
 textarea {
     width: 100%;
     border: 1px solid var(--line-strong);
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 10px 11px;
     font: inherit;
     background: #fff;
     color: var(--text);
+    transition: border-color .14s ease, box-shadow .14s ease, background-color .14s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: rgba(45, 137, 146, .55);
+    box-shadow: 0 0 0 4px rgba(45, 137, 146, .12);
 }
 
 textarea {
@@ -291,7 +315,7 @@ textarea {
 
 .btn {
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 10px 13px;
     font-weight: 700;
     cursor: pointer;
@@ -301,11 +325,14 @@ textarea {
     background: var(--brand);
     color: #fff;
     text-decoration: none;
+    transition: transform .12s ease, background-color .12s ease, box-shadow .12s ease, border-color .12s ease;
 }
 
 .btn:hover {
     background: var(--brand-dark);
     text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(31, 111, 120, .14);
 }
 
 .btn.secondary {
@@ -316,6 +343,7 @@ textarea {
 
 .btn.secondary:hover {
     background: var(--surface-soft);
+    box-shadow: 0 6px 14px rgba(18, 28, 37, .06);
 }
 
 .btn.tiny {
@@ -350,6 +378,14 @@ textarea {
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: .02em;
+}
+
+.table tr:hover td {
+    background: rgba(45, 137, 146, .03);
+}
+
+.table a {
+    word-break: break-word;
 }
 
 .badge {
@@ -634,6 +670,7 @@ textarea {
     color: var(--text);
     text-decoration: none;
     transition: transform .12s ease, box-shadow .12s ease;
+    border-radius: 12px;
 }
 
 .quick-action-card:hover {
@@ -739,6 +776,7 @@ textarea {
     color: var(--text);
     text-decoration: none;
     transition: transform .12s ease, box-shadow .12s ease;
+    border-radius: 12px;
 }
 
 .dashboard-stat-button {
@@ -809,7 +847,7 @@ textarea {
     min-height: 92px;
     padding: 14px 16px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--surface);
     color: var(--text);
     text-decoration: none;
@@ -1059,11 +1097,12 @@ textarea {
 
 .alert-card {
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 14px;
     background: var(--surface-soft);
     display: grid;
     gap: 10px;
+    box-shadow: 0 8px 20px rgba(18, 28, 37, .04);
 }
 
 .alert-card p {
@@ -1151,7 +1190,7 @@ textarea {
 .calendar-cell {
     min-height: 132px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     background: var(--surface-soft);
     padding: 8px;
     overflow: hidden;
@@ -1231,7 +1270,7 @@ textarea {
     gap: 4px;
     border: 1px solid var(--line);
     border-left: 5px solid var(--brand);
-    border-radius: 8px;
+    border-radius: 12px;
     background: var(--surface-soft);
     padding: 12px;
     cursor: pointer;
@@ -1273,7 +1312,7 @@ textarea {
     min-width: 220px;
     border: 1px solid var(--line);
     border-top: 4px solid var(--stage-color);
-    border-radius: 8px;
+    border-radius: 12px;
     background: var(--surface-soft);
     padding: 12px;
 }
@@ -1327,7 +1366,7 @@ textarea {
     padding: 12px;
     margin-top: 10px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     background: #fff;
 }
 
@@ -1508,7 +1547,7 @@ textarea {
     gap: 8px;
     padding: 14px 15px;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     background: var(--surface-soft);
     color: var(--text);
     text-decoration: none;
@@ -1585,7 +1624,7 @@ textarea {
     gap: 3px;
     padding: 12px 14px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     background: #fff;
 }
 
@@ -1747,7 +1786,7 @@ textarea {
     max-width: min(680px, 82%);
     padding: 9px 11px 7px;
     border: 1px solid var(--line);
-    border-radius: 18px 18px 8px 18px;
+    border-radius: 18px 18px 10px 18px;
     background: #fff;
     box-shadow: 0 1px 1px rgba(0, 0, 0, .05);
 }
@@ -1755,7 +1794,7 @@ textarea {
 .chat-message.out .chat-bubble {
     background: #dff6de;
     border-color: #c9e8c7;
-    border-radius: 18px 18px 18px 8px;
+    border-radius: 18px 18px 18px 10px;
 }
 
 .chat-bubble p {
@@ -1909,7 +1948,7 @@ textarea {
 .availability-day {
     padding: 14px;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 14px;
     background: #fff;
     display: grid;
     gap: 12px;
@@ -1999,7 +2038,7 @@ textarea {
     text-align: left;
     padding: 10px 12px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     background: #fff;
     cursor: pointer;
 }
@@ -2466,7 +2505,7 @@ textarea {
     }
 
     .main {
-        padding: 18px;
+        padding: 16px;
     }
 
     .topbar {
@@ -2480,6 +2519,8 @@ textarea {
 
     .sidebar {
         position: static;
+        min-height: auto;
+        padding: 18px;
     }
 
     .grid.cols-3,
@@ -2532,6 +2573,11 @@ textarea {
         grid-template-columns: 1fr;
     }
 
+    .pipeline-board,
+    .drilldown-card-list {
+        grid-template-columns: 1fr;
+    }
+
     .conversation-main,
     .conversation-side {
         gap: 8px;
@@ -2576,8 +2622,23 @@ textarea {
 
     .btn.tiny,
     .actions .btn,
-    .inline-form .btn {
+    .inline-form .btn,
+    .checkline.compact,
+    .filter-pill,
+    .settings-tab {
         width: auto;
+    }
+
+    .actions,
+    .topbar,
+    .calendar-toolbar,
+    .availability-toolbar {
+        align-items: stretch;
+    }
+
+    .actions .btn,
+    .inline-form .btn {
+        width: 100%;
     }
 
     .public-page-wrap {
