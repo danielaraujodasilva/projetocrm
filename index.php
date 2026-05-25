@@ -2383,6 +2383,10 @@ if ($page === 'studio_whatsapp_conversation') {
         $aiRawStatus = trim((string)($conversation['ai_last_status'] ?? ''));
         $aiStateLabel = $assistantAutofillEnabled ? 'Analisando' : 'Inativa';
         $aiStateTone = $assistantAutofillEnabled ? 'warn' : 'warn';
+        $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
+        if ($assistantAutofillEnabled && $assistantConfidence === 0 && count($messages) > 0) {
+            $assistantConfidence = 35;
+        }
         if ($assistantAutofillEnabled) {
             $aiStateLabel = 'Analisando';
             $aiStateTone = 'warn';
@@ -2419,6 +2423,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span><span class="badge ' . h($aiStateTone) . '" data-ai-state-badge>' . h($aiStateLabel) . '</span><button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button><button class="btn secondary" type="button" data-mode-toggle="human">Humano</button><button class="btn secondary" type="button" data-status-set="novo">Novo</button><button class="btn secondary" type="button" id="openAppointmentModalButton">Agendar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
         echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span></div>';
         echo '<div class="wa-session-summary conversation-status-summary"><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><span data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'pedindo humano' : 'sem pedido humano') . '</span><span data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
+        echo '<div class="mini-metrics conversation-metrics"><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Confiança da leitura</small></span><span><strong>' . h((string)max(0, 100 - $assistantConfidence)) . '%</strong><small>Espaço para melhorar</small></span></div>';
         render_chat_messages($messages);
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
