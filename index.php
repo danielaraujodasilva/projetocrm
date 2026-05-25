@@ -1475,6 +1475,7 @@ if ($page === 'studio_leads') {
         ];
         $focus = strtolower(trim((string)($_GET['focus'] ?? '')));
         $stageFilter = trim((string)($_GET['stage'] ?? ''));
+        $stages = studio_list_pipeline_stages($studio);
         $board = studio_pipeline_board($studio, $filters);
         $allLeads = [];
         $stageNames = [];
@@ -1647,13 +1648,49 @@ if ($page === 'studio_leads') {
                 $attentionCards[$leadId] = $lead;
             }
             $attentionCards = array_slice(array_values($attentionCards), 0, 8);
+            $resolveConversationHref = static function (array $lead) use ($studio): string {
+                $leadId = (int)($lead['id'] ?? 0);
+                $customerId = (int)($lead['customer_id'] ?? 0);
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+                $pdo = studio_db($studio);
+
+                if ($leadId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE lead_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$leadId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                if ($customerId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE customer_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$customerId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                if ($phone !== '') {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE phone = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$phone]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) {
+                        return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                    }
+                }
+
+                return '';
+            };
             echo '<div class="stack-list">';
             foreach ($attentionCards as $lead) {
                 $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
                 $phone = normalize_phone((string)($lead['phone'] ?? ''));
                 $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
-                echo '<a class="activity-card" href="' . h($href) . '">';
-                echo '<strong>' . h($lead['name'] ?: 'Sem nome') . '</strong>';
+                $conversationHref = $resolveConversationHref($lead);
+                echo '<div class="activity-card">';
+                echo '<strong><a href="' . h($href) . '">' . h($lead['name'] ?: 'Sem nome') . '</a></strong>';
                 echo '<span class="muted">' . h(($lead['status'] ?: '-') . ' · ' . ($lead['pipeline_stage'] ?: '-') . ' · ' . ($lead['source'] ?: 'Sem origem')) . '</span>';
                 echo '<span>' . h(($lead['interest'] ?: 'Sem interesse descrito.') . ' · ' . format_money($lead['estimated_value'] ?? 0)) . '</span>';
                 echo '<div class="lead-card-actions lead-card-actions-quick">';
@@ -1665,7 +1702,17 @@ if ($page === 'studio_leads') {
                     echo '<span class="badge">WhatsApp</span>';
                 }
                 echo '</div>';
-                echo '</a>';
+                echo '<div class="lead-card-actions lead-card-actions-quick">';
+                echo '<a class="btn tiny secondary" href="' . h($href) . '">Ver lead</a>';
+                if ($conversationHref !== '') {
+                    echo '<a class="btn tiny secondary" href="' . h($conversationHref) . '">Abrir conversa</a>';
+                }
+                if ($phoneLink !== '') {
+                    echo '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>';
+                }
+                echo '<a class="btn tiny secondary" href="' . h($href . '#lead-schedule-form') . '">Agendar</a>';
+                echo '</div>';
+                echo '</div>';
             }
             echo '</div>';
         }
