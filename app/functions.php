@@ -35,6 +35,44 @@ function app_asset_url(string $path): string
     return app_base_path() . '/' . $path;
 }
 
+function format_date_pt(string $value, bool $withWeekday = true): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '-';
+    }
+
+    try {
+        $tz = new DateTimeZone('America/Sao_Paulo');
+        $date = str_contains($value, ' ') || str_contains($value, 'T')
+            ? new DateTimeImmutable($value, $tz)
+            : new DateTimeImmutable($value . ' 00:00:00', $tz);
+        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][(int)$date->format('w')] ?? '';
+        $label = strtoupper($weekday) . ' - ' . $date->format('d/m/Y');
+        return $withWeekday ? $label : $date->format('d/m/Y');
+    } catch (Throwable) {
+        return $value;
+    }
+}
+
+function format_datetime_pt(string $value, bool $withWeekday = true): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '-';
+    }
+
+    try {
+        $tz = new DateTimeZone('America/Sao_Paulo');
+        $date = new DateTimeImmutable($value, $tz);
+        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][(int)$date->format('w')] ?? '';
+        $label = strtoupper($weekday) . ' - ' . $date->format('d/m/Y H:i');
+        return $withWeekday ? $label : $date->format('d/m/Y H:i');
+    } catch (Throwable) {
+        return $value;
+    }
+}
+
 function redirect_to(string $page = 'dashboard', array $params = []): never
 {
     header('Location: ' . app_url($page, $params));

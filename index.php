@@ -1987,7 +1987,7 @@ if ($page === 'studio_agenda') {
             $selectedDate = (string)($selectedAppointment['appointment_date'] ?? date('Y-m-d'));
             echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Detalhes do agendamento</h2><p class="muted">Clique num item da agenda para revisar, editar ou excluir sem perder o contexto.</p></div><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '">Limpar selecao</a></div>';
             echo '<div class="grid cols-2">';
-            echo '<div class="panel soft"><p class="muted">Quando</p><h3 style="margin-top:0">' . h(date('d/m/Y', strtotime($selectedDate)) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted">' . h($selectedAppointment['status']) . '</p></div>';
+            echo '<div class="panel soft"><p class="muted">Quando</p><h3 style="margin-top:0">' . h(format_date_pt($selectedDate) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted">' . h($selectedAppointment['status']) . '</p></div>';
             echo '<div class="panel soft"><p class="muted">Cliente / Lead</p><h3 style="margin-top:0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
             $selectedValue = appointment_display_amount($selectedAppointment['value'] ?? 0);
             $selectedDeposit = appointment_display_amount($selectedAppointment['deposit_value'] ?? 0);
@@ -2843,7 +2843,7 @@ if ($page === 'studio_reports') {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Agendamento sem nome'),
-'detail' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)),
+'detail' => format_date_pt((string)$appointment['appointment_date']) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $preScheduledNoSignal),
@@ -2869,7 +2869,7 @@ if ($page === 'studio_reports') {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Atendimento'),
-'detail' => substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)) . ' · sinal ' . format_money(appointment_display_amount($appointment['deposit_value'] ?? 0)),
+'detail' => format_date_pt((string)$appointment['appointment_date']) . ' · ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)) . ' · sinal ' . format_money(appointment_display_amount($appointment['deposit_value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $todayAppointments),
@@ -3924,7 +3924,7 @@ function render_calendar_block(array $appointment): void
     $value = appointment_display_amount($appointment['value'] ?? 0);
     $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     echo '<a class="appointment-block" href="' . h($href) . '" style="border-left-color:' . h($color) . '">';
-    echo '<strong>' . h(date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
+    echo '<strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
     echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
     echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     echo '<span class="badge ' . h(appointment_status_tone((string)($appointment['status'] ?? ''))) . '">' . h((string)($appointment['status'] ?? 'sem status')) . '</span>';
@@ -4143,7 +4143,7 @@ function render_appointments_table(array $appointments): void
     }
     echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Tatuador</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
     foreach ($appointments as $appointment) {
-        $date = date('d/m/Y', strtotime((string)$appointment['appointment_date']));
+        $date = format_date_pt((string)$appointment['appointment_date']);
         $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
         echo '<tr>';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
@@ -4166,7 +4166,7 @@ function render_expenses_table(array $expenses): void
     }
     echo '<table class="table"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>';
     foreach ($expenses as $expense) {
-        $date = date('d/m/Y', strtotime((string)$expense['expense_date']));
+        $date = format_date_pt((string)$expense['expense_date']);
         echo '<tr>';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h($expense['payment_method'] ?: '-') . '</span></td>';
         echo '<td><strong>' . h($expense['description']) . '</strong><br><span class="muted">' . h($expense['notes'] ?: '-') . '</span></td>';

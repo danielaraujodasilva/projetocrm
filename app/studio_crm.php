@@ -3421,7 +3421,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         if (!empty($customerActivity['appointments'])) {
             $customerContextLines[] = 'Ultimos agendamentos do cliente:';
             foreach (array_slice($customerActivity['appointments'], 0, 3) as $appointment) {
-                $customerContextLines[] = '- ' . date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (($appointment['artist_name'] ?? '') ?: 'sem tatuador') . ' · ' . (($appointment['status'] ?? '') ?: 'sem status');
+                $customerContextLines[] = '- ' . format_date_pt((string)$appointment['appointment_date']) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (($appointment['artist_name'] ?? '') ?: 'sem tatuador') . ' · ' . (($appointment['status'] ?? '') ?: 'sem status');
             }
         }
     } else {
@@ -3800,7 +3800,7 @@ function studio_data_assistant_answer(array $studio, string $question): array
         $appointments = $context['upcoming_appointments'];
         $lines[] = '- Existem ' . count($appointments) . ' proximos agendamentos no recorte rapido.';
         foreach (array_slice($appointments, 0, 6) as $appointment) {
-            $lines[] = '- ' . date('d/m/Y', strtotime((string)$appointment['appointment_date'])) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ': ' . (($appointment['customer_name'] ?? '') ?: $appointment['title']) . ' com ' . (($appointment['artist_name'] ?? '') ?: 'tatuador nao definido') . ' (' . $appointment['status'] . ').';
+            $lines[] = '- ' . format_date_pt((string)$appointment['appointment_date']) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ': ' . (($appointment['customer_name'] ?? '') ?: $appointment['title']) . ' com ' . (($appointment['artist_name'] ?? '') ?: 'tatuador nao definido') . ' (' . $appointment['status'] . ').';
         }
         if ($context['appointments_by_artist']) {
             $lines[] = 'Por tatuador nos proximos horarios:';
@@ -3993,7 +3993,7 @@ function studio_save_appointment(array $studio, array $data): int
         if ($artistName === '') {
             $artistName = 'esse tatuador';
         }
-        $conflictDate = date('d/m/Y', strtotime((string)$conflict['appointment_date']));
+        $conflictDate = format_date_pt((string)$conflict['appointment_date']);
         $conflictStart = substr((string)$conflict['start_time'], 0, 5);
         $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time']), 0, 5);
         $conflictCustomer = trim((string)($conflict['customer_name'] ?? ''));
@@ -4382,10 +4382,10 @@ function studio_notify_appointment_replacement(array $studio, array $appointment
     }
     $message = studio_format_appointment_message($template, [
         'name' => $appointment['customer_name'] ?: $appointment['title'] ?: 'cliente',
-        'date' => date('d/m/Y', strtotime((string)$appointment['appointment_date'])),
+        'date' => format_date_pt((string)$appointment['appointment_date']),
         'start_time' => substr((string)$appointment['start_time'], 0, 5),
         'end_time' => substr((string)($appointment['end_time'] ?? ''), 0, 5),
-        'new_date' => date('d/m/Y', strtotime((string)$replacement['appointment_date'])),
+        'new_date' => format_date_pt((string)$replacement['appointment_date']),
         'new_start_time' => substr((string)$replacement['start_time'], 0, 5),
         'new_end_time' => substr((string)($replacement['end_time'] ?? ''), 0, 5),
         'studio_name' => (string)($studio['name'] ?? 'estudio'),
