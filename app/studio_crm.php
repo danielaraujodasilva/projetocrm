@@ -1206,6 +1206,7 @@ function studio_whatsapp_service_log_tail(int $maxBytes = 5000): string
 function studio_stats(array $studio): array
 {
     $pdo = studio_db($studio);
+    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
     $stats = [
         'leads' => 0,
         'open_leads' => 0,
@@ -1227,7 +1228,9 @@ function studio_stats(array $studio): array
     $stats['month_signals'] = (float)$pdo->query("SELECT COALESCE(SUM(deposit_value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
     $stats['human_conversations'] = (int)$pdo->query("SELECT COUNT(*) FROM whatsapp_conversations WHERE needs_human = 1")->fetchColumn();
     $stats['open_value'] = (float)$pdo->query("SELECT COALESCE(SUM(estimated_value), 0) FROM leads WHERE status NOT IN ('perdido', 'fechado')")->fetchColumn();
-    $stats['month_revenue'] = (float)$pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')");
+    $stmt->execute([$pomadaUnit]);
+    $stats['month_revenue'] = (float)$stmt->fetchColumn();
     $stats['month_expenses'] = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE DATE_FORMAT(expense_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")->fetchColumn();
     $stats['whatsapp_conversations'] = (int)$pdo->query('SELECT COUNT(*) FROM whatsapp_conversations')->fetchColumn();
 
@@ -1642,6 +1645,7 @@ function studio_calendar_appointments(array $studio, string $startDate, string $
 function studio_finance_summary(array $studio): array
 {
     $pdo = studio_db($studio);
+    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
     $summary = [
         'appointments_month' => 0.0,
         'expenses_month' => 0.0,
@@ -1649,7 +1653,14 @@ function studio_finance_summary(array $studio): array
         'balance_month' => 0.0,
         'by_category' => [],
     ];
-    $summary['appointments_month'] = (float)$pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
+    $stmt = $pdo->prepare(
+        "SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0)
+         FROM appointments
+         WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
+           AND status NOT IN ('cancelado')"
+    );
+    $stmt->execute([$pomadaUnit]);
+    $summary['appointments_month'] = (float)$stmt->fetchColumn();
     $summary['expenses_month'] = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE DATE_FORMAT(expense_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")->fetchColumn();
     $summary['expenses_total'] = (float)$pdo->query('SELECT COALESCE(SUM(amount), 0) FROM expenses')->fetchColumn();
     $summary['balance_month'] = $summary['appointments_month'] - $summary['expenses_month'];

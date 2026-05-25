@@ -3503,6 +3503,17 @@ function appointments_by_day(array $appointments): array
     return $grouped;
 }
 
+function appointment_effective_value(array $appointment): float
+{
+    $value = money_to_float((string)($appointment['value'] ?? '0'));
+    $deposit = money_to_float((string)($appointment['deposit_value'] ?? '0'));
+    $pomadas = max(0, (int)($appointment['pomadas_quantity'] ?? 0));
+    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
+    $effective = $value + ($pomadas * $pomadaUnit) - $deposit;
+
+    return max(0.0, $effective);
+}
+
 function render_calendar_month(array $appointments, DateTimeImmutable $focus): void
 {
     $byDay = appointments_by_day($appointments);
@@ -3520,7 +3531,7 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus): v
         $outside = $cursor->format('m') !== $focus->format('m') ? ' muted-day' : '';
         $dayAppointments = $byDay[$date] ?? [];
         $dayCount = count($dayAppointments);
-        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + (float)($appointment['value'] ?? 0), 0.0);
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
         $dayTone = 'neutral';
         foreach ($dayAppointments as $appointment) {
             $tone = appointment_status_tone((string)($appointment['status'] ?? ''));
@@ -3559,7 +3570,7 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus): vo
         $day = $start->modify('+' . $i . ' days');
         $date = $day->format('Y-m-d');
         $dayAppointments = $byDay[$date] ?? [];
-        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + (float)($appointment['value'] ?? 0), 0.0);
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
         $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
         echo '<div class="calendar-cell"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong></a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
         echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos · ' . format_money($dayValue)) . '</small></div>';
@@ -3581,6 +3592,8 @@ function render_calendar_day(array $appointments, DateTimeImmutable $focus): voi
         echo '<p class="muted">Nenhum agendamento neste dia.</p>';
         return;
     }
+    $dayTotal = array_reduce($appointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
+    echo '<div class="calendar-day-summary" style="margin-bottom:12px"><small>' . h(format_money($dayTotal)) . '</small><span class="muted">previsto no dia considerando pomadas e sinal</span></div>';
     echo '<div class="stack-list">';
     foreach ($appointments as $appointment) {
         render_calendar_block($appointment);
