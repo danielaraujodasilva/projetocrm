@@ -3817,8 +3817,8 @@ function studio_data_assistant_answer(array $studio, string $question): array
         }
     }
 
-    $lines = [];
     if ($needsClarification) {
+        $lines = [];
         $lines[] = 'Eu consigo ajudar com agenda, finanças, WhatsApp, leads, clientes e tatuadores.';
         $lines[] = 'A sua pergunta ficou ampla demais para eu responder com precisão.';
         $lines[] = 'Tente reformular com um foco mais claro, por exemplo: agenda do dia, próximos horários livres, leads quentes, conversas sem resposta ou resultado do mês.';
@@ -3831,7 +3831,6 @@ function studio_data_assistant_answer(array $studio, string $question): array
         ];
     }
 
-    $lines[] = 'Com base nos dados atuais do estudio:';
     if ($isAgendaQuestion) {
         if (str_contains($lower, 'livre') || str_contains($lower, 'vaga')) {
             $nextFreeSlot = '';
@@ -3845,88 +3844,141 @@ function studio_data_assistant_answer(array $studio, string $question): array
                 }
             }
             if ($nextFreeSlot !== '') {
-                $lines[] = '- Proximo horario livre encontrado: ' . $nextFreeDay . ' as ' . $nextFreeSlot . '.';
-                $lines[] = '- Se quiser, eu posso recortar por dia e te mostrar os horarios livres de uma data especifica.';
+                $answer = 'O próximo horário livre que encontrei é ' . $nextFreeDay . ' às ' . $nextFreeSlot . '. Se quiser, eu também posso olhar um dia específico para você.';
             } else {
-                $lines[] = '- Nao encontrei um horario livre rapido no recorte atual.';
-                $lines[] = '- Se quiser, posso analisar uma data especifica.';
+                $answer = 'Não encontrei um horário livre rápido no recorte atual. Se quiser, eu posso analisar uma data específica.';
             }
             return [
                 'question' => $question,
-                'answer' => implode("\n", $lines),
+                'answer' => $answer,
                 'context' => $context,
                 'generated_at' => date('Y-m-d H:i:s'),
                 'source' => 'fallback',
             ];
         }
         $appointments = $context['upcoming_appointments'];
-        $lines[] = '- Existem ' . count($appointments) . ' proximos agendamentos no recorte rapido.';
+        $parts = [];
+        $parts[] = 'No recorte rápido, encontrei ' . count($appointments) . ' próximos agendamentos.';
         foreach (array_slice($appointments, 0, 6) as $appointment) {
-            $lines[] = '- ' . format_date_pt((string)$appointment['appointment_date']) . ' as ' . substr((string)$appointment['start_time'], 0, 5) . ': ' . (($appointment['customer_name'] ?? '') ?: $appointment['title']) . ' com ' . (($appointment['artist_name'] ?? '') ?: 'tatuador nao definido') . ' (' . $appointment['status'] . ').';
+            $parts[] = format_date_pt((string)$appointment['appointment_date']) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ': ' . (($appointment['customer_name'] ?? '') ?: $appointment['title']) . ' com ' . (($appointment['artist_name'] ?? '') ?: 'tatuador nao definido') . ' (' . $appointment['status'] . ').';
         }
         if ($context['appointments_by_artist']) {
-            $lines[] = 'Por tatuador nos proximos horarios:';
+            $artistParts = [];
             foreach ($context['appointments_by_artist'] as $row) {
-                $lines[] = '- ' . $row['artist'] . ': ' . (int)$row['qtd'] . ' agendamentos, ' . format_money($row['total'] ?? 0) . '.';
+                $artistParts[] = $row['artist'] . ': ' . (int)$row['qtd'] . ' agendamentos, ' . format_money($row['total'] ?? 0);
             }
+            $parts[] = 'Por tatuador, o recorte atual mostra ' . implode('; ', $artistParts) . '.';
         }
+        $answer = implode(' ', $parts);
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     } elseif ($isFinanceQuestion) {
         $finance = $context['finance'];
-        $lines[] = '- Agenda do mes: ' . format_money($finance['appointments_month']);
-        $lines[] = '- Despesas do mes: ' . format_money($finance['expenses_month']);
-        $lines[] = '- Resultado simples do mes: ' . format_money($finance['balance_month']);
+        $answer = 'No mês, a agenda soma ' . format_money($finance['appointments_month']) . ', as despesas somam ' . format_money($finance['expenses_month']) . ' e o resultado simples fica em ' . format_money($finance['balance_month']) . '.';
         foreach (array_slice($finance['by_category'], 0, 6) as $row) {
-            $lines[] = '- Despesa em ' . (($row['category'] ?? '') ?: 'Geral') . ': ' . format_money($row['total'] ?? 0) . '.';
+            $answer .= ' ' . 'A categoria ' . (($row['category'] ?? '') ?: 'Geral') . ' concentra ' . format_money($row['total'] ?? 0) . '.';
         }
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     } elseif ($isWhatsappQuestion) {
         $wa = $context['whatsapp'];
-        $lines[] = '- WhatsApp tem ' . $wa['total'] . ' conversas, ' . $wa['bot'] . ' em IA e ' . $wa['human'] . ' em humano.';
-        $lines[] = '- ' . $wa['needs_human'] . ' conversas estao marcadas como pedindo humano.';
+        $answer = 'No WhatsApp, encontrei ' . $wa['total'] . ' conversas, sendo ' . $wa['bot'] . ' em IA e ' . $wa['human'] . ' em humano. ' . $wa['needs_human'] . ' conversas estão pedindo humano.';
+        $names = [];
         foreach (array_slice($context['whatsapp_conversations'], 0, 6) as $conversation) {
             $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: $conversation['phone']));
-            $lines[] = '- ' . $name . ': nota ' . (($conversation['lead_score'] ?? '-') ?: '-') . '/10, modo ' . $conversation['attendance_mode'] . ', ultima mensagem: ' . (($conversation['last_message_preview'] ?? '') ?: '-');
+            $names[] = $name . ' (nota ' . (($conversation['lead_score'] ?? '-') ?: '-') . '/10, modo ' . $conversation['attendance_mode'] . ', última mensagem: ' . (($conversation['last_message_preview'] ?? '') ?: '-') . ')';
         }
+        if ($names) {
+            $answer .= ' As conversas mais visíveis agora são: ' . implode('; ', $names) . '.';
+        }
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     } elseif ($isCustomerQuestion) {
         $stats = $context['stats'];
+        $answer = '';
+        $customerLabel = ((int)$stats['customers'] === 1) ? '1 cliente cadastrado' : ((int)$stats['customers'] . ' clientes cadastrados');
+        $leadLabel = ((int)$stats['leads'] === 1) ? '1 lead cadastrado' : ((int)$stats['leads'] . ' leads cadastrados');
         if (str_contains($lower, 'lead')) {
-            $lines[] = '- Leads cadastrados: ' . $stats['leads'] . '.';
+            $answer = 'Hoje você tem ' . $leadLabel . '.';
         } elseif (str_contains($lower, 'cadastro') || str_contains($lower, 'total')) {
-            $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
-            $lines[] = '- Conversas WhatsApp: ' . $context['whatsapp']['total'] . '.';
+            $answer = 'Hoje você tem ' . $customerLabel . ' e ' . $context['whatsapp']['total'] . ' conversas no WhatsApp.';
         } else {
-            $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
+            $answer = 'Hoje você tem ' . $customerLabel . '.';
         }
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     } elseif ($isArtistQuestion) {
         $artists = array_slice($context['artists'] ?: [], 0, 8);
         if (!$artists) {
-            $lines[] = '- Nenhum tatuador cadastrado no momento.';
+            $answer = 'Não encontrei tatuadores cadastrados no momento.';
         } else {
+            $names = [];
             foreach ($artists as $artist) {
-                $lines[] = '- ' . (($artist['name'] ?? '') ?: 'Sem nome') . ' · ' . (($artist['specialty'] ?? '') ?: 'sem especialidade') . ' · ' . (!empty($artist['is_active']) ? 'ativo' : 'inativo') . '.';
+                $names[] = (($artist['name'] ?? '') ?: 'Sem nome') . ' (' . (($artist['specialty'] ?? '') ?: 'sem especialidade') . ', ' . (!empty($artist['is_active']) ? 'ativo' : 'inativo') . ')';
             }
+            $answer = 'Os tatuadores cadastrados são: ' . implode('; ', $names) . '.';
         }
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     } elseif ($isLeadQuestion) {
         if (str_contains($lower, 'quente') || str_contains($lower, 'prior')) {
             $hotLeads = array_slice($context['hot_leads'], 0, 5);
-            $lines[] = '- Leads mais promissores pelo score:';
+            $names = [];
             foreach ($hotLeads as $lead) {
-                $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+                $names[] = (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ' (' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . ')';
             }
             if (!$hotLeads) {
-                $lines[] = '- Nenhum lead quente encontrado no momento.';
+                $answer = 'Não encontrei leads quentes no momento.';
+            } else {
+                $answer = 'Os leads mais promissores agora são: ' . implode('; ', $names) . '.';
             }
         } elseif (str_contains($lower, 'quant') || str_contains($lower, 'tem')) {
-            $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
-            $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
+            $answer = 'Você tem ' . $context['stats']['leads'] . ' leads no funil e ' . format_money($context['stats']['open_value']) . ' em oportunidades abertas.';
         } else {
-            $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
-            $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
+            $answer = 'Você tem ' . $context['stats']['leads'] . ' leads no funil e ' . format_money($context['stats']['open_value']) . ' em oportunidades abertas.';
         }
+        return [
+            'question' => $question,
+            'answer' => $answer,
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
     }
 
+    $stats = $context['stats'];
+    $leadLabel = ((int)$stats['leads'] === 1) ? '1 lead' : ((int)$stats['leads'] . ' leads');
+    $customerLabel = ((int)$stats['customers'] === 1) ? '1 cliente' : ((int)$stats['customers'] . ' clientes');
+    $appointmentLabel = ((int)$stats['appointments'] === 1) ? '1 próximo agendamento' : ((int)$stats['appointments'] . ' próximos agendamentos');
+    $answer = 'Hoje, o estúdio tem ' . $leadLabel . ', ' . $customerLabel . ', ' . $appointmentLabel . ' e ' . format_money($stats['month_revenue'] - $stats['month_expenses']) . ' de resultado simples no mês.';
     return [
         'question' => $question,
-        'answer' => implode("\n", $lines),
+        'answer' => $answer,
         'context' => $context,
         'generated_at' => date('Y-m-d H:i:s'),
         'source' => 'fallback',
