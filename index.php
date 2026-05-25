@@ -1894,16 +1894,7 @@ if ($page === 'studio_agenda') {
         echo '<div class="field"><label>Descricao</label><textarea name="description" placeholder="Detalhes do atendimento, local do corpo, referencia, observacoes...">' . h($selectedAppointment['description'] ?? '') . '</textarea></div>';
         echo '<button class="btn" type="submit">' . h($selectedAppointment ? 'Salvar alteracoes' : 'Salvar horario') . '</button>';
         echo '</form>';
-        echo '<div class="panel"><h2>Tatuadores</h2>';
-        render_artists_table($artists);
-        echo '<form class="form" method="post" style="margin-top:14px">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_artist">';
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do tatuador" required></div><div class="field"><label>Cor</label><input type="color" name="color" value="#1f6f78"></div></div>';
-        echo '<div class="field"><label>Especialidade</label><input name="specialty" placeholder="Fine line, blackwork, realismo..."></div>';
-        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Tatuador ativo</label>';
-        echo '<button class="btn secondary" type="submit">Adicionar tatuador</button>';
-        echo '</form></div></section>';
+        echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><h2>Agenda cadastrada</h2>';
         render_appointments_table($appointments);
         echo '</section>';
@@ -2841,6 +2832,7 @@ if ($page === 'studio_settings') {
             return;
         }
         $settings = studio_settings($studio);
+        $artists = studio_list_artists($studio);
         $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
         $activeTab = (string)($_GET['tab'] ?? 'studio');
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
@@ -2958,6 +2950,22 @@ if ($page === 'studio_settings') {
 
         echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit" form="studioSettingsForm">Salvar configurações</button></div>';
         echo '</form>';
+
+        echo '<div class="settings-panel" id="settings-tattooers" data-settings-panel="tattooers">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Tatuadores</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="panel soft">';
+        echo '<p class="muted">Cadastre e gerencie os tatuadores que aparecem na agenda e nos agendamentos do estúdio.</p>';
+        render_artists_table($artists);
+        echo '<form class="form" method="post" style="margin-top:14px">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_artist">';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do tatuador" required></div><div class="field"><label>Cor</label><input type="color" name="color" value="#1f6f78"></div></div>';
+        echo '<div class="field"><label>Especialidade</label><input name="specialty" placeholder="Fine line, blackwork, realismo..."></div>';
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Tatuador ativo</label>';
+        echo '<button class="btn secondary" type="submit">Adicionar tatuador</button>';
+        echo '</form>';
+        echo '</div>';
+        echo '</div>';
 
         echo '<div class="settings-panel" id="settings-quick-replies" data-settings-panel="quick_replies">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Respostas rápidas</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
