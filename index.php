@@ -1235,7 +1235,7 @@ if ($page === 'studio_home') {
         echo '<section class="panel dashboard-hero" style="margin-bottom:16px">';
         echo '<div class="dashboard-hero-copy">';
         echo '<p class="muted" style="margin:0 0 6px">Hoje, ' . h($current->format('d/m/Y')) . '</p>';
-        echo '<div class="dashboard-hero-title"><h2 style="margin:0">' . h($studio['name'] ?? 'Estudio') . '</h2><span class="badge ' . h($dbStatus['ok'] ? 'ok' : 'danger') . '">' . h(current_studio_plan_name()) . '</span><span class="badge ' . h($plan_allows('whatsapp') ? 'ok' : 'warn') . '">' . h($whatsappState) . '</span></div>';
+        echo '<div class="dashboard-hero-title"><h2 style="margin:0">' . h($studio['name'] ?? 'Estudio') . '</h2><span class="badge ' . h($dbStatus['ok'] ? 'ok' : 'danger') . '">' . h(current_studio_plan_name()) . '</span><span class="badge ' . h(plan_allows('whatsapp') ? 'ok' : 'warn') . '">' . h($whatsappState) . '</span></div>';
         echo '<p class="muted" style="margin:8px 0 0">Painel operacional do estúdio com agenda, leads, WhatsApp, financeiro e alertas do dia.</p>';
         echo '</div>';
         echo '<div class="dashboard-hero-actions">';
