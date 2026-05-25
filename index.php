@@ -454,7 +454,7 @@ function render_head(string $title): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body>';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="v' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
 }
 
 function render_public_head(string $title, string $description): void
@@ -465,7 +465,7 @@ function render_public_head(string $title, string $description): void
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
     echo '</head><body class="public-page">';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="v' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="v' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
 }
 
 function render_flash(?array $flash): void
