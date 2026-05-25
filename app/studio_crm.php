@@ -3641,9 +3641,13 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $config = studio_openai_config($studio);
     $tz = new DateTimeZone('America/Sao_Paulo');
     $lower = function_exists('mb_strtolower') ? mb_strtolower($question, 'UTF-8') : strtolower($question);
-    $isAgendaQuestion = str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'calendario');
-    $isFinanceQuestion = str_contains($lower, 'finance') || str_contains($lower, 'fatur') || str_contains($lower, 'despesa') || str_contains($lower, 'resultado');
-    $isWhatsappQuestion = str_contains($lower, 'whatsapp') || str_contains($lower, 'conversa') || str_contains($lower, 'atencao') || str_contains($lower, 'humano');
+    $isAgendaQuestion = str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'calendario') || str_contains($lower, 'vaga') || str_contains($lower, 'livre') || str_contains($lower, 'marcar') || str_contains($lower, 'remarcar');
+    $isFinanceQuestion = str_contains($lower, 'finance') || str_contains($lower, 'fatur') || str_contains($lower, 'despesa') || str_contains($lower, 'resultado') || str_contains($lower, 'ticket') || str_contains($lower, 'receita') || str_contains($lower, 'custo');
+    $isWhatsappQuestion = str_contains($lower, 'whatsapp') || str_contains($lower, 'conversa') || str_contains($lower, 'atencao') || str_contains($lower, 'humano') || str_contains($lower, 'mensagem') || str_contains($lower, 'chat');
+    $isLeadQuestion = str_contains($lower, 'lead') || str_contains($lower, 'funil') || str_contains($lower, 'pipeline') || str_contains($lower, 'orçamento') || str_contains($lower, 'orcamento') || str_contains($lower, 'prioridade') || str_contains($lower, 'quente');
+    $isCustomerQuestion = str_contains($lower, 'cliente') || str_contains($lower, 'clientes') || str_contains($lower, 'cadastro');
+    $isArtistQuestion = str_contains($lower, 'tatuador') || str_contains($lower, 'artista') || str_contains($lower, 'tatuadores');
+    $hasRecognizedTopic = $isAgendaQuestion || $isFinanceQuestion || $isWhatsappQuestion || $isLeadQuestion || $isCustomerQuestion || $isArtistQuestion;
 
     $summarizeAppointment = static function (array $appointment): array {
         return [
@@ -3764,6 +3768,16 @@ function studio_data_assistant_answer(array $studio, string $question): array
     if (!$isAgendaQuestion && !$isFinanceQuestion && !$isWhatsappQuestion) {
         $assistantContext['leads'] = [
             'prioritarios' => array_slice(array_map($summarizeLead, $context['hot_leads'] ?: []), 0, 5),
+            'por_status' => array_slice(array_map(static fn(array $row): array => [
+                'status' => (string)($row['status'] ?? ''),
+                'quantidade' => (int)($row['qtd'] ?? 0),
+                'total' => (float)($row['total'] ?? 0),
+            ], $context['leads_by_status'] ?: []), 0, 5),
+            'por_origem' => array_slice(array_map(static fn(array $row): array => [
+                'origem' => (string)($row['source'] ?? ''),
+                'quantidade' => (int)($row['qtd'] ?? 0),
+                'total' => (float)($row['total'] ?? 0),
+            ], $context['leads_by_source'] ?: []), 0, 5),
         ];
     }
 
@@ -3775,18 +3789,25 @@ function studio_data_assistant_answer(array $studio, string $question): array
         . "Responda apenas com base no contexto fornecido no JSON.\n"
         . "Se a pergunta for sobre agenda ou disponibilidade, use o recorte de data e os agendamentos listados, sem inventar horário.\n"
         . "Se a data citada estiver lotada, diga isso de forma curta e aponte o próximo horário livre real, se houver.\n"
+        . "Se a pergunta não for claramente sobre agenda, finanças, WhatsApp, leads, clientes ou tatuadores, responda que precisa de mais contexto e sugira reformular.\n"
         . "Se faltar dado, diga que não há informação suficiente.\n"
         . "Nunca exponha dados de outros clientes além do recorte fornecido.\n"
         . "Responda em português do Brasil, com tom humano, direto e útil, sem dizer que você é IA.\n"
         . ($configPrompt !== '' ? "\nRegras adicionais do estúdio:\n" . $configPrompt . "\n" : '')
-        . "\nFormato esperado: uma resposta curta, clara e prática.";
+        . "\nFormato esperado: uma resposta curta, clara e prática. Se não houver dados suficientes, responda explicitamente com isso e faça uma única pergunta de clarificação.";
 
     if ($config['api_key'] !== '') {
         $aiResult = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $assistantContextJson, $config['base_url'], 60);
-        if (!empty($aiResult['ok']) && trim((string)($aiResult['reply_text'] ?? '')) !== '') {
+        $replyText = trim((string)($aiResult['reply_text'] ?? ''));
+        $looksGeneric = $replyText !== '' && (
+            str_contains(function_exists('mb_strtolower') ? mb_strtolower($replyText, 'UTF-8') : strtolower($replyText), 'com base nos dados atuais')
+            || str_contains(function_exists('mb_strtolower') ? mb_strtolower($replyText, 'UTF-8') : strtolower($replyText), 'sugestao pratica')
+            || str_contains(function_exists('mb_strtolower') ? mb_strtolower($replyText, 'UTF-8') : strtolower($replyText), 'priorizar contatos')
+        );
+        if (!empty($aiResult['ok']) && $replyText !== '' && !$looksGeneric) {
             return [
                 'question' => $question,
-                'answer' => trim((string)$aiResult['reply_text']),
+                'answer' => $replyText,
                 'context' => $context,
                 'generated_at' => date('Y-m-d H:i:s'),
                 'source' => 'ai',
@@ -3795,6 +3816,19 @@ function studio_data_assistant_answer(array $studio, string $question): array
     }
 
     $lines = [];
+    if (!$hasRecognizedTopic) {
+        $lines[] = 'Eu consigo ajudar com agenda, finanças, WhatsApp, leads, clientes e tatuadores.';
+        $lines[] = 'A sua pergunta ficou ampla demais para eu responder com precisão.';
+        $lines[] = 'Tente reformular com um destes focos: agenda do dia, próximos horários livres, leads quentes, conversas sem resposta ou resultado do mês.';
+        return [
+            'question' => $question,
+            'answer' => implode("\n", $lines),
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'fallback',
+        ];
+    }
+
     $lines[] = 'Com base nos dados atuais do estudio:';
     if ($isAgendaQuestion) {
         $appointments = $context['upcoming_appointments'];
@@ -3832,10 +3866,31 @@ function studio_data_assistant_answer(array $studio, string $question): array
         $lines[] = '- Resultado simples do mes: ' . format_money($stats['month_revenue'] - $stats['month_expenses']) . '.';
         if ($context['hot_leads']) {
             $lines[] = 'Leads mais promissores pelo score:';
-            foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
-                $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+        foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
+            $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+        }
+    } elseif ($isCustomerQuestion) {
+        $stats = $context['stats'];
+        $lines[] = '- Clientes cadastrados: ' . $stats['customers'] . '.';
+        $lines[] = '- Leads cadastrados: ' . $stats['leads'] . '.';
+        $lines[] = '- Conversas WhatsApp: ' . $context['whatsapp']['total'] . '.';
+    } elseif ($isArtistQuestion) {
+        $artists = array_slice($context['artists'] ?: [], 0, 8);
+        if (!$artists) {
+            $lines[] = '- Nenhum tatuador cadastrado no momento.';
+        } else {
+            foreach ($artists as $artist) {
+                $lines[] = '- ' . (($artist['name'] ?? '') ?: 'Sem nome') . ' · ' . (($artist['specialty'] ?? '') ?: 'sem especialidade') . ' · ' . (!empty($artist['is_active']) ? 'ativo' : 'inativo') . '.';
             }
         }
+    } elseif ($isLeadQuestion) {
+        $lines[] = '- Leads no funil: ' . $context['stats']['leads'] . '.';
+        $lines[] = '- Valor estimado em oportunidades abertas: ' . format_money($context['stats']['open_value']) . '.';
+        $lines[] = '- Leads mais promissores pelo score:';
+        foreach (array_slice($context['hot_leads'], 0, 7) as $lead) {
+            $lines[] = '- ' . (($lead['name'] ?? '') ?: ($lead['phone'] ?? 'Sem nome')) . ': ' . (($lead['lead_score'] ?? '-') ?: '-') . '/10, ' . (($lead['interest'] ?? '') ?: 'sem interesse descrito') . ', status ' . $lead['status'] . '.';
+        }
+    }
     }
 
     $lines[] = '';
