@@ -14,6 +14,12 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
   `whatsapp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human',
   `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010',
+  `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5',
+  `appointment_time_slots` VARCHAR(80) NOT NULL DEFAULT '10:00,15:00',
+  `appointment_duration_minutes` INT NOT NULL DEFAULT 300,
+  `appointment_overwrite_message` TEXT NULL,
+  `meta_campaign_phrases` TEXT NULL,
+  `pomada_unit_price` DECIMAL(10,2) NOT NULL DEFAULT 100.00,
   `whatsapp_webhook_token` VARCHAR(120) NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
@@ -23,6 +29,12 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
 ALTER TABLE `studio_settings`
   ADD COLUMN IF NOT EXISTS `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human' AFTER `whatsapp_enabled`,
   ADD COLUMN IF NOT EXISTS `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010' AFTER `whatsapp_default_mode`,
+  ADD COLUMN IF NOT EXISTS `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5' AFTER `whatsapp_service_url`,
+  ADD COLUMN IF NOT EXISTS `appointment_time_slots` VARCHAR(80) NOT NULL DEFAULT '10:00,15:00' AFTER `appointment_work_days`,
+  ADD COLUMN IF NOT EXISTS `appointment_duration_minutes` INT NOT NULL DEFAULT 300 AFTER `appointment_time_slots`,
+  ADD COLUMN IF NOT EXISTS `appointment_overwrite_message` TEXT NULL AFTER `appointment_duration_minutes`,
+  ADD COLUMN IF NOT EXISTS `meta_campaign_phrases` TEXT NULL AFTER `appointment_overwrite_message`,
+  ADD COLUMN IF NOT EXISTS `pomada_unit_price` DECIMAL(10,2) NOT NULL DEFAULT 100.00 AFTER `meta_campaign_phrases`,
   ADD COLUMN IF NOT EXISTS `whatsapp_webhook_token` VARCHAR(120) NULL AFTER `whatsapp_service_url`;
 
 INSERT INTO `studio_settings`
@@ -139,6 +151,8 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `status` VARCHAR(60) NOT NULL DEFAULT 'pre_agendado',
   `value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `deposit_value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `pomada_unit_price` DECIMAL(10,2) NULL,
+  `pomadas_quantity` INT NOT NULL DEFAULT 0,
   `import_source` VARCHAR(40) NULL,
   `import_uid` VARCHAR(190) NULL,
   `raw_title` VARCHAR(260) NULL,
@@ -165,6 +179,8 @@ ALTER TABLE `appointments`
   ADD COLUMN IF NOT EXISTS `import_source` VARCHAR(40) NULL AFTER `deposit_value`,
   ADD COLUMN IF NOT EXISTS `import_uid` VARCHAR(190) NULL AFTER `import_source`,
   ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `import_uid`,
+  ADD COLUMN IF NOT EXISTS `pomada_unit_price` DECIMAL(10,2) NULL AFTER `deposit_value`,
+  ADD COLUMN IF NOT EXISTS `pomadas_quantity` INT NOT NULL DEFAULT 0 AFTER `pomada_unit_price`,
   ADD UNIQUE KEY IF NOT EXISTS `uk_appointments_import_uid` (`import_source`, `import_uid`),
   ADD INDEX IF NOT EXISTS `idx_appointments_artist` (`artist_id`);
 

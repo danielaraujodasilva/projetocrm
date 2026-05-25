@@ -691,6 +691,18 @@ function studio_windows_cmd_arg(string $value): string
     return '"' . str_replace('"', '', $value) . '"';
 }
 
+function studio_pomada_unit_price(array $studio): float
+{
+    $settings = studio_settings($studio);
+    $value = $settings['pomada_unit_price'] ?? null;
+    if ($value !== null && $value !== '') {
+        return max(0.0, (float)$value);
+    }
+
+    $appValue = app_config('app')['pomada_unit_price'] ?? 100;
+    return max(0.0, (float)$appValue);
+}
+
 function studio_windows_whatsapp_start_cmd(string $servicePath, string $logFile): string
 {
     $nodeExe = trim((string)(getenv('NODE_EXE') ?: 'node'));
@@ -1206,7 +1218,7 @@ function studio_whatsapp_service_log_tail(int $maxBytes = 5000): string
 function studio_stats(array $studio): array
 {
     $pdo = studio_db($studio);
-    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
+    $pomadaUnit = studio_pomada_unit_price($studio);
     $stats = [
         'leads' => 0,
         'open_leads' => 0,
@@ -1645,7 +1657,7 @@ function studio_calendar_appointments(array $studio, string $startDate, string $
 function studio_finance_summary(array $studio): array
 {
     $pdo = studio_db($studio);
-    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
+    $pomadaUnit = studio_pomada_unit_price($studio);
     $summary = [
         'appointments_month' => 0.0,
         'expenses_month' => 0.0,
@@ -3733,6 +3745,7 @@ function studio_save_appointment(array $studio, array $data): int
     $artistId = $normalized['artist_id'] ?: null;
     $leadId = (int)$normalized['lead_id'];
     $customerId = (int)$normalized['customer_id'];
+    $pomadaUnitPrice = studio_pomada_unit_price($studio);
     $values = [
         $customerId ?: null,
         $leadId ?: null,
@@ -3800,11 +3813,26 @@ function studio_save_appointment(array $studio, array $data): int
 
     $stmt = $pdo->prepare(
         'INSERT INTO appointments
-            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomadas_quantity, import_source, import_uid, raw_title, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, pomada_unit_price, pomadas_quantity, import_source, import_uid, raw_title, reference_image_path, reference_image_name, reference_image_mime, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
-        ...$values,
+        $customerId ?: null,
+        $leadId ?: null,
+        $artistId,
+        trim((string)($data['title'] ?? 'Atendimento')),
+        trim((string)($data['description'] ?? '')),
+        $appointmentDate,
+        $startTime,
+        $endTime,
+        $status,
+        money_to_float((string)($data['value'] ?? '0')),
+        $depositValue,
+        $pomadaUnitPrice,
+        max(0, (int)($data['pomadas_quantity'] ?? 0)),
+        $importSource,
+        $importUid !== '' ? $importUid : null,
+        $rawTitle !== '' ? $rawTitle : null,
         $attachment['relativePath'] ?: null,
         $attachment['fileName'] ?: null,
         $attachment['mime'] ?: null,
@@ -3818,7 +3846,9 @@ function studio_save_appointment(array $studio, array $data): int
 function studio_ensure_appointment_reference_columns(array $studio): void
 {
     $pdo = studio_db($studio);
+    $pomadaUnitPrice = studio_pomada_unit_price($studio);
     $columns = [
+        'pomada_unit_price' => 'DECIMAL(10,2) NULL AFTER deposit_value',
         'pomadas_quantity' => 'INT NOT NULL DEFAULT 0 AFTER deposit_value',
         'import_source' => 'VARCHAR(40) NULL AFTER deposit_value',
         'import_uid' => 'VARCHAR(190) NULL AFTER import_source',
@@ -3832,6 +3862,11 @@ function studio_ensure_appointment_reference_columns(array $studio): void
             $pdo->exec('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
         } catch (Throwable) {
         }
+    }
+    try {
+        $stmt = $pdo->prepare('UPDATE appointments SET pomada_unit_price = COALESCE(pomada_unit_price, ?) WHERE pomada_unit_price IS NULL OR pomada_unit_price = 0');
+        $stmt->execute([number_format($pomadaUnitPrice, 2, '.', '')]);
+    } catch (Throwable) {
     }
 }
 
@@ -4207,6 +4242,10 @@ function studio_save_settings(array $studio, array $data): void
         ? implode(',', array_values(array_filter(array_map('trim', $appointmentWorkDaysRaw), static fn($value) => $value !== '')))
         : trim((string)$appointmentWorkDaysRaw);
     $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
+    $pomadaUnitPrice = (float)money_to_float((string)($data['pomada_unit_price'] ?? '100'));
+    if ($pomadaUnitPrice < 0) {
+        $pomadaUnitPrice = 100;
+    }
     $durationHours = (int)($data['appointment_duration_hours'] ?? 0);
     $durationMinutesPart = (int)($data['appointment_duration_minutes_part'] ?? 0);
     if ($durationHours > 0 || $durationMinutesPart > 0) {
@@ -4227,6 +4266,7 @@ function studio_save_settings(array $studio, array $data): void
         'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
         'appointment_overwrite_message' => 'TEXT NULL',
         'meta_campaign_phrases' => 'TEXT NULL',
+        'pomada_unit_price' => 'DECIMAL(10,2) NOT NULL DEFAULT 100.00',
         'openai_api_key' => 'TEXT NULL',
         'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
         'ai_whatsapp_prompt' => 'TEXT NULL',
@@ -4242,7 +4282,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, meta_campaign_phrases = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -4258,6 +4298,7 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentDurationMinutes,
         $appointmentOverwriteMessage,
         $metaCampaignPhrases !== '' ? $metaCampaignPhrases : "Tenho interesse no fechamento!",
+        number_format($pomadaUnitPrice, 2, '.', ''),
         $openAiKey,
         $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
         $aiWhatsAppPrompt,

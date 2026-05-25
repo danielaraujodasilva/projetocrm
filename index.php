@@ -1796,6 +1796,7 @@ if ($page === 'studio_agenda') {
         $focus = parse_calendar_date((string)($_GET['date'] ?? date('Y-m-d')));
         [$startDate, $endDate] = calendar_range_for($view, $focus);
         $calendarAppointments = studio_calendar_appointments($studio, $startDate, $endDate);
+        $pomadaUnitPrice = (float)(studio_settings($studio)['pomada_unit_price'] ?? 100);
         $todayDate = date('Y-m-d');
         $todayAppointments = studio_calendar_appointments($studio, $todayDate, $todayDate);
         $preScheduledNoSignalCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
@@ -1829,11 +1830,11 @@ if ($page === 'studio_agenda') {
         echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
         echo '</div>';
         if ($view === 'month') {
-            render_calendar_month($calendarAppointments, $focus);
+            render_calendar_month($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'week') {
-            render_calendar_week($calendarAppointments, $focus);
+            render_calendar_week($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'day') {
-            render_calendar_day($calendarAppointments, $focus);
+            render_calendar_day($calendarAppointments, $focus, $pomadaUnitPrice);
         } else {
             render_calendar_list($calendarAppointments);
         }
@@ -2840,6 +2841,7 @@ if ($page === 'studio_settings') {
             return;
         }
         $settings = studio_settings($studio);
+        $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
         $activeTab = (string)($_GET['tab'] ?? 'studio');
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
@@ -2901,6 +2903,9 @@ if ($page === 'studio_settings') {
         }
         echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrão vem de segunda a sexta.</small></div>';
         echo '<div class="field"><label>Horários disponíveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por vírgula. Ex: 10:00,15:00</small></div>';
+        echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale só para novos agendamentos. Os antigos mantêm o preço salvo neles.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-3">';
         echo '<div class="field"><label>Duração do atendimento</label><div class="duration-picker">';
         echo '<label><span>Horas</span><select name="appointment_duration_hours">';
         for ($hours = 0; $hours <= 12; $hours++) {
@@ -3503,18 +3508,20 @@ function appointments_by_day(array $appointments): array
     return $grouped;
 }
 
-function appointment_effective_value(array $appointment): float
+function appointment_effective_value(array $appointment, ?float $pomadaUnit = null): float
 {
     $value = money_to_float((string)($appointment['value'] ?? '0'));
     $deposit = money_to_float((string)($appointment['deposit_value'] ?? '0'));
     $pomadas = max(0, (int)($appointment['pomadas_quantity'] ?? 0));
-    $pomadaUnit = (float)(app_config('app')['pomada_unit_price'] ?? 100);
-    $effective = $value + ($pomadas * $pomadaUnit) - $deposit;
+    $unit = isset($appointment['pomada_unit_price']) && $appointment['pomada_unit_price'] !== null && $appointment['pomada_unit_price'] !== ''
+        ? (float)$appointment['pomada_unit_price']
+        : ($pomadaUnit ?? (float)(app_config('app')['pomada_unit_price'] ?? 100));
+    $effective = $value + ($pomadas * $unit) - $deposit;
 
     return max(0.0, $effective);
 }
 
-function render_calendar_month(array $appointments, DateTimeImmutable $focus): void
+function render_calendar_month(array $appointments, DateTimeImmutable $focus, ?float $pomadaUnit = null): void
 {
     $byDay = appointments_by_day($appointments);
     $first = $focus->modify('first day of this month');
@@ -3531,7 +3538,7 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus): v
         $outside = $cursor->format('m') !== $focus->format('m') ? ' muted-day' : '';
         $dayAppointments = $byDay[$date] ?? [];
         $dayCount = count($dayAppointments);
-        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
         $dayTone = 'neutral';
         foreach ($dayAppointments as $appointment) {
             $tone = appointment_status_tone((string)($appointment['status'] ?? ''));
@@ -3561,7 +3568,7 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus): v
     echo '</div>';
 }
 
-function render_calendar_week(array $appointments, DateTimeImmutable $focus): void
+function render_calendar_week(array $appointments, DateTimeImmutable $focus, ?float $pomadaUnit = null): void
 {
     $byDay = appointments_by_day($appointments);
     $start = $focus->modify('monday this week');
@@ -3570,7 +3577,7 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus): vo
         $day = $start->modify('+' . $i . ' days');
         $date = $day->format('Y-m-d');
         $dayAppointments = $byDay[$date] ?? [];
-        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
+        $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
         $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
         echo '<div class="calendar-cell"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong></a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
         echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos · ' . format_money($dayValue)) . '</small></div>';
@@ -3585,14 +3592,14 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus): vo
     echo '</div>';
 }
 
-function render_calendar_day(array $appointments, DateTimeImmutable $focus): void
+function render_calendar_day(array $appointments, DateTimeImmutable $focus, ?float $pomadaUnit = null): void
 {
     echo '<h3 class="calendar-title">' . h($focus->format('d/m/Y')) . '</h3>';
     if (!$appointments) {
         echo '<p class="muted">Nenhum agendamento neste dia.</p>';
         return;
     }
-    $dayTotal = array_reduce($appointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment), 0.0);
+    $dayTotal = array_reduce($appointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
     echo '<div class="calendar-day-summary" style="margin-bottom:12px"><small>' . h(format_money($dayTotal)) . '</small><span class="muted">previsto no dia considerando pomadas e sinal</span></div>';
     echo '<div class="stack-list">';
     foreach ($appointments as $appointment) {
