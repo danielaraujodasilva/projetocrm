@@ -1305,8 +1305,6 @@ if ($page === 'studio_home') {
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-tile home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
-        echo '</section>';
-        echo '<section class="grid cols-4 dashboard-kpis dashboard-home-blocks">';
         foreach ([
             ['value' => (string)count($pendingWhatsappConversations), 'label' => 'Conversas aguardando resposta', 'focus' => 'whatsapp_conversations'],
             ['value' => (string)count($needsHumanConversations), 'label' => 'Conversas pedindo humano', 'focus' => 'whatsapp_conversations'],
