@@ -1290,8 +1290,8 @@ if ($page === 'studio_home') {
             ['label' => 'Abrir WhatsApp', 'href' => plan_allows('whatsapp') ? app_url('studio_whatsapp') : app_url('studio_settings')],
         ] as $action) {
             $focus = $action['focus'] ?? null;
-            $subtitle = $focus ? ('Ver ' . h($action['value'] ?? '0') . ' entradas') : 'Abrir agora';
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card home-action-card"' . ($focus ? ' data-home-focus="' . h((string)$focus) . '" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h((string)$focus) . '\')"' : ' onclick="window.location.href=\'' . h($action['href']) . '\'"') . '><p class="home-drill-card-title">' . h($action['label']) . '</p><strong class="metric">' . h($subtitle) . '</strong><span class="muted">Abrir detalhes</span></button>';
+            $detail = $focus ? ('Ver ' . h($action['value'] ?? '0') . ' entradas') : 'Abrir agora';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card home-action-card"' . ($focus ? ' data-home-focus="' . h((string)$focus) . '" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h((string)$focus) . '\')"' : ' onclick="window.location.href=\'' . h($action['href']) . '\'"') . '><p class="home-drill-card-title">' . h($action['label']) . '</p><strong class="metric">' . h($detail) . '</strong><span class="muted">' . ($focus ? 'Abrir detalhes' : 'Abrir tela') . '</span></button>';
         }
         foreach ([
             ['value' => (string)$stats['open_leads'], 'label' => 'Leads abertos', 'focus' => 'attention_leads'],

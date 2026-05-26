@@ -872,6 +872,10 @@ textarea {
     border-radius: 12px;
 }
 
+.dashboard-home-blocks {
+    gap: 12px;
+}
+
 .dashboard-stat-button {
     appearance: none;
     border: 1px solid var(--line);
@@ -889,6 +893,10 @@ textarea {
 .dashboard-stat .metric {
     font-size: 30px;
     line-height: 1;
+}
+
+.home-action-card .metric {
+    font-size: 20px;
 }
 
 .dashboard-hero {
@@ -924,6 +932,10 @@ textarea {
     display: grid;
     gap: 6px;
     align-content: start;
+}
+
+.home-action-card {
+    text-align: left;
 }
 
 .home-drill-card-title {
