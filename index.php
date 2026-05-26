@@ -1279,23 +1279,20 @@ if ($page === 'studio_home') {
         echo '<div class="dashboard-hero-title"><h2 style="margin:0">' . h($studio['name'] ?? 'Estudio') . '</h2><span class="badge ' . h($dbStatus['ok'] ? 'ok' : 'danger') . '">' . h(current_studio_plan_name()) . '</span><span class="badge ' . h(plan_allows('whatsapp') ? 'ok' : 'warn') . '">' . h($whatsappState) . '</span></div>';
         echo '<p class="muted" style="margin:8px 0 0">Painel operacional do estúdio com agenda, leads, WhatsApp, financeiro e alertas do dia.</p>';
         echo '</div>';
-        echo '<div class="dashboard-hero-actions">';
+        echo '</section>';
+
+        echo '<section class="grid cols-4 dashboard-kpis dashboard-home-blocks">';
         foreach ([
             ['label' => 'Novo lead', 'href' => app_url('studio_leads')],
             ['label' => 'Novo cliente', 'href' => app_url('studio_customers')],
             ['label' => 'Novo agendamento', 'href' => app_url('studio_agenda')],
-            ['label' => 'Leads do Meta', 'href' => '#', 'focus' => 'meta_campaign', 'value' => (string)count($metaCampaignItems)],
+            ['label' => 'Leads do Meta', 'focus' => 'meta_campaign', 'value' => (string)count($metaCampaignItems)],
             ['label' => 'Abrir WhatsApp', 'href' => plan_allows('whatsapp') ? app_url('studio_whatsapp') : app_url('studio_settings')],
         ] as $action) {
             $focus = $action['focus'] ?? null;
-            $extra = $focus ? ' data-home-focus="' . h((string)$focus) . '" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h((string)$focus) . '\')"' : '';
             $subtitle = $focus ? ('Ver ' . h($action['value'] ?? '0') . ' entradas') : 'Abrir agora';
-            echo '<button type="button" class="quick-action-card"' . ($focus ? $extra : ' onclick="window.location.href=\'' . h($action['href']) . '\'"') . '><strong>' . h($action['label']) . '</strong><span class="muted">' . $subtitle . '</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card home-action-card"' . ($focus ? ' data-home-focus="' . h((string)$focus) . '" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h((string)$focus) . '\')"' : ' onclick="window.location.href=\'' . h($action['href']) . '\'"') . '><p class="home-drill-card-title">' . h($action['label']) . '</p><strong class="metric">' . h($subtitle) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
-        echo '</div>';
-        echo '</section>';
-
-        echo '<section class="grid cols-4 dashboard-kpis">';
         foreach ([
             ['value' => (string)$stats['open_leads'], 'label' => 'Leads abertos', 'focus' => 'attention_leads'],
             ['value' => (string)$newLeadsToday, 'label' => 'Leads novos hoje', 'focus' => 'attention_leads'],
@@ -1309,8 +1306,6 @@ if ($page === 'studio_home') {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</section>';
-
-        echo '<section class="grid cols-4 dashboard-kpis" style="margin-top:16px">';
         foreach ([
             ['value' => (string)count($pendingWhatsappConversations), 'label' => 'Conversas aguardando resposta', 'focus' => 'whatsapp_conversations'],
             ['value' => (string)count($needsHumanConversations), 'label' => 'Conversas pedindo humano', 'focus' => 'whatsapp_conversations'],
@@ -1319,7 +1314,6 @@ if ($page === 'studio_home') {
         ] as $stat) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-drill-card" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h($stat['focus']) . '\')" data-home-focus="' . h($stat['focus']) . '"><p class="home-drill-card-title">' . h($stat['label']) . '</p><strong class="metric">' . h($stat['value']) . '</strong><span class="muted">Abrir detalhes</span></button>';
         }
-        echo '</section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rapido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeHomeDrilldown" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode($homeDrilldowns, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '"></script>';
