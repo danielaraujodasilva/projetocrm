@@ -959,15 +959,17 @@ textarea {
 }
 
 .home-tile {
-    min-height: 102px;
+    min-height: 92px;
 }
 
 .home-tile .home-drill-card-title {
     color: #243344;
+    font-size: 13px;
 }
 
 .home-tile .metric {
     color: #122033;
+    font-size: 23px;
 }
 
 .home-tile .muted {
