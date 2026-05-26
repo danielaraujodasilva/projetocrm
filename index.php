@@ -1145,6 +1145,18 @@ if ($page === 'studio_home') {
                 'type' => 'leads',
                 'items' => $attentionLeads,
             ],
+            'meta_campaign' => [
+                'title' => 'Leads do Meta',
+                'summary' => $metaCampaignSummary,
+                'type' => 'meta_campaign',
+                'default_range' => 'today',
+                'tracking_hint' => implode(' | ', studio_meta_campaign_phrases($studio)),
+                'items' => $metaCampaignItems,
+                'filters' => array_map(static fn(array $range): string => (string)$range['label'], $metaCampaignRanges),
+                'rangeMap' => $metaCampaignRangeMap,
+                'all_items' => $metaCampaignAllItems,
+                'today_iso' => $current->format('Y-m-d'),
+            ],
             'whatsapp_conversations' => [
                 'title' => 'Conversas do WhatsApp que precisam de resposta',
                 'summary' => plan_allows('whatsapp')
@@ -1272,9 +1284,13 @@ if ($page === 'studio_home') {
             ['label' => 'Novo lead', 'href' => app_url('studio_leads')],
             ['label' => 'Novo cliente', 'href' => app_url('studio_customers')],
             ['label' => 'Novo agendamento', 'href' => app_url('studio_agenda')],
+            ['label' => 'Leads do Meta', 'href' => '#', 'focus' => 'meta_campaign', 'value' => (string)count($metaCampaignItems)],
             ['label' => 'Abrir WhatsApp', 'href' => plan_allows('whatsapp') ? app_url('studio_whatsapp') : app_url('studio_settings')],
         ] as $action) {
-            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
+            $focus = $action['focus'] ?? null;
+            $extra = $focus ? ' data-home-focus="' . h((string)$focus) . '" onclick="return window.openHomeDrilldown && window.openHomeDrilldown(\'' . h((string)$focus) . '\')"' : '';
+            $subtitle = $focus ? ('Ver ' . h($action['value'] ?? '0') . ' entradas') : 'Abrir agora';
+            echo '<button type="button" class="quick-action-card"' . ($focus ? $extra : ' onclick="window.location.href=\'' . h($action['href']) . '\'"') . '><strong>' . h($action['label']) . '</strong><span class="muted">' . $subtitle . '</span></button>';
         }
         echo '</div>';
         echo '</section>';
