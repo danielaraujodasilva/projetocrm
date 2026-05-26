@@ -862,14 +862,14 @@ textarea {
 
 .dashboard-stat {
     display: grid;
-    gap: 4px;
-    min-height: 96px;
-    padding: 14px 16px;
+    gap: 8px;
+    min-height: 128px;
+    padding: 16px 18px 15px;
     text-align: left;
     color: var(--text);
     text-decoration: none;
     transition: transform .12s ease, box-shadow .12s ease;
-    border-radius: 12px;
+    border-radius: 14px;
 }
 
 .dashboard-home-blocks {
@@ -878,25 +878,45 @@ textarea {
 
 .dashboard-stat-button {
     appearance: none;
-    border: 1px solid var(--line);
-    background: var(--surface);
+    border: 1px solid rgba(148, 163, 184, .28);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .98) 0%, rgba(248, 250, 252, .98) 100%);
     cursor: pointer;
     width: 100%;
+    position: relative;
+    overflow: hidden;
 }
 
 .dashboard-stat:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
+    box-shadow: 0 10px 24px rgba(18, 28, 37, .10);
     text-decoration: none;
 }
 
+.dashboard-stat-button::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(90deg, rgba(31, 111, 120, .96), rgba(211, 76, 65, .82));
+}
+
+.dashboard-stat-button .muted {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+}
+
 .dashboard-stat .metric {
-    font-size: 30px;
-    line-height: 1;
+    font-size: 28px;
+    line-height: 1.05;
+    letter-spacing: -.02em;
 }
 
 .home-action-card .metric {
-    font-size: 20px;
+    font-size: 19px;
+    font-weight: 800;
 }
 
 .dashboard-hero {
@@ -930,12 +950,32 @@ textarea {
 
 .home-drill-card {
     display: grid;
-    gap: 6px;
+    gap: 8px;
     align-content: start;
 }
 
 .home-action-card {
     text-align: left;
+}
+
+.home-tile {
+    min-height: 124px;
+}
+
+.home-tile .home-drill-card-title {
+    color: #243344;
+}
+
+.home-tile .metric {
+    color: #122033;
+}
+
+.home-tile .muted {
+    color: #6a7a8d !important;
+}
+
+.home-tile:hover {
+    box-shadow: 0 12px 28px rgba(18, 28, 37, .12);
 }
 
 .home-drill-card-title {
