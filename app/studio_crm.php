@@ -3854,6 +3854,33 @@ function studio_data_assistant_answer(array $studio, string $question): array
                 'source' => 'fallback',
             ];
         }
+        if ($dateFocus) {
+            $dayAppointments = (array)($dateFocus['agendamentos_do_dia'] ?? []);
+            $countAppointments = count($dayAppointments);
+            $dayLabel = (string)($dateFocus['rotulo'] ?? format_date_pt((string)($dateFocus['data'] ?? '')));
+            $leadNames = [];
+            foreach (array_slice($dayAppointments, 0, 5) as $appointment) {
+                $leadName = trim((string)($appointment['cliente'] ?? ''));
+                if ($leadName !== '') {
+                    $leadNames[] = $leadName;
+                }
+            }
+            if ($countAppointments > 0) {
+                $answer = 'Sim, ' . $dayLabel . ' tem ' . $countAppointments . ' cliente' . ($countAppointments === 1 ? '' : 's') . ' agendado' . ($countAppointments === 1 ? '' : 's') . '.';
+                if ($leadNames) {
+                    $answer .= ' Os nomes que encontrei são: ' . implode('; ', array_values(array_unique($leadNames))) . '.';
+                }
+            } else {
+                $answer = 'Não encontrei clientes agendados para ' . $dayLabel . '.';
+            }
+            return [
+                'question' => $question,
+                'answer' => $answer,
+                'context' => $context,
+                'generated_at' => date('Y-m-d H:i:s'),
+                'source' => 'fallback',
+            ];
+        }
         if (str_contains($lower, 'livre') || str_contains($lower, 'vaga')) {
             $nextFreeSlot = '';
             $nextFreeDay = '';
