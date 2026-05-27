@@ -13,44 +13,22 @@ function app_build_version(): string
     }
     $root = __DIR__;
     $gitDir = $root . DIRECTORY_SEPARATOR . '.git';
-    if (!is_dir($gitDir)) {
-        $version = 'dev';
+    $gitBinary = 'git';
+    $gitVersion = null;
+
+    if (is_dir($gitDir)) {
+        $command = $gitBinary . ' -C ' . escapeshellarg($root) . ' log -1 --date=format:%Y%m%d%H%M%S --format=%cd';
+        $output = @shell_exec($command);
+        $gitVersion = is_string($output) ? trim($output) : '';
+    }
+
+    if (is_string($gitVersion) && preg_match('/^\d{14}$/', $gitVersion) === 1) {
+        $version = 'V' . $gitVersion;
         return $version;
     }
-    $head = @file_get_contents($gitDir . DIRECTORY_SEPARATOR . 'HEAD');
-    if ($head === false) {
-        $version = 'dev';
-        return $version;
-    }
-    $head = trim($head);
-    if (str_starts_with($head, 'ref: ')) {
-        $ref = trim(substr($head, 5));
-        $refFile = $gitDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $ref);
-        if (is_file($refFile)) {
-            $hash = trim((string)@file_get_contents($refFile));
-            if ($hash !== '') {
-                $version = substr($hash, 0, 7);
-                return $version;
-            }
-        }
-        $packed = $gitDir . DIRECTORY_SEPARATOR . 'packed-refs';
-        if (is_file($packed)) {
-            foreach (file($packed, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-                if ($line[0] === '#' || $line[0] === '^') {
-                    continue;
-                }
-                [$hash, $path] = array_pad(preg_split('/\s+/', trim($line), 2), 2, null);
-                if ($path === $ref && is_string($hash) && $hash !== '') {
-                    $version = substr($hash, 0, 7);
-                    return $version;
-                }
-            }
-        }
-    } elseif ($head !== '') {
-        $version = substr($head, 0, 7);
-        return $version;
-    }
-    $version = 'dev';
+
+    $fallback = date('YmdHis', filemtime($root . DIRECTORY_SEPARATOR . 'index.php') ?: time());
+    $version = 'V' . $fallback;
     return $version;
 }
 
@@ -535,7 +513,7 @@ function render_head(string $title): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body>';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="v' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
 }
 
 function render_public_head(string $title, string $description): void
@@ -546,7 +524,7 @@ function render_public_head(string $title, string $description): void
     echo '<title>' . h($title) . '</title>';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
     echo '</head><body class="public-page">';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="v' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
 }
 
 function render_flash(?array $flash): void
@@ -1126,6 +1104,15 @@ if ($page === 'studio_home') {
             $alerts[] = [
                 'title' => 'Pré-agendamentos sem sinal',
                 'description' => 'Há ' . $preScheduledNoSignalCount . ' pré-agendamentos aguardando sinal.',
+                'href' => app_url('studio_agenda'),
+                'tone' => 'warn',
+            ];
+        }
+        $preScheduledOverlapCount = (int)$pdo->query("SELECT COUNT(DISTINCT a.id) FROM appointments a INNER JOIN appointments b ON b.appointment_date = a.appointment_date AND COALESCE(b.artist_id, 0) = COALESCE(a.artist_id, 0) AND b.id <> a.id AND b.status = 'pre_agendado' AND a.status = 'pre_agendado' AND NOT (COALESCE(b.end_time, b.start_time) <= a.start_time OR b.start_time >= a.end_time) WHERE a.status = 'pre_agendado' AND a.appointment_date >= CURDATE()")->fetchColumn();
+        if ($preScheduledOverlapCount > 0) {
+            $alerts[] = [
+                'title' => 'Pré-agendamentos duplicados',
+                'description' => 'Há ' . $preScheduledOverlapCount . ' pré-agendamentos no mesmo dia, horário e tatuador. Isso é permitido, mas vale revisar.',
                 'href' => app_url('studio_agenda'),
                 'tone' => 'warn',
             ];

@@ -2151,6 +2151,19 @@ function studio_appointment_blocking_statuses(): array
     return ['pre_agendado', 'agendado', 'confirmado', 'em_atendimento', 'pendente'];
 }
 
+function studio_appointment_blocking_statuses_for_status(string $status): array
+{
+    $blockingStatuses = studio_appointment_blocking_statuses();
+    if ($status === 'pre_agendado') {
+        return array_values(array_filter(
+            $blockingStatuses,
+            static fn(string $blockingStatus): bool => $blockingStatus !== 'pre_agendado'
+        ));
+    }
+
+    return $blockingStatuses;
+}
+
 function studio_appointment_non_blocking_statuses(): array
 {
     return ['cancelado', 'perdido', 'concluido', 'atendido', 'finalizado'];
@@ -4172,7 +4185,7 @@ function studio_save_appointment(array $studio, array $data): int
     }
     $attachment = studio_prepare_appointment_reference($studio, $_FILES ?? []);
     $replacedAppointments = [];
-    $activeStatuses = studio_appointment_blocking_statuses();
+    $activeStatuses = studio_appointment_blocking_statuses_for_status($status);
     $overlappingAppointments = studio_find_overlapping_appointments($studio, $appointmentDate, $startTime, $endTime, $artistId, $activeStatuses, $id);
     if ($overlappingAppointments) {
         $conflict = $overlappingAppointments[0];
