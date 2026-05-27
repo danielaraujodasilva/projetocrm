@@ -23,12 +23,12 @@ function app_build_version(): string
     }
 
     if (is_string($gitVersion) && preg_match('/^\d{14}$/', $gitVersion) === 1) {
-        $version = 'V' . $gitVersion;
+        $version = 'commitV' . $gitVersion;
         return $version;
     }
 
     $fallback = date('YmdHis', filemtime($root . DIRECTORY_SEPARATOR . 'index.php') ?: time());
-    $version = 'V' . $fallback;
+    $version = 'commitV' . $fallback;
     return $version;
 }
 
