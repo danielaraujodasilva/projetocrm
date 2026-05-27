@@ -4135,6 +4135,9 @@ function studio_save_appointment(array $studio, array $data): int
     $status = in_array($requestedStatus, studio_appointment_allowed_statuses(), true)
         ? $requestedStatus
         : ($depositValue > 0 ? 'confirmado' : 'pre_agendado');
+    if ($status === 'confirmado' && $depositValue <= 0 && !in_array($requestedStatus, ['concluido', 'atendido', 'finalizado'], true)) {
+        $status = 'pre_agendado';
+    }
     $artistId = $normalized['artist_id'] ?: null;
     $leadId = (int)$normalized['lead_id'];
     $customerId = (int)$normalized['customer_id'];
@@ -4234,6 +4237,23 @@ function studio_save_appointment(array $studio, array $data): int
     $appointmentId = (int)$pdo->lastInsertId();
     studio_sync_lead_from_appointment($studio, $leadId, $values[8], $values[9], $values[5] . ' ' . $values[6]);
     return $appointmentId;
+}
+
+function studio_apply_appointment_auto_status_rules(array $studio): int
+{
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare(
+        "UPDATE appointments
+         SET status = 'finalizado', updated_at = NOW()
+         WHERE status NOT IN ('finalizado', 'atendido', 'cancelado', 'perdido')
+           AND (
+                appointment_date < CURDATE()
+                OR (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
+           )"
+    );
+    $stmt->execute();
+
+    return $stmt->rowCount();
 }
 
 function studio_update_appointment_status(array $studio, int $appointmentId, string $status): void
@@ -4451,6 +4471,149 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
     ];
 }
 
+function studio_analyze_calendar_ics(array $studio, string $icsPath): array
+{
+    if (!is_file($icsPath)) {
+        throw new RuntimeException('Arquivo ICS nao encontrado.');
+    }
+
+    $raw = (string)file_get_contents($icsPath);
+    if ($raw === '') {
+        throw new RuntimeException('Arquivo ICS vazio.');
+    }
+
+    $events = studio_parse_ics_events($raw);
+    $candidates = [];
+    $skipped = [];
+
+    foreach ($events as $event) {
+        $parsed = studio_parse_calendar_event_for_crm($event);
+        if (!empty($parsed['include'])) {
+            $candidates[] = $parsed;
+        } else {
+            $skipped[] = $parsed;
+        }
+    }
+
+    return [
+        'events_total' => count($events),
+        'candidates' => studio_attach_calendar_conflicts($studio, $candidates),
+        'skipped' => $skipped,
+        'duplicates' => studio_count_existing_imported_appointments($studio, $candidates),
+    ];
+}
+
+function studio_attach_calendar_conflicts(array $studio, array $items): array
+{
+    $statuses = ['confirmado', 'pre_agendado', 'em_atendimento', 'concluido'];
+    foreach ($items as &$item) {
+        $date = (string)($item['date'] ?? '');
+        $start = (string)($item['start_time'] ?? '');
+        $end = (string)($item['end_time'] ?? '');
+        if ($date === '' || $start === '') {
+            $item['conflicts'] = [];
+            continue;
+        }
+        if ($end === '') {
+            $end = substr($start, 0, 5) . ':59';
+        }
+        $item['conflicts'] = studio_find_overlapping_appointments($studio, $date, $start, $end, null, $statuses, 0);
+    }
+    unset($item);
+
+    return $items;
+}
+
+function studio_parse_calendar_event_for_crm(array $event): array
+{
+    $rawTitle = normalize_spaces((string)($event['summary'] ?? ''));
+    $description = normalize_spaces((string)($event['description'] ?? ''));
+    $start = studio_ics_datetime_to_local((string)($event['dtstart'] ?? ''));
+    $end = studio_ics_datetime_to_local((string)($event['dtend'] ?? ''));
+    $base = [
+        'include' => false,
+        'reason' => '',
+        'raw_title' => $rawTitle,
+        'uid' => import_uid((string)($event['uid'] ?? '')),
+        'google_uid' => (string)($event['uid'] ?? ''),
+        'description_original' => $description,
+        'date' => $start ? $start->format('Y-m-d') : null,
+        'start_time' => $start ? $start->format('H:i:s') : null,
+        'end_time' => $end ? $end->format('H:i:s') : null,
+    ];
+
+    if (strtoupper((string)($event['status'] ?? 'CONFIRMED')) === 'CANCELLED') {
+        return array_merge($base, ['reason' => 'cancelado']);
+    }
+    if (!empty($event['all_day']) || !$start) {
+        return array_merge($base, ['reason' => 'sem horario util']);
+    }
+    if ($rawTitle === '') {
+        return array_merge($base, ['reason' => 'sem titulo']);
+    }
+
+    $lower = lower_text($rawTitle . ' ' . $description);
+    $normalized = remove_accents($lower);
+    $hardSkipWords = [
+        'cartorio', 'cognizant', 'edital', 'ultra-som', 'ultra som', 'ubs', 'conselho tutelar',
+        'guarda roupa', 'endoscopia', 'pastor', 'curso', 'aniversario', 'reuniao', 'oftalmo',
+        'endocrino', 'papai', 'mamae', 'doctor', 'dr.ray', 'terapia', 'psico', 'psicopedagoga',
+        'consulta', 'medico', 'faculdade', 'lavar', 'mercado', 'academia', 'dentista',
+        'visita tecnica', 'marketing', 'limpeza e etc', 'cobrar sinal', 'padaria', 'restaurante',
+    ];
+    if (contains_any($normalized, $hardSkipWords)) {
+        return array_merge($base, ['reason' => 'parece compromisso pessoal']);
+    }
+
+    $phone = extract_phone($rawTitle . ' ' . $description);
+    [$value, $valueToken] = extract_event_value($rawTitle);
+    $hasServiceKeyword = contains_any($normalized, ['tattoo', 'tatuagem', 'tatuar', 'retoque', 'micro', 'micropigmentacao', 'cilios', 'piercing', 'pomada', 'sinal', 'orcamento', 'cobertura', 'sessao', 'fechamento', 'higienizacao']);
+    $looksLikePerson = looks_like_person_title($rawTitle);
+
+    if ($phone === '' && $value <= 0 && !$hasServiceKeyword && !$looksLikePerson) {
+        return array_merge($base, ['reason' => 'sem sinal de cliente/atendimento']);
+    }
+
+    $parsedTitle = studio_parse_event_title($rawTitle, $valueToken);
+    $name = $parsedTitle['name'] !== '' ? $parsedTitle['name'] : $rawTitle;
+
+    $today = new DateTimeImmutable(date('Y-m-d'), new DateTimeZone('America/Sao_Paulo'));
+    $appointmentDate = new DateTimeImmutable($start->format('Y-m-d'), new DateTimeZone('America/Sao_Paulo'));
+    $isPast = $appointmentDate < $today;
+    $paymentText = remove_accents($lower);
+    $unconfirmed = str_contains($paymentText, 'sem sinal') || str_contains($paymentText, 'fiado') || str_contains($paymentText, 'negociar');
+    $status = $isPast ? 'concluido' : ($unconfirmed ? 'pre_agendado' : 'confirmado');
+    $leadStatus = $isPast ? 'fechado' : ($unconfirmed ? 'pre_agendado' : 'agendado');
+    $stage = $isPast ? 'agendado' : ($unconfirmed ? 'pre_agendado' : 'agendado');
+    $interestParts = [];
+    if ($parsedTitle['service_note'] !== '') {
+        $interestParts[] = $parsedTitle['service_note'];
+    }
+    if (preg_match('/\b(\d+)\s*pomadas?\b/iu', $rawTitle, $pomada)) {
+        $interestParts[] = $pomada[1] . ' pomada(s)';
+    } elseif (str_contains($paymentText, 'pomada')) {
+        $interestParts[] = 'pomada';
+    }
+    if ($description !== '') {
+        $interestParts[] = $description;
+    }
+    $interest = normalize_spaces(implode(' | ', array_filter($interestParts))) ?: 'Agendamento importado do Google Agenda';
+
+    return array_merge($base, [
+        'include' => true,
+        'reason' => 'candidato',
+        'name' => mb_substr($name, 0, 160),
+        'phone' => $phone,
+        'value' => $value,
+        'notes' => $parsedTitle['notes'],
+        'interest' => mb_substr($interest, 0, 220),
+        'appointment_status' => $status,
+        'status' => $leadStatus,
+        'pipeline_stage' => $stage,
+        'lead_score' => $isPast ? 5 : ($value > 0 ? 8 : 6),
+    ]);
+}
+
 function studio_parse_ics_events(string $raw): array
 {
     $raw = str_replace(["\r\n", "\r"], "\n", $raw);
@@ -4491,6 +4654,229 @@ function studio_parse_ics_events(string $raw): array
     }
 
     return $events;
+}
+
+function studio_parse_event_title(string $title, string $valueToken): array
+{
+    $notes = [];
+    if (preg_match_all('/\(([^)]*)\)/u', $title, $matches)) {
+        $notes = array_map('normalize_spaces', $matches[1]);
+    }
+
+    $clean = preg_replace('/\([^)]*\)/u', ' ', $title) ?? $title;
+    if ($valueToken !== '') {
+        $clean = str_replace($valueToken, ' ', $clean);
+    }
+    $clean = preg_replace('/\bR\$\s*[\d\.\,]+|\b[\d\.\,]+\s*\$/iu', ' ', $clean) ?? $clean;
+    $clean = preg_replace('/\b\d{2,6}(?:[,.]\d{2})?\s*,?\s*(?:com|pagou sinal|sinal pago|pago|sinal)\b/iu', ' ', $clean) ?? $clean;
+    $clean = preg_replace('/\s[-–]\s*\d{2,6}(?:[,.]\d{2})?\b/u', ' ', $clean) ?? $clean;
+    $clean = preg_replace('/\b\d+\s*pomadas?\b/iu', ' ', $clean) ?? $clean;
+    $clean = preg_replace('/\b(pago|sinal pago|sem sinal|fiado|parcelado|permuta|valor a negociar|vai pagar metade)\b/iu', ' ', $clean) ?? $clean;
+    $clean = normalize_spaces($clean);
+
+    $serviceNote = '';
+    if (preg_match('/\b(retoque|micro|micropigmentação|micropigmentacao|cílios|cilios|piercing|pomadas?|higienização|higienizacao|cobertura|fechamento)\b.*$/iu', $clean, $serviceMatch, PREG_OFFSET_CAPTURE)) {
+        $offset = $serviceMatch[0][1];
+        $serviceNote = trim(substr($clean, $offset));
+        $clean = trim(substr($clean, 0, $offset));
+    }
+
+    $clean = normalize_spaces(trim($clean, " -–\t\n\r\0\x0B"));
+
+    return [
+        'name' => $clean,
+        'service_note' => $serviceNote,
+        'notes' => implode('; ', array_filter($notes)),
+    ];
+}
+
+function studio_count_existing_imported_appointments(array $studio, array $items): int
+{
+    $count = 0;
+    foreach ($items as $item) {
+        if (studio_imported_appointment_exists($studio, (string)($item['uid'] ?? ''))) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+function studio_imported_appointment_exists(array $studio, string $uid): bool
+{
+    $stmt = studio_db($studio)->prepare('SELECT id FROM appointments WHERE import_source = "google_calendar" AND import_uid = ? LIMIT 1');
+    $stmt->execute([$uid]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
+function studio_import_calendar_events(array $studio, array $items): array
+{
+    $pdo = studio_db($studio);
+    $artistId = default_artist_id($studio);
+    $result = [
+        'customers_created' => 0,
+        'leads_created' => 0,
+        'appointments_created' => 0,
+        'duplicates_skipped' => 0,
+        'appointment_ids' => [],
+        'lead_ids' => [],
+        'customer_ids' => [],
+    ];
+
+    $pdo->beginTransaction();
+    try {
+        foreach ($items as $item) {
+            if (studio_imported_appointment_exists($studio, (string)$item['uid'])) {
+                $result['duplicates_skipped']++;
+                continue;
+            }
+
+            $customerId = studio_find_or_create_customer_from_import($studio, $item, $result);
+            $result['customer_ids'][] = $customerId;
+            $leadId = studio_find_or_create_lead_from_import($studio, $item, $customerId, $result);
+            $result['lead_ids'][] = $leadId;
+            $description = studio_build_import_description($item);
+
+            $stmt = $pdo->prepare(
+                'INSERT INTO appointments
+                    (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, import_source, import_uid, raw_title, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, "google_calendar", ?, ?, NOW(), NOW())'
+            );
+            $stmt->execute([
+                $customerId,
+                $leadId,
+                $artistId,
+                $item['name'],
+                $description,
+                $item['date'],
+                $item['start_time'],
+                $item['end_time'],
+                $item['appointment_status'],
+                $item['value'],
+                $item['uid'],
+                mb_substr($item['raw_title'], 0, 260),
+            ]);
+            $result['appointments_created']++;
+            $result['appointment_ids'][] = (int)$pdo->lastInsertId();
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return $result;
+}
+
+function studio_revert_import_calendar_events(array $studio, array $uids): array
+{
+    $pdo = studio_db($studio);
+    $uids = array_values(array_unique(array_filter(array_map('trim', $uids), static fn(string $uid): bool => $uid !== '')));
+    if (!$uids) {
+        return ['appointments_deleted' => 0, 'leads_deleted' => 0];
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $placeholders = implode(',', array_fill(0, count($uids), '?'));
+        $deletedLeads = 0;
+
+        $stmt = $pdo->prepare('DELETE FROM appointments WHERE import_source = "google_calendar" AND import_uid IN (' . $placeholders . ')');
+        $stmt->execute($uids);
+        $deletedAppointments = $stmt->rowCount();
+
+        try {
+            $stmt = $pdo->prepare('DELETE FROM leads WHERE import_source = "google_calendar" AND import_uid IN (' . $placeholders . ')');
+            $stmt->execute($uids);
+            $deletedLeads = $stmt->rowCount();
+        } catch (Throwable) {
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    return [
+        'appointments_deleted' => $deletedAppointments ?? 0,
+        'leads_deleted' => $deletedLeads,
+    ];
+}
+
+function studio_find_or_create_customer_from_import(array $studio, array $item, array &$result): int
+{
+    $pdo = studio_db($studio);
+    if (($item['phone'] ?? '') !== '') {
+        $customer = studio_find_customer_by_phone($studio, (string)$item['phone']);
+        if ($customer) {
+            return (int)$customer['id'];
+        }
+    }
+
+    $stmt = $pdo->prepare('SELECT id FROM customers WHERE LOWER(name) = LOWER(?) ORDER BY id ASC LIMIT 1');
+    $stmt->execute([$item['name']]);
+    $existing = (int)$stmt->fetchColumn();
+    if ($existing > 0) {
+        return $existing;
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, "", "", ?, NOW(), NOW())');
+    $stmt->execute([$item['name'], $item['phone'], 'Importado do Google Agenda. Titulo original: ' . $item['raw_title']]);
+    $result['customers_created']++;
+
+    return (int)$pdo->lastInsertId();
+}
+
+function studio_find_or_create_lead_from_import(array $studio, array $item, int $customerId, array &$result): int
+{
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('SELECT id FROM leads WHERE import_source = "google_calendar" AND import_uid = ? LIMIT 1');
+    $stmt->execute([$item['uid']]);
+    $existing = (int)$stmt->fetchColumn();
+    if ($existing > 0) {
+        return $existing;
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO leads
+            (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, import_source, import_uid, raw_title, last_contact_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, "Google Agenda", "google_calendar", ?, ?, ?, NOW(), NOW())'
+    );
+    $stmt->execute([
+        $customerId,
+        $item['name'],
+        $item['phone'],
+        $item['interest'],
+        $item['status'],
+        $item['pipeline_stage'],
+        $item['lead_score'],
+        $item['value'],
+        $item['uid'],
+        mb_substr($item['raw_title'], 0, 260),
+        $item['date'] . ' ' . $item['start_time'],
+    ]);
+    $result['leads_created']++;
+
+    return (int)$pdo->lastInsertId();
+}
+
+function studio_build_import_description(array $item): string
+{
+    $parts = [
+        'Importado do Google Agenda.',
+        'Titulo original: ' . $item['raw_title'],
+    ];
+    if (!empty($item['notes'])) {
+        $parts[] = 'Observacoes do titulo: ' . $item['notes'];
+    }
+    if (!empty($item['description_original'])) {
+        $parts[] = 'Descricao original: ' . $item['description_original'];
+    }
+    $parts[] = 'UID Google: ' . ($item['google_uid'] ?? '');
+
+    return implode("\n", $parts);
 }
 
 function studio_ics_datetime_to_local(string $value): ?DateTimeImmutable

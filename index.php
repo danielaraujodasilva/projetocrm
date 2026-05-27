@@ -238,8 +238,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans') {
             if (empty($_FILES['ics_file']['tmp_name'])) {
                 throw new RuntimeException('Envie um arquivo .ics valido.');
             }
-            $result = studio_import_calendar_ics($studio, (string)$_FILES['ics_file']['tmp_name']);
-            flash_set('success', 'ICS importado: ' . (int)$result['inserted'] . ' novos, ' . (int)$result['updated'] . ' atualizados, ' . (int)$result['skipped'] . ' ignorados.');
+            $analysis = studio_analyze_calendar_ics($studio, (string)$_FILES['ics_file']['tmp_name']);
+            $token = bin2hex(random_bytes(12));
+            $_SESSION['calendar_import_preview'] ??= [];
+            $_SESSION['calendar_import_preview'][$token] = [
+                'studio_id' => (int)$studio['id'],
+                'file_name' => (string)($_FILES['ics_file']['name'] ?? 'agenda.ics'),
+                'created_at' => time(),
+                'analysis' => $analysis,
+            ];
+            redirect_to('studio_agenda', ['ics_preview' => $token]);
+        }
+
+        if ($action === 'import_calendar_ics_confirm') {
+            $studio = require_studio();
+            $token = trim((string)($_POST['import_token'] ?? ''));
+            $preview = $_SESSION['calendar_import_preview'][$token] ?? null;
+            if (!is_array($preview) || (int)($preview['studio_id'] ?? 0) !== (int)$studio['id']) {
+                throw new RuntimeException('Previa de importacao expirada. Envie o arquivo novamente.');
+            }
+            $analysis = $preview['analysis'] ?? [];
+            $candidates = $analysis['candidates'] ?? [];
+            $selectedItems = [];
+            foreach ($candidates as $candidate) {
+                $uid = (string)($candidate['uid'] ?? '');
+                if ($uid === '') {
+                    continue;
+                }
+                $item = $_POST['items'][$uid] ?? null;
+                if (!is_array($item) || empty($item['selected'])) {
+                    continue;
+                }
+                $conflicts = $candidate['conflicts'] ?? [];
+                $allowConflict = !empty($item['allow_conflict']);
+                if ($conflicts && !$allowConflict) {
+                    continue;
+                }
+                $startDate = trim((string)($item['date'] ?? $candidate['date'] ?? ''));
+                $startTime = trim((string)($item['start_time'] ?? $candidate['start_time'] ?? ''));
+                $endTime = trim((string)($item['end_time'] ?? $candidate['end_time'] ?? ''));
+                $name = trim((string)($item['name'] ?? $candidate['name'] ?? ''));
+                if ($startDate === '' || $startTime === '' || $name === '') {
+                    continue;
+                }
+                $selectedItems[] = [
+                    'uid' => $uid,
+                    'google_uid' => (string)($candidate['google_uid'] ?? ''),
+                    'raw_title' => (string)($candidate['raw_title'] ?? ''),
+                    'description_original' => (string)($candidate['description_original'] ?? ''),
+                    'notes' => trim((string)($candidate['notes'] ?? '')),
+                    'interest' => trim((string)($item['interest'] ?? $candidate['interest'] ?? '')),
+                    'phone' => normalize_phone((string)($item['phone'] ?? $candidate['phone'] ?? '')),
+                    'name' => $name,
+                    'value' => (float)str_replace(',', '.', (string)($item['value'] ?? $candidate['value'] ?? 0)),
+                    'date' => $startDate,
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                    'appointment_status' => (string)($item['appointment_status'] ?? $candidate['appointment_status'] ?? 'confirmado'),
+                    'status' => (string)($item['status'] ?? $candidate['status'] ?? 'agendado'),
+                    'pipeline_stage' => (string)($item['pipeline_stage'] ?? $candidate['pipeline_stage'] ?? 'agendado'),
+                    'lead_score' => (int)($item['lead_score'] ?? $candidate['lead_score'] ?? 6),
+                    'allow_conflict' => $allowConflict,
+                ];
+            }
+            $result = studio_import_calendar_events($studio, $selectedItems);
+            $_SESSION['calendar_import_last_batch'] = [
+                'studio_id' => (int)$studio['id'],
+                'uids' => array_values(array_map(static fn(array $item): string => (string)$item['uid'], $selectedItems)),
+                'created_at' => time(),
+            ];
+            unset($_SESSION['calendar_import_preview'][$token]);
+            flash_set('success', 'Importacao revisada concluida: ' . (int)$result['appointments_created'] . ' agendamentos criados e ' . (int)$result['duplicates_skipped'] . ' duplicados ignorados.');
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'undo_calendar_import') {
+            $studio = require_studio();
+            $batch = $_SESSION['calendar_import_last_batch'] ?? null;
+            if (!is_array($batch) || (int)($batch['studio_id'] ?? 0) !== (int)$studio['id']) {
+                throw new RuntimeException('Nao existe uma importacao recente para desfazer.');
+            }
+            $result = studio_revert_import_calendar_events($studio, $batch['uids'] ?? []);
+            unset($_SESSION['calendar_import_last_batch']);
+            flash_set('success', 'Importacao desfeita: ' . (int)($result['appointments_deleted'] ?? 0) . ' agendamentos removidos.');
             redirect_to('studio_agenda');
         }
 
@@ -1949,6 +2030,7 @@ if ($page === 'studio_agenda') {
         $focus = parse_calendar_date((string)($_GET['date'] ?? date('Y-m-d')));
         [$startDate, $endDate] = calendar_range_for($view, $focus);
         $calendarAppointments = studio_calendar_appointments($studio, $startDate, $endDate);
+        studio_apply_appointment_auto_status_rules($studio);
         $pomadaUnitPrice = (float)(studio_settings($studio)['pomada_unit_price'] ?? 100);
         $todayDate = date('Y-m-d');
         $todayAppointments = studio_calendar_appointments($studio, $todayDate, $todayDate);
@@ -1957,6 +2039,8 @@ if ($page === 'studio_agenda') {
         $missingContactCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(customer_id, 0) = 0 AND COALESCE(lead_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
         $selectedAppointmentId = (int)($_GET['appointment_id'] ?? 0);
         $selectedAppointment = $selectedAppointmentId > 0 ? studio_find_appointment($studio, $selectedAppointmentId) : null;
+        $importPreviewToken = trim((string)($_GET['ics_preview'] ?? ''));
+        $importPreview = $importPreviewToken !== '' ? ($_SESSION['calendar_import_preview'][$importPreviewToken] ?? null) : null;
 
         echo '<section class="panel"><div class="actions calendar-toolbar">';
         echo '<h2>Calendario</h2>';
@@ -1976,6 +2060,118 @@ if ($page === 'studio_agenda') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
         echo '</div>';
+        if (is_array($importPreview)) {
+            $analysis = $importPreview['analysis'] ?? [];
+            $candidates = $analysis['candidates'] ?? [];
+            $skipped = $analysis['skipped'] ?? [];
+            echo '<section class="panel" style="margin-top:16px;background:linear-gradient(180deg,rgba(48, 91, 255, 0.08),rgba(48, 91, 255, 0.02))">';
+            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
+            echo '<div><h2>Revisar importacao Google Agenda</h2><p class="muted">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estúdio.</p></div>';
+            echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+            echo '<button class="btn secondary" type="button" data-import-toggle="all">Selecionar tudo</button>';
+            echo '<button class="btn secondary" type="button" data-import-toggle="none">Desmarcar tudo</button>';
+            echo '</div>';
+            echo '</div>';
+            echo '<form method="post" class="import-preview-form" style="margin-top:16px">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="import_calendar_ics_confirm">';
+            echo '<input type="hidden" name="import_token" value="' . h($importPreviewToken) . '">';
+            echo '<div class="alert-grid" style="margin-bottom:16px">';
+            echo '<article class="alert-card"><span class="badge ok">' . h((string)count($candidates)) . '</span><p><strong>Candidatos</strong></p><p class="muted">Eventos prontos para revisar.</p></article>';
+            echo '<article class="alert-card"><span class="badge warn">' . h((string)($analysis['duplicates'] ?? 0)) . '</span><p><strong>Possiveis duplicados</strong></p><p class="muted">Eventos ja importados ou muito parecidos com importações anteriores.</p></article>';
+            echo '<article class="alert-card"><span class="badge">' . h((string)count($skipped)) . '</span><p><strong>Ignorados</strong></p><p class="muted">Entradas sem sinal claro de atendimento.</p></article>';
+            echo '<article class="alert-card"><span class="badge">' . h((string)($analysis['events_total'] ?? 0)) . '</span><p><strong>Total no ICS</strong></p><p class="muted">' . h((string)$importPreview['file_name']) . '</p></article>';
+            echo '</div>';
+            echo '<div class="stack" style="gap:12px">';
+            foreach ($candidates as $candidate) {
+                $uid = (string)($candidate['uid'] ?? '');
+                $title = (string)($candidate['name'] ?? $candidate['raw_title'] ?? '');
+                $rawTitle = (string)($candidate['raw_title'] ?? '');
+                $description = (string)($candidate['description_original'] ?? '');
+                $notes = (string)($candidate['notes'] ?? '');
+                $conflicts = $candidate['conflicts'] ?? [];
+                echo '<article class="panel" style="padding:16px;border:1px solid rgba(0,0,0,0.08);box-shadow:none">';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
+                echo '<label class="form-check" style="display:flex;align-items:flex-start;gap:10px;margin:0;flex:1">';
+                echo '<input class="form-check-input import-select" type="checkbox" name="items[' . h($uid) . '][selected]" value="1" checked data-import-row="' . h($uid) . '">';
+                echo '<span><strong>' . h($title) . '</strong><br><span class="muted">' . h($rawTitle) . '</span></span>';
+                echo '</label>';
+                echo '<span class="badge ' . ($conflicts ? 'warn' : '') . '">' . h($conflicts ? 'conflito' : (string)($candidate['reason'] ?? 'candidato')) . '</span>';
+                echo '</div>';
+                if ($conflicts) {
+                    echo '<div class="panel soft" style="margin-top:12px;padding:12px;border:1px solid rgba(255,165,0,0.35);background:rgba(255,165,0,0.06)">';
+                    echo '<strong>Conflito com agenda atual</strong>';
+                    echo '<div class="stack" style="margin-top:8px;gap:8px">';
+                    foreach ($conflicts as $conflict) {
+                        $conflictName = (string)($conflict['customer_name'] ?? $conflict['title'] ?? 'Agendamento');
+                        $conflictArtist = (string)($conflict['artist_name'] ?? 'sem tatuador');
+                        $conflictStart = substr((string)($conflict['start_time'] ?? ''), 0, 5);
+                        $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time'] ?? ''), 0, 5);
+                        echo '<div class="panel" style="padding:10px;background:#fff;border:1px solid rgba(0,0,0,0.06)">';
+                        echo '<strong>' . h(format_date_pt((string)$conflict['appointment_date']) . ' ' . $conflictStart . ($conflictEnd !== '' ? ' - ' . $conflictEnd : '')) . '</strong>';
+                        echo '<div class="muted">' . h($conflictName) . ' · ' . h($conflictArtist) . ' · ' . h((string)($conflict['status'] ?? '')) . '</div>';
+                        echo '</div>';
+                    }
+                    echo '</div>';
+                    echo '<label class="form-check" style="margin-top:10px;display:flex;gap:10px;align-items:flex-start">';
+                    echo '<input class="form-check-input" type="checkbox" name="items[' . h($uid) . '][allow_conflict]" value="1">';
+                    echo '<span>Importar mesmo assim e manter este item, mesmo com conflito.</span>';
+                    echo '</label>';
+                    echo '</div>';
+                }
+                echo '<div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px">';
+                echo '<label>Nome<input type="text" name="items[' . h($uid) . '][name]" value="' . h((string)$title) . '"></label>';
+                echo '<label>Data<input type="date" name="items[' . h($uid) . '][date]" value="' . h((string)($candidate['date'] ?? '')) . '"></label>';
+                echo '<label>Início<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
+                echo '<label>Fim<input type="time" name="items[' . h($uid) . '][end_time]" value="' . h(substr((string)($candidate['end_time'] ?? ''), 0, 5)) . '"></label>';
+                echo '<label>Telefone<input type="text" name="items[' . h($uid) . '][phone]" value="' . h((string)($candidate['phone'] ?? '')) . '"></label>';
+                echo '<label>Valor<input type="text" name="items[' . h($uid) . '][value]" value="' . h((string)($candidate['value'] ?? 0)) . '"></label>';
+                echo '<label>Status<input type="text" name="items[' . h($uid) . '][appointment_status]" value="' . h((string)($candidate['appointment_status'] ?? 'confirmado')) . '"></label>';
+                echo '<label>Lead<input type="text" name="items[' . h($uid) . '][status]" value="' . h((string)($candidate['status'] ?? 'agendado')) . '"></label>';
+                echo '</div>';
+                echo '<label style="display:block;margin-top:12px">Interesse/observações<textarea name="items[' . h($uid) . '][interest]" rows="2">' . h(trim($notes !== '' ? $notes . "\n" : '') . trim($description)) . '</textarea></label>';
+                echo '<input type="hidden" name="items[' . h($uid) . '][pipeline_stage]" value="' . h((string)($candidate['pipeline_stage'] ?? 'agendado')) . '">';
+                echo '<input type="hidden" name="items[' . h($uid) . '][lead_score]" value="' . h((string)($candidate['lead_score'] ?? 6)) . '">';
+                echo '</article>';
+            }
+            if (!$candidates) {
+                echo '<div class="alert-card"><p><strong>Nenhum candidato encontrado</strong></p><p class="muted">Esse arquivo não gerou eventos aptos para importação.</p></div>';
+            }
+            echo '</div>';
+            echo '<div class="actions" style="justify-content:space-between;margin-top:16px;gap:12px;flex-wrap:wrap">';
+            echo '<p class="muted">Itens com conflito ficam destacados. Por padrão eles não são importados, a menos que você marque a opção de manter mesmo assim.</p>';
+            echo '<button class="btn" type="submit">Importar selecionados</button>';
+            echo '</div>';
+            echo '</form>';
+            if (!empty($_SESSION['calendar_import_last_batch'])) {
+                echo '<form method="post" class="inline-form" style="margin-top:10px">';
+                echo csrf_field();
+                echo '<input type="hidden" name="action" value="undo_calendar_import">';
+                echo '<button class="btn secondary" type="submit">Desfazer ultima importacao</button>';
+                echo '</form>';
+            }
+            if ($skipped) {
+                echo '<details style="margin-top:16px"><summary class="btn secondary" style="display:inline-flex;cursor:pointer">Ver eventos ignorados</summary>';
+                echo '<div class="stack" style="margin-top:12px;gap:8px">';
+                foreach (array_slice($skipped, 0, 12) as $item) {
+                    echo '<div class="panel" style="padding:12px"><strong>' . h((string)($item['raw_title'] ?? '-')) . '</strong><div class="muted">' . h((string)($item['reason'] ?? 'ignorado')) . '</div></div>';
+                }
+                echo '</div></details>';
+            }
+            echo '</section>';
+            echo '<script>
+                (function () {
+                    const form = document.querySelector(".import-preview-form");
+                    if (!form) return;
+                    document.querySelectorAll("[data-import-toggle]").forEach((button) => {
+                        button.addEventListener("click", () => {
+                            const checked = button.getAttribute("data-import-toggle") === "all";
+                            form.querySelectorAll(".import-select").forEach((input) => { input.checked = checked; });
+                        });
+                    });
+                })();
+            </script>';
+        }
         echo '<div class="alert-grid" style="margin-top:14px">';
         echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
         echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
