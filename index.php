@@ -1563,8 +1563,8 @@ if ($page === 'studio_customer') {
         echo '<div class="field"><label>Titulo</label><input name="title" required value="Atendimento"></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
         render_lead_options($leads);
-        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
-        render_artist_options($artists);
+        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id">';
+        render_artist_options($artists, 0, (string)$studio['name']);
         echo '</select></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
@@ -1926,8 +1926,8 @@ if ($page === 'studio_lead') {
             }
             echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="0"></div></div>';
             echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="0"></div><div class="field"><label>Origem</label><input name="source" placeholder="Instagram, WhatsApp, indicação..."></div></div>';
-            echo '<div class="field"><label>Tatuador / responsável</label><select name="artist_id"><option value="">Sem tatuador</option>';
-            render_artist_options($artists);
+            echo '<div class="field"><label>Tatuador / responsável</label><select name="artist_id">';
+            render_artist_options($artists, 0, (string)$studio['name']);
             echo '</select></div>';
             echo '<button class="btn" type="submit">Salvar lead</button>';
             echo '</form>';
@@ -1989,8 +1989,8 @@ if ($page === 'studio_lead') {
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="customer_id" value="' . h((string)($lead['customer_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="lead"><input type="hidden" name="return_to_lead" value="' . h((string)$leadId) . '">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Agendar este lead</h2><span class="badge">Proximo passo</span></div>';
         echo '<div class="field"><label>Titulo</label><input name="title" required value="' . h($lead['interest'] ?: 'Atendimento') . '"></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
-        render_artist_options($artists);
+        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id">';
+        render_artist_options($artists, (int)($selectedAppointment['artist_id'] ?? 0), (string)$studio['name']);
         echo '</select></div><div class="field"><label>Status</label><select name="status">';
         render_options(appointment_status_options(), 'pre_agendado');
         echo '</select></div></div>';
@@ -2246,8 +2246,8 @@ if ($page === 'studio_agenda') {
         render_customer_options($customers);
         echo '</select></div><div class="field"><label>Lead</label><select name="lead_id"><option value="">Sem lead</option>';
         render_lead_options($leads);
-        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
-        render_artist_options($artists);
+        echo '</select></div><div class="field"><label>Tatuador</label><select name="artist_id">';
+        render_artist_options($artists, 0, (string)$studio['name']);
         echo '</select></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h($selectedAppointment['appointment_date'] ?? date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="' . h(substr((string)($selectedAppointment['start_time'] ?? '10:00'), 0, 5)) . '"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly value="' . h(substr((string)($selectedAppointment['end_time'] ?? ''), 0, 5)) . '"></div></div>';
         echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
@@ -2779,8 +2779,8 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div><div class="field"><label>Imagem de referencia</label><input id="appointmentReferenceInput" type="file" name="reference_image" accept="image/*" hidden><button class="btn secondary" type="button" id="appointmentReferenceButton">Anexar referencia</button></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Quantidade de pomadas</label><input type="number" min="0" step="1" name="pomadas_quantity" value="0" placeholder="0"><small class="muted">Quantas pomadas o cliente vai levar/fechar junto com o atendimento.</small></div><div class="field"><label>&nbsp;</label><div class="muted" style="padding-top:10px">Esse valor vai junto no agendamento.</div></div></div>';
         echo '<div id="appointmentReferencePreview" class="chat-attachment-preview hidden"></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id"><option value="">Sem tatuador</option>';
-        render_artist_options($artists);
+        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id">';
+        render_artist_options($artists, 0, (string)$studio['name']);
         echo '</select></div><div class="field"><label>Status</label><select name="status">';
         render_options(appointment_status_options(), 'pre_agendado');
         echo '</select></div></div>';
@@ -3936,8 +3936,14 @@ function render_lead_options(array $leads, int $selectedId = 0): void
     }
 }
 
-function render_artist_options(array $artists, int $selectedId = 0): void
+function render_artist_options(array $artists, int $selectedId = 0, ?string $studioName = null): void
 {
+    if ($studioName !== null && $studioName !== '') {
+        $selected = $selectedId <= 0 ? ' selected' : '';
+        echo '<option value=""' . $selected . '>' . h($studioName) . '</option>';
+    } else {
+        echo '<option value=""' . ($selectedId <= 0 ? ' selected' : '') . '>Sem tatuador</option>';
+    }
     foreach ($artists as $artist) {
         $selected = (int)$artist['id'] === $selectedId ? ' selected' : '';
         echo '<option value="' . h($artist['id']) . '"' . $selected . '>' . h($artist['name'] . ($artist['specialty'] ? ' - ' . $artist['specialty'] : '')) . '</option>';
