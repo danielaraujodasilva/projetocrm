@@ -4258,11 +4258,7 @@ function studio_apply_appointment_auto_status_rules(array $studio): int
              ELSE 'pre_agendado'
          END,
          updated_at = NOW()
-         WHERE status IN ('pre_agendado', 'agendado', 'confirmado')
-           AND (
-                appointment_date >= CURDATE()
-                AND NOT (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
-           )"
+         WHERE status IN ('pre_agendado', 'agendado', 'confirmado')"
     );
     $stmt->execute();
 
