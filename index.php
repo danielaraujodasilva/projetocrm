@@ -4416,7 +4416,7 @@ function appointment_status_tone(string $status): string
     $status = strtolower(trim($status));
     return match ($status) {
         'pre_agendado' => 'warn',
-        'agendado', 'confirmado' => 'ok',
+        'agendado' => 'ok',
         'atendido', 'finalizado' => 'neutral',
         'cancelado', 'perdido', 'falta' => 'danger',
         'pendente' => 'warn',

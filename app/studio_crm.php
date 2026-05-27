@@ -2161,7 +2161,6 @@ function studio_appointment_allowed_statuses(): array
     return [
         'pre_agendado',
         'agendado',
-        'confirmado',
         'atendido',
         'finalizado',
         'falta',
@@ -4135,8 +4134,8 @@ function studio_save_appointment(array $studio, array $data): int
     $requestedStatus = trim((string)($data['status'] ?? ''));
     $status = in_array($requestedStatus, studio_appointment_allowed_statuses(), true)
         ? $requestedStatus
-        : ($depositValue > 0 ? 'confirmado' : 'pre_agendado');
-    if ($status === 'confirmado' && $depositValue <= 0 && !in_array($requestedStatus, ['concluido', 'atendido', 'finalizado'], true)) {
+        : ($depositValue > 0 ? 'agendado' : 'pre_agendado');
+    if ($depositValue <= 0 && $status === 'agendado') {
         $status = 'pre_agendado';
     }
     $artistId = $normalized['artist_id'] ?: null;
@@ -4243,13 +4242,26 @@ function studio_save_appointment(array $studio, array $data): int
 function studio_apply_appointment_auto_status_rules(array $studio): int
 {
     $pdo = studio_db($studio);
-    $stmt = $pdo->prepare(
+    $pdo->prepare(
         "UPDATE appointments
          SET status = 'finalizado', updated_at = NOW()
          WHERE status NOT IN ('finalizado', 'atendido', 'cancelado', 'perdido')
            AND (
                 appointment_date < CURDATE()
                 OR (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
+           )"
+    )->execute();
+    $stmt = $pdo->prepare(
+        "UPDATE appointments
+         SET status = CASE
+             WHEN COALESCE(deposit_value, 0) > 0 THEN 'agendado'
+             ELSE 'pre_agendado'
+         END,
+         updated_at = NOW()
+         WHERE status IN ('pre_agendado', 'agendado', 'confirmado')
+           AND (
+                appointment_date >= CURDATE()
+                AND NOT (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
            )"
     );
     $stmt->execute();
