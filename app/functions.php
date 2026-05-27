@@ -85,6 +85,12 @@ function import_uid(string $uid): string
     return sha1($uid !== '' ? $uid : uniqid('calendar-', true));
 }
 
+function default_artist_id(array $studio): ?int
+{
+    $artists = studio_list_artists($studio);
+    return $artists ? (int)$artists[0]['id'] : null;
+}
+
 function redirect_to(string $page = 'dashboard', array $params = []): never
 {
     header('Location: ' . app_url($page, $params));

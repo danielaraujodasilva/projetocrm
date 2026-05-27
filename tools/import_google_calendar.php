@@ -430,12 +430,6 @@ function count_existing_imported_appointments(array $studio, array $items): int
     return $count;
 }
 
-function default_artist_id(array $studio): ?int
-{
-    $artists = studio_list_artists($studio);
-    return $artists ? (int)$artists[0]['id'] : null;
-}
-
 function build_import_description(array $item): string
 {
     $parts = [
