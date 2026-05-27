@@ -1397,6 +1397,48 @@ textarea {
     transition: transform .12s ease, box-shadow .12s ease;
 }
 
+.calendar-event.status-cancelado,
+.appointment-block.status-cancelado {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.calendar-event.status-pre-agendado,
+.appointment-block.status-pre-agendado {
+    background: #fff8db;
+    border-color: #f3d36b;
+}
+
+.calendar-event.status-agendado,
+.appointment-block.status-agendado {
+    background: #e9f8ea;
+    border-color: #8fd39a;
+}
+
+.calendar-event.status-confirmado,
+.appointment-block.status-confirmado {
+    background: #d5f0d8;
+    border-color: #4fba6a;
+}
+
+.calendar-event.status-finalizado,
+.appointment-block.status-finalizado {
+    background: #e8f0fb;
+    border-color: #89a9d8;
+}
+
+.calendar-event.status-pendente,
+.appointment-block.status-pendente {
+    background: #fff1dd;
+    border-color: #e8b86d;
+}
+
+.calendar-event.status-neutro,
+.appointment-block.status-neutro {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
 .calendar-event:hover,
 .appointment-block:hover,
 .activity-card:hover {
