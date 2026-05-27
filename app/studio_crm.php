@@ -2161,6 +2161,7 @@ function studio_appointment_allowed_statuses(): array
     return [
         'pre_agendado',
         'agendado',
+        'confirmado',
         'atendido',
         'finalizado',
         'falta',
@@ -2918,6 +2919,13 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     if (!empty($conversation['lead_id'])) {
         $pdo->prepare('UPDATE leads SET lead_score = GREATEST(COALESCE(lead_score, 0), ?), last_contact_at = ?, updated_at = NOW() WHERE id = ?')
             ->execute([$score, $sentAt, (int)$conversation['lead_id']]);
+    }
+
+    if (!$fromMe) {
+        try {
+            studio_process_appointment_confirmation_reply($studio, $conversation, $body);
+        } catch (Throwable) {
+        }
     }
 
     $assistantSettings = studio_settings($studio);
@@ -4258,11 +4266,233 @@ function studio_apply_appointment_auto_status_rules(array $studio): int
              ELSE 'pre_agendado'
          END,
          updated_at = NOW()
-         WHERE status IN ('pre_agendado', 'agendado', 'confirmado')"
+         WHERE status IN ('pre_agendado', 'agendado')"
     );
     $stmt->execute();
 
     return $stmt->rowCount();
+}
+
+function studio_appointment_confirmation_window(array $appointment): bool
+{
+    $date = trim((string)($appointment['appointment_date'] ?? ''));
+    $time = trim((string)($appointment['start_time'] ?? ''));
+    if ($date === '' || $time === '') {
+        return false;
+    }
+    try {
+        $dt = new DateTimeImmutable($date . ' ' . $time, new DateTimeZone('America/Sao_Paulo'));
+    } catch (Throwable) {
+        return false;
+    }
+    $now = new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo'));
+    $hoursUntil = ($dt->getTimestamp() - $now->getTimestamp()) / 3600;
+    return $hoursUntil <= 48 && $hoursUntil > 24;
+}
+
+function studio_appointment_confirmation_overdue(array $appointment): bool
+{
+    $date = trim((string)($appointment['appointment_date'] ?? ''));
+    $time = trim((string)($appointment['start_time'] ?? ''));
+    if ($date === '' || $time === '') {
+        return false;
+    }
+    try {
+        $dt = new DateTimeImmutable($date . ' ' . $time, new DateTimeZone('America/Sao_Paulo'));
+    } catch (Throwable) {
+        return false;
+    }
+    $now = new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo'));
+    $hoursUntil = ($dt->getTimestamp() - $now->getTimestamp()) / 3600;
+    return $hoursUntil <= 24;
+}
+
+function studio_appointment_confirmation_phone(array $appointment): string
+{
+    return normalize_phone((string)($appointment['customer_phone'] ?? $appointment['phone'] ?? ''));
+}
+
+function studio_appointment_confirmation_text(array $studio, array $appointment): string
+{
+    $settings = studio_settings($studio);
+    $template = trim((string)($settings['appointment_confirmation_message'] ?? ''));
+    if ($template === '') {
+        $template = "Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com *sim* para confirmar, ou avisa se precisar cancelar/alterar.";
+    }
+    $customerName = trim((string)($appointment['customer_name'] ?? $appointment['lead_name'] ?? $appointment['title'] ?? 'cliente'));
+    return studio_format_appointment_message($template, [
+        'name' => $customerName,
+        'date' => format_date_pt((string)($appointment['appointment_date'] ?? '')),
+        'start_time' => substr((string)($appointment['start_time'] ?? ''), 0, 5),
+        'end_time' => substr((string)($appointment['end_time'] ?? ''), 0, 5),
+        'studio_name' => (string)($studio['name'] ?? 'estudio'),
+        'reason' => 'Confirmação automática de agenda.',
+    ]);
+}
+
+function studio_appointment_confirmation_ai_decision(array $studio, array $appointment, string $reply): ?string
+{
+    $reply = trim($reply);
+    if ($reply === '') {
+        return null;
+    }
+
+    $config = studio_openai_config($studio);
+    if (empty($config['api_key'])) {
+        $normalized = remove_accents(lower_text($reply));
+        if (contains_any($normalized, ['sim', 'confirmo', 'confirmado', 'confirmar', 'vou', 'estarei', 'ok', 'beleza', 'claro'])) {
+            return 'confirmado';
+        }
+        if (contains_any($normalized, ['nao', 'não', 'cancelar', 'cancela', 'cancelado', 'desmarcar', 'nao vou', 'não vou', 'impossivel', 'impossível'])) {
+            return 'cancelado';
+        }
+        return null;
+    }
+
+    $prompt = "Classifique a resposta do cliente para confirmação de agendamento.\n"
+        . "Responda somente com JSON valido no formato {\"decision\":\"confirmed|canceled|unknown\"}.\n"
+        . "Se a mensagem confirma presença, use confirmed.\n"
+        . "Se a mensagem informa cancelamento, recusa, impossibilidade ou desistência, use canceled.\n"
+        . "Se estiver ambígua, use unknown.\n\n"
+        . "Agendamento:\n"
+        . "- Cliente: " . (string)($appointment['customer_name'] ?? $appointment['title'] ?? 'cliente') . "\n"
+        . "- Data: " . format_date_pt((string)($appointment['appointment_date'] ?? '')) . "\n"
+        . "- Hora: " . substr((string)($appointment['start_time'] ?? ''), 0, 5) . "\n\n"
+        . "Resposta do cliente:\n" . $reply;
+
+    $result = studio_openai_text($config['api_key'], $config['model'], 'Você classifica respostas de confirmação de agendamento.', $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'), 45);
+    if (empty($result['ok'])) {
+        return null;
+    }
+    $decision = strtolower(trim((string)($result['reply_text'] ?? '')));
+    if ($decision === '' && !empty($result['summary'])) {
+        $decision = strtolower(trim((string)$result['summary']));
+    }
+    if (str_contains($decision, 'confirmed')) {
+        return 'confirmado';
+    }
+    if (str_contains($decision, 'canceled')) {
+        return 'cancelado';
+    }
+    return null;
+}
+
+function studio_schedule_appointment_confirmations(array $studio): array
+{
+    $pdo = studio_db($studio);
+    $stmt = $pdo->query(
+        "SELECT a.*, c.name AS customer_name, c.phone AS customer_phone, l.name AS lead_name
+         FROM appointments a
+         LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
+         WHERE a.status IN ('pre_agendado', 'agendado', 'confirmado')
+           AND COALESCE(a.appointment_date, '') <> ''
+         ORDER BY a.appointment_date ASC, a.start_time ASC"
+    );
+    $appointments = $stmt->fetchAll() ?: [];
+    $sent = 0;
+    $canceled = 0;
+    $confirmed = 0;
+    $messages = [];
+
+    foreach ($appointments as $appointment) {
+        $phone = studio_appointment_confirmation_phone($appointment);
+        if ($phone === '') {
+            continue;
+        }
+        $confirmationStatus = trim((string)($appointment['confirmation_status'] ?? ''));
+        $requestedAt = trim((string)($appointment['confirmation_requested_at'] ?? ''));
+        $sentAt = trim((string)($appointment['confirmation_message_sent_at'] ?? ''));
+        if ($confirmationStatus === 'confirmed' || $confirmationStatus === 'canceled') {
+            continue;
+        }
+        if ($requestedAt === '' && studio_appointment_confirmation_window($appointment)) {
+            try {
+                $message = studio_appointment_confirmation_text($studio, $appointment);
+                if ($message !== '') {
+                    studio_send_whatsapp_message($studio, [
+                        'conversation_id' => (int)($appointment['conversation_id'] ?? 0),
+                        'phone' => $phone,
+                        'message' => $message,
+                    ]);
+                    $pdo->prepare(
+                        'UPDATE appointments
+                         SET confirmation_requested_at = NOW(), confirmation_message_sent_at = NOW(), confirmation_status = "pending", confirmation_last_message = ?, updated_at = NOW()
+                         WHERE id = ?'
+                    )->execute([$message, (int)$appointment['id']]);
+                    $sent++;
+                    $messages[] = ['id' => (int)$appointment['id'], 'type' => 'sent'];
+                }
+            } catch (Throwable $e) {
+            }
+            continue;
+        }
+        if ($requestedAt !== '' && $sentAt !== '' && studio_appointment_confirmation_overdue($appointment)) {
+            if (in_array((string)($appointment['status'] ?? ''), ['pre_agendado', 'agendado', 'confirmado'], true)) {
+                $pdo->prepare(
+                    'UPDATE appointments
+                     SET status = "cancelado", confirmation_status = "expired", confirmation_response_at = NOW(), updated_at = NOW()
+                     WHERE id = ?'
+                )->execute([(int)$appointment['id']]);
+                $canceled++;
+                $messages[] = ['id' => (int)$appointment['id'], 'type' => 'canceled'];
+            }
+        }
+    }
+
+    return [
+        'sent' => $sent,
+        'canceled' => $canceled,
+        'confirmed' => $confirmed,
+        'events' => $messages,
+    ];
+}
+
+function studio_process_appointment_confirmation_reply(array $studio, array $conversation, string $messageBody): ?array
+{
+    $phone = normalize_phone((string)($conversation['phone'] ?? ''));
+    if ($phone === '') {
+        return null;
+    }
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare(
+        "SELECT a.*, c.name AS customer_name, c.phone AS customer_phone, l.name AS lead_name
+         FROM appointments a
+         LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
+         WHERE a.status IN ('pre_agendado', 'agendado', 'confirmado')
+           AND COALESCE(c.phone, '') = ?
+           AND a.appointment_date >= CURDATE()
+         ORDER BY a.appointment_date ASC, a.start_time ASC
+         LIMIT 1"
+    );
+    $stmt->execute([$phone]);
+    $appointment = $stmt->fetch();
+    if (!is_array($appointment)) {
+        return null;
+    }
+    if (!studio_appointment_confirmation_overdue($appointment) && !studio_appointment_confirmation_window($appointment)) {
+        return null;
+    }
+    $decision = studio_appointment_confirmation_ai_decision($studio, $appointment, $messageBody);
+    if ($decision === null) {
+        return null;
+    }
+    $pdo->prepare(
+        'UPDATE appointments
+         SET status = ?, confirmation_status = ?, confirmation_response_at = NOW(), confirmation_last_message = ?, updated_at = NOW()
+         WHERE id = ?'
+    )->execute([
+        $decision,
+        $decision,
+        mb_substr($messageBody, 0, 2000),
+        (int)$appointment['id'],
+    ]);
+
+    return [
+        'appointment_id' => (int)$appointment['id'],
+        'decision' => $decision,
+    ];
 }
 
 function studio_update_appointment_status(array $studio, int $appointmentId, string $status): void
@@ -4305,6 +4535,11 @@ function studio_ensure_appointment_reference_columns(array $studio): void
         'reference_image_path' => 'VARCHAR(255) NULL AFTER deposit_value',
         'reference_image_name' => 'VARCHAR(180) NULL AFTER reference_image_path',
         'reference_image_mime' => 'VARCHAR(120) NULL AFTER reference_image_name',
+        'confirmation_requested_at' => 'DATETIME NULL AFTER import_uid',
+        'confirmation_message_sent_at' => 'DATETIME NULL AFTER confirmation_requested_at',
+        'confirmation_status' => 'VARCHAR(30) NULL AFTER confirmation_message_sent_at',
+        'confirmation_response_at' => 'DATETIME NULL AFTER confirmation_status',
+        'confirmation_last_message' => 'TEXT NULL AFTER confirmation_response_at',
     ];
     foreach ($columns as $column => $definition) {
         try {
@@ -5050,6 +5285,7 @@ function studio_save_settings(array $studio, array $data): void
         $aiProvider = 'ollama';
     }
     $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
+    $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
@@ -5089,6 +5325,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "ollama"',
         'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'appointment_confirmation_message' => 'TEXT NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -5099,7 +5336,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -5115,6 +5352,7 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentTimeSlots,
         $appointmentDurationMinutes,
         $appointmentOverwriteMessage,
+        $appointmentConfirmationMessage,
         $metaCampaignPhrases !== '' ? $metaCampaignPhrases : "Tenho interesse no fechamento!",
         number_format($pomadaUnitPrice, 2, '.', ''),
         $openAiKey,

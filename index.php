@@ -3082,6 +3082,21 @@ if ($page === 'studio_reports') {
                 }, $todayAppointments),
             ];
         }
+        $confirmationAutomation = studio_schedule_appointment_confirmations($studio);
+        if (!empty($confirmationAutomation['canceled'])) {
+            $alerts[] = [
+                'title' => 'Confirmações vencidas canceladas',
+                'count' => (int)$confirmationAutomation['canceled'],
+                'tone' => 'danger',
+                'items' => array_map(static function (array $event): array {
+                    return [
+                        'label' => 'Agendamento cancelado por falta de confirmação',
+                        'detail' => 'A janela de confirmação expirou sem resposta do cliente.',
+                        'href' => app_url('studio_agenda'),
+                    ];
+                }, array_slice($confirmationAutomation['events'] ?? [], 0, 4)),
+            ];
+        }
         $monthExpenses = (float)($pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "'")->fetchColumn() ?: 0);
 
         $reports = studio_report_data($studio);
@@ -3387,6 +3402,7 @@ if ($page === 'studio_settings') {
         echo '</div><small class="muted">O fim será calculado automaticamente. Ex: 5 horas = 10:00 até 15:00.</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
+        echo '<div class="field"><label>Mensagem de confirmação do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '</div>';
 
         echo '<div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
@@ -3856,6 +3872,7 @@ function appointment_status_options(): array
     return [
         'pre_agendado' => 'Pre-agendado',
         'agendado' => 'Agendado',
+        'confirmado' => 'Confirmado',
         'finalizado' => 'Finalizado',
         'falta' => 'Falta',
         'cancelado' => 'Cancelado',
@@ -4416,7 +4433,7 @@ function appointment_status_tone(string $status): string
     $status = strtolower(trim($status));
     return match ($status) {
         'pre_agendado' => 'warn',
-        'agendado' => 'ok',
+        'agendado', 'confirmado' => 'ok',
         'atendido', 'finalizado' => 'neutral',
         'cancelado', 'perdido', 'falta' => 'danger',
         'pendente' => 'warn',
