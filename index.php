@@ -4135,7 +4135,9 @@ function render_calendar_event(array $appointment): void
     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
     $status = (string)($appointment['status'] ?? '');
     $status_class = appointment_status_class($status);
-    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span></a>';
+    $status_bg = appointment_status_background($status);
+    $status_border = appointment_status_border($status);
+    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span></a>';
 }
 
 function render_calendar_block(array $appointment): void
@@ -4147,7 +4149,9 @@ function render_calendar_block(array $appointment): void
     $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     $status = (string)($appointment['status'] ?? '');
     $status_class = appointment_status_class($status);
-    echo '<a class="appointment-block ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '">';
+    $status_bg = appointment_status_background($status);
+    $status_border = appointment_status_border($status);
+    echo '<a class="appointment-block ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '">';
     echo '<strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
     echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
     echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
@@ -4455,6 +4459,36 @@ function appointment_status_class(string $status): string
         'atendido', 'finalizado' => 'status-finalizado',
         'pendente' => 'status-pendente',
         default => 'status-neutro',
+    };
+}
+
+function appointment_status_background(string $status): string
+{
+    $status = strtolower(trim($status));
+    return match ($status) {
+        'cancelado', 'perdido' => '#f3f4f6',
+        'falta' => '#fdecec',
+        'pre_agendado' => '#fff8db',
+        'agendado' => '#e9f8ea',
+        'confirmado' => '#d5f0d8',
+        'atendido', 'finalizado' => '#e8f0fb',
+        'pendente' => '#fff1dd',
+        default => '#f8fafc',
+    };
+}
+
+function appointment_status_border(string $status): string
+{
+    $status = strtolower(trim($status));
+    return match ($status) {
+        'cancelado', 'perdido' => '#d1d5db',
+        'falta' => '#f1b5b5',
+        'pre_agendado' => '#f3d36b',
+        'agendado' => '#8fd39a',
+        'confirmado' => '#4fba6a',
+        'atendido', 'finalizado' => '#89a9d8',
+        'pendente' => '#e8b86d',
+        default => '#cbd5e1',
     };
 }
 
