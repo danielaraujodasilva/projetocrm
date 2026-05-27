@@ -2162,9 +2162,7 @@ function studio_appointment_allowed_statuses(): array
         'pre_agendado',
         'agendado',
         'confirmado',
-        'em_atendimento',
         'atendido',
-        'concluido',
         'finalizado',
         'falta',
         'cancelado',
@@ -2202,6 +2200,9 @@ function studio_validate_appointment_payload(array $studio, array $data, int $ex
     }
     if ($endTime !== '' && $endTime <= $startTime) {
         throw new RuntimeException('O horário final precisa ser maior que o horário inicial.');
+    }
+    if ($artistId <= 0) {
+        $artistId = default_artist_id($studio) ?? 0;
     }
     if ($artistId <= 0) {
         throw new RuntimeException('Selecione um tatuador para o agendamento.');

@@ -3856,10 +3856,6 @@ function appointment_status_options(): array
     return [
         'pre_agendado' => 'Pre-agendado',
         'agendado' => 'Agendado',
-        'confirmado' => 'Confirmado',
-        'em_atendimento' => 'Em atendimento',
-        'atendido' => 'Atendido',
-        'concluido' => 'Concluido',
         'finalizado' => 'Finalizado',
         'falta' => 'Falta',
         'cancelado' => 'Cancelado',
@@ -4421,8 +4417,7 @@ function appointment_status_tone(string $status): string
     return match ($status) {
         'pre_agendado' => 'warn',
         'agendado', 'confirmado' => 'ok',
-        'em_atendimento' => 'info',
-        'atendido', 'concluido', 'finalizado' => 'neutral',
+        'atendido', 'finalizado' => 'neutral',
         'cancelado', 'perdido', 'falta' => 'danger',
         'pendente' => 'warn',
         default => 'neutral',
