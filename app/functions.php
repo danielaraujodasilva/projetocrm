@@ -80,6 +80,11 @@ function normalize_spaces(string $value): string
     return $normalized !== null ? $normalized : '';
 }
 
+function import_uid(string $uid): string
+{
+    return sha1($uid !== '' ? $uid : uniqid('calendar-', true));
+}
+
 function redirect_to(string $page = 'dashboard', array $params = []): never
 {
     header('Location: ' . app_url($page, $params));
