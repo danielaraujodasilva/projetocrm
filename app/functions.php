@@ -73,6 +73,13 @@ function format_datetime_pt(string $value, bool $withWeekday = true): string
     }
 }
 
+function normalize_spaces(string $value): string
+{
+    $value = trim($value);
+    $normalized = preg_replace('/\s+/u', ' ', $value);
+    return $normalized !== null ? $normalized : '';
+}
+
 function redirect_to(string $page = 'dashboard', array $params = []): never
 {
     header('Location: ' . app_url($page, $params));

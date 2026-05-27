@@ -2146,6 +2146,13 @@ function studio_schedule_normalize_end_time(string $date, string $startTime, ?st
     return $calculated;
 }
 
+function normalize_spaces(string $value): string
+{
+    $value = trim($value);
+    $normalized = preg_replace('/\s+/u', ' ', $value);
+    return $normalized !== null ? $normalized : '';
+}
+
 function studio_appointment_blocking_statuses(): array
 {
     return ['pre_agendado', 'agendado', 'confirmado', 'em_atendimento', 'pendente'];

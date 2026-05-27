@@ -460,7 +460,9 @@ function import_uid(string $uid): string
 
 function normalize_spaces(string $value): string
 {
-    return trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    $value = trim($value);
+    $normalized = preg_replace('/\s+/u', ' ', $value);
+    return $normalized !== null ? $normalized : '';
 }
 
 function lower_text(string $value): string
