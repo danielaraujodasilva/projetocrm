@@ -2601,13 +2601,20 @@ if ($page === 'studio_whatsapp') {
         $serviceState = (string)($serviceStatus['status'] ?? 'offline');
         $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
         $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
+        $conversationsPage = max(1, (int)($_GET['wa_page'] ?? 1));
+        $conversationsPerPage = 12;
+        $conversationsTotal = count($conversations);
+        $conversationsTotalPages = max(1, (int)ceil($conversationsTotal / $conversationsPerPage));
+        $conversationsPage = min($conversationsPage, $conversationsTotalPages);
+        $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
+        $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conex?o, pareamento e a??es</small></button>';
-        echo '<a class="panel quick-action-card" href="' . h($firstConversationHref) . '"><strong>' . h($summary['total']) . '</strong><span>Conversas</span><small>Abrir a primeira conversa ativa</small></a>';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['mode' => 'bot'])) . '"><strong>' . h($summary['bot']) . '</strong><span>Em modo IA</span><small>Ver conversas autom?ticas</small></a>';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['needs_human' => 1])) . '"><strong>' . h($summary['needs_human']) . '</strong><span>Pedindo humano</span><small>Atendimentos que pedem aten??o</small></a>';
+        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio em overlay</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura r?pida</span><small>Resumo do fluxo atual</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>' . h((string)$conversationsTotal) . '</strong><span>Conversas importadas</span><small>Ver lista paginada</small></button>';
         echo '</section>';
-        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conex?o, pareamento e configura??o r?pida.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conex?o, pareamento e a??es r?pidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
         echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sess?o do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
@@ -2667,37 +2674,8 @@ if ($page === 'studio_whatsapp') {
         echo '<button class="btn secondary" type="submit">Gerar c?digo</button>';
         echo '</form>';
         echo '</div>';
-        echo '<div id="whatsappConfigSource" hidden>';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_studio_settings">';
-        echo '<h2>Configura??o WhatsApp</h2>';
-        echo '<div class="field"><label>URL do servi?o Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
-        echo '<div class="field"><label>Padr?o para conversas novas</label><select name="whatsapp_default_mode">';
-        render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
-        echo '</select></div>';
-        echo '<input type="hidden" name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '">';
-        echo '<input type="hidden" name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '">';
-        echo '<input type="hidden" name="business_rules" value="' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '">';
-        if (!empty($settings['ai_enabled'])) {
-            echo '<input type="hidden" name="ai_enabled" value="1">';
-        }
-        echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado neste estudio</label>';
-        echo '<button class="btn" type="submit">Salvar WhatsApp</button>';
-        echo '</form>';
         echo '</div>';
-        echo '<script>(function(){const modal=document.getElementById("whatsappStatusOverlay");const body=document.getElementById("whatsappStatusOverlayBody");const source=document.getElementById("whatsappStatusSource");const closeBtn=document.getElementById("closeWhatsAppStatusOverlay");const openBtn=document.getElementById("openWhatsAppStatusOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
-        echo '<section class="grid cols-2 whatsapp-lower-panels" style="margin-top:16px">';
-        echo '<button type="button" class="panel dashboard-stat" id="openManualMessageOverlay"><p class="metric">Enviar mensagem manual</p><p class="muted">Abrir envio em overlay</p></button>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leitura rapida</h2><span class="badge">Fluxo atual</span></div>';
-        echo '<div class="mini-metrics">';
-        echo '<span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span>';
-        echo '<span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span>';
-        echo '<span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota media</small></span>';
-        echo '</div>';
-        echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
-        echo '</div></section>';
-        echo '<div id="manualMessageOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Enviar mensagem manual</h3><p class="muted" style="margin:4px 0 0">Envio direto sem poluir a tela principal.</p></div><button type="button" id="closeManualMessageOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="manualMessageOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappManualOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Enviar mensagem manual</h3><p class="muted" style="margin:4px 0 0">Envio direto sem poluir a tela principal.</p></div><button type="button" id="closeManualMessageOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="manualMessageOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="manualMessageSource" hidden><form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message">';
@@ -2706,13 +2684,15 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
         echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
         echo '</form></div>';
-        echo '<script>(function(){const modal=document.getElementById("manualMessageOverlay");const body=document.getElementById("manualMessageOverlayBody");const source=document.getElementById("manualMessageSource");const openBtn=document.getElementById("openManualMessageOverlay");const closeBtn=document.getElementById("closeManualMessageOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
-        echo '<section class="panel whatsapp-list-panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura r?pida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota m?dia</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
+        echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">P?gina ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
             'all' => 'Todas',
-            'unreplied' => 'Não respondidas',
+            'unreplied' => 'N??o respondidas',
             'needs_human' => 'Pediram humano',
             'bot' => 'Em IA/Bot',
             'human' => 'Em humano',
@@ -2725,6 +2705,7 @@ if ($page === 'studio_whatsapp') {
                 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null,
                 'needs_human' => $filters['needs_human'] ? 1 : null,
                 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null,
+                'wa_page' => $conversationsPage,
             ], static fn($value) => $value !== null && $value !== ''));
             $active = ($filters['filter'] ?: 'all') === $filterKey ? ' active' : '';
             echo '<a class="filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
@@ -2743,8 +2724,22 @@ if ($page === 'studio_whatsapp') {
         echo '</select>';
         echo '<label class="checkline compact"><input type="checkbox" name="needs_human" value="1" ' . ($filters['needs_human'] ? 'checked' : '') . '> Quer humano</label>';
         echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Limpar</a></form>';
-        render_whatsapp_table($conversations);
-        echo '</section>';
+        render_whatsapp_table($conversationsPageRows);
+        if ($conversationsTotalPages > 1) {
+            echo '<div class="actions" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap">';
+            if ($conversationsPage > 1) {
+                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage - 1])) . '">Anterior</a>';
+            }
+            if ($conversationsPage < $conversationsTotalPages) {
+                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage + 1])) . '">Pr?xima</a>';
+            }
+            echo '</div>';
+        }
+        echo '</section></div>';
+        echo '<script>(function(){const modal=document.getElementById("whatsappStatusOverlay");const body=document.getElementById("whatsappStatusOverlayBody");const source=document.getElementById("whatsappStatusSource");const closeBtn=document.getElementById("closeWhatsAppStatusOverlay");const openBtn=document.getElementById("openWhatsAppStatusOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("whatsappManualOverlay");const body=document.getElementById("manualMessageOverlayBody");const source=document.getElementById("manualMessageSource");const openBtn=document.getElementById("openManualMessageOverlay");const closeBtn=document.getElementById("closeManualMessageOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("whatsappReadingOverlay");const body=document.getElementById("whatsappReadingOverlayBody");const source=document.getElementById("whatsappReadingSource");const openBtn=document.getElementById("openWhatsAppReadingOverlay");const closeBtn=document.getElementById("closeWhatsAppReadingOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("whatsappConversationsOverlay");const body=document.getElementById("whatsappConversationsOverlayBody");const source=document.getElementById("whatsappConversationsSource");const openBtn=document.getElementById("openWhatsAppConversationsOverlay");const closeBtn=document.getElementById("closeWhatsAppConversationsOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
