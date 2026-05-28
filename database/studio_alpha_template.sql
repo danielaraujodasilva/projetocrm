@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS `customers` (
   `social_networks` VARCHAR(180) NULL,
   `share_before_after_opt_in` TINYINT(1) NOT NULL DEFAULT 0,
   `data_processing_consent` TINYINT(1) NOT NULL DEFAULT 0,
+  `health_data_consent` TINYINT(1) NOT NULL DEFAULT 0,
   `truthfulness_confirmed` TINYINT(1) NOT NULL DEFAULT 0,
   `notes` TEXT NULL,
   `created_at` DATETIME NOT NULL,
@@ -143,7 +144,8 @@ ALTER TABLE `customers`
   ADD COLUMN IF NOT EXISTS `social_networks` VARCHAR(180) NULL AFTER `social_network_opt_in`,
   ADD COLUMN IF NOT EXISTS `share_before_after_opt_in` TINYINT(1) NOT NULL DEFAULT 0 AFTER `social_networks`,
   ADD COLUMN IF NOT EXISTS `data_processing_consent` TINYINT(1) NOT NULL DEFAULT 0 AFTER `share_before_after_opt_in`,
-  ADD COLUMN IF NOT EXISTS `truthfulness_confirmed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `data_processing_consent`;
+  ADD COLUMN IF NOT EXISTS `health_data_consent` TINYINT(1) NOT NULL DEFAULT 0 AFTER `data_processing_consent`,
+  ADD COLUMN IF NOT EXISTS `truthfulness_confirmed` TINYINT(1) NOT NULL DEFAULT 0 AFTER `health_data_consent`;
 
 CREATE TABLE IF NOT EXISTS `leads` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

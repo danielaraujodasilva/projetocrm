@@ -4297,6 +4297,7 @@ function studio_customer_columns(): array
         'social_networks',
         'share_before_after_opt_in',
         'data_processing_consent',
+        'health_data_consent',
         'truthfulness_confirmed',
         'notes',
     ];
@@ -4362,6 +4363,7 @@ function studio_customer_payload_values(array $data): array
         trim((string)($data['social_networks'] ?? '')),
         $optIn($data['share_before_after_opt_in'] ?? 0),
         $optIn($data['data_processing_consent'] ?? 0),
+        $optIn($data['health_data_consent'] ?? 0),
         $optIn($data['truthfulness_confirmed'] ?? 0),
         trim((string)($data['notes'] ?? '')),
     ];
@@ -4416,7 +4418,8 @@ function studio_ensure_customer_columns(array $studio): void
             ADD COLUMN IF NOT EXISTS social_networks VARCHAR(180) NULL AFTER social_network_opt_in,
             ADD COLUMN IF NOT EXISTS share_before_after_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER social_networks,
             ADD COLUMN IF NOT EXISTS data_processing_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER share_before_after_opt_in,
-            ADD COLUMN IF NOT EXISTS truthfulness_confirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER data_processing_consent');
+            ADD COLUMN IF NOT EXISTS health_data_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER data_processing_consent,
+            ADD COLUMN IF NOT EXISTS truthfulness_confirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER health_data_consent');
     } catch (Throwable) {
     }
     if ($studioId > 0) {
