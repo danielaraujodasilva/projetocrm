@@ -2609,14 +2609,14 @@ if ($page === 'studio_whatsapp') {
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conex?o, pareamento e a??es</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conexão, pareamento e ações</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio em overlay</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura r?pida</span><small>Resumo do fluxo atual</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura rápida</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>' . h((string)$conversationsTotal) . '</strong><span>Conversas importadas</span><small>Ver lista paginada</small></button>';
         echo '</section>';
-        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conex?o, pareamento e a??es r?pidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conexão, pareamento e ações rápidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
-        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sess?o do WhatsApp</h2>';
+        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessão do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
         $sessionSummary = 'Nao conectado';
@@ -2665,8 +2665,8 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="actions whatsapp-session-actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar pareamento</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sess?o</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar servi?o</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessão</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar serviço</button></form>';
         echo '</div>';
         echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
@@ -2684,15 +2684,15 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
         echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
         echo '</form></div>';
-        echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura r?pida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota m?dia</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
-        echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">P?gina ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rápida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota média</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
+        echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">Página ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
             'all' => 'Todas',
-            'unreplied' => 'N??o respondidas',
+            'unreplied' => 'Não respondidas',
             'needs_human' => 'Pediram humano',
             'bot' => 'Em IA/Bot',
             'human' => 'Em humano',
@@ -2731,7 +2731,7 @@ if ($page === 'studio_whatsapp') {
                 echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage - 1])) . '">Anterior</a>';
             }
             if ($conversationsPage < $conversationsTotalPages) {
-                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage + 1])) . '">Pr?xima</a>';
+                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage + 1])) . '">Próxima</a>';
             }
             echo '</div>';
         }
