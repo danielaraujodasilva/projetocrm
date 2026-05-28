@@ -3280,7 +3280,7 @@ if ($page === 'studio_reports') {
         $staleLeadsRows = $staleLeads->fetchAll() ?: [];
         if ($staleLeadsRows) {
             $alerts[] = [
-                'title' => 'Leads abertos sem atualiza??o h? mais de 24h',
+                'title' => 'Leads abertos sem atualização há mais de 24h',
                 'count' => count($staleLeadsRows),
                 'tone' => 'warn',
                 'items' => array_map(static function (array $lead): array {
