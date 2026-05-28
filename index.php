@@ -949,6 +949,7 @@ document.addEventListener("click", async function (event) {
 function render_auth_page(string $title, string $subtitle, callable $content, ?array $flash): void
 {
     render_head($title);
+    ob_start();
     echo '<div class="auth-page"><main class="auth-card">';
     echo '<h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p>';
     render_flash($flash);
@@ -956,6 +957,7 @@ function render_auth_page(string $title, string $subtitle, callable $content, ?a
     echo '</main></div>';
     render_scripts();
     echo '</body></html>';
+    echo repair_display_text((string)ob_get_clean());
 }
 
 function render_app_shell(string $title, string $subtitle, string $active, callable $content, ?array $flash): void
@@ -986,6 +988,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
 {
     $user = current_studio_user();
     render_head($title);
+    ob_start();
     echo '<div class="shell">';
     echo '<aside class="sidebar">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estudio') . '</span></div>';
@@ -1008,16 +1011,19 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '</main></div>';
     render_scripts();
     echo '</body></html>';
+    echo repair_display_text((string)ob_get_clean());
 }
 
 function render_public_page(string $title, string $subtitle, callable $content): void
 {
     render_public_head($title, $subtitle);
+    ob_start();
     echo '<div class="public-page-wrap">';
     $content();
     echo '</div>';
     render_scripts();
     echo '</body></html>';
+    echo repair_display_text((string)ob_get_clean());
 }
 
 function render_public_agent_page(): void
@@ -2854,7 +2860,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 $rowActive = $rowId === $conversationId ? ' active' : '';
                 echo '<a class="wa-web-chat-item' . h($rowActive) . '" href="' . h($rowHref) . '">';
                 echo '<div class="wa-web-chat-avatar">' . h(strtoupper(substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1))) . '</div>';
-                echo '<div class="wa-web-chat-meta"><div class="wa-web-chat-head"><strong>' . h($rowName) . '</strong><span>' . h(format_datetime((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''))) . '</span></div>';
+                echo '<div class="wa-web-chat-meta"><div class="wa-web-chat-head"><strong>' . h($rowName) . '</strong><span>' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</span></div>';
                 echo '<p>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</p>';
                 echo '<div class="wa-web-chat-badges">';
                 echo '<span class="badge ' . (($row['attendance_mode'] ?? 'human') === 'bot' ? 'ok' : '') . '">' . h(($row['attendance_mode'] ?? 'human') === 'bot' ? 'IA' : 'Humano') . '</span>';
