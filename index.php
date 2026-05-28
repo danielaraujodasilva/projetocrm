@@ -3346,10 +3346,7 @@ if ($page === 'studio_reports') {
             "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.status, a.value, a.deposit_value, a.customer_id, a.lead_id,
                     COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name,
                     c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
-                    c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
-                    l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
-                    l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
-                    l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
+                    c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding
              FROM appointments a
              LEFT JOIN customers c ON c.id = a.customer_id
              LEFT JOIN leads l ON l.id = a.lead_id
