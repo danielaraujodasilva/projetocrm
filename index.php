@@ -1369,7 +1369,7 @@ if ($page === 'studio_home') {
         echo '<script>window.homeTodayAgenda = ' . json_encode(['date' => $current->format('Y-m-d'), 'items' => $todayAppointments], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '"></script>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda de hoje</h2><div class="actions"><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $current->format('Y-m-d')])) . '">Abrir agenda</a><a class="btn secondary" href="' . h(app_url('studio_finance')) . '">Financeiro do mês</a></div></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda de hoje</h2><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $current->format('Y-m-d')])) . '">Abrir agenda</a></div>';
         echo '<p class="muted">Abra a agenda para ver os horários e o financeiro do mês em detalhes.</p>';
         if (!$todayAppointments) {
             echo '<p class="muted">Nenhum atendimento agendado para hoje.</p>';
@@ -1980,6 +1980,7 @@ if ($page === 'studio_agenda') {
         $pomadaUnitPrice = (float)(studio_settings($studio)['pomada_unit_price'] ?? 100);
         $todayDate = date('Y-m-d');
         $todayAppointments = studio_calendar_appointments($studio, $todayDate, $todayDate);
+        $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
         $preScheduledNoSignalCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
         $missingArtistCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(artist_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
         $missingContactCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(customer_id, 0) = 0 AND COALESCE(lead_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
@@ -2005,6 +2006,7 @@ if ($page === 'studio_agenda') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
+        echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button>';
         echo '</div>';
         if (is_array($importPreview)) {
             $analysis = $importPreview['analysis'] ?? [];
@@ -2124,6 +2126,17 @@ if ($page === 'studio_agenda') {
         echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
         echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
         echo '</div>';
+        echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list">';
+        if (!$nextAvailableSlots) {
+            echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
+        } else {
+            foreach (array_slice($nextAvailableSlots, 0, 12) as $slot) {
+                $href = app_url('studio_agenda', ['date' => (string)$slot['date']]) . '#appointment-form';
+                echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)$slot['label']) . '</strong><span class="muted">' . h(implode(' · ', array_slice($slot['free_slots'] ?? [], 0, 4))) . '</span><span>' . h((string)count($slot['free_slots'] ?? [])) . ' horários livres</span></a>';
+            }
+        }
+        echo '</div></div></div></div>';
+        echo '<script>(function(){const openBtn=document.getElementById("openFreeSlotsButton");const modal=document.getElementById("freeSlotsModal");const closeBtn=document.getElementById("closeFreeSlotsModal");if(!openBtn||!modal)return;openBtn.addEventListener("click",()=>modal.classList.remove("hidden"));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
         if ($view === 'month') {
             render_calendar_month($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'week') {
