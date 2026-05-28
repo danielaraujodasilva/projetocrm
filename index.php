@@ -1366,7 +1366,7 @@ if ($page === 'studio_home') {
                 return false;
             }
         }));
-        $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $current);
+        $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $focus);
         $financeSummary = studio_finance_summary($studio);
         $whatsappSummary = plan_allows('whatsapp') ? studio_whatsapp_summary($studio) : ['total' => 0, 'bot' => 0, 'human' => 0, 'analyzed' => 0, 'needs_human' => 0, 'avg_score' => 0];
         $whatsappStatusData = null;
