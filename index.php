@@ -1750,11 +1750,28 @@ if ($page === 'studio_customer') {
         $activity = studio_customer_activity($studio, $customerId);
         $leads = studio_list_leads($studio);
         $artists = studio_list_artists($studio);
+        $customerValue = static function (string $key, string $fallback = '') use ($customer): string {
+            return (string)($customer[$key] ?? $fallback);
+        };
+        $linkedLead = $activity['leads'][0] ?? null;
+        $publicUpdateUrl = '';
+        if (is_array($linkedLead) && !empty($linkedLead['id'])) {
+            $publicUpdateToken = studio_ensure_lead_public_update_token($studio, (int)$linkedLead['id']);
+            if ($publicUpdateToken !== '') {
+                $publicUpdateUrl = app_url('lead_public_update', ['lead' => (int)$linkedLead['id'], 'token' => $publicUpdateToken]);
+            }
+        }
 
         echo '<section class="lead-detail-head">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($customer['name'] ?: 'Cliente sem nome') . '</h2><p class="muted">' . h(($customer['phone'] ?: 'Sem telefone') . ' | ' . ($customer['instagram'] ?: 'sem Instagram')) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Voltar</a></div>';
-        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customer['email'] ?: 'Sem email') . '</strong><p class="muted" style="margin:4px 0 0">Email</p></div><div class="panel soft"><strong>' . h($customer['birth_date'] ?: 'Sem data de nascimento') . '</strong><p class="muted" style="margin:4px 0 0">Nascimento</p></div></div>';
-        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customer['body_area'] ?: 'Sem regiÃ£o do corpo') . '</strong><p class="muted" style="margin:4px 0 0">Ãrea</p></div><div class="panel soft"><strong>' . h($customer['reference_style'] ?: 'Sem referÃªncia') . '</strong><p class="muted" style="margin:4px 0 0">Estilo</p></div></div>';
+        if ($publicUpdateUrl !== '') {
+            $publicShareMessage = 'Oi! Segue o link para atualizar seu cadastro: ' . $publicUpdateUrl;
+            echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir cadastro público</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button><a class="btn secondary" href="https://wa.me/?text=' . h(rawurlencode($publicShareMessage)) . '" target="_blank" rel="noopener">Enviar no WhatsApp</a></div>';
+        } else {
+            echo '<p class="muted" style="margin-top:14px">Este cliente ainda não tem um lead vinculado para gerar o link público de atualização.</p>';
+        }
+        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customerValue('email', 'Sem email')) . '</strong><p class="muted" style="margin:4px 0 0">Email</p></div><div class="panel soft"><strong>' . h($customerValue('birth_date', 'Sem data de nascimento')) . '</strong><p class="muted" style="margin:4px 0 0">Nascimento</p></div></div>';
+        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customerValue('body_area', 'Sem região do corpo')) . '</strong><p class="muted" style="margin:4px 0 0">Área</p></div><div class="panel soft"><strong>' . h($customerValue('reference_style', 'Sem referência')) . '</strong><p class="muted" style="margin:4px 0 0">Estilo</p></div></div>';
         echo '<div class="mini-metrics"><span><strong>' . h((string)count($activity['leads'])) . '</strong><small>Leads</small></span><span><strong>' . h((string)count($activity['appointments'])) . '</strong><small>Agendamentos</small></span><span><strong>' . h((string)count($activity['conversations'])) . '</strong><small>Conversas</small></span></div>';
         echo '</div>';
 
@@ -4915,3 +4932,5 @@ function render_report_table(array $rows, string $labelKey): void
     }
     echo '</tbody></table>';
 }
+
+
