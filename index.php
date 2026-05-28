@@ -36,7 +36,43 @@ $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans') {
+if ($page === 'lead_public_update') {
+    $studio = require_studio();
+    $dbStatus = studio_db_status_for($studio);
+    if (!$dbStatus['ok']) {
+        render_studio_db_missing($studio, $dbStatus['error']);
+        exit;
+    }
+    $leadId = (int)($_GET['lead'] ?? 0);
+    $token = trim((string)($_GET['token'] ?? ''));
+    $lead = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
+    if (!$lead || $token === '' || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
+        http_response_code(404);
+        echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
+        exit;
+    }
+    $missingFields = [];
+    foreach (['name' => 'Nome', 'phone' => 'Telefone', 'interest' => 'Interesse'] as $field => $label) {
+        if (trim((string)($lead[$field] ?? '')) === '') {
+            $missingFields[$field] = $label;
+        }
+    }
+    render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $missingFields) {
+        echo '<section class="panel" style="max-width:760px;margin:0 auto"><h1>Atualize seu cadastro</h1><p class="muted">Preencha apenas o que estiver faltando. Isso ajuda a transformar seu lead em cliente com mais rapidez.</p>';
+        echo '<form class="form" method="post">';
+        echo '<input type="hidden" name="action" value="public_lead_update"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="token" value="' . h($token) . '">';
+        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h((string)($lead['name'] ?? '')) . '" placeholder="Seu nome"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h((string)($lead['phone'] ?? '')) . '" placeholder="Seu telefone"></div></div>';
+        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h((string)($lead['interest'] ?? '')) . '" placeholder="O que você quer fazer?"></div>';
+        echo '<button class="btn" type="submit">Salvar cadastro</button>';
+        if ($missingFields) {
+            echo '<p class="muted" style="margin-top:12px">Faltando: ' . h(implode(', ', array_values($missingFields))) . '</p>';
+        }
+        echo '</form></section>';
+    }, null);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !== 'lead_public_update') {
     csrf_verify();
     $action = (string)($_POST['action'] ?? '');
 
@@ -209,6 +245,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans') {
                 redirect_to('studio_agenda', ['date' => $redirectDate]);
             }
             redirect_to('studio_agenda');
+        }
+
+        if ($action === 'public_lead_update') {
+            $studio = require_studio();
+            $leadId = (int)($_POST['lead_id'] ?? 0);
+            $token = trim((string)($_POST['token'] ?? ''));
+            if ($leadId <= 0 || $token === '') {
+                throw new RuntimeException('Link invalido.');
+            }
+            $lead = studio_find_lead($studio, $leadId);
+            if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
+                throw new RuntimeException('Link expirado ou invalido.');
+            }
+            $payload = [
+                'id' => $leadId,
+                'customer_id' => (int)($lead['customer_id'] ?? 0),
+                'name' => trim((string)($_POST['name'] ?? $lead['name'] ?? '')),
+                'phone' => trim((string)($_POST['phone'] ?? $lead['phone'] ?? '')),
+                'interest' => trim((string)($_POST['interest'] ?? $lead['interest'] ?? '')),
+                'status' => trim((string)($lead['status'] ?? 'novo')),
+                'pipeline_stage' => trim((string)($lead['pipeline_stage'] ?? 'entrada')),
+                'lead_score' => (int)($lead['lead_score'] ?? 0),
+                'estimated_value' => (string)($lead['estimated_value'] ?? '0'),
+                'source' => trim((string)($lead['source'] ?? 'manual')),
+                'public_update_token' => $token,
+            ];
+            if (trim($payload['name']) === '' && trim($payload['phone']) === '') {
+                throw new RuntimeException('Preencha pelo menos um campo de contato.');
+            }
+            studio_save_lead($studio, $payload);
+            flash_set('success', 'Cadastro atualizado. Obrigado!');
+            redirect_to('lead_public_update', ['lead' => $leadId, 'token' => $token]);
         }
 
         if ($action === 'import_calendar_ics') {
@@ -562,6 +630,23 @@ document.addEventListener("click", async function (event) {
         }, 200);
     } catch (error) {
         badge.focus();
+    }
+});
+
+document.addEventListener("click", async function (event) {
+    var button = event.target.closest("[data-copy-link]");
+    if (!button) return;
+    var text = button.getAttribute("data-copy-link") || "";
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+        }
+        button.textContent = "Link copiado";
+        setTimeout(function () {
+            button.textContent = "Copiar link";
+        }, 1500);
+    } catch (error) {
+        button.textContent = "Copiar link";
     }
 });
 </script>';
@@ -1805,11 +1890,14 @@ if ($page === 'studio_lead') {
         $stages = studio_list_pipeline_stages($studio);
         $artists = studio_list_artists($studio);
         $activity = studio_lead_activity($studio, $leadId);
+        $publicUpdateToken = studio_ensure_lead_public_update_token($studio, $leadId);
+        $publicUpdateUrl = app_url('lead_public_update', ['lead' => $leadId, 'token' => $publicUpdateToken]);
 
         echo '<section class="lead-detail-head">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>' . h($lead['name'] ?: 'Lead sem nome') . '</h2><p class="muted">' . h(($lead['phone'] ?: 'Sem telefone') . ' | ' . ($lead['source'] ?: 'sem origem')) . '</p></div><strong class="score-pill">' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong></div>';
         echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
         echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa</small></span></div>';
+        echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Link para atualizar cadastro</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button></div>';
         echo '</div>';
         echo '<form class="form panel" method="post" id="lead-move-form">';
         echo csrf_field();

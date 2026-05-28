@@ -4084,9 +4084,46 @@ function studio_save_customer(array $studio, array $data): int
     return (int)$pdo->lastInsertId();
 }
 
+function studio_ensure_lead_public_update_token_column(array $studio): void
+{
+    static $done = [];
+    $studioId = (int)($studio['id'] ?? 0);
+    if ($studioId > 0 && isset($done[$studioId])) {
+        return;
+    }
+    try {
+        $pdo = studio_db($studio);
+        $pdo->exec('ALTER TABLE leads ADD COLUMN IF NOT EXISTS public_update_token VARCHAR(64) NULL AFTER source');
+    } catch (Throwable) {
+    }
+    if ($studioId > 0) {
+        $done[$studioId] = true;
+    }
+}
+
+function studio_ensure_lead_public_update_token(array $studio, int $leadId): string
+{
+    studio_ensure_lead_public_update_token_column($studio);
+    if ($leadId <= 0) {
+        return '';
+    }
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('SELECT public_update_token FROM leads WHERE id = ? LIMIT 1');
+    $stmt->execute([$leadId]);
+    $token = trim((string)($stmt->fetchColumn() ?: ''));
+    if ($token !== '') {
+        return $token;
+    }
+    $token = bin2hex(random_bytes(16));
+    $update = $pdo->prepare('UPDATE leads SET public_update_token = ?, updated_at = NOW() WHERE id = ?');
+    $update->execute([$token, $leadId]);
+    return $token;
+}
+
 function studio_save_lead(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
+    studio_ensure_lead_public_update_token_column($studio);
     $id = (int)($data['id'] ?? 0);
     $values = [
         (int)($data['customer_id'] ?? 0) ?: null,
@@ -4101,12 +4138,21 @@ function studio_save_lead(array $studio, array $data): int
     ];
 
     if ($id > 0) {
+        $token = trim((string)($data['public_update_token'] ?? ''));
+        if ($token === '') {
+            $existing = $pdo->prepare('SELECT public_update_token FROM leads WHERE id = ? LIMIT 1');
+            $existing->execute([$id]);
+            $token = trim((string)($existing->fetchColumn() ?: ''));
+        }
+        if ($token === '') {
+            $token = bin2hex(random_bytes(16));
+        }
         $stmt = $pdo->prepare(
             'UPDATE leads
-             SET customer_id = ?, name = ?, phone = ?, interest = ?, status = ?, pipeline_stage = ?, lead_score = ?, estimated_value = ?, source = ?, updated_at = NOW()
+             SET customer_id = ?, name = ?, phone = ?, interest = ?, status = ?, pipeline_stage = ?, lead_score = ?, estimated_value = ?, source = ?, public_update_token = ?, updated_at = NOW()
              WHERE id = ?'
         );
-        $stmt->execute([...$values, $id]);
+        $stmt->execute([...$values, $token, $id]);
         return $id;
     }
 
@@ -4117,10 +4163,10 @@ function studio_save_lead(array $studio, array $data): int
 
     $stmt = $pdo->prepare(
         'INSERT INTO leads
-            (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, last_contact_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())'
+            (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, public_update_token, last_contact_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())'
     );
-    $stmt->execute($values);
+    $stmt->execute([...$values, bin2hex(random_bytes(16))]);
 
     return (int)$pdo->lastInsertId();
 }

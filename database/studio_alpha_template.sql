@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS `leads` (
   `lead_score` TINYINT UNSIGNED NULL,
   `estimated_value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `source` VARCHAR(80) NULL,
+  `public_update_token` VARCHAR(64) NULL,
   `import_source` VARCHAR(40) NULL,
   `import_uid` VARCHAR(190) NULL,
   `raw_title` VARCHAR(260) NULL,
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS `leads` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE `leads`
+  ADD COLUMN IF NOT EXISTS `public_update_token` VARCHAR(64) NULL AFTER `source`,
   ADD COLUMN IF NOT EXISTS `import_source` VARCHAR(40) NULL AFTER `source`,
   ADD COLUMN IF NOT EXISTS `import_uid` VARCHAR(190) NULL AFTER `import_source`,
   ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `import_uid`,
