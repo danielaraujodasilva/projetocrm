@@ -2307,6 +2307,13 @@ if ($page === 'studio_agenda') {
         $selectedAppointment = $selectedAppointmentId > 0 ? studio_find_appointment($studio, $selectedAppointmentId) : null;
         $importPreviewToken = trim((string)($_GET['ics_preview'] ?? ''));
         $importPreview = $importPreviewToken !== '' ? ($_SESSION['calendar_import_preview'][$importPreviewToken] ?? null) : null;
+        $appointmentsPage = max(1, (int)($_GET['appointments_page'] ?? 1));
+        $appointmentsPerPage = 12;
+        $appointmentsTotal = count($appointments);
+        $appointmentsTotalPages = max(1, (int)ceil($appointmentsTotal / $appointmentsPerPage));
+        $appointmentsPage = min($appointmentsPage, $appointmentsTotalPages);
+        $appointmentsOffset = ($appointmentsPage - 1) * $appointmentsPerPage;
+        $appointmentsPageRows = array_slice($appointments, $appointmentsOffset, $appointmentsPerPage);
 
         echo '<section class="panel"><div class="actions calendar-toolbar">';
         echo '<h2>Calendario</h2>';
@@ -2518,6 +2525,13 @@ if ($page === 'studio_agenda') {
             echo '</div></section>';
         }
 
+        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<button type="button" class="panel dashboard-stat" id="openNewSlotOverlay"><p class="metric">Novo horário</p><p class="muted">Abrir formulário em overlay</p></button>';
+        echo '<button type="button" class="panel dashboard-stat" id="openAgendaTableOverlay"><p class="metric">Agenda cadastrada</p><p class="muted">Ver lista paginada em overlay</p></button>';
+        echo '</section>';
+        echo '<div id="newSlotOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">' . h($selectedAppointment ? 'Editar horario' : 'Novo horario') . '</h3><p class="muted" style="margin:4px 0 0">Cadastre ou ajuste um atendimento sem sair da agenda.</p></div><button type="button" id="closeNewSlotOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="newSlotOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="agendaTableOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Agenda cadastrada</h3><p class="muted" style="margin:4px 0 0">Lista paginada de agendamentos.</p></div><button type="button" id="closeAgendaTableOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="agendaTableOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="appointmentFormSource" hidden>';
         echo '<section class="grid cols-2" id="appointment-form">';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
@@ -2544,9 +2558,22 @@ if ($page === 'studio_agenda') {
         echo '<button class="btn" type="submit">' . h($selectedAppointment ? 'Salvar alteracoes' : 'Salvar horario') . '</button>';
         echo '</form>';
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><h2>Agenda cadastrada</h2>';
-        render_appointments_table($appointments);
-        echo '</section>';
+        echo '</div>';
+        echo '<div id="agendaTableSource" hidden><section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Agenda cadastrada</h2><p class="muted">Página ' . h((string)$appointmentsPage) . ' de ' . h((string)$appointmentsTotalPages) . '</p></div>';
+        if ($appointmentsTotalPages > 1) {
+            echo '<div class="actions" style="gap:8px;flex-wrap:wrap">';
+            if ($appointmentsPage > 1) {
+                echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $focus->format('Y-m-d'), 'appointments_page' => $appointmentsPage - 1])) . '">Anterior</a>';
+            }
+            if ($appointmentsPage < $appointmentsTotalPages) {
+                echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $focus->format('Y-m-d'), 'appointments_page' => $appointmentsPage + 1])) . '">Proxima</a>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+        render_appointments_table($appointmentsPageRows);
+        echo '</section></div>';
+        echo '<script>(function(){const openNew=document.getElementById("openNewSlotOverlay");const openTable=document.getElementById("openAgendaTableOverlay");const newModal=document.getElementById("newSlotOverlay");const tableModal=document.getElementById("agendaTableOverlay");const newBody=document.getElementById("newSlotOverlayBody");const tableBody=document.getElementById("agendaTableOverlayBody");const newSource=document.getElementById("appointmentFormSource");const tableSource=document.getElementById("agendaTableSource");const closeNew=document.getElementById("closeNewSlotOverlay");const closeTable=document.getElementById("closeAgendaTableOverlay");if(openNew&&newModal&&newBody&&newSource){openNew.addEventListener("click",()=>{newBody.innerHTML=newSource.innerHTML;newModal.classList.remove("hidden");});}if(openTable&&tableModal&&tableBody&&tableSource){openTable.addEventListener("click",()=>{tableBody.innerHTML=tableSource.innerHTML;tableModal.classList.remove("hidden");});}if(closeNew) closeNew.addEventListener("click",()=>newModal.classList.add("hidden"));if(closeTable) closeTable.addEventListener("click",()=>tableModal.classList.add("hidden"));[newModal,tableModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){if(newModal) newModal.classList.add("hidden");if(tableModal) tableModal.classList.add("hidden");}});})();</script>';
     }, $flash);
     exit;
 }
