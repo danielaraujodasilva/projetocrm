@@ -887,6 +887,18 @@ textarea {
     overflow: hidden;
 }
 
+.settings-overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 18px 0;
+}
+
+.settings-overview-grid > .dashboard-stat {
+    width: 100%;
+    min-height: 140px;
+}
+
 .dashboard-stat:hover {
     transform: translateY(-1px);
     box-shadow: 0 10px 24px rgba(18, 28, 37, .10);
