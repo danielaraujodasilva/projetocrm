@@ -3,6 +3,9 @@
   const title = document.getElementById('homeDrilldownTitle');
   const summary = document.getElementById('homeDrilldownSummary');
   const body = document.getElementById('homeDrilldownBody');
+  const todayAgendaModal = document.getElementById('homeTodayAgendaModal');
+  const todayAgendaBody = document.getElementById('homeTodayAgendaBody');
+  const closeTodayAgendaBtn = document.getElementById('closeHomeTodayAgendaModal');
 
   if (!modal || !title || !summary || !body) return;
 
@@ -478,6 +481,43 @@
       </div>`;
   }
 
+  function renderTodayAgenda(data) {
+    if (!todayAgendaModal || !todayAgendaBody) return;
+    const items = Array.isArray(data.items) ? data.items : [];
+    const rows = items.map((appointment) => {
+      const href = appointment.id ? `index.php?page=studio_agenda&date=${encodeURIComponent(appointment.appointment_date || '')}&appointment_id=${encodeURIComponent(appointment.id)}#appointment-form` : '';
+      const status = String(appointment.status || '');
+      const statusTone = ['confirmado', 'agendado'].includes(status) ? 'ok' : (status === 'pre_agendado' ? 'warn' : (['cancelado', 'perdido'].includes(status) ? 'danger' : 'neutral'));
+      const value = money(appointment.value ?? 0);
+      const deposit = money(appointment.deposit_value ?? 0);
+      return `
+        <tr>
+          <td><a href="${esc(href)}"><strong>${esc(String(appointment.start_time || '').slice(0, 5))}</strong></a></td>
+          <td>${esc(appointment.customer_name || appointment.title || '-')}</td>
+          <td>${esc(appointment.artist_name || '-')}</td>
+          <td><span class="badge ${esc(statusTone)}">${esc(status || '-')}</span></td>
+          <td>${esc(value)}</td>
+          <td>${esc(deposit)}</td>
+          <td>${esc(String(appointment.description || appointment.notes || '-').slice(0, 80))}</td>
+        </tr>`;
+    }).join('');
+
+    todayAgendaBody.innerHTML = `
+      <div class="drilldown-toolbar-summary" style="margin-bottom:16px">
+        <strong>${esc(items.length)} agendamentos</strong>
+        <span>${esc(data.date || '')}</span>
+        <small>Agenda do dia selecionado.</small>
+      </div>
+      <div class="table-responsive">
+        <table class="table">
+          <thead><tr><th>Hora</th><th>Cliente / Lead</th><th>Tatuador</th><th>Status</th><th>Valor</th><th>Sinal</th><th>Obs</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" class="muted">Nenhum atendimento agendado para hoje.</td></tr>'}</tbody>
+        </table>
+      </div>`;
+
+    todayAgendaModal.classList.remove('hidden');
+  }
+
   function show(data) {
     title.textContent = data.title || 'Detalhe rápido';
     summary.textContent = data.summary || '';
@@ -510,6 +550,10 @@
     const data = (window.homeDrilldowns || {})[key];
     if (!data) return false;
     try {
+      if (key === 'today_agenda') {
+        renderTodayAgenda(window.homeTodayAgenda || { items: [] });
+        return false;
+      }
       if (key === 'waiting_replies') {
         return show({
           ...data,
@@ -535,8 +579,19 @@
     if (event.target === modal) closeModal();
   });
 
+  if (todayAgendaModal) {
+    todayAgendaModal.addEventListener('click', (event) => {
+      if (event.target === todayAgendaModal) todayAgendaModal.classList.add('hidden');
+    });
+  }
+
+  if (closeTodayAgendaBtn) {
+    closeTodayAgendaBtn.addEventListener('click', () => todayAgendaModal && todayAgendaModal.classList.add('hidden'));
+  }
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeModal();
+    if (event.key === 'Escape' && todayAgendaModal) todayAgendaModal.classList.add('hidden');
   });
 
   document.addEventListener('click', (event) => {
