@@ -10,39 +10,26 @@ function h(mixed $value): string
 
 function repair_display_text(string $value): string
 {
-    if ($value === '' || !preg_match('/\x{00C3}|\x{00C2}|\x{00C6}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $value)) {
+    $pattern = '/\x{00C3}|\x{00C2}|\x{00C6}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u';
+    if ($value === '' || !preg_match($pattern, $value)) {
         return $value;
     }
 
     $current = $value;
     for ($i = 0; $i < 4; $i++) {
-        $candidates = [];
-        $iconvRoundtrip = @iconv('Windows-1252', 'UTF-8//IGNORE', @iconv('UTF-8', 'Windows-1252//IGNORE', $current));
-        if (is_string($iconvRoundtrip) && $iconvRoundtrip !== '') {
-            $candidates[] = $iconvRoundtrip;
-        }
-        if (function_exists('mb_convert_encoding')) {
-            $mbCandidate = @mb_convert_encoding($current, 'UTF-8', 'Windows-1252');
-            if (is_string($mbCandidate) && $mbCandidate !== '') {
-                $candidates[] = $mbCandidate;
-            }
-        }
-
-        $next = $current;
-        $bestScore = preg_match_all('/\x{00C3}|\x{00C2}|\x{00C6}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $current);
-        foreach ($candidates as $candidate) {
-            $score = preg_match_all('/\x{00C3}|\x{00C2}|\x{00C6}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $candidate);
-            if ($score < $bestScore) {
-                $bestScore = $score;
-                $next = $candidate;
-            }
-        }
-
-        if ($next === '' || $next === $current) {
+        $next = @iconv('UTF-8', 'Windows-1252//IGNORE', $current);
+        if (!is_string($next) || $next === '' || $next === $current) {
             break;
         }
+
+        $currentScore = preg_match_all($pattern, $current);
+        $nextScore = preg_match_all($pattern, $next);
+        if ($nextScore > $currentScore) {
+            break;
+        }
+
         $current = $next;
-        if (!preg_match('/\x{00C3}|\x{00C2}|\x{00C6}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $current)) {
+        if (!preg_match($pattern, $current)) {
             break;
         }
     }
