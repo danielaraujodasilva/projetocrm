@@ -195,6 +195,11 @@ if ($page === 'lead_public_update') {
             .public-lead-hero p{max-width:66ch;line-height:1.75;color:#e2e8f0}
             .public-lead-flow{display:grid;gap:14px;margin-top:18px}
             .public-lead-section{border:1px solid rgba(15,23,42,.08);border-radius:20px;background:#fff;padding:18px;box-shadow:0 10px 30px rgba(15,23,42,.05)} .public-step-extra{background:#f8fafc;border:1px solid rgba(148,163,184,.16);border-radius:14px;padding:12px;margin-top:10px} .public-choicebar{margin-top:8px}
+            .public-step[data-step="3"] .grid{gap:12px}
+            .public-step[data-step="3"] .grid > .field{padding:14px;border:1px solid rgba(148,163,184,.16);border-radius:16px;background:#f8fafc;box-shadow:0 1px 0 rgba(15,23,42,.03)}
+            .public-step[data-step="3"] .grid > .field > label{display:block;margin-bottom:6px;color:#0f172a;font-weight:700}
+            .public-step[data-step="3"] .grid > .field .public-choicebar{margin-top:10px}
+            .public-step[data-step="3"] .grid > .field .public-step-extra{background:#fff}
             .public-lead-section h2{margin:0 0 10px;font-size:1.05rem;color:#0f172a}
             .public-lead-section .field label{font-size:.86rem;color:#334155}
             .public-lead-note{font-size:.92rem;color:#475569;line-height:1.6;margin:0 0 12px}
