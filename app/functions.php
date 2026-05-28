@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 function h(mixed $value): string
 {
-    return htmlspecialchars(repair_display_text((string)$value), ENT_QUOTES, 'UTF-8');
+    $text = html_entity_decode((string)$value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return htmlspecialchars(repair_display_text($text), ENT_QUOTES, 'UTF-8');
 }
 
 function repair_display_text(string $value): string
 {
-    if ($value === '' || !preg_match('/Ã|Â|â€|â€™|â€œ|â€|â€¦/u', $value)) {
+    if ($value === '' || !preg_match('/\x{00C3}|\x{00C2}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $value)) {
         return $value;
     }
 
@@ -20,7 +21,7 @@ function repair_display_text(string $value): string
             break;
         }
         $current = $next;
-        if (!preg_match('/Ã|Â|â€|â€™|â€œ|â€|â€¦/u', $current)) {
+        if (!preg_match('/\x{00C3}|\x{00C2}|\x{2018}|\x{2019}|\x{201C}|\x{201D}|\x{2026}/u', $current)) {
             break;
         }
     }
@@ -39,7 +40,7 @@ function normalize_display_value(mixed $value): mixed
     }
 
     if (is_string($value)) {
-        return repair_display_text($value);
+        return repair_display_text(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 
     return $value;
@@ -85,7 +86,7 @@ function format_date_pt(string $value, bool $withWeekday = true): string
         $date = str_contains($value, ' ') || str_contains($value, 'T')
             ? new DateTimeImmutable($value, $tz)
             : new DateTimeImmutable($value . ' 00:00:00', $tz);
-        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][(int)$date->format('w')] ?? '';
+        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sb'][(int)$date->format('w')] ?? '';
         $label = strtoupper($weekday) . ' - ' . $date->format('d/m/Y');
         return $withWeekday ? $label : $date->format('d/m/Y');
     } catch (Throwable) {
@@ -103,7 +104,7 @@ function format_datetime_pt(string $value, bool $withWeekday = true): string
     try {
         $tz = new DateTimeZone('America/Sao_Paulo');
         $date = new DateTimeImmutable($value, $tz);
-        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][(int)$date->format('w')] ?? '';
+        $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sb'][(int)$date->format('w')] ?? '';
         $label = strtoupper($weekday) . ' - ' . $date->format('d/m/Y H:i');
         return $withWeekday ? $label : $date->format('d/m/Y H:i');
     } catch (Throwable) {
@@ -278,8 +279,8 @@ function seed_default_commercial_plans(): void
             [
                 'Basico',
                 'basico',
-                'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.',
-                'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.',
+                'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.',
+                'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.',
                 79.00,
                 790.00,
                 0,
@@ -298,15 +299,15 @@ function seed_default_commercial_plans(): void
                 0,
                 0,
                 0,
-                "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rápidas\nRelatórios básicos",
+                "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos",
                 "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado",
                 1,
             ],
             [
                 'Profissional',
                 'profissional',
-                'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
-                'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
+                'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
+                'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.',
                 149.00,
                 1490.00,
                 1,
@@ -325,15 +326,15 @@ function seed_default_commercial_plans(): void
                 0,
                 0,
                 0,
-                "Tudo do Básico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rápidas avançadas\nAgenda com controle de conflitos\nRelatórios gerenciais\nPermissões por usuário\nFollow-up manual/assistido",
-                "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sessão",
+                "Tudo do Bsico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido",
+                "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso",
                 2,
             ],
             [
                 'Avancado',
                 'avancado',
-                'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.',
-                'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.',
+                'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.',
+                'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.',
                 299.00,
                 2990.00,
                 1,
@@ -352,8 +353,8 @@ function seed_default_commercial_plans(): void
                 1,
                 1,
                 1,
-                "Tudo do Profissional\nIA para classificação de leads\nAssistente de dados\nSugestão de respostas por IA\nAutomações de follow-up\nRelatórios avançados/BI\nMulti-estúdio\nIntegrações externas/API\nPersonalização avançada do funil",
-                "Estúdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sessões",
+                "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil",
+                "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sesses",
                 3,
             ],
         ];
@@ -366,9 +367,9 @@ function seed_default_commercial_plans(): void
         );
 
         $defaults = [
-            ['Basico', 'basico', 'Para tatuadores solo ou estúdios pequenos começando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rápidas\nRelatórios básicos", "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado", 1],
-            ['Profissional', 'profissional', 'Para estúdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Básico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rápidas avançadas\nAgenda com controle de conflitos\nRelatórios gerenciais\nPermissões por usuário\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sessão", 2],
-            ['Avancado', 'avancado', 'Para estúdios maiores, redes ou operações que querem automação, IA e relatórios avançados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificação de leads\nAssistente de dados\nSugestão de respostas por IA\nAutomações de follow-up\nRelatórios avançados/BI\nMulti-estúdio\nIntegrações externas/API\nPersonalização avançada do funil", "Estúdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sessões", 3],
+            ['Basico', 'basico', 'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos", "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado", 1],
+            ['Profissional', 'profissional', 'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Bsico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso", 2],
+            ['Avancado', 'avancado', 'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil", "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sesses", 3],
         ];
     }
 
@@ -436,12 +437,12 @@ function slugify(string $value): string
 {
     $value = strtolower(trim($value));
     $value = strtr($value, [
-        'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
-        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
-        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
-        'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
-        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
-        'ç' => 'c',
+        '' => 'a', '' => 'a', '' => 'a', '' => 'a', '' => 'a',
+        '' => 'e', '' => 'e', '' => 'e', '' => 'e',
+        '' => 'i', '' => 'i', '' => 'i', '' => 'i',
+        '' => 'o', '' => 'o', '' => 'o', '' => 'o', '' => 'o',
+        '' => 'u', '' => 'u', '' => 'u', '' => 'u',
+        '' => 'c',
     ]);
     $value = preg_replace('/[^a-z0-9]+/', '-', $value) ?? '';
     $value = trim($value, '-');
@@ -778,10 +779,10 @@ function plan_blocked_message(string $resource, ?string $minimumPlan = null): st
         'whatsapp' => 'WhatsApp',
         'ai' => 'IA',
         'ai_data_assistant' => 'assistente de dados',
-        'advanced_reports' => 'relatórios avançados',
-        'automations' => 'automações',
-        'multi_studio' => 'multi-estúdio',
-        'api_integrations' => 'integrações externas',
+        'advanced_reports' => 'relatrios avanados',
+        'automations' => 'automaes',
+        'multi_studio' => 'multi-estdio',
+        'api_integrations' => 'integraes externas',
         'custom_pipeline' => 'funil personalizado',
     ];
 
@@ -789,13 +790,13 @@ function plan_blocked_message(string $resource, ?string $minimumPlan = null): st
     $planName = trim((string)($minimumPlan ?? ''));
     if ($planName === '') {
         $planName = match ($resource) {
-            'whatsapp', 'finance' => 'Básico',
+            'whatsapp', 'finance' => 'Bsico',
             'ai', 'ai_data_assistant', 'advanced_reports', 'automations', 'multi_studio', 'api_integrations', 'custom_pipeline' => 'Profissional',
             default => 'Profissional',
         };
     }
 
-    return 'Este recurso (' . $label . ') está disponível a partir do plano ' . $planName . '.';
+    return 'Este recurso (' . $label . ') est disponvel a partir do plano ' . $planName . '.';
 }
 
 function current_studio_plan_name(): string
@@ -831,8 +832,8 @@ function public_sales_whatsapp_url(?string $planName = null): string
 {
     $planName = trim((string)($planName ?? ''));
     $message = $planName !== ''
-        ? 'Olá! Tenho interesse no plano ' . $planName . ' do CRM para estúdio de tatuagem.'
-        : 'Olá! Tenho interesse nos planos do CRM para estúdio de tatuagem.';
+        ? 'Ol! Tenho interesse no plano ' . $planName . ' do CRM para estdio de tatuagem.'
+        : 'Ol! Tenho interesse nos planos do CRM para estdio de tatuagem.';
 
     return 'https://wa.me/' . public_sales_whatsapp_number() . '?text=' . rawurlencode($message);
 }
@@ -856,11 +857,11 @@ function commercial_plan_public_features(array $plan): array
             'allow_ai' => 'IA',
             'allow_data_assistant' => 'Assistente de dados',
             'allow_finance' => 'Financeiro',
-            'allow_advanced_reports' => 'Relatórios avançados',
-            'allow_automations' => 'Automações',
-            'allow_multi_studio' => 'Multi-estúdio',
-            'allow_external_integrations' => 'Integrações externas/API',
-            'allow_advanced_customization' => 'Personalização avançada do funil',
+            'allow_advanced_reports' => 'Relatrios avanados',
+            'allow_automations' => 'Automaes',
+            'allow_multi_studio' => 'Multi-estdio',
+            'allow_external_integrations' => 'Integraes externas/API',
+            'allow_advanced_customization' => 'Personalizao avanada do funil',
         ];
 
         foreach ($map as $column => $label) {
@@ -874,7 +875,7 @@ function commercial_plan_public_features(array $plan): array
                 'Clientes e leads',
                 'Funil de vendas',
                 'Agenda',
-                'Respostas rápidas',
+                'Respostas rpidas',
             ];
             $features = $fallback;
         }
@@ -895,11 +896,11 @@ function commercial_plan_public_limits(array $plan): array
     };
 
     return [
-        ['label' => 'Estúdios', 'value' => $toLabel($plan['studio_limit'] ?? null)],
-        ['label' => 'Usuários', 'value' => $toLabel($plan['user_limit'] ?? null)],
+        ['label' => 'Estdios', 'value' => $toLabel($plan['studio_limit'] ?? null)],
+        ['label' => 'Usurios', 'value' => $toLabel($plan['user_limit'] ?? null)],
         ['label' => 'Tatuadores', 'value' => $toLabel($plan['tattoo_artist_limit'] ?? null)],
         ['label' => 'Clientes/leads', 'value' => $toLabel($plan['lead_limit'] ?? null)],
-        ['label' => 'Sessões WhatsApp', 'value' => $toLabel($plan['whatsapp_session_limit'] ?? null)],
+        ['label' => 'Sesses WhatsApp', 'value' => $toLabel($plan['whatsapp_session_limit'] ?? null)],
     ];
 }
 
@@ -910,15 +911,15 @@ function commercial_plan_public_flag_rows(array $plan): array
         ['label' => 'Funil de vendas', 'enabled' => true],
         ['label' => 'Agenda', 'enabled' => true],
         ['label' => 'Financeiro', 'enabled' => !empty($plan['allow_finance'])],
-        ['label' => 'Respostas rápidas', 'enabled' => true],
+        ['label' => 'Respostas rpidas', 'enabled' => true],
         ['label' => 'WhatsApp integrado', 'enabled' => !empty($plan['allow_whatsapp'])],
         ['label' => 'IA', 'enabled' => !empty($plan['allow_ai'])],
         ['label' => 'Assistente de dados', 'enabled' => !empty($plan['allow_data_assistant'])],
-        ['label' => 'Automações', 'enabled' => !empty($plan['allow_automations'])],
-        ['label' => 'Relatórios avançados', 'enabled' => !empty($plan['allow_advanced_reports'])],
-        ['label' => 'Multi-estúdio', 'enabled' => !empty($plan['allow_multi_studio'])],
-        ['label' => 'Integrações externas/API', 'enabled' => !empty($plan['allow_external_integrations'])],
-        ['label' => 'Personalização avançada do funil', 'enabled' => !empty($plan['allow_advanced_customization'])],
+        ['label' => 'Automaes', 'enabled' => !empty($plan['allow_automations'])],
+        ['label' => 'Relatrios avanados', 'enabled' => !empty($plan['allow_advanced_reports'])],
+        ['label' => 'Multi-estdio', 'enabled' => !empty($plan['allow_multi_studio'])],
+        ['label' => 'Integraes externas/API', 'enabled' => !empty($plan['allow_external_integrations'])],
+        ['label' => 'Personalizao avanada do funil', 'enabled' => !empty($plan['allow_advanced_customization'])],
     ];
 
     return array_values(array_filter($rows, static fn(array $row): bool => true));
@@ -1364,7 +1365,7 @@ function create_or_update_studio_owner_user(array $studio, string $name, string 
         $currentCount = studio_user_count($studioId);
         $isSameStudioEdit = $existingId > 0 && $existingStudioId === $studioId;
         if (!$isSameStudioEdit && $currentCount >= $userLimit) {
-            throw new RuntimeException('Seu plano atual permite até ' . $userLimit . ' usuários. Para adicionar mais usuários, altere para um plano superior.');
+            throw new RuntimeException('Seu plano atual permite at ' . $userLimit . ' usurios. Para adicionar mais usurios, altere para um plano superior.');
         }
     }
 

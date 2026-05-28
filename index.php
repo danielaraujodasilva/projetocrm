@@ -57,7 +57,7 @@ if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $dbStatus = studio_db_status_for($studio);
     if (!$dbStatus['ok']) {
         http_response_code(503);
-        exit('Banco do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio indisponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel.');
+        exit('Banco do estúdio indisponível.');
     }
     $lead = studio_find_lead($studio, $leadId);
     if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
@@ -97,7 +97,7 @@ if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     if ($payload['data_processing_consent'] !== '1' || $payload['health_data_consent'] !== '1' || $payload['truthfulness_confirmed'] !== '1') {
-        flash_set('error', 'Marque os consentimentos obrigatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios para enviar.');
+        flash_set('error', 'Marque os consentimentos obrigatórios para enviar.');
         redirect_to('lead_public_update', ['lead' => $leadId, 'token' => $token]);
     }
     studio_save_public_lead_progress($studio, $leadId, $token, $payload, 'finished', true);
@@ -175,7 +175,7 @@ if ($page === 'lead_public_update') {
         $studioPhone = preg_replace('/\D+/', '', (string)($studio['owner_phone'] ?? ''));
         $waUrl = $studioPhone !== '' ? 'https://wa.me/55' . $studioPhone : '';
         render_public_page('Cadastro enviado', 'Obrigado por completar seu cadastro.', function () use ($waUrl) {
-            echo '<div class="public-page-wrap" style="padding:40px 16px"><section class="panel" style="max-width:720px;margin:0 auto;text-align:center"><h1>Cadastro enviado!</h1><p class="muted">Recebi suas informaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes. Agora posso seguir seu atendimento com mais seguranÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§a.</p>';
+            echo '<div class="public-page-wrap" style="padding:40px 16px"><section class="panel" style="max-width:720px;margin:0 auto;text-align:center"><h1>Cadastro enviado!</h1><p class="muted">Recebi suas informações. Agora posso seguir seu atendimento com mais segurança.</p>';
             if ($waUrl !== '') {
                 echo '<p style="margin-top:20px"><a class="btn" href="' . h($waUrl) . '" target="_blank" rel="noopener">Voltar para o WhatsApp</a></p>';
             }
@@ -232,7 +232,7 @@ if ($page === 'lead_public_update') {
         echo '<section class="public-lead-hero">';
         echo '<span class="public-lead-kicker">Ficha &aacute;gil</span>';
         echo '<h1>Complete seu cadastro</h1>';
-        echo '<p>Leva poucos minutos e ajuda a fazer seu atendimento com mais seguranÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§a.</p>';
+        echo '<p>Leva poucos minutos e ajuda a fazer seu atendimento com mais segurança.</p>';
         echo '<div class="public-lead-btn-row" style="margin-top:18px"><a class="btn" href="#lead-form">Come&ccedil;ar cadastro</a></div>';
         echo '<div class="muted" style="margin-top:10px;color:#dbeafe">Seu progresso &eacute; salvo automaticamente.</div>';
         echo '</section>';
@@ -240,16 +240,16 @@ if ($page === 'lead_public_update') {
         echo '<div class="public-lead-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>1</strong><span>Dados</span></div>';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>2</strong><span>Contato</span></div>';
-        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>3</strong><span>SaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</span></div>';
+        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>3</strong><span>Saúde</span></div>';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>4</strong><span>Enviar</span></div>';
         echo '</div>';
         echo '<form class="form" method="post" id="lead-form">';
         echo '<input type="hidden" name="action" value="public_lead_update"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="token" value="' . h($token) . '"><input type="hidden" name="wizard_step" id="wizard-step" value="1"><input type="hidden" name="step_event" id="step-event" value="opened">';
-        echo '<section class="public-lead-section public-step is-active" data-step="1"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Dados b&aacute;sicos</h2><span class="badge">1 de 4</span></div><p class="public-lead-note">Essas informa&ccedil;&otilde;es identificam seu cadastro.</p><div class="grid cols-2"><div class="field"><label>Nome completo</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome completo"></div><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>G&ecirc;nero</label><select name="gender"><option value="">Prefiro n&atilde;o informar</option><option value="Homem" ' . ($value('gender') === 'Homem' ? 'selected' : '') . '>Homem</option><option value="Mulher" ' . ($value('gender') === 'Mulher' ? 'selected' : '') . '>Mulher</option><option value="N&atilde;o bin&aacute;rio" ' . ($value('gender') === 'NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o binÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio' || $value('gender') === 'Nao binario' ? 'selected' : '') . '>N&atilde;o bin&aacute;rio</option><option value="Outro" ' . ($value('gender') === 'Outro' ? 'selected' : '') . '>Outro</option></select></div><div class="field"><label>Profiss&atilde;o</label><input name="occupation" value="' . h($value('occupation')) . '" placeholder="Opcional"></div></div><div class="field" style="margin-top:12px"><label>Instagram</label><input name="instagram" value="' . h($value('instagram')) . '" placeholder="@seuusuario"></div></section>';
+        echo '<section class="public-lead-section public-step is-active" data-step="1"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Dados b&aacute;sicos</h2><span class="badge">1 de 4</span></div><p class="public-lead-note">Essas informa&ccedil;&otilde;es identificam seu cadastro.</p><div class="grid cols-2"><div class="field"><label>Nome completo</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome completo"></div><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>G&ecirc;nero</label><select name="gender"><option value="">Prefiro n&atilde;o informar</option><option value="Homem" ' . ($value('gender') === 'Homem' ? 'selected' : '') . '>Homem</option><option value="Mulher" ' . ($value('gender') === 'Mulher' ? 'selected' : '') . '>Mulher</option><option value="N&atilde;o bin&aacute;rio" ' . ($value('gender') === 'Não binário' || $value('gender') === 'Nao binario' ? 'selected' : '') . '>N&atilde;o bin&aacute;rio</option><option value="Outro" ' . ($value('gender') === 'Outro' ? 'selected' : '') . '>Outro</option></select></div><div class="field"><label>Profiss&atilde;o</label><input name="occupation" value="' . h($value('occupation')) . '" placeholder="Opcional"></div></div><div class="field" style="margin-top:12px"><label>Instagram</label><input name="instagram" value="' . h($value('instagram')) . '" placeholder="@seuusuario"></div></section>';
         echo '<section class="public-lead-section public-step" data-step="2" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Contato</h2><span class="badge">2 de 4</span></div><p class="public-lead-note">Usaremos esses dados para atendimento e organiza&ccedil;&atilde;o.</p><div class="grid cols-2"><div class="field"><label>WhatsApp</label><input name="phone" value="' . h($value('phone', (string)($lead['phone'] ?? ''))) . '" placeholder="(00) 00000-0000"></div><div class="field"><label>Email</label><input name="email" type="email" value="' . h($value('email')) . '" placeholder="Opcional"></div></div></section>';
-        echo '<section class="public-lead-section public-step" data-step="3" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Anamnese r&aacute;pida</h2><span class="badge">3 de 4</span></div><p class="public-lead-note">Responda o que souber. Isso ajuda na seguran&ccedil;a do procedimento.</p><div class="grid cols-2"><div class="field"><label>Tem alergia?</label><div class="public-choicebar" data-group="allergies"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="allergies" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="allergies_details" rows="3"></textarea></div></div><div class="field"><label>Usa medicamento contÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nuo ou importante?</label><div class="public-choicebar" data-group="medications"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="medications" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="medications_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Usa anticoagulante?</label><div class="public-choicebar" data-group="anticoagulants"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="anticoagulants" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="anticoagulants_details" rows="3"></textarea></div></div><div class="field"><label>Tem diabetes?</label><div class="public-choicebar" data-group="diabetes"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="diabetes" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="diabetes_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem pressÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o alta?</label><div class="public-choicebar" data-group="health_conditions"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="health_conditions" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="health_conditions_details" rows="3"></textarea></div></div><div class="field"><label>Tem alguma condi&ccedil;&atilde;o de pele importante?</label><div class="public-choicebar" data-group="skin_conditions"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="skin_conditions" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="skin_conditions_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem hist&oacute;rico de queloide?</label><div class="public-choicebar" data-group="keloid_history"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="keloid_history" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="keloid_history_details" rows="3"></textarea></div></div><div class="field"><label>Tem problemas de cicatriza&ccedil;&atilde;o?</label><div class="public-choicebar" data-group="healing_issues"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="healing_issues" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="healing_issues_details" rows="3"></textarea></div></div></div><div class="grid cols-1" style="margin-top:12px"><div class="field"><label>Est&aacute; gr&aacute;vida ou amamentando?</label><div class="public-choicebar" data-group="pregnant_or_breastfeeding"><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sei</button></div><input type="hidden" name="pregnant_or_breastfeeding" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="pregnant_or_breastfeeding_details" rows="3"></textarea></div></div></div></section>';
+        echo '<section class="public-lead-section public-step" data-step="3" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Anamnese r&aacute;pida</h2><span class="badge">3 de 4</span></div><p class="public-lead-note">Responda o que souber. Isso ajuda na seguran&ccedil;a do procedimento.</p><div class="grid cols-2"><div class="field"><label>Tem alergia?</label><div class="public-choicebar" data-group="allergies"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="allergies" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="allergies_details" rows="3"></textarea></div></div><div class="field"><label>Usa medicamento contínuo ou importante?</label><div class="public-choicebar" data-group="medications"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="medications" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="medications_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Usa anticoagulante?</label><div class="public-choicebar" data-group="anticoagulants"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="anticoagulants" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="anticoagulants_details" rows="3"></textarea></div></div><div class="field"><label>Tem diabetes?</label><div class="public-choicebar" data-group="diabetes"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="diabetes" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="diabetes_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem pressão alta?</label><div class="public-choicebar" data-group="health_conditions"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="health_conditions" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="health_conditions_details" rows="3"></textarea></div></div><div class="field"><label>Tem alguma condi&ccedil;&atilde;o de pele importante?</label><div class="public-choicebar" data-group="skin_conditions"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="skin_conditions" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="skin_conditions_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem hist&oacute;rico de queloide?</label><div class="public-choicebar" data-group="keloid_history"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="keloid_history" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="keloid_history_details" rows="3"></textarea></div></div><div class="field"><label>Tem problemas de cicatriza&ccedil;&atilde;o?</label><div class="public-choicebar" data-group="healing_issues"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="healing_issues" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="healing_issues_details" rows="3"></textarea></div></div></div><div class="grid cols-1" style="margin-top:12px"><div class="field"><label>Est&aacute; gr&aacute;vida ou amamentando?</label><div class="public-choicebar" data-group="pregnant_or_breastfeeding"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="pregnant_or_breastfeeding" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Descreva rapidamente.</label><textarea name="pregnant_or_breastfeeding_details" rows="3"></textarea></div></div></div></section>';
         echo '<section class="public-lead-section public-step" data-step="4" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Consentimentos</h2><span class="badge">4 de 4</span></div><p class="public-lead-note">Obrigat&oacute;rios: cadastro, sa&uacute;de e veracidade. Os demais s&atilde;o opcionais.</p><div class="public-lead-consent-grid"><label class="checkline"><span class="consent-tag required">Obrigat&oacute;rio</span><input type="checkbox" name="data_processing_consent" value="1"> Autorizo o uso dos meus dados para cadastro, atendimento e organiza&ccedil;&atilde;o do procedimento</label><label class="checkline"><span class="consent-tag required">Obrigat&oacute;rio</span><input type="checkbox" name="health_data_consent" value="1"> Autorizo o uso das informa&ccedil;&otilde;es de sa&uacute;de para avalia&ccedil;&atilde;o de seguran&ccedil;a do procedimento</label><label class="checkline"><span class="consent-tag required">Obrigat&oacute;rio</span><input type="checkbox" name="truthfulness_confirmed" value="1"> Declaro que as informa&ccedil;&otilde;es preenchidas s&atilde;o verdadeiras</label><label class="checkline"><span class="consent-tag optional">Opcional</span><input type="checkbox" name="marketing_opt_in" value="1"> Aceito receber promo&ccedil;&otilde;es pelo WhatsApp</label><label class="checkline"><span class="consent-tag optional">Opcional</span><input type="checkbox" name="email_opt_in" value="1"> Aceito receber comunica&ccedil;&otilde;es por email</label><label class="checkline"><span class="consent-tag optional">Opcional</span><input type="checkbox" name="share_before_after_opt_in" value="1"> Autorizo uso de fotos e v&iacute;deos em portf&oacute;lio</label><label class="checkline"><span class="consent-tag optional">Opcional</span><input type="checkbox" name="social_network_opt_in" value="1"> Autorizo marca&ccedil;&atilde;o em redes sociais</label><label class="checkline"><span class="consent-tag optional">Opcional</span><input type="checkbox" name="whatsapp_opt_in" value="1"> Autorizo contato por WhatsApp</label></div><p class="muted" style="margin-top:14px">Seus dados ser&atilde;o usados apenas para cadastro, atendimento e seguran&ccedil;a do procedimento.</p></section>';
-        echo '<div class="public-progress"><div><strong style="display:block;color:#0f172a">Etapa</strong><span class="muted" id="wizard-label">1 de 4 ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Dados bÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡sicos</span></div><div class="track"><span id="wizard-bar"></span></div></div>';
+        echo '<div class="public-progress"><div><strong style="display:block;color:#0f172a">Etapa</strong><span class="muted" id="wizard-label">1 de 4 · Dados básicos</span></div><div class="track"><span id="wizard-bar"></span></div></div>';
         echo '<div class="public-lead-footerbar"><div class="inner"><div class="muted">Salvo automaticamente.</div><div class="public-step-nav"><button type="button" class="btn secondary" id="wizard-prev">Voltar</button><button type="button" class="btn" id="wizard-next">Continuar</button></div></div></div>'; 
         echo '</form>';
         echo '<script>
@@ -262,7 +262,7 @@ if ($page === 'lead_public_update') {
                 const label = document.getElementById("wizard-label");
                 const bar = document.getElementById("wizard-bar");
                 const stepInput = document.getElementById("wizard-step");
-                const stepNames = ["Dados bÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡sicos","Contato","Anamnese","Consentimentos"];
+                const stepNames = ["Dados básicos","Contato","Anamnese","Consentimentos"];
                 let step = 1;
                 const show = (n) => {
                     step = Math.max(1, Math.min(4, n));
@@ -272,7 +272,7 @@ if ($page === 'lead_public_update') {
                         el.classList.toggle("is-active", active);
                     });
                     if (stepInput) stepInput.value = String(step);
-                    if (label) label.textContent = `${step} de 4 ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${stepNames[step - 1] || ""}`;
+                    if (label) label.textContent = `${step} de 4 · ${stepNames[step - 1] || ""}`;
                     if (bar) bar.style.width = ((step / 4) * 100) + "%";
                     if (prev) prev.disabled = step === 1;
                     if (next) { next.hidden = false; next.textContent = step === 4 ? \'Enviar e agilizar meu atendimento\' : \'Continuar\'; }
@@ -285,7 +285,7 @@ if ($page === 'lead_public_update') {
                     try { await fetch(window.location.href, { method: "POST", body: fd }); } catch (e) {}
                 };
                 if (prev) prev.addEventListener("click", async () => { if (step > 1) { await autosave("step_" + step + "_completed"); show(step - 1); } });
-                if (next) next.addEventListener("click", async () => { if (step < 4) { const ev = step === 1 ? "step_contact_completed" : step === 2 ? "step_project_completed" : "step_health_completed"; await autosave(ev); show(step + 1); return; } const required = ["data_processing_consent","health_data_consent","truthfulness_confirmed"]; const missing = required.filter((name) => { const el = form.querySelector(`input[name="${name}"]`); return !el || !el.checked; }); if (missing.length) { alert("Marque os consentimentos obrigatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios: cadastro, saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde e veracidade."); return; } form.submit(); });
+                if (next) next.addEventListener("click", async () => { if (step < 4) { const ev = step === 1 ? "step_contact_completed" : step === 2 ? "step_project_completed" : "step_health_completed"; await autosave(ev); show(step + 1); return; } const required = ["data_processing_consent","health_data_consent","truthfulness_confirmed"]; const missing = required.filter((name) => { const el = form.querySelector(`input[name="${name}"]`); return !el || !el.checked; }); if (missing.length) { alert("Marque os consentimentos obrigatórios: cadastro, saúde e veracidade."); return; } form.submit(); });
                 const groups = ["allergies","medications","diabetes","health_conditions","anticoagulants","keloid_history","healing_issues","skin_conditions","pregnant_or_breastfeeding"];
                 groups.forEach((name) => {
                     const barEl = form.querySelector("[data-group=\"" + name + "\"]");
@@ -323,7 +323,7 @@ if ($page === 'lead_public_update') {
                         const consent3 = form.querySelector("input[name=\"truthfulness_confirmed\"]");
                         if (!consent1?.checked || !consent2?.checked || !consent3?.checked) {
                             ev.preventDefault();
-                            alert("Marque os consentimentos obrigatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios: cadastro, saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde e veracidade.");
+                            alert("Marque os consentimentos obrigatórios: cadastro, saúde e veracidade.");
                         }
                     }
                 });
@@ -530,7 +530,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             }
             $dbStatus = studio_db_status_for($studio);
             if (!$dbStatus['ok']) {
-                throw new RuntimeException('Banco do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio indisponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel.');
+                throw new RuntimeException('Banco do estúdio indisponível.');
             }
             $lead = studio_find_lead($studio, $leadId);
             if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
@@ -836,7 +836,7 @@ if ($page === 'studio_whatsapp_live') {
         http_response_code(401);
         echo json_encode([
             'ok' => false,
-            'error' => 'Sessao do estudio expirou. FaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§a login novamente.',
+            'error' => 'Sessao do estudio expirou. Faça login novamente.',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
@@ -1021,8 +1021,8 @@ function render_public_agent_page(): void
 
     echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
-    echo '<title>projetocrm ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· PÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡gina pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblica para agentes</title>';
-    echo '<meta name="description" content="PÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡gina pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblica de verificaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do CRM do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio, acessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel sem login para agentes e validadores.">';
+    echo '<title>projetocrm · Página pública para agentes</title>';
+    echo '<meta name="description" content="Página pública de verificação do CRM do estúdio, acessível sem login para agentes e validadores.">';
     echo '<style>
         :root{color-scheme:light;--bg:#f3f5f7;--surface:#fff;--line:#dbe2ea;--text:#17202a;--muted:#657386;--brand:#1f6f78;}
         *{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
@@ -1035,19 +1035,19 @@ function render_public_agent_page(): void
         .actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:1px solid var(--line);text-decoration:none;color:var(--text);background:#fff;font-weight:700}
         .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}pre{margin:0;padding:14px;border-radius:12px;background:#101820;color:#d7f7ea;overflow:auto}
     </style></head><body><main>';
-    echo '<section class="hero"><h1>projetocrm</h1><p>Esta ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© uma pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡gina pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblica de verificaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o para agentes, navegadores automatizados e validadores. As ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡reas operacionais do CRM exigem autenticaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o, mas esta rota foi criada justamente para ser acessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel sem login.</p>';
-    echo '<div class="actions"><a class="btn primary" href="' . h(app_url('studio_login')) . '">Login do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio</a><a class="btn" href="' . h(app_url('login')) . '">Painel gerente</a></div></section>';
+    echo '<section class="hero"><h1>projetocrm</h1><p>Esta é uma página pública de verificação para agentes, navegadores automatizados e validadores. As áreas operacionais do CRM exigem autenticação, mas esta rota foi criada justamente para ser acessível sem login.</p>';
+    echo '<div class="actions"><a class="btn primary" href="' . h(app_url('studio_login')) . '">Login do estúdio</a><a class="btn" href="' . h(app_url('login')) . '">Painel gerente</a></div></section>';
     echo '<div class="grid">';
     foreach ($status as $label => $value) {
         echo '<div class="card"><strong>' . h(ucwords(str_replace('_', ' ', $label))) . '</strong><span>' . h((string)$value) . '</span></div>';
     }
     echo '</div>';
     echo '<section class="panel"><h2>O que um agente consegue fazer aqui</h2><ul>';
-    echo '<li>Confirmar que o domÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nio e a aplicaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o online.</li>';
-    echo '<li>Ler informaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblicas bÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡sicas sem esbarrar na tela de login.</li>';
-    echo '<li>Descobrir as rotas corretas de autenticaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do CRM.</li>';
+    echo '<li>Confirmar que o domínio e a aplicação estão online.</li>';
+    echo '<li>Ler informações públicas básicas sem esbarrar na tela de login.</li>';
+    echo '<li>Descobrir as rotas corretas de autenticação do CRM.</li>';
     echo '</ul></section>';
-    echo '<section class="panel" style="margin-top:18px"><h2>Resumo tÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©cnico</h2><pre>' . h(json_encode([
+    echo '<section class="panel" style="margin-top:18px"><h2>Resumo técnico</h2><pre>' . h(json_encode([
         'app' => 'projetocrm',
         'public_agent_page' => true,
         'login_url' => app_url('studio_login'),
@@ -1077,14 +1077,14 @@ if (!$dbStatus['ok'] || !$schemaReady) {
 
 if ($page === 'public_plans') {
     $publicPlans = list_commercial_plans(true);
-    render_public_page('Planos do CRM para EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdios de Tatuagem', 'CRM para tatuadores com leads, agenda, WhatsApp, financeiro, relatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios e IA.', function () use ($publicPlans) {
+    render_public_page('Planos do CRM para Estúdios de Tatuagem', 'CRM para tatuadores com leads, agenda, WhatsApp, financeiro, relatórios e IA.', function () use ($publicPlans) {
         $heroCta = public_sales_whatsapp_url();
         $heroPlanCta = !empty($publicPlans[0]['name']) ? public_sales_whatsapp_url((string)$publicPlans[0]['name']) : $heroCta;
         echo '<section class="public-hero">';
         echo '<div class="public-hero-copy">';
-        echo '<span class="public-kicker">Venda mais. Responda melhor. Organize sua operaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</span>';
-        echo '<h1>CRM para estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdios de tatuagem</h1>';
-        echo '<p class="public-lead">Organize leads, clientes, agenda, WhatsApp e financeiro em um sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ lugar.</p>';
+        echo '<span class="public-kicker">Venda mais. Responda melhor. Organize sua operação.</span>';
+        echo '<h1>CRM para estúdios de tatuagem</h1>';
+        echo '<p class="public-lead">Organize leads, clientes, agenda, WhatsApp e financeiro em um só lugar.</p>';
         echo '<p class="public-copy">Feito para tatuadores que precisam vender mais, responder melhor e parar de perder cliente no WhatsApp.</p>';
         echo '<div class="actions public-actions">';
         echo '<a class="btn" href="#planos">Ver planos</a>';
@@ -1093,7 +1093,7 @@ if ($page === 'public_plans') {
         echo '</div>';
         echo '<div class="public-hero-aside">';
         echo '<div class="public-hero-card">';
-        echo '<p class="muted">Pensado para vender para estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdios reais, com preÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o, limite e recurso editÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡veis pelo painel administrativo.</p>';
+        echo '<p class="muted">Pensado para vender para estúdios reais, com preço, limite e recurso editáveis pelo painel administrativo.</p>';
         echo '<div class="hero-stats">';
         foreach ([
             ['label' => 'Planos ativos', 'value' => count($publicPlans)],
@@ -1109,12 +1109,12 @@ if ($page === 'public_plans') {
         echo '</section>';
 
         if (!$publicPlans) {
-            echo '<section class="public-section"><div class="public-empty">Nenhum plano disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel no momento.</div></section>';
+            echo '<section class="public-section"><div class="public-empty">Nenhum plano disponível no momento.</div></section>';
             return;
         }
 
         echo '<section class="public-section" id="planos">';
-        echo '<div class="section-head"><h2>Escolha o plano certo para o seu estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio</h2><p>Os valores, limites e recursos abaixo vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªm do banco e acompanham as alteraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes do painel administrativo.</p></div>';
+        echo '<div class="section-head"><h2>Escolha o plano certo para o seu estúdio</h2><p>Os valores, limites e recursos abaixo vêm do banco e acompanham as alterações do painel administrativo.</p></div>';
         echo '<div class="public-plan-grid">';
         foreach ($publicPlans as $plan) {
             $planName = (string)($plan['name'] ?? '');
@@ -1135,7 +1135,7 @@ if ($page === 'public_plans') {
             echo '</div>';
             echo '<div class="public-plan-price">';
             echo '<strong>' . h(format_money($monthly)) . '</strong>';
-            echo '<span>/mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs</span>';
+            echo '<span>/mês</span>';
             echo '</div>';
             echo '</div>';
             echo '<div class="public-plan-annual">';
@@ -1175,14 +1175,14 @@ if ($page === 'public_plans') {
         }
         echo '</tr></thead><tbody>';
         $compareRows = [
-            ['label' => 'UsuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios', 'key' => 'user_limit'],
+            ['label' => 'Usuários', 'key' => 'user_limit'],
             ['label' => 'Tatuadores', 'key' => 'tattoo_artist_limit'],
             ['label' => 'Clientes/leads', 'key' => 'lead_limit'],
             ['label' => 'WhatsApp', 'key' => 'allow_whatsapp'],
             ['label' => 'IA', 'key' => 'allow_ai'],
-            ['label' => 'AutomaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes', 'key' => 'allow_automations'],
-            ['label' => 'RelatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios avanÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ados', 'key' => 'allow_advanced_reports'],
-            ['label' => 'Multi-estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio', 'key' => 'allow_multi_studio'],
+            ['label' => 'Automações', 'key' => 'allow_automations'],
+            ['label' => 'Relatórios avançados', 'key' => 'allow_advanced_reports'],
+            ['label' => 'Multi-estúdio', 'key' => 'allow_multi_studio'],
         ];
         foreach ($compareRows as $row) {
             echo '<tr><td><strong>' . h($row['label']) . '</strong></td>';
@@ -1190,7 +1190,7 @@ if ($page === 'public_plans') {
                 $key = (string)$row['key'];
                 $value = $plan[$key] ?? null;
                 if (str_starts_with($key, 'allow_')) {
-                    echo '<td>' . (!empty($value) ? '<span class="badge ok">Sim</span>' : '<span class="badge warn">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</span>') . '</td>';
+                    echo '<td>' . (!empty($value) ? '<span class="badge ok">Sim</span>' : '<span class="badge warn">Não</span>') . '</td>';
                 } else {
                     echo '<td>' . h($value === null || $value === '' ? 'Ilimitado' : (string)$value) . '</td>';
                 }
@@ -1201,7 +1201,7 @@ if ($page === 'public_plans') {
         echo '</section>';
 
         echo '<section class="public-section public-audience">';
-        echo '<div class="section-head"><h2>Para quem ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©</h2><p>Os textos abaixo podem ser refinados depois pelo painel, mas jÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ajudam o visitante a se enxergar em cada plano.</p></div>';
+        echo '<div class="section-head"><h2>Para quem é</h2><p>Os textos abaixo podem ser refinados depois pelo painel, mas já ajudam o visitante a se enxergar em cada plano.</p></div>';
         echo '<div class="public-audience-grid">';
         foreach ($publicPlans as $plan) {
             echo '<article class="public-audience-card">';
@@ -1213,16 +1213,16 @@ if ($page === 'public_plans') {
         echo '</section>';
 
         echo '<section class="public-section public-benefits">';
-        echo '<div class="section-head"><h2>BenefÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cios do CRM</h2><p>Um resumo simples do que o sistema resolve no dia a dia do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.</p></div>';
+        echo '<div class="section-head"><h2>Benefícios do CRM</h2><p>Um resumo simples do que o sistema resolve no dia a dia do estúdio.</p></div>';
         echo '<div class="public-benefits-grid">';
         foreach ([
-            'Pare de perder orÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§amento no WhatsApp.',
-            'Veja quais leads estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o quentes.',
+            'Pare de perder orçamento no WhatsApp.',
+            'Veja quais leads estão quentes.',
             'Controle agenda e sinais.',
-            'Organize clientes e histÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rico.',
-            'Acompanhe financeiro do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.',
-            'Use respostas rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas e IA para acelerar atendimento.',
-            'Tenha relatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rios para tomar decisÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes melhores.',
+            'Organize clientes e histórico.',
+            'Acompanhe financeiro do estúdio.',
+            'Use respostas rápidas e IA para acelerar atendimento.',
+            'Tenha relatórios para tomar decisões melhores.',
         ] as $benefit) {
             echo '<div class="public-benefit">' . h($benefit) . '</div>';
         }
@@ -1231,7 +1231,7 @@ if ($page === 'public_plans') {
 
         echo '<section class="public-section public-final-cta">';
         echo '<div class="public-final-card">';
-        echo '<div><h2>Quer testar no seu estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio?</h2><p>Fale comigo e veja qual plano faz sentido para sua operaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</p></div>';
+        echo '<div><h2>Quer testar no seu estúdio?</h2><p>Fale comigo e veja qual plano faz sentido para sua operação.</p></div>';
         echo '<a class="btn" href="' . h(public_sales_whatsapp_url()) . '" target="_blank" rel="noopener">Chamar no WhatsApp</a>';
         echo '</div>';
         echo '</section>';
@@ -1388,7 +1388,7 @@ if ($page === 'studio_home') {
                 default => 'erro',
             };
             if (!empty($whatsappStatusData['phone'])) {
-                $whatsappState .= ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . preg_replace('/\D+/', '', (string)$whatsappStatusData['phone']);
+                $whatsappState .= ' · ' . preg_replace('/\D+/', '', (string)$whatsappStatusData['phone']);
             }
         }
         $pendingWhatsappConversations = plan_allows('whatsapp') ? studio_list_whatsapp_conversations($studio, ['filter' => 'unreplied'], 10) : [];
@@ -1407,22 +1407,22 @@ if ($page === 'studio_home') {
                 'end' => $current->setTime(23, 59, 59),
             ],
             '7d' => [
-                'label' => 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltimos 7 dias',
+                'label' => 'Últimos 7 dias',
                 'start' => $current->modify('-6 days')->setTime(0, 0, 0),
                 'end' => $current->setTime(23, 59, 59),
             ],
             '15d' => [
-                'label' => 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltimos 15 dias',
+                'label' => 'Últimos 15 dias',
                 'start' => $current->modify('-14 days')->setTime(0, 0, 0),
                 'end' => $current->setTime(23, 59, 59),
             ],
             '30d' => [
-                'label' => 'ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltimos 30 dias',
+                'label' => 'Últimos 30 dias',
                 'start' => $current->modify('-29 days')->setTime(0, 0, 0),
                 'end' => $current->setTime(23, 59, 59),
             ],
             'month' => [
-                'label' => 'Este mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs',
+                'label' => 'Este mês',
                 'start' => $monthStart->setTime(0, 0, 0),
                 'end' => $monthEnd,
             ],
@@ -1460,8 +1460,8 @@ if ($page === 'studio_home') {
         $alerts = [];
         if ($staleAttentionLeadsCount > 0) {
             $alerts[] = [
-                'title' => 'Leads sem atualizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o hÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ mais de 24h',
-                'description' => 'VocÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âª tem ' . $staleAttentionLeadsCount . ' leads parados ou frios que merecem retorno.',
+                'title' => 'Leads sem atualização há mais de 24h',
+                'description' => 'Você tem ' . $staleAttentionLeadsCount . ' leads parados ou frios que merecem retorno.',
                 'href' => app_url('studio_leads'),
                 'tone' => 'warn',
             ];
@@ -1469,8 +1469,8 @@ if ($page === 'studio_home') {
         $preScheduledNoSignalCount = (int)$pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= '" . $current->format('Y-m-d') . "' AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
         if ($preScheduledNoSignalCount > 0) {
             $alerts[] = [
-                'title' => 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos sem sinal',
-                'description' => 'HÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ' . $preScheduledNoSignalCount . ' prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos aguardando sinal.',
+                'title' => 'Pré-agendamentos sem sinal',
+                'description' => 'Há ' . $preScheduledNoSignalCount . ' pré-agendamentos aguardando sinal.',
                 'href' => app_url('studio_agenda'),
                 'tone' => 'warn',
             ];
@@ -1478,8 +1478,8 @@ if ($page === 'studio_home') {
         $preScheduledOverlapCount = (int)$pdo->query("SELECT COUNT(DISTINCT a.id) FROM appointments a INNER JOIN appointments b ON b.appointment_date = a.appointment_date AND COALESCE(b.artist_id, 0) = COALESCE(a.artist_id, 0) AND b.id <> a.id AND b.status = 'pre_agendado' AND a.status = 'pre_agendado' AND NOT (COALESCE(b.end_time, b.start_time) <= a.start_time OR b.start_time >= a.end_time) WHERE a.status = 'pre_agendado' AND a.appointment_date >= CURDATE()")->fetchColumn();
         if ($preScheduledOverlapCount > 0) {
             $alerts[] = [
-                'title' => 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos duplicados',
-                'description' => 'HÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ' . $preScheduledOverlapCount . ' prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos no mesmo dia, horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio e tatuador. Isso ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© permitido, mas vale revisar.',
+                'title' => 'Pré-agendamentos duplicados',
+                'description' => 'Há ' . $preScheduledOverlapCount . ' pré-agendamentos no mesmo dia, horário e tatuador. Isso é permitido, mas vale revisar.',
                 'href' => app_url('studio_agenda'),
                 'tone' => 'warn',
             ];
@@ -1487,7 +1487,7 @@ if ($page === 'studio_home') {
         if (count($needsHumanConversations) > 0) {
             $alerts[] = [
                 'title' => 'Pedido por humano no WhatsApp',
-                'description' => 'HÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ' . count($needsHumanConversations) . ' conversas pedindo atendimento humano. O alerta some quando alguÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©m responder manualmente na conversa.',
+                'description' => 'Há ' . count($needsHumanConversations) . ' conversas pedindo atendimento humano. O alerta some quando alguém responder manualmente na conversa.',
                 'href' => plan_allows('whatsapp') ? app_url('studio_whatsapp') : app_url('studio_settings'),
                 'tone' => 'warn',
             ];
@@ -1496,7 +1496,7 @@ if ($page === 'studio_home') {
             if (($whatsappStatusData['ok'] ?? false) && in_array((string)($whatsappStatusData['status'] ?? ''), ['disconnected', 'error'], true)) {
                 $alerts[] = [
                     'title' => 'WhatsApp desconectado',
-                    'description' => 'Verifique a sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do WhatsApp para continuar recebendo e respondendo conversas.',
+                    'description' => 'Verifique a sessão do WhatsApp para continuar recebendo e respondendo conversas.',
                     'href' => app_url('studio_whatsapp'),
                     'tone' => 'danger',
                 ];
@@ -1505,15 +1505,15 @@ if ($page === 'studio_home') {
             if ($pendingWhatsappCount > 0) {
                 $alerts[] = [
                     'title' => 'Conversas esperando resposta',
-                    'description' => 'HÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ' . $pendingWhatsappCount . ' conversas que ainda aguardam retorno.',
+                    'description' => 'Há ' . $pendingWhatsappCount . ' conversas que ainda aguardam retorno.',
                     'href' => app_url('studio_whatsapp'),
                     'tone' => 'warn',
                 ];
             }
         } else {
             $alerts[] = [
-                'title' => 'WhatsApp indisponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel no plano atual',
-                'description' => 'A integraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o com WhatsApp aparece a partir do plano Profissional.',
+                'title' => 'WhatsApp indisponível no plano atual',
+                'description' => 'A integração com WhatsApp aparece a partir do plano Profissional.',
                 'href' => app_url('studio_settings'),
                 'tone' => 'warn',
             ];
@@ -1521,17 +1521,17 @@ if ($page === 'studio_home') {
         $plan = current_studio_plan();
         if (is_array($plan)) {
             $planLimits = [
-                'max_users' => ['label' => 'usuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios', 'count' => studio_user_count((int)$studio['id'])],
+                'max_users' => ['label' => 'usuários', 'count' => studio_user_count((int)$studio['id'])],
                 'max_tattooers' => ['label' => 'tatuadores', 'count' => studio_artist_count($studio)],
                 'max_clients' => ['label' => 'clientes/leads', 'count' => studio_lead_count($studio)],
-                'max_whatsapp_sessions' => ['label' => 'sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes WhatsApp', 'count' => studio_whatsapp_session_count($studio)],
+                'max_whatsapp_sessions' => ['label' => 'sessões WhatsApp', 'count' => studio_whatsapp_session_count($studio)],
             ];
             foreach ($planLimits as $limitKey => $info) {
                 $limitValue = plan_limit($limitKey);
                 if ($limitValue > 0 && $info['count'] >= (int)ceil($limitValue * 0.8) && $info['count'] < $limitValue) {
                     $alerts[] = [
-                        'title' => 'Limite de ' . $info['label'] . ' prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ximo',
-                        'description' => 'Seu plano estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ximo do limite de ' . $info['label'] . '. Considere alterar para um plano superior.',
+                        'title' => 'Limite de ' . $info['label'] . ' próximo',
+                        'description' => 'Seu plano está próximo do limite de ' . $info['label'] . '. Considere alterar para um plano superior.',
                         'href' => app_url('studio_settings'),
                         'tone' => 'warn',
                     ];
@@ -1727,8 +1727,8 @@ if ($page === 'studio_home') {
             echo '<button type="button" class="panel soft" data-home-focus="' . h((string)$card['focus']) . '" style="text-align:left;cursor:pointer;min-height:132px;border:1px solid rgba(255,255,255,0.08)"><p class="muted" style="margin:0 0 8px">' . h((string)$card['label']) . '</p><h3 style="margin:0 0 10px">' . h((string)$card['summary']) . '</h3><span class="btn tiny secondary" style="pointer-events:none">Abrir</span></button>';
         }
         echo '</div></section>';
-        echo '<div id="homeDrilldownModal" class="modal hidden"><div class="modal-card" style="max-width:1120px;width:min(1120px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 id="homeDrilldownTitle" style="margin:0">Detalhe rápido</h2><p id="homeDrilldownSummary" class="muted" style="margin:6px 0 0"></p></div><button type="button" class="btn secondary" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')">Fechar</button></div><div id="homeDrilldownBody"></div></div></div>';
-        echo '<div id="homeTodayAgendaModal" class="modal hidden"><div class="modal-card" style="max-width:1180px;width:min(1180px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 style="margin:0">Agenda de hoje</h2><p class="muted" style="margin:6px 0 0">Leitura rápida dos agendamentos do dia.</p></div><button type="button" class="btn secondary" id="closeHomeTodayAgendaModal">Fechar</button></div><div id="homeTodayAgendaBody"></div></div></div>';
+        echo '<div id="homeDrilldownModal" class="modal hidden"><div class="modal-card" style="max-width:1120px;width:min(1120px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 id="homeDrilldownTitle" style="margin:0">Detalhe rpido</h2><p id="homeDrilldownSummary" class="muted" style="margin:6px 0 0"></p></div><button type="button" class="btn secondary" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')">Fechar</button></div><div id="homeDrilldownBody"></div></div></div>';
+        echo '<div id="homeTodayAgendaModal" class="modal hidden"><div class="modal-card" style="max-width:1180px;width:min(1180px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 style="margin:0">Agenda de hoje</h2><p class="muted" style="margin:6px 0 0">Leitura rpida dos agendamentos do dia.</p></div><button type="button" class="btn secondary" id="closeHomeTodayAgendaModal">Fechar</button></div><div id="homeTodayAgendaBody"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode(normalize_display_value($homeDrilldowns), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';window.homeTodayAgenda = ' . json_encode(normalize_display_value(['items' => $todayAppointments, 'date' => format_date_pt($todayIso)]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '?v=' . h(app_build_version()) . '"></script>';
     }, $flash);
@@ -1773,12 +1773,12 @@ if ($page === 'studio_customer') {
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($customer['name'] ?: 'Cliente sem nome') . '</h2><p class="muted">' . h(($customer['phone'] ?: 'Sem telefone') . ' | ' . ($customer['instagram'] ?: 'sem Instagram')) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Voltar</a></div>';
         if ($publicUpdateUrl !== '') {
             $publicShareMessage = 'Oi! Segue o link para atualizar seu cadastro: ' . $publicUpdateUrl;
-            echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir cadastro pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblico</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button><a class="btn secondary" href="https://wa.me/?text=' . h(rawurlencode($publicShareMessage)) . '" target="_blank" rel="noopener">Enviar no WhatsApp</a></div>';
+            echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir cadastro público</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button><a class="btn secondary" href="https://wa.me/?text=' . h(rawurlencode($publicShareMessage)) . '" target="_blank" rel="noopener">Enviar no WhatsApp</a></div>';
         } else {
-            echo '<p class="muted" style="margin-top:14px">Este cliente ainda nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o tem um lead vinculado para gerar o link pÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºblico de atualizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</p>';
+            echo '<p class="muted" style="margin-top:14px">Este cliente ainda não tem um lead vinculado para gerar o link público de atualização.</p>';
         }
         echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customerValue('email', 'Sem email')) . '</strong><p class="muted" style="margin:4px 0 0">Email</p></div><div class="panel soft"><strong>' . h($customerValue('birth_date', 'Sem data de nascimento')) . '</strong><p class="muted" style="margin:4px 0 0">Nascimento</p></div></div>';
-        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customerValue('body_area', 'Sem regiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do corpo')) . '</strong><p class="muted" style="margin:4px 0 0">ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Ârea</p></div><div class="panel soft"><strong>' . h($customerValue('reference_style', 'Sem referÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia')) . '</strong><p class="muted" style="margin:4px 0 0">Estilo</p></div></div>';
+        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customerValue('body_area', 'Sem região do corpo')) . '</strong><p class="muted" style="margin:4px 0 0">rea</p></div><div class="panel soft"><strong>' . h($customerValue('reference_style', 'Sem referência')) . '</strong><p class="muted" style="margin:4px 0 0">Estilo</p></div></div>';
         echo '<div class="mini-metrics"><span><strong>' . h((string)count($activity['leads'])) . '</strong><small>Leads</small></span><span><strong>' . h((string)count($activity['appointments'])) . '</strong><small>Agendamentos</small></span><span><strong>' . h((string)count($activity['conversations'])) . '</strong><small>Conversas</small></span></div>';
         echo '</div>';
 
@@ -1788,20 +1788,20 @@ if ($page === 'studio_customer') {
         echo '<h2>Editar ficha</h2>';
         echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" required value="' . h($customer['name'] ?? '') . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($customer['phone'] ?? '') . '"></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="email" inputmode="email" name="email" value="' . h($customer['email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($customer['instagram'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($customer['birth_date'] ?? '') . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($customer['document_number'] ?? '') . '"></div><div class="field"><label>G&ecirc;nero</label><select name="gender"><option value="">Prefiro n&atilde;o informar</option><option value="Homem" ' . (($customer['gender'] ?? '') === 'Homem' ? 'selected' : '') . '>Homem</option><option value="Mulher" ' . (($customer['gender'] ?? '') === 'Mulher' ? 'selected' : '') . '>Mulher</option><option value="N&atilde;o bin&aacute;rio" ' . (in_array((string)($customer['gender'] ?? ''), ['N&atilde;o bin&aacute;rio', 'Nao binario', 'NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o binÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio'], true) ? 'selected' : '') . '>N&atilde;o bin&aacute;rio</option><option value="Outro" ' . (($customer['gender'] ?? '') === 'Outro' ? 'selected' : '') . '>Outro</option></select></div></div><div class="grid cols-2"><div class="field"><label>Profiss&atilde;o</label><input name="occupation" value="' . h($customer['occupation'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($customer['birth_date'] ?? '') . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($customer['document_number'] ?? '') . '"></div><div class="field"><label>G&ecirc;nero</label><select name="gender"><option value="">Prefiro n&atilde;o informar</option><option value="Homem" ' . (($customer['gender'] ?? '') === 'Homem' ? 'selected' : '') . '>Homem</option><option value="Mulher" ' . (($customer['gender'] ?? '') === 'Mulher' ? 'selected' : '') . '>Mulher</option><option value="N&atilde;o bin&aacute;rio" ' . (in_array((string)($customer['gender'] ?? ''), ['N&atilde;o bin&aacute;rio', 'Nao binario', 'Não binário'], true) ? 'selected' : '') . '>N&atilde;o bin&aacute;rio</option><option value="Outro" ' . (($customer['gender'] ?? '') === 'Outro' ? 'selected' : '') . '>Outro</option></select></div></div><div class="grid cols-2"><div class="field"><label>Profiss&atilde;o</label><input name="occupation" value="' . h($customer['occupation'] ?? '') . '"></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($customer['address_zip'] ?? '') . '"></div><div class="field"><label>Rua</label><input name="address_street" value="' . h($customer['address_street'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-3"><div class="field"><label>NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºmero</label><input name="address_number" value="' . h($customer['address_number'] ?? '') . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($customer['address_complement'] ?? '') . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($customer['address_neighborhood'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-3"><div class="field"><label>Cidade</label><input name="address_city" value="' . h($customer['address_city'] ?? '') . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($customer['address_state'] ?? '') . '"></div><div class="field"><label>ReferÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia</label><input name="address_reference" value="' . h($customer['address_reference'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Contato de emergÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia</label><input name="emergency_contact_name" value="' . h($customer['emergency_contact_name'] ?? '') . '"></div><div class="field"><label>Telefone de emergÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia</label><input name="emergency_contact_phone" value="' . h($customer['emergency_contact_phone'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>RegiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do corpo</label><input name="body_area" value="' . h($customer['body_area'] ?? '') . '"></div><div class="field"><label>Estilo de referÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia</label><input name="reference_style" value="' . h($customer['reference_style'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>JÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ possui tatuagens?</label><textarea name="previous_tattoos">' . h($customer['previous_tattoos'] ?? '') . '</textarea></div><div class="field"><label>ResistÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncia ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  dor</label><select name="pain_tolerance">';
-        render_options(['' => 'Selecionar', 'baixa' => 'Baixa', 'media' => 'MÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©dia', 'alta' => 'Alta'], (string)($customer['pain_tolerance'] ?? ''));
+        echo '<div class="grid cols-3"><div class="field"><label>Número</label><input name="address_number" value="' . h($customer['address_number'] ?? '') . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($customer['address_complement'] ?? '') . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($customer['address_neighborhood'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Cidade</label><input name="address_city" value="' . h($customer['address_city'] ?? '') . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($customer['address_state'] ?? '') . '"></div><div class="field"><label>Referência</label><input name="address_reference" value="' . h($customer['address_reference'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Contato de emergência</label><input name="emergency_contact_name" value="' . h($customer['emergency_contact_name'] ?? '') . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($customer['emergency_contact_phone'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Região do corpo</label><input name="body_area" value="' . h($customer['body_area'] ?? '') . '"></div><div class="field"><label>Estilo de referência</label><input name="reference_style" value="' . h($customer['reference_style'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Já possui tatuagens?</label><textarea name="previous_tattoos">' . h($customer['previous_tattoos'] ?? '') . '</textarea></div><div class="field"><label>Resistência à dor</label><select name="pain_tolerance">';
+        render_options(['' => 'Selecionar', 'baixa' => 'Baixa', 'media' => 'Média', 'alta' => 'Alta'], (string)($customer['pain_tolerance'] ?? ''));
         echo '</select></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Alergias</label><textarea name="allergies">' . h($customer['allergies'] ?? '') . '</textarea></div><div class="field"><label>Medicamentos</label><textarea name="medications">' . h($customer['medications'] ?? '') . '</textarea></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>CondiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes de saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</label><textarea name="health_conditions">' . h($customer['health_conditions'] ?? '') . '</textarea></div><div class="field"><label>CondiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes de pele</label><textarea name="skin_conditions">' . h($customer['skin_conditions'] ?? '') . '</textarea></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>HistÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rico de queloide</label><input name="keloid_history" value="' . h($customer['keloid_history'] ?? '') . '"></div><div class="field"><label>Uso de anticoagulantes</label><input name="anticoagulants" value="' . h($customer['anticoagulants'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Diabetes</label><input name="diabetes" value="' . h($customer['diabetes'] ?? '') . '"></div><div class="field"><label>Problemas de cicatrizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</label><input name="healing_issues" value="' . h($customer['healing_issues'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . (!empty($customer['data_processing_consent']) ? ' checked' : '') . '> Consentimento LGPD</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . (!empty($customer['marketing_opt_in']) ? ' checked' : '') . '> Quer receber marketing</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . (!empty($customer['whatsapp_opt_in']) ? ' checked' : '') . '> WhatsApp</label><label class="checkline"><input type="checkbox" name="sms_opt_in" value="1"' . (!empty($customer['sms_opt_in']) ? ' checked' : '') . '> SMS</label><label class="checkline"><input type="checkbox" name="email_opt_in" value="1"' . (!empty($customer['email_opt_in']) ? ' checked' : '') . '> Email</label><label class="checkline"><input type="checkbox" name="push_opt_in" value="1"' . (!empty($customer['push_opt_in']) ? ' checked' : '') . '> Push futuro</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . (!empty($customer['social_network_opt_in']) ? ' checked' : '') . '> MarcaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o em redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . (!empty($customer['share_before_after_opt_in']) ? ' checked' : '') . '> Antes/depois</label></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Condições de saúde</label><textarea name="health_conditions">' . h($customer['health_conditions'] ?? '') . '</textarea></div><div class="field"><label>Condições de pele</label><textarea name="skin_conditions">' . h($customer['skin_conditions'] ?? '') . '</textarea></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Histórico de queloide</label><input name="keloid_history" value="' . h($customer['keloid_history'] ?? '') . '"></div><div class="field"><label>Uso de anticoagulantes</label><input name="anticoagulants" value="' . h($customer['anticoagulants'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Diabetes</label><input name="diabetes" value="' . h($customer['diabetes'] ?? '') . '"></div><div class="field"><label>Problemas de cicatrização</label><input name="healing_issues" value="' . h($customer['healing_issues'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . (!empty($customer['data_processing_consent']) ? ' checked' : '') . '> Consentimento LGPD</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . (!empty($customer['marketing_opt_in']) ? ' checked' : '') . '> Quer receber marketing</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . (!empty($customer['whatsapp_opt_in']) ? ' checked' : '') . '> WhatsApp</label><label class="checkline"><input type="checkbox" name="sms_opt_in" value="1"' . (!empty($customer['sms_opt_in']) ? ' checked' : '') . '> SMS</label><label class="checkline"><input type="checkbox" name="email_opt_in" value="1"' . (!empty($customer['email_opt_in']) ? ' checked' : '') . '> Email</label><label class="checkline"><input type="checkbox" name="push_opt_in" value="1"' . (!empty($customer['push_opt_in']) ? ' checked' : '') . '> Push futuro</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . (!empty($customer['social_network_opt_in']) ? ' checked' : '') . '> Marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . (!empty($customer['share_before_after_opt_in']) ? ' checked' : '') . '> Antes/depois</label></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Canais preferidos</label><input name="marketing_channels" value="' . h($customer['marketing_channels'] ?? '') . '"></div><div class="field"><label>Redes sociais</label><input name="social_networks" value="' . h($customer['social_networks'] ?? '') . '"></div></div>';
         echo '<div class="field"><label>Observacoes</label><textarea name="notes">' . h($customer['notes'] ?? '') . '</textarea></div>';
         echo '<button class="btn" type="submit">Salvar ficha</button>';
@@ -1841,7 +1841,7 @@ if ($page === 'studio_customer') {
 
 if ($page === 'studio_leads') {
     $studio = require_studio();
-    render_studio_shell('Funil de Leads', 'Acompanhe oportunidades, orÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§amentos e agendamentos do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.', 'leads', function () use ($studio) {
+    render_studio_shell('Funil de Leads', 'Acompanhe oportunidades, orçamentos e agendamentos do estúdio.', 'leads', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -1971,9 +1971,9 @@ if ($page === 'studio_leads') {
 
         echo '<section class="panel dashboard-hero" style="margin-bottom:16px">';
         echo '<div class="dashboard-hero-copy">';
-        echo '<p class="muted" style="margin:0 0 6px">Funil comercial do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio</p>';
+        echo '<p class="muted" style="margin:0 0 6px">Funil comercial do estúdio</p>';
         echo '<div class="dashboard-hero-title"><h2 style="margin:0">Funil de Leads</h2><span class="badge ok">' . h(current_studio_plan_name()) . '</span></div>';
-        echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, orÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§amentos e agendamentos do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.</p>';
+        echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, orçamentos e agendamentos do estúdio.</p>';
         echo '</div>';
         echo '<div class="dashboard-hero-actions">';
         foreach ($leadLinks as $action) {
@@ -1996,7 +1996,7 @@ if ($page === 'studio_leads') {
         }
         echo '</select>';
         echo '<select name="min_score">';
-        foreach ([0 => 'Qualquer nota', 4 => 'Nota mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nima 4', 7 => 'Nota mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nima 7', 8 => 'Quentes (8+)'] as $key => $label) {
+        foreach ([0 => 'Qualquer nota', 4 => 'Nota mínima 4', 7 => 'Nota mínima 7', 8 => 'Quentes (8+)'] as $key => $label) {
             echo '<option value="' . h((string)$key) . '" ' . ($filters['min_score'] === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
         echo '</select>';
@@ -2005,7 +2005,7 @@ if ($page === 'studio_leads') {
             'hot' => 'Quentes',
             'stale' => 'Parados',
             'today' => 'Hoje',
-            'pre_agendado' => 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendados',
+            'pre_agendado' => 'Pré-agendados',
             'agendado' => 'Agendados',
         ] as $key => $label) {
             echo '<option value="' . h($key) . '" ' . ($focus === $key ? 'selected' : '') . '>' . h($label) . '</option>';
@@ -2021,7 +2021,7 @@ if ($page === 'studio_leads') {
             ['value' => (string)$newLeadsToday, 'label' => 'Leads novos hoje'],
             ['value' => (string)count($staleLeads), 'label' => 'Leads parados 24h+'],
             ['value' => (string)count($hotLeads), 'label' => 'Leads quentes'],
-            ['value' => (string)count($preScheduledLeads), 'label' => 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendados'],
+            ['value' => (string)count($preScheduledLeads), 'label' => 'Pré-agendados'],
             ['value' => (string)count($scheduledLeads), 'label' => 'Agendados'],
         ] as $stat) {
             echo '<div class="panel dashboard-stat"><strong class="metric">' . h($stat['value']) . '</strong><p class="muted" style="margin:0">' . h($stat['label']) . '</p></div>';
@@ -2029,22 +2029,22 @@ if ($page === 'studio_leads') {
         echo '</section>';
 
         echo '<section class="panel" style="margin-top:16px">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapa s ordenadas, total por coluna e cartÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes com aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o comercial.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapa s ordenadas, total por coluna e cartões com ação comercial.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
         if (!$allLeads) {
             if ($initialLeadCount === 0) {
-                echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para comeÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
+                echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para começar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
             } else {
-                echo '<div class="drilldown-empty"><strong>Nenhum lead encontrado para este filtro.</strong><div class="muted">Tente limpar os filtros ou buscar outra combinaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</div><a class="btn" href="' . h(app_url('studio_leads')) . '">Limpar filtros</a></div>';
+                echo '<div class="drilldown-empty"><strong>Nenhum lead encontrado para este filtro.</strong><div class="muted">Tente limpar os filtros ou buscar outra combinação.</div><a class="btn" href="' . h(app_url('studio_leads')) . '">Limpar filtros</a></div>';
             }
         }
         render_pipeline_board($board, $stages);
         echo '<div id="pipelineLeadModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 id="pipelineLeadModalTitle" class="crm-panel-title">Detalhe do lead</h3><p id="pipelineLeadModalSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closePipelineLeadModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="pipelineLeadModalBody" class="p-4"></div></div></div>';
         echo '<script>window.pipelineLeadIndex = ' . json_encode($pipelineLeadIndex, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineLeadMoveToken = ' . json_encode(csrf_token(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineStageNames = ' . json_encode($stageNames, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script>(function(){const modal=document.getElementById("pipelineLeadModal");const title=document.getElementById("pipelineLeadModalTitle");const summary=document.getElementById("pipelineLeadModalSummary");const body=document.getElementById("pipelineLeadModalBody");const closeBtn=document.getElementById("closePipelineLeadModal");const index=window.pipelineLeadIndex||{};const token=window.pipelineLeadMoveToken||"";if(!modal||!title||!summary||!body)return;const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const money=(value)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value)||0);const formatDate=(value)=>{if(!value)return"-";try{return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(value.replace(" ","T")));}catch(e){return value;}};const statusTone=(status, stale)=>{if(["agendado","pre_agendado"].includes(status)) return "warn"; if(status==="fechado") return "ok"; if(["perdido","cancelado"].includes(status)) return "danger"; return stale ? "warn" : "neutral";};const postMove=async(leadId, stage, status)=>{const formData=new FormData();formData.append("csrf_token",token);formData.append("action","move_lead");formData.append("lead_id",leadId);formData.append("pipeline_stage",stage);formData.append("status",status||"");const response=await fetch(window.location.pathname+window.location.search,{method:"POST",body:formData});if(!response.ok) throw new Error("Nao foi possivel mover o lead."); location.reload();};const close=()=>modal.classList.add("hidden");const open=(leadId)=>{const lead=index[String(leadId)]||null;if(!lead)return;const status=String(lead.status||"");const score=Number(lead.lead_score||0);const stale=lead.updated_at&&lead.updated_at!==""?(()=>{try{return new Date(lead.updated_at) < new Date(Date.now()-24*60*60*1000);}catch(e){return false;}})():false;const badges=[];badges.push(`<span class="drilldown-badge ${statusTone(status, stale)}">${esc(status || "sem status")}</span>`);badges.push(`<span class="drilldown-badge neutral">${esc(String(score))}/10</span>`);if(score>=8) badges.push(`<span class="drilldown-badge ok">Quente</span>`);if((lead.estimated_value||0)>=1000) badges.push(`<span class="drilldown-badge neutral">Alto valor</span>`);if(stale) badges.push(`<span class="drilldown-badge warn">Parado 24h+</span>`);if(lead.artist_name) badges.push(`<span class="drilldown-badge neutral">${esc(lead.artist_name)}</span>`);title.textContent=lead.name || "Lead sem nome";summary.textContent=[lead.phone?`Telefone: ${lead.phone}`:"",lead.source?`Origem: ${lead.source}`:"",lead.pipeline_stage?`Etapa : ${lead.pipeline_stage}`:""].filter(Boolean).join(" ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ");const currentIndex=Array.isArray(window.pipelineStageNames)?window.pipelineStageNames.indexOf(String(lead.pipeline_stage||"")):-1;const prevStage=currentIndex>0?window.pipelineStageNames[currentIndex-1]:"";const nextStage=currentIndex>=0&&currentIndex<window.pipelineStageNames.length-1?window.pipelineStageNames[currentIndex+1]:"";body.innerHTML=`<div class="drilldown-panel-grid"><div class="drilldown-panel-summary"><div class="drilldown-kpi"><strong>${esc(money(lead.estimated_value || 0))}</strong><span>Valor estimado</span><small>${esc(lead.interest || "Sem interesse descrito.")}</small></div><div class="drilldown-kpi"><strong>${esc(String(score))}/10</strong><span>Nota</span><small>Criado ${esc(formatDate(lead.created_at))}</small></div><div class="drilldown-kpi highlight"><strong>${esc(formatDate(lead.updated_at || lead.created_at))}</strong><span>ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltima atualizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</span><small>${esc(lead.customer_name || lead.email || lead.notes || "Sem dados adicionais.")}</small></div></div><div class="drilldown-card compact"><div class="lead-card-badges">${badges.join("")}</div><div class="lead-card-submeta"><span class="muted">${esc(lead.phone || "Sem telefone")}</span><span class="muted">Cliente: ${esc(lead.customer_name || "-")}</span><span class="muted">Contato recente: ${esc(lead.last_message_preview || "-")}</span></div><div class="lead-card-actions lead-card-actions-quick">${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}">Ver lead</a>` : ""}${lead.phone ? `<a class="btn tiny secondary" href="https://wa.me/${String(lead.phone).replace(/\\D+/g,"")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}#lead-schedule-form">Agendar</a>` : ""}</div><div class="lead-card-actions">${prevStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(prevStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Voltar</button>`:""}${nextStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(nextStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Avancar</button>`:""}</div></div></div>`;modal.classList.remove("hidden");};document.querySelectorAll("[data-lead-open]").forEach((btn)=>{btn.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();open(btn.getAttribute("data-lead-open"));});});document.querySelectorAll("[data-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-lead-id")||"0", btn.getAttribute("data-move-stage")||"", btn.getAttribute("data-current-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll("[data-modal-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-modal-lead-id")||"0", btn.getAttribute("data-modal-move-stage")||"", btn.getAttribute("data-modal-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});let dragLeadId="";document.querySelectorAll(".pipeline-column").forEach((column)=>{column.addEventListener("dragover",(event)=>{event.preventDefault();column.classList.add("drag-over");});column.addEventListener("dragleave",()=>column.classList.remove("drag-over"));column.addEventListener("drop",async(event)=>{event.preventDefault();column.classList.remove("drag-over");const leadId=dragLeadId||event.dataTransfer.getData("text/plain");const stage=column.getAttribute("data-stage")||"";if(!leadId||!stage)return;const lead=index[String(leadId)];if(!lead)return;try{await postMove(leadId, stage, lead.status || "");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll(".lead-card[draggable=\"true\"]").forEach((card)=>{card.addEventListener("dragstart",(event)=>{dragLeadId=card.getAttribute("data-lead-id")||"";event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",dragLeadId);card.classList.add("dragging");});card.addEventListener("dragend",()=>{dragLeadId="";card.classList.remove("dragging");});card.addEventListener("click",(event)=>{if(event.target.closest("a,button")) return; const id=card.getAttribute("data-lead-id"); if(id) open(id);});});if(closeBtn) closeBtn.addEventListener("click",close);modal.addEventListener("click",(event)=>{if(event.target===modal) close();});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") close();});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("pipelineLeadModal");const title=document.getElementById("pipelineLeadModalTitle");const summary=document.getElementById("pipelineLeadModalSummary");const body=document.getElementById("pipelineLeadModalBody");const closeBtn=document.getElementById("closePipelineLeadModal");const index=window.pipelineLeadIndex||{};const token=window.pipelineLeadMoveToken||"";if(!modal||!title||!summary||!body)return;const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const money=(value)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value)||0);const formatDate=(value)=>{if(!value)return"-";try{return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(value.replace(" ","T")));}catch(e){return value;}};const statusTone=(status, stale)=>{if(["agendado","pre_agendado"].includes(status)) return "warn"; if(status==="fechado") return "ok"; if(["perdido","cancelado"].includes(status)) return "danger"; return stale ? "warn" : "neutral";};const postMove=async(leadId, stage, status)=>{const formData=new FormData();formData.append("csrf_token",token);formData.append("action","move_lead");formData.append("lead_id",leadId);formData.append("pipeline_stage",stage);formData.append("status",status||"");const response=await fetch(window.location.pathname+window.location.search,{method:"POST",body:formData});if(!response.ok) throw new Error("Nao foi possivel mover o lead."); location.reload();};const close=()=>modal.classList.add("hidden");const open=(leadId)=>{const lead=index[String(leadId)]||null;if(!lead)return;const status=String(lead.status||"");const score=Number(lead.lead_score||0);const stale=lead.updated_at&&lead.updated_at!==""?(()=>{try{return new Date(lead.updated_at) < new Date(Date.now()-24*60*60*1000);}catch(e){return false;}})():false;const badges=[];badges.push(`<span class="drilldown-badge ${statusTone(status, stale)}">${esc(status || "sem status")}</span>`);badges.push(`<span class="drilldown-badge neutral">${esc(String(score))}/10</span>`);if(score>=8) badges.push(`<span class="drilldown-badge ok">Quente</span>`);if((lead.estimated_value||0)>=1000) badges.push(`<span class="drilldown-badge neutral">Alto valor</span>`);if(stale) badges.push(`<span class="drilldown-badge warn">Parado 24h+</span>`);if(lead.artist_name) badges.push(`<span class="drilldown-badge neutral">${esc(lead.artist_name)}</span>`);title.textContent=lead.name || "Lead sem nome";summary.textContent=[lead.phone?`Telefone: ${lead.phone}`:"",lead.source?`Origem: ${lead.source}`:"",lead.pipeline_stage?`Etapa : ${lead.pipeline_stage}`:""].filter(Boolean).join(" · ");const currentIndex=Array.isArray(window.pipelineStageNames)?window.pipelineStageNames.indexOf(String(lead.pipeline_stage||"")):-1;const prevStage=currentIndex>0?window.pipelineStageNames[currentIndex-1]:"";const nextStage=currentIndex>=0&&currentIndex<window.pipelineStageNames.length-1?window.pipelineStageNames[currentIndex+1]:"";body.innerHTML=`<div class="drilldown-panel-grid"><div class="drilldown-panel-summary"><div class="drilldown-kpi"><strong>${esc(money(lead.estimated_value || 0))}</strong><span>Valor estimado</span><small>${esc(lead.interest || "Sem interesse descrito.")}</small></div><div class="drilldown-kpi"><strong>${esc(String(score))}/10</strong><span>Nota</span><small>Criado ${esc(formatDate(lead.created_at))}</small></div><div class="drilldown-kpi highlight"><strong>${esc(formatDate(lead.updated_at || lead.created_at))}</strong><span>Última atualização</span><small>${esc(lead.customer_name || lead.email || lead.notes || "Sem dados adicionais.")}</small></div></div><div class="drilldown-card compact"><div class="lead-card-badges">${badges.join("")}</div><div class="lead-card-submeta"><span class="muted">${esc(lead.phone || "Sem telefone")}</span><span class="muted">Cliente: ${esc(lead.customer_name || "-")}</span><span class="muted">Contato recente: ${esc(lead.last_message_preview || "-")}</span></div><div class="lead-card-actions lead-card-actions-quick">${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}">Ver lead</a>` : ""}${lead.phone ? `<a class="btn tiny secondary" href="https://wa.me/${String(lead.phone).replace(/\\D+/g,"")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}#lead-schedule-form">Agendar</a>` : ""}</div><div class="lead-card-actions">${prevStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(prevStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Voltar</button>`:""}${nextStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(nextStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Avancar</button>`:""}</div></div></div>`;modal.classList.remove("hidden");};document.querySelectorAll("[data-lead-open]").forEach((btn)=>{btn.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();open(btn.getAttribute("data-lead-open"));});});document.querySelectorAll("[data-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-lead-id")||"0", btn.getAttribute("data-move-stage")||"", btn.getAttribute("data-current-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll("[data-modal-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-modal-lead-id")||"0", btn.getAttribute("data-modal-move-stage")||"", btn.getAttribute("data-modal-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});let dragLeadId="";document.querySelectorAll(".pipeline-column").forEach((column)=>{column.addEventListener("dragover",(event)=>{event.preventDefault();column.classList.add("drag-over");});column.addEventListener("dragleave",()=>column.classList.remove("drag-over"));column.addEventListener("drop",async(event)=>{event.preventDefault();column.classList.remove("drag-over");const leadId=dragLeadId||event.dataTransfer.getData("text/plain");const stage=column.getAttribute("data-stage")||"";if(!leadId||!stage)return;const lead=index[String(leadId)];if(!lead)return;try{await postMove(leadId, stage, lead.status || "");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll(".lead-card[draggable=\"true\"]").forEach((card)=>{card.addEventListener("dragstart",(event)=>{dragLeadId=card.getAttribute("data-lead-id")||"";event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",dragLeadId);card.classList.add("dragging");});card.addEventListener("dragend",()=>{dragLeadId="";card.classList.remove("dragging");});card.addEventListener("click",(event)=>{if(event.target.closest("a,button")) return; const id=card.getAttribute("data-lead-id"); if(id) open(id);});});if(closeBtn) closeBtn.addEventListener("click",close);modal.addEventListener("click",(event)=>{if(event.target===modal) close();});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") close();});})();</script>';
         echo '</section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads que pedem atenÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</h2><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads que pedem atenção</h2><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
         if (!$hotLeads && !$staleLeads) {
             echo '<p class="muted">Sem leads pendentes no momento.</p>';
         } else {
@@ -2100,8 +2100,8 @@ if ($page === 'studio_leads') {
                 $conversationHref = $resolveConversationHref($lead);
                 echo '<div class="activity-card">';
                 echo '<strong><a href="' . h($href) . '">' . h($lead['name'] ?: 'Sem nome') . '</a></strong>';
-                echo '<span class="muted">' . h(($lead['status'] ?: '-') . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . ($lead['pipeline_stage'] ?: '-') . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . ($lead['source'] ?: 'Sem origem')) . '</span>';
-                echo '<span>' . h(($lead['interest'] ?: 'Sem interesse descrito.') . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money($lead['estimated_value'] ?? 0)) . '</span>';
+                echo '<span class="muted">' . h(($lead['status'] ?: '-') . ' · ' . ($lead['pipeline_stage'] ?: '-') . ' · ' . ($lead['source'] ?: 'Sem origem')) . '</span>';
+                echo '<span>' . h(($lead['interest'] ?: 'Sem interesse descrito.') . ' · ' . format_money($lead['estimated_value'] ?? 0)) . '</span>';
                 echo '<div class="lead-card-actions lead-card-actions-quick">';
                 echo '<span class="badge">' . h((string)($lead['lead_score'] ?? 0)) . '/10</span>';
                 if ((int)($lead['lead_score'] ?? 0) >= 8) {
@@ -2129,7 +2129,7 @@ if ($page === 'studio_leads') {
         }
         echo '</div>';
 
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Filtro rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pido de etapas</h2><span class="badge">Status comercial</span></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Filtro rápido de etapas</h2><span class="badge">Status comercial</span></div>';
         echo '<div class="stack-list">';
         foreach ($board as $stageName => $column) {
             $count = count($column['leads'] ?? []);
@@ -2142,7 +2142,7 @@ if ($page === 'studio_leads') {
                 'focus' => $focus,
                 'stage' => $stageName,
             ]);
-            echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h($stageName) . '</strong><span class="muted">' . h($count . ' leads ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money($value)) . '</span><span>Clique para focar nesta etapa.</span></a>';
+            echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h($stageName) . '</strong><span class="muted">' . h($count . ' leads · ' . format_money($value)) . '</span><span>Clique para focar nesta etapa.</span></a>';
         }
         echo '</div></div>';
         echo '</section>';
@@ -2167,12 +2167,12 @@ if ($page === 'studio_lead') {
             echo '<form class="form panel" method="post" id="lead-new-form">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="save_lead"><input type="hidden" name="return_to_detail" value="1">';
-            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Novo lead</h2><p class="muted">Crie uma oportunidade nova para o funil do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.</p></div><span class="badge">Cadastro</span></div>';
+            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Novo lead</h2><p class="muted">Crie uma oportunidade nova para o funil do estúdio.</p></div><span class="badge">Cadastro</span></div>';
             echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do lead"></div><div class="field"><label>Telefone</label><input name="phone" placeholder="(11) 99999-9999"></div></div>';
             echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Sem vinculo</option>';
             render_customer_options($customers, 0);
             echo '</select></div>';
-            echo '<div class="field"><label>Interesse</label><input name="interest" placeholder="Ex.: tatuagem fina no antebraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o"></div>';
+            echo '<div class="field"><label>Interesse</label><input name="interest" placeholder="Ex.: tatuagem fina no antebraço"></div>';
             echo '<div class="grid cols-3"><div class="field"><label>Status</label><select name="status">';
             render_options(lead_status_options(), 'novo');
             echo '</select></div><div class="field"><label>Etapa </label><select name="pipeline_stage">';
@@ -2180,13 +2180,13 @@ if ($page === 'studio_lead') {
                 echo '<option value="' . h($stage['name']) . '">' . h($stage['name']) . '</option>';
             }
             echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="0"></div></div>';
-            echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="0"></div><div class="field"><label>Origem</label><input name="source" placeholder="Instagram, WhatsApp, indicaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o..."></div></div>';
-            echo '<div class="field"><label>Tatuador / responsÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡vel</label><select name="artist_id">';
+            echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="0"></div><div class="field"><label>Origem</label><input name="source" placeholder="Instagram, WhatsApp, indicação..."></div></div>';
+            echo '<div class="field"><label>Tatuador / responsável</label><select name="artist_id">';
             render_artist_options($artists, default_artist_id($studio) ?? 0);
             echo '</select></div>';
             echo '<button class="btn" type="submit">Salvar lead</button>';
             echo '</form>';
-            echo '<div class="panel soft"><p class="muted">Dica</p><h3 style="margin-top:0">Depois de salvo, o lead jÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ entra no funil e pode ser movido entre etapas com os botÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes do card.</h3></div>';
+            echo '<div class="panel soft"><p class="muted">Dica</p><h3 style="margin-top:0">Depois de salvo, o lead já entra no funil e pode ser movido entre etapas com os botões do card.</h3></div>';
             echo '</section>';
             return;
         }
@@ -2207,7 +2207,7 @@ if ($page === 'studio_lead') {
         echo '<p>' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
         echo '<div class="mini-metrics"><span><strong>' . h(format_money($lead['estimated_value'] ?? 0)) . '</strong><small>Valor estimado</small></span><span><strong>' . h($lead['status']) . '</strong><small>Status</small></span><span><strong>' . h($lead['pipeline_stage'] ?: '-') . '</strong><small>Etapa </small></span></div>';
         $shareMessage = 'Oi! Segue o link para atualizar seu cadastro: ' . $publicUpdateUrl;
-        echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir formulÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button><a class="btn secondary" href="https://wa.me/?text=' . h(rawurlencode($shareMessage)) . '" target="_blank" rel="noopener">Enviar no WhatsApp</a></div>';
+        echo '<div class="actions" style="margin-top:14px;gap:8px;flex-wrap:wrap"><a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir formulário</a><button type="button" class="btn secondary" data-copy-link="' . h($publicUpdateUrl) . '">Copiar link</button><a class="btn secondary" href="https://wa.me/?text=' . h(rawurlencode($shareMessage)) . '" target="_blank" rel="noopener">Enviar no WhatsApp</a></div>';
         echo '</div>';
         echo '<form class="form panel" method="post" id="lead-move-form">';
         echo csrf_field();
@@ -2326,7 +2326,7 @@ if ($page === 'studio_agenda') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
-        echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ximos horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios livres</button>';
+        echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button>';
         echo '</div>';
         if (is_array($importPreview)) {
             $analysis = $importPreview['analysis'] ?? [];
@@ -2334,7 +2334,7 @@ if ($page === 'studio_agenda') {
             $skipped = $analysis['skipped'] ?? [];
             echo '<section class="panel" style="margin-top:16px;background:linear-gradient(180deg,rgba(48, 91, 255, 0.08),rgba(48, 91, 255, 0.02))">';
             echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
-            echo '<div><h2>Revisar importacao Google Agenda</h2><p class="muted">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.</p></div>';
+            echo '<div><h2>Revisar importacao Google Agenda</h2><p class="muted">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estúdio.</p></div>';
             echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
             echo '<button class="btn secondary" type="button" data-import-toggle="all">Selecionar tudo</button>';
             echo '<button class="btn secondary" type="button" data-import-toggle="none">Desmarcar tudo</button>';
@@ -2346,7 +2346,7 @@ if ($page === 'studio_agenda') {
             echo '<input type="hidden" name="import_token" value="' . h($importPreviewToken) . '">';
             echo '<div class="alert-grid" style="margin-bottom:16px">';
             echo '<article class="alert-card"><span class="badge ok">' . h((string)count($candidates)) . '</span><p><strong>Candidatos</strong></p><p class="muted">Eventos prontos para revisar.</p></article>';
-            echo '<article class="alert-card"><span class="badge warn">' . h((string)($analysis['duplicates'] ?? 0)) . '</span><p><strong>Possiveis duplicados</strong></p><p class="muted">Eventos ja importados ou muito parecidos com importaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes anteriores.</p></article>';
+            echo '<article class="alert-card"><span class="badge warn">' . h((string)($analysis['duplicates'] ?? 0)) . '</span><p><strong>Possiveis duplicados</strong></p><p class="muted">Eventos ja importados ou muito parecidos com importações anteriores.</p></article>';
             echo '<article class="alert-card"><span class="badge">' . h((string)count($skipped)) . '</span><p><strong>Ignorados</strong></p><p class="muted">Entradas sem sinal claro de atendimento.</p></article>';
             echo '<article class="alert-card"><span class="badge">' . h((string)($analysis['events_total'] ?? 0)) . '</span><p><strong>Total no ICS</strong></p><p class="muted">' . h((string)$importPreview['file_name']) . '</p></article>';
             echo '</div>';
@@ -2377,7 +2377,7 @@ if ($page === 'studio_agenda') {
                         $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time'] ?? ''), 0, 5);
                         echo '<div class="panel" style="padding:10px;background:#fff;border:1px solid rgba(0,0,0,0.06)">';
                         echo '<strong>' . h(format_date_pt((string)$conflict['appointment_date']) . ' ' . $conflictStart . ($conflictEnd !== '' ? ' - ' . $conflictEnd : '')) . '</strong>';
-                        echo '<div class="muted">' . h($conflictName) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . h($conflictArtist) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . h((string)($conflict['status'] ?? '')) . '</div>';
+                        echo '<div class="muted">' . h($conflictName) . ' · ' . h($conflictArtist) . ' · ' . h((string)($conflict['status'] ?? '')) . '</div>';
                         echo '</div>';
                     }
                     echo '</div>';
@@ -2390,24 +2390,24 @@ if ($page === 'studio_agenda') {
                 echo '<div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px">';
                 echo '<label>Nome<input type="text" name="items[' . h($uid) . '][name]" value="' . h((string)$title) . '"></label>';
                 echo '<label>Data<input type="date" name="items[' . h($uid) . '][date]" value="' . h((string)($candidate['date'] ?? '')) . '"></label>';
-                echo '<label>InÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­cio<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
+                echo '<label>Início<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
                 echo '<label>Fim<input type="time" name="items[' . h($uid) . '][end_time]" value="' . h(substr((string)($candidate['end_time'] ?? ''), 0, 5)) . '"></label>';
                 echo '<label>Telefone<input type="text" name="items[' . h($uid) . '][phone]" value="' . h((string)($candidate['phone'] ?? '')) . '"></label>';
                 echo '<label>Valor<input type="text" name="items[' . h($uid) . '][value]" value="' . h((string)($candidate['value'] ?? 0)) . '"></label>';
                 echo '<label>Status<input type="text" name="items[' . h($uid) . '][appointment_status]" value="' . h((string)($candidate['appointment_status'] ?? 'confirmado')) . '"></label>';
                 echo '<label>Lead<input type="text" name="items[' . h($uid) . '][status]" value="' . h((string)($candidate['status'] ?? 'agendado')) . '"></label>';
                 echo '</div>';
-                echo '<label style="display:block;margin-top:12px">Interesse/observaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes<textarea name="items[' . h($uid) . '][interest]" rows="2">' . h(trim($notes !== '' ? $notes . "\n" : '') . trim($description)) . '</textarea></label>';
+                echo '<label style="display:block;margin-top:12px">Interesse/observações<textarea name="items[' . h($uid) . '][interest]" rows="2">' . h(trim($notes !== '' ? $notes . "\n" : '') . trim($description)) . '</textarea></label>';
                 echo '<input type="hidden" name="items[' . h($uid) . '][pipeline_stage]" value="' . h((string)($candidate['pipeline_stage'] ?? 'agendado')) . '">';
                 echo '<input type="hidden" name="items[' . h($uid) . '][lead_score]" value="' . h((string)($candidate['lead_score'] ?? 6)) . '">';
                 echo '</article>';
             }
             if (!$candidates) {
-                echo '<div class="alert-card"><p><strong>Nenhum candidato encontrado</strong></p><p class="muted">Esse arquivo nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o gerou eventos aptos para importaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</p></div>';
+                echo '<div class="alert-card"><p><strong>Nenhum candidato encontrado</strong></p><p class="muted">Esse arquivo não gerou eventos aptos para importação.</p></div>';
             }
             echo '</div>';
             echo '<div class="actions" style="justify-content:space-between;margin-top:16px;gap:12px;flex-wrap:wrap">';
-            echo '<p class="muted">Itens com conflito ficam destacados. Por padrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o eles nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o importados, a menos que vocÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âª marque a opÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o de manter mesmo assim.</p>';
+            echo '<p class="muted">Itens com conflito ficam destacados. Por padrão eles não são importados, a menos que você marque a opção de manter mesmo assim.</p>';
             echo '<button class="btn" type="submit">Importar selecionados</button>';
             echo '</div>';
             echo '</form>';
@@ -2441,18 +2441,18 @@ if ($page === 'studio_agenda') {
             </script>';
         }
         echo '<div class="alert-grid" style="margin-top:14px">';
-        echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos sem sinal</strong></p><p class="muted">HÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ prÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos aguardando confirmaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o financeira.</p></article>';
-        echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do dia atual sem sair da agenda.</p></article>';
-        echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o.</p></article>';
-        echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nculo para evitar perda de contexto.</p></article>';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
+        echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
+        echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
         echo '</div>';
-        echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ximos horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list">';
+        echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list">';
         if (!$nextAvailableSlots) {
-            echo '<p class="muted">NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o foi possÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­vel calcular horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios livres neste recorte.</p>';
+            echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
         } else {
             foreach (array_slice($nextAvailableSlots, 0, 12) as $slot) {
                 $href = app_url('studio_agenda', ['date' => (string)$slot['date']]) . '#appointment-form';
-                echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)$slot['label']) . '</strong><span class="muted">' . h(implode(' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ', array_slice($slot['free_slots'] ?? [], 0, 4))) . '</span><span>' . h((string)count($slot['free_slots'] ?? [])) . ' horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios livres</span></a>';
+                echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)$slot['label']) . '</strong><span class="muted">' . h(implode(' · ', array_slice($slot['free_slots'] ?? [], 0, 4))) . '</span><span>' . h((string)count($slot['free_slots'] ?? [])) . ' horários livres</span></a>';
             }
         }
         echo '</div></div></div></div>';
@@ -2486,7 +2486,7 @@ if ($page === 'studio_agenda') {
             echo '</div>';
             $healthAlerts = studio_appointment_health_alerts_from_row($selectedAppointment);
             if ($healthAlerts) {
-                echo '<div class="panel" style="margin-top:12px;border-left:4px solid #eab308;background:#fffbeb"><strong>Alertas de saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</strong><div class="stack-list" style="margin-top:10px">';
+                echo '<div class="panel" style="margin-top:12px;border-left:4px solid #eab308;background:#fffbeb"><strong>Alertas de saúde</strong><div class="stack-list" style="margin-top:10px">';
                 foreach ($healthAlerts as $alert) {
                     echo '<div class="activity-card"><strong>' . h((string)$alert['label']) . '</strong><span>' . h((string)$alert['detail']) . '</span></div>';
                 }
@@ -2520,7 +2520,7 @@ if ($page === 'studio_agenda') {
         }
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<button type="button" class="panel dashboard-stat" id="openNewSlotOverlay"><p class="metric">Novo horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio</p><p class="muted">Abrir formulÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio em overlay</p></button>';
+        echo '<button type="button" class="panel dashboard-stat" id="openNewSlotOverlay"><p class="metric">Novo horário</p><p class="muted">Abrir formulário em overlay</p></button>';
         echo '<button type="button" class="panel dashboard-stat" id="openAgendaTableOverlay"><p class="metric">Agenda cadastrada</p><p class="muted">Ver lista paginada em overlay</p></button>';
         echo '</section>';
         echo '<div id="newSlotOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">' . h($selectedAppointment ? 'Editar horario' : 'Novo horario') . '</h3><p class="muted" style="margin:4px 0 0">Cadastre ou ajuste um atendimento sem sair da agenda.</p></div><button type="button" id="closeNewSlotOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="newSlotOverlayBody" class="p-4"></div></div></div>';
@@ -2553,7 +2553,7 @@ if ($page === 'studio_agenda') {
         echo '</form>';
         echo '</section>';
         echo '</div>';
-        echo '<div id="agendaTableSource" hidden><section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Agenda cadastrada</h2><p class="muted">PÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡gina ' . h((string)$appointmentsPage) . ' de ' . h((string)$appointmentsTotalPages) . '</p></div>';
+        echo '<div id="agendaTableSource" hidden><section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Agenda cadastrada</h2><p class="muted">Página ' . h((string)$appointmentsPage) . ' de ' . h((string)$appointmentsTotalPages) . '</p></div>';
         if ($appointmentsTotalPages > 1) {
             echo '<div class="actions" style="gap:8px;flex-wrap:wrap">';
             if ($appointmentsPage > 1) {
@@ -2603,14 +2603,14 @@ if ($page === 'studio_whatsapp') {
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conexÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o, pareamento e aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conexão, pareamento e ações</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio em overlay</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pida</span><small>Resumo do fluxo atual</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura rápida</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>' . h((string)$conversationsTotal) . '</strong><span>Conversas importadas</span><small>Ver lista paginada</small></button>';
         echo '</section>';
-        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">ConexÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o, pareamento e aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conexão, pareamento e ações rápidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
-        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>SessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do WhatsApp</h2>';
+        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessão do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
         $sessionSummary = 'Nao conectado';
@@ -2659,8 +2659,8 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="actions whatsapp-session-actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar pareamento</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar serviÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessão</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar serviço</button></form>';
         echo '</div>';
         echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
@@ -2678,15 +2678,15 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
         echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
         echo '</form></div>';
-        echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©dia</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
-        echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">PÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡gina ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rápida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota média</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
+        echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">Página ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
             'all' => 'Todas',
-            'unreplied' => 'NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o respondidas',
+            'unreplied' => 'Não respondidas',
             'needs_human' => 'Pediram humano',
             'bot' => 'Em IA/Bot',
             'human' => 'Em humano',
@@ -2725,7 +2725,7 @@ if ($page === 'studio_whatsapp') {
                 echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage - 1])) . '">Anterior</a>';
             }
             if ($conversationsPage < $conversationsTotalPages) {
-                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage + 1])) . '">PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³xima</a>';
+                echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp', ['filter' => $filters['filter'] ?: 'all', 'q' => $filters['q'] !== '' ? $filters['q'] : null, 'mode' => $filters['mode'] !== '' ? $filters['mode'] : null, 'needs_human' => $filters['needs_human'] ? 1 : null, 'min_score' => $filters['min_score'] > 0 ? $filters['min_score'] : null, 'wa_page' => $conversationsPage + 1])) . '">Próxima</a>';
             }
             echo '</div>';
         }
@@ -2779,8 +2779,8 @@ if ($page === 'studio_whatsapp_conversation') {
             '3d' => ['label' => '3 dias', 'days' => 3],
             '7d' => ['label' => '7 dias', 'days' => 7],
             '15d' => ['label' => '15 dias', 'days' => 15],
-            'month' => ['label' => 'Este mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
-            'next_month' => ['label' => 'MÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
+            'month' => ['label' => 'Este mês', 'days' => max(1, (int)$monthEnd->diff($availabilityStart)->days + 1)],
+            'next_month' => ['label' => 'Mês que vem', 'start' => $availabilityStart->modify('first day of next month'), 'days' => (int)$availabilityStart->modify('first day of next month')->format('t')],
             'custom' => ['label' => 'Prazo livre', 'days' => 365],
         ];
         $availabilityCardsByRange = [];
@@ -2887,7 +2887,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
         echo '<div class="field"><label>Responder</label><textarea id="reply-message" name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
         echo '<div class="emoji-strip" aria-label="Emojis rapidos">';
-        foreach (['ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¹Ã…â€œÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬','ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“Ãƒâ€šÃ‚Â','ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢Ãƒâ€šÃ‚Â','ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â¤ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â','ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¹Ã…â€œÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡','ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â¥','ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â½Ãƒâ€šÃ‚Â¯','ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦'] as $emoji) {
+        foreach (['😀','','','','😂','','🎯','✅'] as $emoji) {
             echo '<button type="button" class="btn tiny secondary quick-reply-copy" data-reply="' . h($emoji) . '">' . h($emoji) . '</button>';
         }
         echo '</div>';
@@ -2903,7 +2903,7 @@ if ($page === 'studio_whatsapp_conversation') {
 
         echo '<div id="conversationToolsOverlay" class="crm-modal hidden">';
         echo '<div class="crm-modal-panel conversation-tools-panel" style="max-width:min(96vw,860px)">';
-        echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas em um sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ lugar.</p></div><button type="button" id="closeConversationToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
+        echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um só lugar.</p></div><button type="button" id="closeConversationToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
         echo '<div class="panel conversation-tools-body">';
         echo '<div class="conversation-tools-actions">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center">';
@@ -2965,7 +2965,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '</form>';
 
         echo '<details class="panel side-tool-panel" ' . (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['schedule_reason']) ? 'open' : '') . '>';
-        echo '<summary>SugestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes da IA</summary>';
+        echo '<summary>Sugestões da IA</summary>';
         if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
             echo '<div class="stack-list">';
             if (!empty($assistantInsights['suggested_name'])) {
@@ -2975,14 +2975,14 @@ if ($page === 'studio_whatsapp_conversation') {
                 echo '<div class="drilldown-card compact"><strong>Interesse sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_interest']) . '</div></div>';
             }
             if (!empty($assistantInsights['suggested_notes'])) {
-                echo '<div class="drilldown-card compact"><strong>ObservaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o sugerida</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
+                echo '<div class="drilldown-card compact"><strong>Observação sugerida</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
             }
             if (!empty($assistantInsights['schedule_reason'])) {
-                echo '<div class="drilldown-card compact"><strong>SugestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o de agendamento</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div><div class="mini-metrics side-suggestion-metrics"><span><strong>' . h((string)($scheduleSuggestion['date'] ?? '')) . '</strong><small>Data</small></span><span><strong>' . h((string)($scheduleSuggestion['time'] ?? '')) . '</strong><small>Hora</small></span><span><strong>' . h((string)($scheduleSuggestion['end_time'] ?? '')) . '</strong><small>Fim</small></span></div></div>';
+                echo '<div class="drilldown-card compact"><strong>Sugestão de agendamento</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div><div class="mini-metrics side-suggestion-metrics"><span><strong>' . h((string)($scheduleSuggestion['date'] ?? '')) . '</strong><small>Data</small></span><span><strong>' . h((string)($scheduleSuggestion['time'] ?? '')) . '</strong><small>Hora</small></span><span><strong>' . h((string)($scheduleSuggestion['end_time'] ?? '')) . '</strong><small>Fim</small></span></div></div>';
             }
             echo '<p class="muted">Quando o assistente encontra nome, interesse ou uma janela boa de agenda, ele preenche os campos acima para agilizar o atendimento.</p>';
         } else {
-            echo '<p class="muted">Nenhuma sugestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o clara detectada ainda.</p>';
+            echo '<p class="muted">Nenhuma sugestão clara detectada ainda.</p>';
         }
         echo '</details>';
 
@@ -3081,7 +3081,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'let chatStickToBottom = true;';
         echo 'function clearAttachment(){ input.value = ""; recordedFile = null; preview.classList.add("hidden"); preview.innerHTML = ""; recordState.textContent = ""; if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; } if (recorder && recorder.state !== "inactive") recorder.stop(); if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } recordBtn.textContent = "Gravar audio"; }';
         echo 'function escapeHtml(value){ return String(value ?? "").replace(/[&<>"\x27]/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;" }[char] || char)); }';
-        echo 'function formatDateTimePt(value){ const raw = String(value || "").trim(); if (!raw) return "-"; const normalized = raw.includes("T") ? raw : raw.replace(" ", "T"); const date = new Date(normalized); if (Number.isNaN(date.getTime())) return raw; const weekdays = ["dom", "seg", "ter", "qua", "qui", "sex", "sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡b"]; const weekday = weekdays[date.getDay()] || ""; const dd = String(date.getDate()).padStart(2, "0"); const mm = String(date.getMonth() + 1).padStart(2, "0"); const yyyy = date.getFullYear(); const hh = String(date.getHours()).padStart(2, "0"); const mi = String(date.getMinutes()).padStart(2, "0"); return `${weekday.toUpperCase()} - ${dd}/${mm}/${yyyy} ${hh}:${mi}`.trim(); }';
+        echo 'function formatDateTimePt(value){ const raw = String(value || "").trim(); if (!raw) return "-"; const normalized = raw.includes("T") ? raw : raw.replace(" ", "T"); const date = new Date(normalized); if (Number.isNaN(date.getTime())) return raw; const weekdays = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]; const weekday = weekdays[date.getDay()] || ""; const dd = String(date.getDate()).padStart(2, "0"); const mm = String(date.getMonth() + 1).padStart(2, "0"); const yyyy = date.getFullYear(); const hh = String(date.getHours()).padStart(2, "0"); const mi = String(date.getMinutes()).padStart(2, "0"); return `${weekday.toUpperCase()} - ${dd}/${mm}/${yyyy} ${hh}:${mi}`.trim(); }';
         echo 'function inferMediaType(mime, mediaUrl, type){ const normalizedMime = String(mime || "").toLowerCase().trim(); const normalizedType = String(type || "").toLowerCase().trim(); const rawUrl = String(mediaUrl || ""); const ext = (rawUrl.split("?")[0].split("#")[0].split(".").pop() || "").toLowerCase(); if (normalizedMime) { if (normalizedMime.startsWith("image/")) return "image"; if (normalizedMime.startsWith("video/")) return "video"; if (normalizedMime.startsWith("audio/")) return "audio"; } if (["jpg","jpeg","png","gif","webp","bmp","svg"].includes(ext) || normalizedType === "image") return "image"; if (["mp4","webm","mov","m4v","avi","mkv"].includes(ext) || normalizedType === "video") return "video"; if (["mp3","wav","ogg","oga","opus","webm","m4a","aac"].includes(ext) || normalizedType === "audio") return "audio"; return normalizedType || "document"; }';
         echo 'function renderChatMessage(message){ const direction = String(message?.direction || "in"); const className = direction === "out" ? "out" : "in"; const body = String(message?.body || ""); const type = String(message?.message_type || "texto"); const mime = String(message?.media_mime || ""); const mediaUrl = String(message?.media_url || ""); let mediaName = String(message?.media_file_name || ""); const kind = inferMediaType(mime, mediaUrl, type); if (!mediaName && mediaUrl) { mediaName = decodeURIComponent(mediaUrl.split("/").pop().split("?")[0] || ""); } let html = `<div class="chat-message ${className}"><div class="chat-bubble">`; if (mediaUrl) { if (kind === "image") { html += `<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="${escapeHtml(mediaUrl)}" data-media-title="${escapeHtml(mediaName || "midia")}" data-media-kind="image"><img src="${escapeHtml(mediaUrl)}" alt="${escapeHtml(mediaName || "midia")}" style="max-width:260px;max-height:220px;border-radius:8px"></button>`; } else if (kind === "video") { html += `<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="${escapeHtml(mediaUrl)}" data-media-title="${escapeHtml(mediaName || "midia")}" data-media-kind="video"><video src="${escapeHtml(mediaUrl)}" style="max-width:280px;max-height:220px;border-radius:8px"></video></button>`; } else if (kind === "audio") { html += `<audio src="${escapeHtml(mediaUrl)}" controls style="width:280px;max-width:100%"></audio>`; if (!String(message?.transcricao || message?.transcript || "").trim()) { html += `<button class="btn tiny secondary" type="button" data-transcribe-audio="${escapeHtml(message?.message_id || "")}" data-media-url="${escapeHtml(mediaUrl)}">Transcrever audio</button>`; } } else { html += `<a class="muted" href="${escapeHtml(mediaUrl)}" target="_blank" rel="noopener">Abrir anexo${mediaName ? `: ${escapeHtml(mediaName)}` : ""}</a>`; } } if (body) { html += `<p>${escapeHtml(body).replace(/\n/g, "<br>")}</p>`; } else if (type !== "texto" && !mediaUrl) { html += `<p>[${escapeHtml(type)}]</p>`; } const transcribedText = String(message?.transcricao || message?.transcript || "").trim(); const transcribedError = String(message?.transcricao_erro || message?.transcript_error || "").trim(); if (transcribedText) { html += `<div class="chat-transcription-result">${escapeHtml(transcribedText)}</div>`; } if (transcribedError) { html += `<div class="chat-transcription-error">${escapeHtml(transcribedError)}</div>`; } html += `<span>${escapeHtml(String(message?.sender_type || "-"))} | ${escapeHtml(formatDateTimePt(message?.sent_at || "-"))}${String(message?.status || "") ? ` | ${escapeHtml(String(message.status))}` : ""}</span>`; html += `</div></div>`; return html; }';
         echo 'function isChatNearBottom(){ if (!chatThread) return true; return (chatThread.scrollTop + chatThread.clientHeight) >= (chatThread.scrollHeight - 120); }';
@@ -3148,7 +3148,7 @@ if ($page === 'studio_finance') {
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></button>';
         echo '</section>';
-        echo '<div id="financeAgendaSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Agenda no mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Resumo financeiro ligado aos agendamentos do perÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­odo.</p></div></div>';
+        echo '<div id="financeAgendaSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Agenda no mês</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Resumo financeiro ligado aos agendamentos do período.</p></div></div>';
         echo '<div id="financeExpenseSource" hidden><form class="form panel" method="post" id="nova-despesa">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_expense">';
@@ -3161,11 +3161,11 @@ if ($page === 'studio_finance') {
         echo '</form></div>';
         echo '<div id="financeRecentSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Despesas por categoria</h2><span class="muted">Abrir detalhes e lista</span></div>';
         render_category_totals($summary['by_category']);
-        echo '<div class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Despesas recentes</h2><span class="muted">Lista completa do mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs</span></div>';
+        echo '<div class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Despesas recentes</h2><span class="muted">Lista completa do mês</span></div>';
         render_expenses_table($expenses);
         echo '</div></div></div>';
         echo '<div id="financeOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="financeOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="financeOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closeFinanceOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="financeOverlayBody" class="p-4"></div></div></div>';
-        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs";summary.textContent="VisÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pida da agenda vinculada ao perÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­odo.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="LanÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§amento rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no mês";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -3201,7 +3201,7 @@ if ($page === 'studio_people') {
         echo '<section class="grid cols-3" style="margin-top:16px">';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_customers')) . '"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></a>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_leads')) . '"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads</p><span class="muted">Abrir funil</span></a>';
-        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes</span></a>';
+        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<button type="button" class="panel dashboard-stat" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
@@ -3249,13 +3249,13 @@ if ($page === 'studio_reports') {
         $staleLeadsRows = $staleLeads->fetchAll() ?: [];
         if ($staleLeadsRows) {
             $alerts[] = [
-                'title' => 'Leads abertos sem atualizaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o hÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ mais de 24h',
+                'title' => 'Leads abertos sem atualização há mais de 24h',
                 'count' => count($staleLeadsRows),
                 'tone' => 'warn',
                 'items' => array_map(static function (array $lead): array {
                     return [
                         'label' => ($lead['name'] ?: $lead['phone'] ?: 'Lead sem nome'),
-                        'detail' => ($lead['pipeline_stage'] ?: 'Sem etapa') . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· nota ' . ((string)($lead['lead_score'] ?? 0)) . '/10',
+                        'detail' => ($lead['pipeline_stage'] ?: 'Sem etapa') . ' · nota ' . ((string)($lead['lead_score'] ?? 0)) . '/10',
                         'href' => app_url('studio_lead', ['id' => (int)$lead['id']]),
                     ];
                 }, $staleLeadsRows),
@@ -3273,13 +3273,13 @@ if ($page === 'studio_reports') {
         )->fetchAll() ?: [];
         if ($highScoreUnscheduled) {
             $alerts[] = [
-                'title' => 'Leads com score alto ainda nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o agendados',
+                'title' => 'Leads com score alto ainda não agendados',
                 'count' => count($highScoreUnscheduled),
                 'tone' => 'ok',
                 'items' => array_map(static function (array $lead): array {
                     return [
                         'label' => ($lead['name'] ?: $lead['phone'] ?: 'Lead sem nome'),
-                        'detail' => 'Score ' . ((string)($lead['lead_score'] ?? 0)) . '/10 ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money($lead['estimated_value'] ?? 0),
+                        'detail' => 'Score ' . ((string)($lead['lead_score'] ?? 0)) . '/10 · ' . format_money($lead['estimated_value'] ?? 0),
                         'href' => app_url('studio_lead', ['id' => (int)$lead['id']]),
                     ];
                 }, $highScoreUnscheduled),
@@ -3298,14 +3298,14 @@ if ($page === 'studio_reports') {
         )->fetchAll() ?: [];
         if ($preScheduledNoSignal) {
             $alerts[] = [
-                'title' => 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendamentos sem sinal',
+                'title' => 'Pré-agendamentos sem sinal',
                 'count' => count($preScheduledNoSignal),
                 'tone' => 'warn',
                 'items' => array_map(static function (array $appointment): array {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Agendamento sem nome'),
-'detail' => format_date_pt((string)$appointment['appointment_date']) . ' ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â s ' . substr((string)$appointment['start_time'], 0, 5) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money(appointment_display_amount($appointment['value'] ?? 0)),
+'detail' => format_date_pt((string)$appointment['appointment_date']) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $preScheduledNoSignal),
@@ -3334,7 +3334,7 @@ if ($page === 'studio_reports') {
                     $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Atendimento'),
-                        'detail' => format_date_pt((string)$appointment['appointment_date']) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . substr((string)$appointment['start_time'], 0, 5) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . (string)($appointment['status'] ?? '-') . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money(appointment_display_amount($appointment['value'] ?? 0)) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· sinal ' . format_money(appointment_display_amount($appointment['deposit_value'] ?? 0)),
+                        'detail' => format_date_pt((string)$appointment['appointment_date']) . ' · ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)($appointment['status'] ?? '-') . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0)) . ' · sinal ' . format_money(appointment_display_amount($appointment['deposit_value'] ?? 0)),
                         'href' => $href,
                     ];
                 }, $todayAppointments),
@@ -3343,7 +3343,7 @@ if ($page === 'studio_reports') {
         $todayHealthAlerts = array_values(array_filter($todayAppointments, static fn(array $appointment): bool => (bool)studio_appointment_health_alerts_from_row($appointment)));
         if ($todayHealthAlerts) {
             $alerts[] = [
-                'title' => 'Alertas de saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde de hoje',
+                'title' => 'Alertas de saúde de hoje',
                 'count' => count($todayHealthAlerts),
                 'tone' => 'warn',
                 'items' => array_map(static function (array $appointment): array {
@@ -3352,7 +3352,7 @@ if ($page === 'studio_reports') {
                     $labels = array_map(static fn(array $alert): string => (string)($alert['label'] ?? ''), $healthAlerts);
                     return [
                         'label' => ($appointment['customer_name'] ?: 'Atendimento'),
-                        'detail' => format_date_pt((string)$appointment['appointment_date']) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . substr((string)$appointment['start_time'], 0, 5) . (empty($labels) ? '' : ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . implode(' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ', array_slice($labels, 0, 3))),
+                        'detail' => format_date_pt((string)$appointment['appointment_date']) . ' · ' . substr((string)$appointment['start_time'], 0, 5) . (empty($labels) ? '' : ' · ' . implode(' · ', array_slice($labels, 0, 3))),
                         'href' => $href,
                     ];
                 }, $todayHealthAlerts),
@@ -3361,13 +3361,13 @@ if ($page === 'studio_reports') {
         $confirmationAutomation = studio_schedule_appointment_confirmations($studio);
         if (!empty($confirmationAutomation['canceled'])) {
             $alerts[] = [
-                'title' => 'ConfirmaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes vencidas canceladas',
+                'title' => 'Confirmações vencidas canceladas',
                 'count' => (int)$confirmationAutomation['canceled'],
                 'tone' => 'danger',
                 'items' => array_map(static function (array $event): array {
                     return [
-                        'label' => 'Agendamento cancelado por falta de confirmaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o',
-                        'detail' => 'A janela de confirmaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o expirou sem resposta do cliente.',
+                        'label' => 'Agendamento cancelado por falta de confirmação',
+                        'detail' => 'A janela de confirmação expirou sem resposta do cliente.',
                         'href' => app_url('studio_agenda'),
                     ];
                 }, array_slice($confirmationAutomation['events'] ?? [], 0, 4)),
@@ -3473,14 +3473,14 @@ if ($page === 'studio_reports') {
             echo '<div class="alert-grid">';
             foreach ($alerts as $alert) {
                 echo '<div class="alert-card">';
-                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>' . h($alert['title']) . '</strong><p class="muted" style="margin:4px 0 0">' . h((string)$alert['count']) . ' itens</p></div><span class="badge ' . h((string)($alert['tone'] ?? 'neutral')) . '">AtenÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</span></div>';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>' . h($alert['title']) . '</strong><p class="muted" style="margin:4px 0 0">' . h((string)$alert['count']) . ' itens</p></div><span class="badge ' . h((string)($alert['tone'] ?? 'neutral')) . '">Ateno</span></div>';
                 echo '<div class="stack-list" style="margin-top:10px">';
                 foreach (array_slice($alert['items'], 0, 4) as $item) {
                     echo '<a class="activity-card" href="' . h($item['href']) . '"><strong>' . h($item['label']) . '</strong><span>' . h($item['detail']) . '</span></a>';
                 }
                 echo '</div></div>';
             }
-            echo '<div class="alert-card"><strong>Despesas do mÃªs</strong><p class="metric" style="margin:8px 0 0">' . h(format_money($monthExpenses)) . '</p><p class="muted">Total de despesas registradas no perÃƒÆ’Ã‚Â­odo atual.</p><a class="btn tiny secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div>';
+            echo '<div class="alert-card"><strong>Despesas do ms</strong><p class="metric" style="margin:8px 0 0">' . h(format_money($monthExpenses)) . '</p><p class="muted">Total de despesas registradas no perodo atual.</p><a class="btn tiny secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div>';
             echo '</div>';
             $alertsMarkup = ob_get_clean();
         }
@@ -3513,36 +3513,36 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>RelatÃƒÆ’Ã‚Â³rios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatrios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
         echo '<div class="settings-overview-grid">';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rÃƒÆ’Ã‚Â¡pidos do que pede aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rÃƒÆ’Ã‚Â¡pida do mÃƒÆ’Ã‚Âªs</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">DistribuiÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do funil</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rpidos do que pede ao</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rpida do ms</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuio do funil</p><span class="muted">Abrir em overlay</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendÃƒÆ’Ã‚Â¡rio</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por mÃƒÆ’Ã‚Âªs</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendrio</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por ms</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
         if (plan_allows('advanced_reports')) {
-            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinÃƒÆ’Ã‚Â¢mica</p><p class="muted">Cruzamentos avanÃƒÆ’Ã‚Â§ados</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinmica</p><p class="muted">Cruzamentos avanados</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
-        echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">RelatÃƒÆ’Ã‚Â³rios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatrios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="reportsSourceAlerts" hidden><div class="stack-list">' . $alertsMarkup . '</div></div>';
         echo '<div id="reportsSourceSummary" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Resumo gerencial</h2><span class="badge">Painel de leitura</span></div>' . $summaryMarkup . '</div></div>';
         echo '<div id="reportsSourceLeadStatus" hidden><div class="panel" style="margin:0"><h2>Leads por status</h2>' . $leadStatusTable . '</div></div>';
         echo '<div id="reportsSourceLeadSource" hidden><div class="panel" style="margin:0"><h2>Leads por origem</h2>' . $leadSourceTable . '</div></div>';
         echo '<div id="reportsSourceAppointmentsStatus" hidden><div class="panel" style="margin:0"><h2>Agenda por status</h2>' . $appointmentsStatusTable . '</div></div>';
-        echo '<div id="reportsSourceAppointmentsMonth" hidden><div class="panel" style="margin:0"><h2>Agenda por mÃƒÆ’Ã‚Âªs</h2>' . $appointmentsMonthTable . '</div></div>';
+        echo '<div id="reportsSourceAppointmentsMonth" hidden><div class="panel" style="margin:0"><h2>Agenda por ms</h2>' . $appointmentsMonthTable . '</div></div>';
         echo '<div id="reportsSourceExpensesCategory" hidden><div class="panel" style="margin:0"><h2>Despesas por categoria</h2>' . $expensesCategoryTable . '</div></div>';
         if (plan_allows('advanced_reports')) {
-            echo '<div id="reportsSourcePivot" hidden><section class="panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinÃƒÆ’Ã‚Â¢mica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">AnÃƒÆ’Ã‚Â¡lise</span></div><div class="wdr-shell"><div class="wdr-source-bar">';
+            echo '<div id="reportsSourcePivot" hidden><section class="panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Anlise</span></div><div class="wdr-shell"><div class="wdr-source-bar">';
             foreach ($pivotDataSets as $key => $def) {
                 echo '<button type="button" class="wdr-source-button' . ($key === $pivotSource ? ' active' : '') . '" data-pivot-source="' . h($key) . '"><strong>' . h($def['label']) . '</strong><span>' . h($def['subtitle']) . '</span></button>';
             }
             echo '</div><div id="reportsPivot" class="wdr-frame"></div></div><div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div></section></div>';
         }
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rÃƒÆ’Ã‚Â¡pidos do que precisa de aÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rÃƒÆ’Ã‚Â¡pida do mÃƒÆ’Ã‚Âªs",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"DistribuiÃƒÆ’Ã‚Â§ÃƒÆ’Ã‚Â£o do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendÃƒÆ’Ã‚Â¡rio",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mÃƒÆ’Ã‚Âªs",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinÃƒÆ’Ã‚Â¢mica",summary:"Cruzamentos avanÃƒÆ’Ã‚Â§ados",source:"reportsSourcePivot"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){setTimeout(()=>{try{const cfg=window.reportsPivotData[window.reportsPivotSource]||window.reportsPivotData.leads;window.reportsPivotInstance=new WebDataRocks({container:"#reportsPivot",toolbar:true,report:{dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice}});}catch(e){}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rpidos do que precisa de ao agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rpida do ms",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuio do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendrio",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por ms",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinmica",summary:"Cruzamentos avanados",source:"reportsSourcePivot"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){setTimeout(()=>{try{const cfg=window.reportsPivotData[window.reportsPivotSource]||window.reportsPivotData.leads;window.reportsPivotInstance=new WebDataRocks({container:"#reportsPivot",toolbar:true,report:{dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice}});}catch(e){}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -3556,7 +3556,7 @@ if ($page === 'studio_data_assistant') {
             return;
         }
         if (!plan_allows('ai_data_assistant')) {
-            echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Assistente IA de dados</h2><p class="muted">Os recursos de IA estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­veis no plano AvanÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ado.</p></div><span class="badge warn">Bloqueado</span></div><p class="muted">Esse assistente continua somente leitura e nÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o altera dados. Para usar as respostas por IA, altere para um plano superior.</p></section>';
+            echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Assistente IA de dados</h2><p class="muted">Os recursos de IA estão disponíveis no plano Avançado.</p></div><span class="badge warn">Bloqueado</span></div><p class="muted">Esse assistente continua somente leitura e não altera dados. Para usar as respostas por IA, altere para um plano superior.</p></section>';
             return;
         }
         $result = $_SESSION['studio_data_assistant_result'] ?? null;
@@ -3622,11 +3622,11 @@ if ($page === 'studio_settings') {
         $dayOptions = [
             '0' => 'Domingo',
             '1' => 'Segunda',
-            '2' => 'TerÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§a',
+            '2' => 'Terça',
             '3' => 'Quarta',
             '4' => 'Quinta',
             '5' => 'Sexta',
-            '6' => 'SÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡bado',
+            '6' => 'Sábado',
         ];
         $selectedWorkDays = array_values(array_filter(array_map('strval', (array)($settings['appointment_work_days'] ?? ['1', '2', '3', '4', '5']))));
         $durationHours = max(0, (int)($settings['appointment_duration_hours'] ?? 5));
@@ -3637,27 +3637,27 @@ if ($page === 'studio_settings') {
         }
         echo '<div class="settings-overview-grid">';
         $settingsCards = [
-            'studio' => ['EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio', 'Dados base e integraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o'],
-            'agenda' => ['Agenda', 'Regras de horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio e duraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o'],
+            'studio' => ['Estúdio', 'Dados base e integração'],
+            'agenda' => ['Agenda', 'Regras de horário e duração'],
             'whatsapp' => ['WhatsApp', 'Entrada e comportamento'],
-            'ia' => ['IA', 'Modelo, chave e automaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o'],
-            'quick_replies' => ['Respostas rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas', 'Biblioteca do atendimento'],
+            'ia' => ['IA', 'Modelo, chave e automação'],
+            'quick_replies' => ['Respostas rápidas', 'Biblioteca do atendimento'],
             'rules' => ['Regras comerciais', 'Contexto para a IA'],
         ];
         foreach ($settingsCards as $key => [$title, $subtitle]) {
             echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div>';
-        echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">ConfiguraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
         echo '<form class="form panel" method="post" id="studioSettingsForm">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';
         echo '<input type="hidden" name="settings_tab" value="' . h($activeTab) . '">';
         echo '<div id="settingsSourceStudio" hidden><div class="settings-panel" id="settings-studio" data-settings-panel="studio">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Estúdio</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
-        echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</label></div>';
+        echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integração</label></div>';
         echo '</div>';
         echo '</div></div>';
         echo '<div id="settingsSourceAgenda" hidden><div class="settings-panel" id="settings-agenda" data-settings-panel="agenda">';
@@ -3665,7 +3665,7 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft">';
         echo '<h3 style="margin-top:0">Regras de agenda</h3>';
         echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Dias da semana disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­veis</label><div class="weekday-picker">';
+        echo '<div class="field"><label>Dias da semana disponíveis</label><div class="weekday-picker">';
         foreach ($dayOptions as $dayValue => $dayLabel) {
             $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5'], true));
             echo '<label class="weekday-pill' . ($checked ? ' is-active' : '') . '">';
@@ -3673,12 +3673,12 @@ if ($page === 'studio_settings') {
             echo '<span>' . h($dayLabel) . '</span>';
             echo '</label>';
         }
-        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o vem de segunda a sexta.</small></div>';
-        echo '<div class="field"><label>HorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­veis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­rgula. Ex: 10:00,15:00</small></div>';
-        echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ para novos agendamentos. Os antigos mantÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªm o preÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o salvo neles.</small></div>';
+        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrão vem de segunda a sexta.</small></div>';
+        echo '<div class="field"><label>Horários disponíveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por vírgula. Ex: 10:00,15:00</small></div>';
+        echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale só para novos agendamentos. Os antigos mantêm o preço salvo neles.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>DuraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do atendimento</label><div class="duration-picker">';
+        echo '<div class="field"><label>Duração do atendimento</label><div class="duration-picker">';
         echo '<label><span>Horas</span><select name="appointment_duration_hours">';
         for ($hours = 0; $hours <= 12; $hours++) {
             echo '<option value="' . $hours . '"' . ($hours === $durationHours ? ' selected' : '') . '>' . $hours . '</option>';
@@ -3689,18 +3689,18 @@ if ($page === 'studio_settings') {
             echo '<option value="' . $minutes . '"' . ($minutes === $durationMins ? ' selected' : '') . '>' . str_pad((string)$minutes, 2, '0', STR_PAD_LEFT) . '</option>';
         }
         echo '</select></label>';
-        echo '</div><small class="muted">O fim serÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ calculado automaticamente. Ex: 5 horas = 10:00 atÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© 15:00.</small></div>';
+        echo '</div><small class="muted">O fim será calculado automaticamente. Ex: 5 horas = 10:00 até 15:00.</small></div>';
         echo '</div>';
-        echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â s {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â s {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡veis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
-        echo '<div class="field"><label>Mensagem de confirmaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ confirmada para {{date}} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â s {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ confirmada para {{date}} ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â s {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita variÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡veis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
+        echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
+        echo '<div class="field"><label>Mensagem de confirmação do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '</div></div>';
         echo '<div id="settingsSourceWhatsapp" hidden><div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">WhatsApp</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>PadrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
+        echo '<div class="field"><label>Padrão das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select></div>';
-        echo '<div class="field"><label>URL do serviÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
+        echo '<div class="field"><label>URL do serviço Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
         echo '</div>';
         echo '<div class="field"><label>Frases iniciais da campanha META</label><textarea name="meta_campaign_phrases" placeholder="Tenho interesse no fechamento!&#10;Quero fechar minha tattoo!">' . h($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!") . '</textarea><small class="muted">Use uma frase por linha. O card da home vai contar conversas/leads cuja primeira mensagem recebida bater com uma dessas frases.</small></div>';
         echo '<p class="muted">Controle a porta de entrada e o modo inicial das conversas do WhatsApp.</p>';
@@ -3713,21 +3713,21 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($settings['ai_api_base_url'] ?? 'http://localhost:11434/v1') . '" placeholder="http://localhost:11434/v1"><small class="muted">Use a URL do servidor local ou da API escolhida.</small></div>';
-        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ se usar OpenAI.</small></div>';
+        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha só se usar OpenAI.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo tambÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©m define o modelo local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
+        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
         echo '</div>';
         echo '</div></div>';
         echo '<div id="settingsSourceRules" hidden><div class="settings-panel" id="settings-rules" data-settings-panel="rules">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Regras comerciais</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
-        echo '<div class="field"><label>Regras e informaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes para IA</label><textarea name="business_rules" placeholder="Exemplo: EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio aberto de terÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§a a sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡bado. Dois tatuadores. Responder sempre em portuguÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³rio. NÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o inventar preÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§o. Se faltar informaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o, perguntar sÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³ uma coisa por vez. Priorize datas, horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios e referÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªncias reais do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio, tom de atendimento, limites e informaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes que a IA deve respeitar sempre.</small></div>';
-        echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="VocÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âª ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â© o assistente do estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em portuguÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs jÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ pronto.</small></div>';
+        echo '<div class="field"><label>Regras e informações para IA</label><textarea name="business_rules" placeholder="Exemplo: Estúdio aberto de terça a sábado. Dois tatuadores. Responder sempre em português do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigatório. Não inventar preço. Se faltar informação, perguntar só uma coisa por vez. Priorize datas, horários e referências reais do estúdio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do estúdio, tom de atendimento, limites e informações que a IA deve respeitar sempre.</small></div>';
+        echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Você é o assistente do estúdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em português já pronto.</small></div>';
         echo '</div></div>';
         echo '<div id="settingsSourceQuickReplies" hidden><div class="settings-panel" id="settings-quick-replies" data-settings-panel="quick_replies">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Respostas rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
-        echo '<div class="actions" style="justify-content:space-between"><div><p class="muted">Esses textos prontos ficam disponÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­veis no atendimento e continuam editÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡veis por aqui.</p></div><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Respostas rápidas</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="actions" style="justify-content:space-between"><div><p class="muted">Esses textos prontos ficam disponíveis no atendimento e continuam editáveis por aqui.</p></div><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
         $replies = studio_list_quick_replies($studio);
         echo '<div class="grid cols-2">';
         echo '<form class="form panel" method="post">';
@@ -3735,7 +3735,7 @@ if ($page === 'studio_settings') {
         echo '<input type="hidden" name="action" value="save_quick_reply">';
         echo '<input type="hidden" name="return_to_settings" value="1">';
         echo '<input type="hidden" name="settings_tab" value="quick_replies">';
-        echo '<div class="field"><label>TÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­tulo</label><input name="title" required></div>';
+        echo '<div class="field"><label>Título</label><input name="title" required></div>';
         echo '<div class="field"><label>Atalho</label><input name="shortcut" placeholder="/atalho"></div>';
         echo '<div class="field"><label>Categoria</label><input name="category" value="Geral"></div>';
         echo '<div class="field"><label>Texto</label><textarea name="body" required placeholder="Mensagem pronta para usar no atendimento..."></textarea></div>';
@@ -3746,9 +3746,9 @@ if ($page === 'studio_settings') {
         render_quick_replies_table(array_slice($replies, 0, 12));
         echo '</div></div>';
         echo '</div></div>';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configuraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes</button></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configurações</button></div>';
         echo '</form>';
-        echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const sourceMap={studio:{title:"EstÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdio",summary:"Dados base e integraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rio e duraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o",source:"settingsSourceIa"},quick_replies:{title:"Respostas rÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡pidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Regras comerciais",summary:"Contexto para a IA",source:"settingsSourceRules"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const sourceMap={studio:{title:"Estúdio",summary:"Dados base e integração",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horário e duração",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automação",source:"settingsSourceIa"},quick_replies:{title:"Respostas rápidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Regras comerciais",summary:"Contexto para a IA",source:"settingsSourceRules"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
@@ -3791,7 +3791,7 @@ if ($page === 'studios') {
                 $dbOk = studio_database_exists($studio);
                 $plan = resolve_studio_plan($studio);
                 echo '<tr>';
-                echo '<td><strong>' . h($studio['name']) . '</strong><br><span class="muted">' . h($studio['slug']) . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . h(commercial_plan_display_name($plan, (string)($studio['plan_name'] ?? ''))) . '</span></td>';
+                echo '<td><strong>' . h($studio['name']) . '</strong><br><span class="muted">' . h($studio['slug']) . ' · ' . h(commercial_plan_display_name($plan, (string)($studio['plan_name'] ?? ''))) . '</span></td>';
                 echo '<td><span class="badge ' . ($studio['status'] === 'active' ? 'ok' : 'warn') . '">' . h($studio['status']) . '</span></td>';
                 echo '<td>' . h($studio['database_name']) . '<br><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></td>';
                 echo '<td>' . h($studio['owner_name']) . '<br><span class="muted">' . h($studio['owner_email']) . '</span></td>';
@@ -3838,9 +3838,9 @@ if ($page === 'plans') {
                     'Dados' => !empty($plan['allow_data_assistant']),
                     'Financeiro' => !empty($plan['allow_finance']),
                     'Relatorios' => !empty($plan['allow_advanced_reports']),
-                    'AutomaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes' => !empty($plan['allow_automations']),
+                    'Automações' => !empty($plan['allow_automations']),
                     'Multi-estudio' => !empty($plan['allow_multi_studio']),
-                    'IntegraÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes' => !empty($plan['allow_external_integrations']),
+                    'Integrações' => !empty($plan['allow_external_integrations']),
                 ] as $label => $enabled) {
                     echo '<div class="module"><strong>' . h($label) . '</strong><span class="muted">' . ($enabled ? 'sim' : 'nao') . '</span></div>';
                 }
@@ -3907,7 +3907,7 @@ if ($page === 'studio') {
         echo '<div class="panel"><h2>Banco</h2><p>' . h($studio['database_name']) . '</p><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></div>';
         echo '<div class="panel"><h2>Plano</h2><p>' . h(commercial_plan_display_name($plan, (string)($studio['plan_name'] ?? ''))) . '</p>';
         if ($plan) {
-            echo '<span class="muted">' . h(format_money((float)$plan['monthly_price'])) . '/mes ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . h(format_money((float)$plan['annual_price'])) . '/ano</span>';
+            echo '<span class="muted">' . h(format_money((float)$plan['monthly_price'])) . '/mes · ' . h(format_money((float)$plan['annual_price'])) . '/ano</span>';
         }
         echo '</div>';
         echo '</section>';
@@ -4033,7 +4033,7 @@ function render_studio_form(?array $studio): void
         echo '<option value="">Selecione um plano</option>';
         foreach ($plans as $plan) {
             $selected = (int)$plan['id'] === $selectedPlanId ? 'selected' : '';
-            echo '<option value="' . h($plan['id']) . '" ' . $selected . '>' . h($plan['name'] . ' ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money((float)$plan['monthly_price']) . '/mes') . '</option>';
+            echo '<option value="' . h($plan['id']) . '" ' . $selected . '>' . h($plan['name'] . ' · ' . format_money((float)$plan['monthly_price']) . '/mes') . '</option>';
         }
         echo '</select>';
     } else {
@@ -4071,11 +4071,11 @@ function render_commercial_plan_form(?array $plan): void
     echo '<div class="field"><label>Preco anual (R$)</label><input type="text" inputmode="decimal" step="0.01" min="0" name="annual_price" value="' . h(number_format((float)($plan['annual_price'] ?? 0), 2, '.', '')) . '"></div>';
     echo '<div class="field"><label>Status</label><select name="is_active"><option value="1" ' . (!isset($plan['is_active']) || !empty($plan['is_active']) ? 'selected' : '') . '>Ativo</option><option value="0" ' . (isset($plan['is_active']) && empty($plan['is_active']) ? 'selected' : '') . '>Inativo</option></select></div>';
     echo '<div class="field"><label>Destaque</label><select name="recommended"><option value="1" ' . (!empty($plan['recommended']) ? 'selected' : '') . '>Recomendado</option><option value="0" ' . (empty($plan['recommended']) ? 'selected' : '') . '>Padrao</option></select></div>';
-    echo '<div class="field"><label>Limite de estÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºdios</label><input type="number" min="0" name="studio_limit" value="' . h($plan['studio_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
-    echo '<div class="field"><label>Limite de usuÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡rios</label><input type="number" min="0" name="user_limit" value="' . h($plan['user_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de estúdios</label><input type="number" min="0" name="studio_limit" value="' . h($plan['studio_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
+    echo '<div class="field"><label>Limite de usuários</label><input type="number" min="0" name="user_limit" value="' . h($plan['user_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
     echo '<div class="field"><label>Limite de tatuadores</label><input type="number" min="0" name="tattoo_artist_limit" value="' . h($plan['tattoo_artist_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
     echo '<div class="field"><label>Limite de clientes/leads</label><input type="number" min="0" name="lead_limit" value="' . h($plan['lead_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
-    echo '<div class="field"><label>Limite de sessÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes WhatsApp</label><input type="number" min="0" name="whatsapp_session_limit" value="' . h($plan['whatsapp_session_limit'] ?? '') . '" placeholder="0 = sem WhatsApp"></div>';
+    echo '<div class="field"><label>Limite de sessões WhatsApp</label><input type="number" min="0" name="whatsapp_session_limit" value="' . h($plan['whatsapp_session_limit'] ?? '') . '" placeholder="0 = sem WhatsApp"></div>';
     echo '</div>';
     echo '<div class="field"><label>Descricao completa</label><textarea name="description" placeholder="Resumo comercial do plano para o gerente.">' . h($plan['description'] ?? '') . '</textarea></div>';
     echo '<div class="grid cols-2">';
@@ -4357,7 +4357,7 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus, ?fl
         $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
         $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
         echo '<div class="calendar-cell"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong></a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
-        echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ' . format_money($dayValue)) . '</small></div>';
+        echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos · ' . format_money($dayValue)) . '</small></div>';
         foreach ($dayAppointments as $appointment) {
             render_calendar_event($appointment);
         }
@@ -4408,7 +4408,7 @@ function render_calendar_event(array $appointment): void
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
     $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
-    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</span>' : '') . '</a>';
+    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . '</a>';
 }
 
 function render_calendar_block(array $appointment): void
@@ -4428,7 +4428,7 @@ function render_calendar_block(array $appointment): void
     echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     echo '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>';
     if (studio_appointment_health_alerts_from_row($appointment)) {
-        echo '<span class="badge warn">saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</span>';
+        echo '<span class="badge warn">saúde</span>';
     }
     echo '</a>';
 }
@@ -4568,13 +4568,13 @@ function render_pipeline_card(array $lead, array $stageNames): void
         echo '<span class="badge">Alto valor</span>';
     }
     if ($isScheduled) {
-        echo '<span class="badge warn">' . h($status === 'agendado' ? 'Agendado' : 'PrÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©-agendado') . '</span>';
+        echo '<span class="badge warn">' . h($status === 'agendado' ? 'Agendado' : 'Pré-agendado') . '</span>';
     }
     if ($artistName !== '') {
         echo '<span class="badge">' . h($artistName) . '</span>';
     }
     if ($isStale) {
-        echo '<span class="badge warn">parado hÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ mais de 24h</span>';
+        echo '<span class="badge warn">parado há mais de 24h</span>';
     }
     echo '</div>';
     echo '<p class="lead-card-interest">' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
@@ -4654,7 +4654,7 @@ function render_appointments_table(array $appointments): void
 $appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
 $appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
 echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sinal ' . h(format_money($appointmentDeposit)) . '</span></td>';
-        echo '<td><span class="badge">' . h($appointment['status']) . '</span>' . (studio_appointment_health_alerts_from_row($appointment) ? '<br><span class="badge warn">saÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºde</span>' : '') . '<br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
+        echo '<td><span class="badge">' . h($appointment['status']) . '</span>' . (studio_appointment_health_alerts_from_row($appointment) ? '<br><span class="badge warn">saúde</span>' : '') . '<br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';
@@ -4780,7 +4780,7 @@ function studio_relative_time_label(?string $value): string
         $past = $moment <= $now;
         $units = [
             ['days', 365, 'ano', 'anos'],
-            ['days', 30, 'mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âªs', 'meses'],
+            ['days', 30, 'mês', 'meses'],
             ['days', 7, 'semana', 'semanas'],
             ['h', 1, 'hora', 'horas'],
             ['i', 1, 'minuto', 'minutos'],
@@ -4802,9 +4802,9 @@ function studio_relative_time_label(?string $value): string
                 continue;
             }
             $label = $amount === 1 ? $singular : $plural;
-            return $past ? 'hÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ ' . $amount . ' ' . $label : 'em ' . $amount . ' ' . $label;
+            return $past ? 'há ' . $amount . ' ' . $label : 'em ' . $amount . ' ' . $label;
         }
-        return $past ? 'hÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡ instantes' : 'agora';
+        return $past ? 'há instantes' : 'agora';
     } catch (Throwable) {
         return $value;
     }
@@ -4816,7 +4816,7 @@ function render_whatsapp_table(array $conversations): void
         echo '<p class="muted">Nenhuma conversa importada ainda. Inicie a sessao do WhatsApp e envie uma mensagem para este numero aparecer aqui.</p>';
         return;
     }
-    echo '<table class="table whatsapp-conversations-table"><thead><tr><th>Contato</th><th>ÃƒÆ’Ã†â€™Ãƒâ€¦Ã‚Â¡ltima mensagem</th><th>Modo</th><th>VÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nculo</th><th>SituaÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â£o</th><th>AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âµes</th></tr></thead><tbody>';
+    echo '<table class="table whatsapp-conversations-table"><thead><tr><th>Contato</th><th>Última mensagem</th><th>Modo</th><th>Vínculo</th><th>Situação</th><th>Ações</th></tr></thead><tbody>';
     foreach ($conversations as $conversation) {
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
@@ -4827,8 +4827,8 @@ function render_whatsapp_table(array $conversations): void
         if ($lastIncoming !== '' && ($lastOutgoing === '' || strtotime($lastIncoming) > strtotime($lastOutgoing))) {
             $isUnreplied = true;
         }
-        $linkedLabel = !empty($conversation['customer_id']) ? 'Cliente vinculado' : (!empty($conversation['lead_id']) ? 'Lead vinculado' : 'Sem vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nculo');
-        $linkBadgeClass = $linkedLabel === 'Sem vÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­nculo' ? 'warn' : '';
+        $linkedLabel = !empty($conversation['customer_id']) ? 'Cliente vinculado' : (!empty($conversation['lead_id']) ? 'Lead vinculado' : 'Sem vínculo');
+        $linkBadgeClass = $linkedLabel === 'Sem vínculo' ? 'warn' : '';
         $statusBadges = [];
         $statusBadges[] = '<span class="badge ' . ($conversation['attendance_mode'] === 'bot' ? 'ok' : '') . '">' . h($conversation['attendance_mode'] === 'bot' ? 'IA' : 'Humano') . '</span>';
         if ($needsHuman) {
@@ -4894,7 +4894,7 @@ function render_chat_messages(array $messages): void
         echo '<div class="chat-bubble">';
         if ($mediaUrl !== '') {
             if ($kind === 'image') {
-                echo '<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="' . h($mediaUrl) . '" data-media-title="' . h($mediaName ?: 'mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­dia') . '" data-media-kind="image" aria-label="Abrir imagem em tamanho grande"><img src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­dia') . '" style="max-width:260px;max-height:220px;border-radius:8px"></button>';
+                echo '<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="' . h($mediaUrl) . '" data-media-title="' . h($mediaName ?: 'mídia') . '" data-media-kind="image" aria-label="Abrir imagem em tamanho grande"><img src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'mídia') . '" style="max-width:260px;max-height:220px;border-radius:8px"></button>';
             } elseif ($kind === 'video') {
                 echo '<video src="' . h($mediaUrl) . '" controls style="max-width:280px;max-height:220px;border-radius:8px"></video>';
             } elseif ($kind === 'audio') {

@@ -43,7 +43,7 @@
     const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
     const date = new Date(normalized);
     if (Number.isNaN(date.getTime())) return raw;
-    const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sb'];
     const weekday = (weekdays[date.getDay()] || '').toUpperCase();
     const dd = String(date.getDate()).padStart(2, '0');
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -78,8 +78,8 @@
       '3d': '3 dias',
       '7d': '7 dias',
       '15d': '15 dias',
-      month: 'Este mês',
-      next_month: 'Mês que vem',
+      month: 'Este ms',
+      next_month: 'Ms que vem',
       custom: 'Prazo livre',
     };
 
@@ -103,7 +103,7 @@
         const bookedSlots = Array.isArray(item.booked) ? item.booked : [];
         const freeHtml = freeSlots.length
           ? `<div class="availability-slot-row">${freeSlots.map((slot) => `<button type="button" class="availability-block free" data-availability-date="${esc(item.date)}" data-availability-time="${esc(slot)}"><strong>${esc(slot)}</strong><span>Livre</span></button>`).join('')}</div>`
-          : `<div class="availability-day-empty"><span>Sem horários livres neste dia.</span></div>`;
+          : `<div class="availability-day-empty"><span>Sem horrios livres neste dia.</span></div>`;
         const bookedHtml = bookedSlots.length
           ? `<div class="availability-slot-row occupied">${bookedSlots.map((slot) => `<button type="button" class="availability-block occupied" data-availability-date="${esc(item.date)}" data-availability-time="${esc(slot.time)}"><strong>${esc(slot.time)}</strong><span>${esc(slot.customer_name || 'Ocupado')}</span></button>`).join('')}</div>`
           : '';
@@ -115,22 +115,22 @@
                 <strong>${esc(item.label)}</strong>
                 <div class="availability-day-meta">
                   <span>${esc(formatDatePt(item.date))}</span>
-                  <span>${esc(item.free || freeSlots.length)} livres · ${esc(bookedSlots.length)} ocupadas</span>
+                  <span>${esc(item.free || freeSlots.length)} livres  ${esc(bookedSlots.length)} ocupadas</span>
                 </div>
               </div>
               ${item.allowed ? badge(`${freeSlots.length} vagas livres`, 'ok') : badge('Fora das regras', 'warn')}
             </header>
             <div class="availability-day-body">
               <div class="availability-day-section">
-                <small>Horários livres</small>
+                <small>Horrios livres</small>
                 ${freeHtml}
               </div>
-              ${bookedHtml ? `<div class="availability-day-section"><small>Horários ocupados</small>${bookedHtml}</div>` : ''}
+              ${bookedHtml ? `<div class="availability-day-section"><small>Horrios ocupados</small>${bookedHtml}</div>` : ''}
             </div>
           </section>`;
       });
 
-      const empty = `<div class="drilldown-empty"><strong>Nenhuma vaga livre encontrada</strong><div class="muted">Nesse prazo não apareceu nenhum horário livre dentro das regras do estúdio.</div></div>`;
+      const empty = `<div class="drilldown-empty"><strong>Nenhuma vaga livre encontrada</strong><div class="muted">Nesse prazo no apareceu nenhum horrio livre dentro das regras do estdio.</div></div>`;
 
       body.innerHTML =
         `<div class="availability-toolbar">` +
@@ -179,7 +179,7 @@
           item.start_time ? badge(item.start_time.slice(0, 5)) : '',
           item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
-        const detail = `${item.title || item.customer_name || 'Atendimento'} · ${item.value_label || money(item.value || 0)}`;
+        const detail = `${item.title || item.customer_name || 'Atendimento'}  ${item.value_label || money(item.value || 0)}`;
         return card(href, item.customer_name || item.title || 'Agendamento', meta, detail, 'compact');
       }).join('');
 
@@ -192,7 +192,7 @@
             <small>${esc(periodLabel)}</small>
           </div>
         </div>
-        <div class="drilldown-card-list">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
+        <div class="drilldown-card-list">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">No h itens nesse perodo selecionado.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-scheduled-filter]').forEach((btn) => {
@@ -207,7 +207,7 @@
       }, 0);
     };
 
-    renderList(data.summary || 'Período selecionado', items);
+    renderList(data.summary || 'Perodo selecionado', items);
   }
 
   function renderHumanReplies(data) {
@@ -215,8 +215,8 @@
     const items = Array.isArray(data.items) ? data.items : [];
     const summaryHtml = `
       <div class="drilldown-panel-summary">
-        <div class="drilldown-kpi"><strong>${esc(total)}</strong><span>Conversas sem confirmação</span><small>Este cartão ficou sem espelho confiável de leitura no WhatsApp, então ele mostra apenas o que o sistema sabe de forma segura.</small></div>
-        <div class="drilldown-kpi highlight"><strong>${esc(items.length)}</strong><span>Conversas listadas</span><small>Somente itens com última atividade recente.</small></div>
+        <div class="drilldown-kpi"><strong>${esc(total)}</strong><span>Conversas sem confirmao</span><small>Este carto ficou sem espelho confivel de leitura no WhatsApp, ento ele mostra apenas o que o sistema sabe de forma segura.</small></div>
+        <div class="drilldown-kpi highlight"><strong>${esc(items.length)}</strong><span>Conversas listadas</span><small>Somente itens com ltima atividade recente.</small></div>
       </div>`;
 
     const rows = items.map((item) => {
@@ -225,10 +225,10 @@
         item.last_message_at ? badge(formatDatePt(item.last_message_at, true), 'neutral') : '',
         item.attendance_mode ? badge(item.attendance_mode === 'bot' ? 'bot' : 'human', item.attendance_mode === 'bot' ? 'ok' : 'neutral') : '',
       ].filter(Boolean).join('');
-      return card(href, item.display_name || item.phone || 'Contato', meta, item.last_message_preview || 'Sem prévia recente.', 'compact');
+      return card(href, item.display_name || item.phone || 'Contato', meta, item.last_message_preview || 'Sem prvia recente.', 'compact');
     }).join('');
 
-    body.innerHTML = `${summaryHtml}<div class="drilldown-card-list">${rows || '<div class="drilldown-empty"><strong>Sem itens confiáveis para exibir</strong><div class="muted">Esse card foi propositalmente simplificado para não mostrar informação falsa.</div></div>'}</div>`;
+    body.innerHTML = `${summaryHtml}<div class="drilldown-card-list">${rows || '<div class="drilldown-empty"><strong>Sem itens confiveis para exibir</strong><div class="muted">Esse card foi propositalmente simplificado para no mostrar informao falsa.</div></div>'}</div>`;
   }
 
   function renderFinance(data) {
@@ -242,18 +242,18 @@
         <div class="drilldown-panel-summary">
           <div class="drilldown-kpi">
             <strong>${esc(revenue)}</strong>
-            <span>${esc(items[0]?.label || 'Agenda no mês')}</span>
-            <small>Total previsto do período selecionado.</small>
+            <span>${esc(items[0]?.label || 'Agenda no ms')}</span>
+            <small>Total previsto do perodo selecionado.</small>
           </div>
           <div class="drilldown-kpi">
             <strong>${esc(expenses)}</strong>
-            <span>${esc(items[1]?.label || 'Despesas no mês')}</span>
+            <span>${esc(items[1]?.label || 'Despesas no ms')}</span>
             <small>Despesas registradas no mesmo recorte.</small>
           </div>
           <div class="drilldown-kpi highlight">
             <strong>${esc(balance)}</strong>
             <span>${esc(items[2]?.label || 'Saldo simples')}</span>
-            <small>${esc(data.summary || 'Receita menos despesas no período.')}</small>
+            <small>${esc(data.summary || 'Receita menos despesas no perodo.')}</small>
           </div>
         </div>
         <div class="drilldown-card-list">
@@ -279,7 +279,7 @@
         item.phone ? `Telefone ${item.phone}` : '',
         item.interest || item.description || '',
         item.updated_at ? `Atualizado ${formatDatePt(item.updated_at, true)}` : '',
-      ].filter(Boolean).join(' · ');
+      ].filter(Boolean).join('  ');
       return `
         <div class="drilldown-card compact">
           <strong>${esc(item.name || item.phone || 'Lead')}</strong>
@@ -296,9 +296,9 @@
       <div class="drilldown-toolbar-summary">
         <strong>${esc(totalCount)} leads</strong>
         <span>${esc(money(totalValue))}</span>
-        <small>${esc(data.summary || 'Leads em atenção')}</small>
+        <small>${esc(data.summary || 'Leads em ateno')}</small>
       </div>
-      <div class="drilldown-card-list stacked">${rows || '<div class="drilldown-empty"><strong>Nenhum lead encontrado</strong><div class="muted">Não há leads para este recorte.</div></div>'}</div>`;
+      <div class="drilldown-card-list stacked">${rows || '<div class="drilldown-empty"><strong>Nenhum lead encontrado</strong><div class="muted">No h leads para este recorte.</div></div>'}</div>`;
   }
 
   function renderAppointments(data) {
@@ -318,7 +318,7 @@
             item.status ? badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral') : '',
         ].filter(Boolean).join('');
         const detailParts = [item.title, item.value_label ? `Valor ${item.value_label}` : (item.value ? `Valor ${money(item.value)}` : ''), item.deposit_label ? `Sinal ${item.deposit_label}` : (item.deposit_value ? `Sinal ${money(item.deposit_value)}` : '')].filter(Boolean);
-        return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join(' · ') : 'Abra para editar ou ver detalhes.', 'compact');
+        return card(href, item.customer_name || item.display_name || item.title || 'Agendamento', meta, detailParts.length ? detailParts.join('  ') : 'Abra para editar ou ver detalhes.', 'compact');
       }).join('');
 
       body.innerHTML = `
@@ -330,7 +330,7 @@
             <small>${esc(periodLabel)}</small>
           </div>
         </div>
-        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">No h itens nesse perodo selecionado.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-appointment-filter]').forEach((btn) => {
@@ -345,7 +345,7 @@
       }, 0);
     };
 
-    renderList(data.summary || 'Período selecionado', items);
+    renderList(data.summary || 'Perodo selecionado', items);
   }
 
   function renderMetaCampaign(data) {
@@ -383,7 +383,7 @@
           item.first_message_body ? `Primeira mensagem: ${item.first_message_body}` : '',
           item.estimated_value ? `Estimado ${money(item.estimated_value)}` : '',
           item.lead_id ? 'Lead vinculado' : 'Sem lead vinculado ainda',
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean).join('  ');
         return card(href, heading, meta, detail, 'compact');
       }).join('');
 
@@ -391,7 +391,7 @@
         <div class="availability-toolbar">
           ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === defaultRange ? '' : 'secondary'}" data-meta-filter="${esc(key)}">${esc(label)}</button>`).join('')}
           <label class="field availability-custom-field"><span class="muted">De</span><input id="metaCampaignStartDate" type="date" value="${esc(todayIso)}"></label>
-          <label class="field availability-custom-field"><span class="muted">Até</span><input id="metaCampaignEndDate" type="date" value="${esc(todayIso)}"></label>
+          <label class="field availability-custom-field"><span class="muted">At</span><input id="metaCampaignEndDate" type="date" value="${esc(todayIso)}"></label>
           <button type="button" class="btn secondary" id="metaCampaignApplyDates">Aplicar</button>
           <div class="drilldown-toolbar-summary">
             <strong>${esc(totalCount)} contatos</strong>
@@ -399,7 +399,7 @@
             <small>${esc(trackedPhrases ? `Frases rastreadas: ${trackedPhrases}` : 'Usando a primeira mensagem recebida da conversa.')}</small>
           </div>
         </div>
-        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse período.</div></div>'}</div>`;
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse perodo.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-meta-filter]').forEach((btn) => {
@@ -420,15 +420,15 @@
             const endDate = endInput.value || '';
             const filtered = applyDateRange(allItems, startDate, endDate);
             const label = startDate && endDate
-              ? `Período livre: ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`
-              : 'Período personalizado';
+              ? `Perodo livre: ${startDate.split('-').reverse().join('/')} at ${endDate.split('-').reverse().join('/')}`
+              : 'Perodo personalizado';
             renderList(label, filtered);
           });
         }
       }, 0);
     };
 
-    renderList(filters[defaultRange] || data.summary || 'Período selecionado', items);
+    renderList(filters[defaultRange] || data.summary || 'Perodo selecionado', items);
   }
 
   function renderWhatsapp(data) {
@@ -446,8 +446,8 @@
           const detail = [
             item.phone ? `Telefone ${item.phone}` : '',
             item.message_count ? `${item.message_count} mensagens` : '',
-            item.last_message_preview || 'Sem prévia recente.',
-          ].filter(Boolean).join(' · ');
+            item.last_message_preview || 'Sem prvia recente.',
+          ].filter(Boolean).join('  ');
           return card(href, item.display_name || item.phone || 'Contato', meta, detail, 'compact');
         }).join('')}
       </div>`;
@@ -466,8 +466,8 @@
             if (item.last_message_at) meta.push(badge(formatDatePt(item.last_message_at, true), 'neutral'));
             if (item.value) meta.push(badge(item.value, 'ok'));
             const href = item.id ? `index.php?page=studio_whatsapp_conversation&id=${encodeURIComponent(item.id)}` : '';
-            const detail = [item.description, item.last_message_preview, item.attendance_mode ? `Atendimento ${item.attendance_mode}` : ''].filter(Boolean).join(' · ');
-            return card(href, item.name || item.title || item.customer_name || item.display_name || item.phone || 'Contato', meta.join(''), detail || 'Abra a conversa para ver o histórico.', 'compact');
+            const detail = [item.description, item.last_message_preview, item.attendance_mode ? `Atendimento ${item.attendance_mode}` : ''].filter(Boolean).join('  ');
+            return card(href, item.name || item.title || item.customer_name || item.display_name || item.phone || 'Contato', meta.join(''), detail || 'Abra a conversa para ver o histrico.', 'compact');
           }
 
           if (item.status) meta.push(badge(item.status, item.status === 'confirmado' ? 'ok' : 'neutral'));
@@ -519,7 +519,7 @@
   }
 
   function show(data) {
-    title.textContent = data.title || 'Detalhe rápido';
+    title.textContent = data.title || 'Detalhe rpido';
     summary.textContent = data.summary || '';
 
     if (data.type === 'availability') {
@@ -558,8 +558,8 @@
         return show({
           ...data,
           type: 'scheduled_month',
-          title: 'Conversas sem confirmação confiável',
-          summary: 'Esse card foi reduzido para evitar informação falsa de leitura de respostas já vistas.',
+          title: 'Conversas sem confirmao confivel',
+          summary: 'Esse card foi reduzido para evitar informao falsa de leitura de respostas j vistas.',
           count: data.count || 0,
           items: data.items || [],
         });
