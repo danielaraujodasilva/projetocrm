@@ -78,7 +78,7 @@
       '3d': '3 dias',
       '7d': '7 dias',
       '15d': '15 dias',
-      month: 'Este ms',
+      month: 'Este mês',
       next_month: 'Ms que vem',
       custom: 'Prazo livre',
     };
@@ -192,7 +192,7 @@
             <small>${esc(periodLabel)}</small>
           </div>
         </div>
-        <div class="drilldown-card-list">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">No h itens nesse perodo selecionado.</div></div>'}</div>`;
+        <div class="drilldown-card-list">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-scheduled-filter]').forEach((btn) => {
@@ -207,7 +207,7 @@
       }, 0);
     };
 
-    renderList(data.summary || 'Perodo selecionado', items);
+    renderList(data.summary || 'Período selecionado', items);
   }
 
   function renderHumanReplies(data) {
@@ -215,8 +215,8 @@
     const items = Array.isArray(data.items) ? data.items : [];
     const summaryHtml = `
       <div class="drilldown-panel-summary">
-        <div class="drilldown-kpi"><strong>${esc(total)}</strong><span>Conversas sem confirmao</span><small>Este carto ficou sem espelho confivel de leitura no WhatsApp, ento ele mostra apenas o que o sistema sabe de forma segura.</small></div>
-        <div class="drilldown-kpi highlight"><strong>${esc(items.length)}</strong><span>Conversas listadas</span><small>Somente itens com ltima atividade recente.</small></div>
+        <div class="drilldown-kpi"><strong>${esc(total)}</strong><span>Conversas sem confirmação</span><small>Este card ficou sem espelho confiável de leitura no WhatsApp, então ele mostra apenas o que o sistema sabe de forma segura.</small></div>
+        <div class="drilldown-kpi highlight"><strong>${esc(items.length)}</strong><span>Conversas listadas</span><small>Somente itens com última atividade recente.</small></div>
       </div>`;
 
     const rows = items.map((item) => {
@@ -228,7 +228,7 @@
       return card(href, item.display_name || item.phone || 'Contato', meta, item.last_message_preview || 'Sem prvia recente.', 'compact');
     }).join('');
 
-    body.innerHTML = `${summaryHtml}<div class="drilldown-card-list">${rows || '<div class="drilldown-empty"><strong>Sem itens confiveis para exibir</strong><div class="muted">Esse card foi propositalmente simplificado para no mostrar informao falsa.</div></div>'}</div>`;
+    body.innerHTML = `${summaryHtml}<div class="drilldown-card-list">${rows || '<div class="drilldown-empty"><strong>Sem itens confiáveis para exibir</strong><div class="muted">Esse card foi propositalmente simplificado para não mostrar informação falsa.</div></div>'}</div>`;
   }
 
   function renderFinance(data) {
@@ -242,18 +242,18 @@
         <div class="drilldown-panel-summary">
           <div class="drilldown-kpi">
             <strong>${esc(revenue)}</strong>
-            <span>${esc(items[0]?.label || 'Agenda no ms')}</span>
-            <small>Total previsto do perodo selecionado.</small>
+            <span>${esc(items[0]?.label || 'Agenda no mês')}</span>
+            <small>Total previsto do período selecionado.</small>
           </div>
           <div class="drilldown-kpi">
             <strong>${esc(expenses)}</strong>
-            <span>${esc(items[1]?.label || 'Despesas no ms')}</span>
+            <span>${esc(items[1]?.label || 'Despesas no mês')}</span>
             <small>Despesas registradas no mesmo recorte.</small>
           </div>
           <div class="drilldown-kpi highlight">
             <strong>${esc(balance)}</strong>
             <span>${esc(items[2]?.label || 'Saldo simples')}</span>
-            <small>${esc(data.summary || 'Receita menos despesas no perodo.')}</small>
+            <small>${esc(data.summary || 'Receita menos despesas no período.')}</small>
           </div>
         </div>
         <div class="drilldown-card-list">
@@ -298,7 +298,7 @@
         <span>${esc(money(totalValue))}</span>
         <small>${esc(data.summary || 'Leads em ateno')}</small>
       </div>
-      <div class="drilldown-card-list stacked">${rows || '<div class="drilldown-empty"><strong>Nenhum lead encontrado</strong><div class="muted">No h leads para este recorte.</div></div>'}</div>`;
+      <div class="drilldown-card-list stacked">${rows || '<div class="drilldown-empty"><strong>Nenhum lead encontrado</strong><div class="muted">Não há leads para este recorte.</div></div>'}</div>`;
   }
 
   function renderAppointments(data) {
@@ -330,7 +330,7 @@
             <small>${esc(periodLabel)}</small>
           </div>
         </div>
-        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">No h itens nesse perodo selecionado.</div></div>'}</div>`;
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhum agendamento encontrado</strong><div class="muted">Não há itens nesse período selecionado.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-appointment-filter]').forEach((btn) => {
@@ -345,7 +345,7 @@
       }, 0);
     };
 
-    renderList(data.summary || 'Perodo selecionado', items);
+    renderList(data.summary || 'Período selecionado', items);
   }
 
   function renderMetaCampaign(data) {
@@ -399,7 +399,7 @@
             <small>${esc(trackedPhrases ? `Frases rastreadas: ${trackedPhrases}` : 'Usando a primeira mensagem recebida da conversa.')}</small>
           </div>
         </div>
-        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse perodo.</div></div>'}</div>`;
+        <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse período.</div></div>'}</div>`;
 
       setTimeout(() => {
         document.querySelectorAll('[data-meta-filter]').forEach((btn) => {
@@ -420,15 +420,15 @@
             const endDate = endInput.value || '';
             const filtered = applyDateRange(allItems, startDate, endDate);
             const label = startDate && endDate
-              ? `Perodo livre: ${startDate.split('-').reverse().join('/')} at ${endDate.split('-').reverse().join('/')}`
-              : 'Perodo personalizado';
+              ? `Período livre: ${startDate.split('-').reverse().join('/')} até ${endDate.split('-').reverse().join('/')}`
+              : 'Período personalizado';
             renderList(label, filtered);
           });
         }
       }, 0);
     };
 
-    renderList(filters[defaultRange] || data.summary || 'Perodo selecionado', items);
+    renderList(filters[defaultRange] || data.summary || 'Período selecionado', items);
   }
 
   function renderWhatsapp(data) {
@@ -558,8 +558,8 @@
         return show({
           ...data,
           type: 'scheduled_month',
-          title: 'Conversas sem confirmao confivel',
-          summary: 'Esse card foi reduzido para evitar informao falsa de leitura de respostas j vistas.',
+          title: 'Conversas sem confirmação confiável',
+          summary: 'Esse card foi reduzido para evitar informação falsa de leitura de respostas já vistas.',
           count: data.count || 0,
           items: data.items || [],
         });

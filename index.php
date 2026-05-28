@@ -969,7 +969,7 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<a class="' . ($active === 'dashboard' ? 'active' : '') . '" href="' . h(app_url('dashboard')) . '">Painel</a>';
     echo '<a class="' . ($active === 'studios' ? 'active' : '') . '" href="' . h(app_url('studios')) . '">Estudios</a>';
     echo '<a class="' . ($active === 'plans' ? 'active' : '') . '" href="' . h(app_url('plans')) . '">Planos</a>';
-    echo '<a class="' . ($active === 'new_studio' ? 'active' : '') . '" href="' . h(app_url('new_studio')) . '">Novo estudio</a>';
+    echo '<a class="' . ($active === 'new_studio' ? 'active' : '') . '" href="' . h(app_url('new_studio')) . '">Novo estúdio</a>';
     echo '<a href="' . h(app_url('logout')) . '">Sair</a>';
     echo '</nav></aside>';
     echo '<main class="main">';
@@ -988,15 +988,15 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     render_head($title);
     echo '<div class="shell">';
     echo '<aside class="sidebar">';
-    echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estudio') . '</span></div>';
+    echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estúdio') . '</span></div>';
     echo '<nav class="nav">';
-    echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Inicio</a>';
+    echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Início</a>';
     echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
     echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
     echo '<a class="' . ($active === 'whatsapp' ? 'active' : '') . '" href="' . h(app_url('studio_whatsapp')) . '">WhatsApp</a>';
     echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
-    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configuracoes</a>';
-    echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatorios</a>';
+    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configurações</a>';
+    echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatórios</a>';
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
@@ -1305,7 +1305,7 @@ if (in_array($page, $studioPages, true) && !current_studio_user()) {
 if ($page === 'studio_home') {
     $user = current_studio_user();
     $studio = require_studio();
-    render_studio_shell('Inicio do CRM', 'Resumo operacional da instancia ' . (string)$user['studio_name'] . '.', 'home', function () use ($studio, $user) {
+    render_studio_shell('Início do CRM', 'Resumo operacional da instância ' . (string)$user['studio_name'] . '.', 'home', function () use ($studio, $user) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -1673,12 +1673,12 @@ if ($page === 'studio_home') {
                 })($studio),
             ],
             'month_result' => [
-                'title' => 'Resultado simples do m?s',
-                'summary' => 'Agenda no m?s: ' . format_money($stats['month_revenue']) . ' | Despesas: ' . format_money($stats['month_expenses']) . ' | Saldo: ' . format_money($stats['month_revenue'] - $stats['month_expenses']),
+                'title' => 'Resultado simples do mês',
+                'summary' => 'Agenda no mês: ' . format_money($stats['month_revenue']) . ' | Despesas: ' . format_money($stats['month_expenses']) . ' | Saldo: ' . format_money($stats['month_revenue'] - $stats['month_expenses']),
                 'type' => 'finance',
                 'items' => [
-                    ['label' => 'Agenda no m?s', 'value' => format_money($stats['month_revenue'])],
-                    ['label' => 'Despesas no m?s', 'value' => format_money($stats['month_expenses'])],
+                    ['label' => 'Agenda no mês', 'value' => format_money($stats['month_revenue'])],
+                    ['label' => 'Despesas no mês', 'value' => format_money($stats['month_expenses'])],
                     ['label' => 'Saldo simples', 'value' => format_money($stats['month_revenue'] - $stats['month_expenses'])],
                 ],
             ],
@@ -1733,7 +1733,7 @@ if ($page === 'studio_home') {
             ['label' => 'Leads do Meta', 'summary' => 'Leads captados por campanha e faixa de data.', 'focus' => 'meta_campaign'],
             ['label' => 'Pr&oacute;ximos atendimentos', 'summary' => 'Agenda futura com filtros por per&iacute;odo.', 'focus' => 'appointments'],
             ['label' => 'Hor&aacute;rios livres', 'summary' => 'Janelas dispon&iacute;veis na agenda.', 'focus' => 'free_windows'],
-            ['label' => 'Resultado do m?s', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
+            ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
         ];
         foreach ($homeCards as $card) {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric">' . h((string)$card['label']) . '</p><p class="muted" style="margin:0">' . h((string)$card['summary']) . '</p><span class="muted">Abrir em overlay</span></button>';
@@ -3549,7 +3549,7 @@ if ($page === 'studio_quick_replies') {
 
 if ($page === 'studio_reports') {
     $studio = require_studio();
-    render_studio_shell('Relatorios', 'Leitura gerencial do funil, agenda e financeiro.', 'reports', function () use ($studio) {
+    render_studio_shell('Relatórios', 'Leitura gerencial do funil, agenda e financeiro.', 'reports', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -3796,14 +3796,14 @@ if ($page === 'studio_reports') {
             echo '<div class="alert-grid">';
             foreach ($alerts as $alert) {
                 echo '<div class="alert-card">';
-                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>' . h($alert['title']) . '</strong><p class="muted" style="margin:4px 0 0">' . h((string)$alert['count']) . ' itens</p></div><span class="badge ' . h((string)($alert['tone'] ?? 'neutral')) . '">Ateno</span></div>';
+                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>' . h($alert['title']) . '</strong><p class="muted" style="margin:4px 0 0">' . h((string)$alert['count']) . ' itens</p></div><span class="badge ' . h((string)($alert['tone'] ?? 'neutral')) . '">Atenção</span></div>';
                 echo '<div class="stack-list" style="margin-top:10px">';
                 foreach (array_slice($alert['items'], 0, 4) as $item) {
                     echo '<a class="activity-card" href="' . h($item['href']) . '"><strong>' . h($item['label']) . '</strong><span>' . h($item['detail']) . '</span></a>';
                 }
                 echo '</div></div>';
             }
-            echo '<div class="alert-card"><strong>Despesas do ms</strong><p class="metric" style="margin:8px 0 0">' . h(format_money($monthExpenses)) . '</p><p class="muted">Total de despesas registradas no perodo atual.</p><a class="btn tiny secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div>';
+            echo '<div class="alert-card"><strong>Despesas do mês</strong><p class="metric" style="margin:8px 0 0">' . h(format_money($monthExpenses)) . '</p><p class="muted">Total de despesas registradas no período atual.</p><a class="btn tiny secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div>';
             echo '</div>';
             $alertsMarkup = ob_get_clean();
         }
@@ -3836,36 +3836,36 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatrios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
         echo '<div class="settings-overview-grid">';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rpidos do que pede ao</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rpida do ms</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuio do funil</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendrio</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por ms</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
         if (plan_allows('advanced_reports')) {
-            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinmica</p><p class="muted">Cruzamentos avanados</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
-        echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatrios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatórios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="reportsSourceAlerts" hidden><div class="stack-list">' . $alertsMarkup . '</div></div>';
         echo '<div id="reportsSourceSummary" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Resumo gerencial</h2><span class="badge">Painel de leitura</span></div>' . $summaryMarkup . '</div></div>';
         echo '<div id="reportsSourceLeadStatus" hidden><div class="panel" style="margin:0"><h2>Leads por status</h2>' . $leadStatusTable . '</div></div>';
         echo '<div id="reportsSourceLeadSource" hidden><div class="panel" style="margin:0"><h2>Leads por origem</h2>' . $leadSourceTable . '</div></div>';
         echo '<div id="reportsSourceAppointmentsStatus" hidden><div class="panel" style="margin:0"><h2>Agenda por status</h2>' . $appointmentsStatusTable . '</div></div>';
-        echo '<div id="reportsSourceAppointmentsMonth" hidden><div class="panel" style="margin:0"><h2>Agenda por ms</h2>' . $appointmentsMonthTable . '</div></div>';
+        echo '<div id="reportsSourceAppointmentsMonth" hidden><div class="panel" style="margin:0"><h2>Agenda por mês</h2>' . $appointmentsMonthTable . '</div></div>';
         echo '<div id="reportsSourceExpensesCategory" hidden><div class="panel" style="margin:0"><h2>Despesas por categoria</h2>' . $expensesCategoryTable . '</div></div>';
         if (plan_allows('advanced_reports')) {
-            echo '<div id="reportsSourcePivot" hidden><section class="panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Anlise</span></div><div class="wdr-shell"><div class="wdr-source-bar">';
+            echo '<div id="reportsSourcePivot" hidden><section class="panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h2>Tabela dinâmica</h2><p class="muted">Monte cruzamentos por arrastar campos entre linhas, colunas, medidas e filtros.</p></div><span class="badge">Análise</span></div><div class="wdr-shell"><div class="wdr-source-bar">';
             foreach ($pivotDataSets as $key => $def) {
                 echo '<button type="button" class="wdr-source-button' . ($key === $pivotSource ? ' active' : '') . '" data-pivot-source="' . h($key) . '"><strong>' . h($def['label']) . '</strong><span>' . h($def['subtitle']) . '</span></button>';
             }
             echo '</div><div id="reportsPivot" class="wdr-frame"></div></div><div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div></section></div>';
         }
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rpidos do que precisa de ao agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rpida do ms",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuio do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendrio",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por ms",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinmica",summary:"Cruzamentos avanados",source:"reportsSourcePivot"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){setTimeout(()=>{try{const cfg=window.reportsPivotData[window.reportsPivotSource]||window.reportsPivotData.leads;window.reportsPivotInstance=new WebDataRocks({container:"#reportsPivot",toolbar:true,report:{dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice}});}catch(e){}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rápidos do que precisa de ação agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rápida do mês",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuição do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendário",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mês",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinâmica",summary:"Cruzamentos avançados",source:"reportsSourcePivot"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){setTimeout(()=>{try{const cfg=window.reportsPivotData[window.reportsPivotSource]||window.reportsPivotData.leads;window.reportsPivotInstance=new WebDataRocks({container:"#reportsPivot",toolbar:true,report:{dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice}});}catch(e){}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -3933,7 +3933,7 @@ if ($page === 'studio_settings') {
     if (!in_array($activeSettingsTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
         $activeSettingsTab = 'studio';
     }
-    render_studio_shell('Configuracoes do estudio', 'Regras comerciais e preparacao dos modulos de IA/WhatsApp.', 'settings', function () use ($studio) {
+    render_studio_shell('Configurações do estúdio', 'Regras comerciais e preparação dos módulos de IA/WhatsApp.', 'settings', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
