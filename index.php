@@ -297,7 +297,13 @@ if ($page === 'lead_public_update') {
                         const match = Array.from(barEl.querySelectorAll(".public-choice")).find((btn) => btn.dataset.value === value);
                         if (match) match.classList.add("active");
                         hidden.value = value || "";
-                        if (extra) extra.style.display = value === "Sim" ? "block" : "none";
+                        if (extra) {
+                            extra.style.display = value === "Sim" ? "block" : "none";
+                            if (value !== "Sim") {
+                                const detail = extra.querySelector("textarea");
+                                if (detail) detail.value = "";
+                            }
+                        }
                     };
                     barEl.querySelectorAll("input[type=\"radio\"]").forEach((input) => {
                         input.addEventListener("change", () => selectChoice(input.value));
