@@ -2602,13 +2602,14 @@ if ($page === 'studio_whatsapp') {
         $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
         $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conex?o, pareamento e a??es</small></button>';
         echo '<a class="panel quick-action-card" href="' . h($firstConversationHref) . '"><strong>' . h($summary['total']) . '</strong><span>Conversas</span><small>Abrir a primeira conversa ativa</small></a>';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['mode' => 'bot'])) . '"><strong>' . h($summary['bot']) . '</strong><span>Em modo IA</span><small>Ver conversas automáticas</small></a>';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['needs_human' => 1])) . '"><strong>' . h($summary['needs_human']) . '</strong><span>Pedindo humano</span><small>Atendimentos que pedem atenção</small></a>';
-        echo '<a class="panel quick-action-card" href="#wa-session-panel"><strong>' . h($serviceStateLabel) . '</strong><span>Sessao WhatsApp</span><small>Ver conexão e pareamento</small></a>';
+        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['mode' => 'bot'])) . '"><strong>' . h($summary['bot']) . '</strong><span>Em modo IA</span><small>Ver conversas autom?ticas</small></a>';
+        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp', ['needs_human' => 1])) . '"><strong>' . h($summary['needs_human']) . '</strong><span>Pedindo humano</span><small>Atendimentos que pedem aten??o</small></a>';
         echo '</section>';
-        echo '<section class="grid cols-2 whatsapp-overview" style="margin-top:16px">';
-        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessao do WhatsApp</h2>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conex?o, pareamento e configura??o r?pida.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusSource" hidden>';
+        echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sess?o do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
         $sessionSummary = 'Nao conectado';
@@ -2657,21 +2658,22 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="actions whatsapp-session-actions">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar pareamento</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessao</button></form>';
-        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar servico</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sess?o</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar servi?o</button></form>';
         echo '</div>';
         echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
-        echo '<div class="field" style="margin:0;min-width:220px"><label>Codigo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
-        echo '<button class="btn secondary" type="submit">Gerar codigo</button>';
+        echo '<div class="field" style="margin:0;min-width:220px"><label>C?digo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
+        echo '<button class="btn secondary" type="submit">Gerar c?digo</button>';
         echo '</form>';
         echo '</div>';
+        echo '<div id="whatsappConfigSource" hidden>';
         echo '<form class="form panel" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';
-        echo '<h2>Configuracao WhatsApp</h2>';
-        echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
-        echo '<div class="field"><label>Padrao para conversas novas</label><select name="whatsapp_default_mode">';
+        echo '<h2>Configura??o WhatsApp</h2>';
+        echo '<div class="field"><label>URL do servi?o Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
+        echo '<div class="field"><label>Padr?o para conversas novas</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select></div>';
         echo '<input type="hidden" name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '">';
@@ -2683,70 +2685,10 @@ if ($page === 'studio_whatsapp') {
         echo '<label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp habilitado neste estudio</label>';
         echo '<button class="btn" type="submit">Salvar WhatsApp</button>';
         echo '</form>';
-        echo '</section>';
-        echo '<script>
-(function(){
-  const stateBox = document.getElementById("waSessionState");
-  const statusBadge = document.getElementById("waStatusBadge");
-  const liveUrl = "index.php?page=studio_whatsapp_live";
-  const esc = (value) => String(value ?? "").replace(/[&<>"\']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\'":"&#039;"}[char]));
-  function renderState(status) {
-    if (!stateBox) return;
-    if (!status || !status.ok) {
-      stateBox.innerHTML = `<p class="muted">Servico Node sem resposta.</p><p class="muted">${esc(status?.error || "")}</p>`;
-      return;
-    }
-    if (status.pairingCode) {
-      stateBox.innerHTML = `<p class="metric" style="letter-spacing:2px">${esc(String(status.pairingCode).replace(/-/g, ""))}</p><p class="muted">Codigo para parear o numero ${esc(status.pairingPhone || "")}.</p><p class="muted">Digite exatamente como exibido, sem espacos nem caracteres extras.</p>`;
-      return;
-    }
-    if (status.phone) {
-      stateBox.innerHTML = `<p>Numero conectado: <strong>${esc(status.phone)}</strong></p>`;
-      return;
-    }
-    if (status.lastError) {
-      stateBox.innerHTML = `<p class="muted">Ultimo erro do servico: ${esc(status.lastError)}</p>`;
-      return;
-    }
-    stateBox.innerHTML = `<p class="muted">${esc(status.status || "Aguardando acao do servico.")}</p>`;
-  }
-  function updateBadge(status) {
-    if (!statusBadge) return;
-    const value = status?.status || (status?.ok ? "online" : "offline");
-    statusBadge.textContent = value === "connected" ? "conectado" : (value === "waiting_qr" ? "aguardando codigo" : value);
-    statusBadge.classList.remove("ok", "warn", "danger");
-    statusBadge.classList.add(value === "connected" ? "ok" : (value === "waiting_qr" || value === "starting" ? "warn" : "danger"));
-  }
-  async function refreshLive() {
-    try {
-      const response = await fetch(`${liveUrl}&_=${Date.now()}`, { headers: { "Accept": "application/json" } });
-      const text = await response.text();
-      let data = null;
-      try {
-        data = JSON.parse(text);
-      } catch (parseError) {
-        throw new Error(`Resposta inesperada do servidor (${response.status}).`);
-      }
-      updateBadge(data.status);
-      renderState(data.status);
-    } catch (error) {
-      if (stateBox) stateBox.innerHTML = `<p class="muted">Falha ao atualizar status ao vivo: ${esc(error.message)}</p>`;
-    }
-  }
-  refreshLive();
-  setInterval(refreshLive, 2000);
-})();
-</script>';
-        echo '</section>';
+        echo '</div>';
+        echo '<script>(function(){const modal=document.getElementById("whatsappStatusOverlay");const body=document.getElementById("whatsappStatusOverlayBody");const source=document.getElementById("whatsappStatusSource");const closeBtn=document.getElementById("closeWhatsAppStatusOverlay");const openBtn=document.getElementById("openWhatsAppStatusOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
         echo '<section class="grid cols-2 whatsapp-lower-panels" style="margin-top:16px">';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="send_whatsapp_message">';
-        echo '<h2>Enviar mensagem manual</h2>';
-        echo '<div class="field"><label>Telefone</label><input name="phone" placeholder="5511999999999"></div>';
-        echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
-        echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
-        echo '</form>';
+        echo '<button type="button" class="panel dashboard-stat" id="openManualMessageOverlay"><p class="metric">Enviar mensagem manual</p><p class="muted">Abrir envio em overlay</p></button>';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leitura rapida</h2><span class="badge">Fluxo atual</span></div>';
         echo '<div class="mini-metrics">';
         echo '<span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span>';
@@ -2755,6 +2697,16 @@ if ($page === 'studio_whatsapp') {
         echo '</div>';
         echo '<p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p>';
         echo '</div></section>';
+        echo '<div id="manualMessageOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Enviar mensagem manual</h3><p class="muted" style="margin:4px 0 0">Envio direto sem poluir a tela principal.</p></div><button type="button" id="closeManualMessageOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="manualMessageOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="manualMessageSource" hidden><form class="form panel" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="send_whatsapp_message">';
+        echo '<h2>Enviar mensagem manual</h2>';
+        echo '<div class="field"><label>Telefone</label><input name="phone" placeholder="5511999999999"></div>';
+        echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
+        echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
+        echo '</form></div>';
+        echo '<script>(function(){const modal=document.getElementById("manualMessageOverlay");const body=document.getElementById("manualMessageOverlayBody");const source=document.getElementById("manualMessageSource");const openBtn=document.getElementById("openManualMessageOverlay");const closeBtn=document.getElementById("closeManualMessageOverlay");if(openBtn&&modal&&body&&source){openBtn.addEventListener("click",()=>{body.innerHTML=source.innerHTML;modal.classList.remove("hidden");});}if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
         echo '<section class="panel whatsapp-list-panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
