@@ -3382,6 +3382,97 @@ if ($page === 'studio_reports') {
         $monthExpenses = (float)($pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "'")->fetchColumn() ?: 0);
 
         $reports = studio_report_data($studio);
+        $pivotSource = (string)($_GET['pivot_source'] ?? 'leads');
+        $pivotSource = in_array($pivotSource, ['leads', 'appointments', 'expenses'], true) ? $pivotSource : 'leads';
+        $pivotDataSets = [
+            'leads' => [
+                'label' => 'Leads',
+                'subtitle' => 'Funil, origem, etapa e nota',
+                'data' => $pdo->query(
+                    "SELECT
+                        COALESCE(name, 'Sem nome') AS nome,
+                        COALESCE(phone, '') AS telefone,
+                        COALESCE(status, 'Sem status') AS status,
+                        COALESCE(source, 'Sem origem') AS origem,
+                        COALESCE(pipeline_stage, 'Sem etapa') AS etapa,
+                        COALESCE(lead_score, 0) AS nota,
+                        COALESCE(estimated_value, 0) AS valor_estimado,
+                        COALESCE(interest, '') AS interesse,
+                        DATE(COALESCE(created_at, updated_at)) AS data_criacao,
+                        DATE_FORMAT(COALESCE(created_at, updated_at), '%Y-%m') AS mes,
+                        1 AS total
+                     FROM leads
+                     ORDER BY COALESCE(created_at, updated_at) DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'status']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'origem']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int']],
+                    ],
+                ],
+            ],
+            'appointments' => [
+                'label' => 'Agenda',
+                'subtitle' => 'Status, tatuador, valor e sinal',
+                'data' => $pdo->query(
+                    "SELECT
+                        a.id,
+                        COALESCE(c.name, a.title, 'Sem nome') AS cliente,
+                        COALESCE(a.status, 'Sem status') AS status,
+                        COALESCE(ta.name, 'Sem tatuador') AS tatuador,
+                        COALESCE(a.title, '') AS titulo,
+                        COALESCE(a.appointment_date, CURDATE()) AS data_agendamento,
+                        DATE_FORMAT(a.appointment_date, '%Y-%m') AS mes,
+                        COALESCE(a.start_time, '') AS horario,
+                        COALESCE(a.end_time, '') AS horario_fim,
+                        COALESCE(a.value, 0) AS valor,
+                        COALESCE(a.deposit_value, 0) AS sinal,
+                        1 AS total
+                     FROM appointments a
+                     LEFT JOIN customers c ON c.id = a.customer_id
+                     LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+                     ORDER BY a.appointment_date DESC, a.start_time DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'status']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'tatuador']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int'], ['uniqueName' => 'valor', 'aggregation' => 'sum', 'format' => 'currency']],
+                    ],
+                ],
+            ],
+            'expenses' => [
+                'label' => 'Despesas',
+                'subtitle' => 'Categorias, meio, data e valor',
+                'data' => $pdo->query(
+                    "SELECT
+                        COALESCE(category, 'Sem categoria') AS categoria,
+                        COALESCE(payment_method, 'Sem pagamento') AS meio,
+                        COALESCE(description, '') AS descricao,
+                        COALESCE(notes, '') AS notas,
+                        COALESCE(expense_date, CURDATE()) AS data_despesa,
+                        DATE_FORMAT(expense_date, '%Y-%m') AS mes,
+                        COALESCE(amount, 0) AS valor,
+                        1 AS total
+                     FROM expenses
+                     ORDER BY expense_date DESC
+                     LIMIT 2000"
+                )->fetchAll() ?: [],
+                'report' => [
+                    'dataSource' => ['dataSourceType' => 'json'],
+                    'slice' => [
+                        'rows' => [['uniqueName' => 'categoria']],
+                        'columns' => [['uniqueName' => 'Measures'], ['uniqueName' => 'meio']],
+                        'measures' => [['uniqueName' => 'total', 'aggregation' => 'sum', 'format' => 'int'], ['uniqueName' => 'valor', 'aggregation' => 'sum', 'format' => 'currency']],
+                    ],
+                ],
+            ],
+        ];
         $alertsMarkup = '';
         if ($alerts) {
             ob_start();
