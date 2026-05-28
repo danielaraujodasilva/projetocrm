@@ -3199,7 +3199,7 @@ if ($page === 'studio_people') {
         echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_people')) . '">Limpar</a></form>';
         echo '</section>';
         echo '<section class="grid cols-3" style="margin-top:16px">';
-        echo '<a class="panel dashboard-stat dashboard-stat-button" href="' . h(app_url('studio_people', ['view' => 'customers'])) . '"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></a>';
+        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></button>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_leads')) . '"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads</p><span class="muted">Abrir funil</span></a>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
