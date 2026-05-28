@@ -2734,10 +2734,10 @@ function studio_whatsapp_assistant_insights(array $studio, array $conversation, 
 
     $parseNameFromText = static function (string $text): string {
         $patterns = [
-            '/\bmeu nome e[áa]\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
-            '/\bsou\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
-            '/\bme chamo\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
-            '/\b(aqui e|aqui é)\s+([A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+(?:\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][\p{L}\'’\-]+){0,3})/iu',
+            '/\bmeu nome e[?a]\s+([A-Z???????????][\p{L}\'?\-]+(?:\s+[A-Z???????????][\p{L}\'?\-]+){0,3})/iu',
+            '/\bsou\s+([A-Z???????????][\p{L}\'?\-]+(?:\s+[A-Z???????????][\p{L}\'?\-]+){0,3})/iu',
+            '/\bme chamo\s+([A-Z???????????][\p{L}\'?\-]+(?:\s+[A-Z???????????][\p{L}\'?\-]+){0,3})/iu',
+            '/\b(aqui e|aqui ?)\s+([A-Z???????????][\p{L}\'?\-]+(?:\s+[A-Z???????????][\p{L}\'?\-]+){0,3})/iu',
         ];
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $text, $matches)) {
