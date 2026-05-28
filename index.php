@@ -1347,7 +1347,6 @@ if ($page === 'studio_home') {
             ['label' => 'Funil', 'focus' => 'attention_leads', 'value' => (string)$stats['open_leads']],
             ['label' => 'Agenda de hoje', 'focus' => 'today_agenda', 'value' => (string)$todayAppointmentsCount],
             ['label' => 'Leads do Meta', 'focus' => 'meta_campaign', 'value' => (string)count($metaCampaignItems)],
-            ['label' => 'Próximos horários', 'focus' => 'free_windows', 'value' => (string)count($nextAvailableSlots)],
         ] as $action) {
             $focus = $action['focus'] ?? null;
             $detail = $focus ? ('Ver ' . h($action['value'] ?? '0') . ' entradas') : 'Abrir agora';
@@ -1370,19 +1369,79 @@ if ($page === 'studio_home') {
         echo '<script>window.homeTodayAgenda = ' . json_encode(['date' => $current->format('Y-m-d'), 'items' => $todayAppointments], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '"></script>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Próximos horários livres</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div>';
-        if (!$nextAvailableSlots) {
-            echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Agenda de hoje</h2><div class="actions"><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $current->format('Y-m-d')])) . '">Abrir agenda</a><a class="btn secondary" href="' . h(app_url('studio_finance')) . '">Financeiro do mês</a></div></div>';
+        echo '<p class="muted">Abra a agenda para ver os horários e o financeiro do mês em detalhes.</p>';
+        if (!$todayAppointments) {
+            echo '<p class="muted">Nenhum atendimento agendado para hoje.</p>';
         } else {
-            echo '<div class="stack-list">';
-            foreach (array_slice($nextAvailableSlots, 0, 10) as $slot) {
-                $href = app_url('studio_agenda', ['date' => (string)$slot['date']]) . '#appointment-form';
-                echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)$slot['label']) . '</strong><span class="muted">' . h(implode(' · ', array_slice($slot['free_slots'] ?? [], 0, 4))) . '</span><span>' . h((string)count($slot['free_slots'] ?? [])) . ' horários livres</span></a>';
+            echo '<table class="table"><thead><tr><th>Hora</th><th>Cliente / Lead</th><th>Tatuador</th><th>Status</th><th>Valor</th><th>Sinal</th><th>Obs</th></tr></thead><tbody>';
+            foreach ($todayAppointments as $appointment) {
+                $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                $status = strtolower((string)($appointment['status'] ?? '-'));
+                $statusTone = in_array($status, ['confirmado', 'agendado'], true) ? 'ok' : (in_array($status, ['pre_agendado'], true) ? 'warn' : (in_array($status, ['cancelado', 'perdido'], true) ? 'danger' : 'neutral'));
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong></a></td>';
+                echo '<td>' . h($appointment['customer_name'] ?: $appointment['title'] ?: '-') . '</td>';
+                echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
+                echo '<td><span class="badge ' . h($statusTone) . '">' . h((string)($appointment['status'] ?? '-')) . '</span></td>';
+                $appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
+                $appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
+                echo '<td>' . h(format_money($appointmentValue)) . '</td>';
+                echo '<td>' . h(format_money($appointmentDeposit)) . '</td>';
+                echo '<td>' . h(mb_substr((string)($appointment['description'] ?? $appointment['notes'] ?? '-'), 0, 80)) . '</td></tr>';
             }
-            echo '</div>';
+            echo '</tbody></table>';
         }
         echo '</div>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Financeiro do mês</h2><a class="btn secondary" href="' . h(app_url('studio_finance')) . '">Abrir financeiro</a></div><p class="metric">' . h(format_money(($financeSummary['appointments_month'] ?? $stats['month_revenue']) - ($financeSummary['expenses_month'] ?? $stats['month_expenses']))) . '</p><p class="muted">Agenda do mês menos despesas cadastradas.</p><div class="mini-metrics"><span><strong>' . h(format_money($financeSummary['appointments_month'] ?? $stats['month_revenue'])) . '</strong><small>Valor previsto</small></span><span><strong>' . h(format_money($financeSummary['expenses_month'] ?? $stats['month_expenses'])) . '</strong><small>Despesas</small></span><span><strong>' . h((string)$paidAppointmentsMonth) . '</strong><small>Agendamentos com sinal</small></span><span><strong>' . h(($stats['appointments_month'] > 0 ? number_format((float)((float)($financeSummary['appointments_month'] ?? $stats['month_revenue']) / max(1, (int)$stats['appointments_month'])), 2, ',', '.') : '0,00')) . '</strong><small>Ticket médio</small></span></div></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Funil</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        if (!$attentionLeads) {
+            echo '<p class="muted">Nenhum lead com atenção prioritária no momento.</p>';
+        } else {
+            echo '<table class="table"><thead><tr><th>Lead</th><th>Status</th><th>Score</th><th>Atualização</th><th>Ações</th></tr></thead><tbody>';
+            $resolveAttentionConversationHref = static function (array $lead) use ($studio): string {
+                $pdo = studio_db($studio);
+                $leadId = (int)($lead['id'] ?? 0);
+                $customerId = (int)($lead['customer_id'] ?? 0);
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+                if ($leadId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE lead_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$leadId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                }
+                if ($customerId > 0) {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE customer_id = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$customerId]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                }
+                if ($phone !== '') {
+                    $stmt = $pdo->prepare('SELECT id FROM whatsapp_conversations WHERE phone = ? ORDER BY COALESCE(last_message_at, updated_at) DESC, id DESC LIMIT 1');
+                    $stmt->execute([$phone]);
+                    $conversationId = (int)($stmt->fetchColumn() ?: 0);
+                    if ($conversationId > 0) return app_url('studio_whatsapp_conversation', ['id' => $conversationId]);
+                }
+                return app_url('studio_whatsapp');
+            };
+            foreach ($attentionLeads as $lead) {
+                $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
+                $conversationHref = $resolveAttentionConversationHref($lead);
+                $stale = false;
+                try {
+                    $updatedAt = new DateTimeImmutable((string)($lead['updated_at'] ?? $lead['created_at'] ?? 'now'), new DateTimeZone('America/Sao_Paulo'));
+                    $stale = $updatedAt < $current->modify('-24 hours');
+                } catch (Throwable) {
+                    $stale = false;
+                }
+                $phone = normalize_phone((string)($lead['phone'] ?? ''));
+                $phoneLink = $phone !== '' ? 'https://wa.me/' . $phone : '';
+                echo '<tr><td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest'] ?: '-') . '</span></td>';
+                echo '<td><span class="badge">' . h((string)($lead['status'] ?? '-')) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
+                echo '<td><strong>' . h((string)($lead['lead_score'] ?? 0)) . '/10</strong>' . ($stale ? '<br><span class="badge warn">parado há 24h+</span>' : '') . '</td>';
+                echo '<td>' . h(format_datetime_pt((string)($lead['updated_at'] ?: $lead['created_at'] ?: ''))) . '</td>';
+                echo '<td><div class="actions"><a class="btn tiny secondary" href="' . h($conversationHref) . '">Ver</a>' . ($phoneLink !== '' ? '<a class="btn tiny secondary" href="' . h($phoneLink) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<a class="btn tiny secondary" href="' . h($href . '#lead-schedule-form') . '">Agendar</a></div></td></tr>';
+            }
+            echo '</tbody></table>';
+        }
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Alertas operacionais</h2><p class="muted">Situações que pedem ação agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relatórios</a></div>';
         if (!$alerts) {
