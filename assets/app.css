@@ -2256,6 +2256,207 @@ textarea {
     margin-top: 0;
 }
 
+.wa-web-shell {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr) 360px;
+    gap: 16px;
+    align-items: start;
+}
+
+.wa-web-sidebar,
+.wa-web-tools {
+    background: #f7f9fb;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 14px;
+}
+
+.wa-web-sidebar {
+    display: grid;
+    gap: 12px;
+    min-height: calc(100vh - 180px);
+}
+
+.wa-web-sidebar-top,
+.wa-web-main-header,
+.wa-web-tools-head,
+.wa-web-chat-head,
+.wa-web-composer-bar,
+.wa-web-filter-row,
+.wa-web-action-grid {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.wa-web-search input {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 999px;
+}
+
+.wa-web-filter-pill {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.wa-web-filter-pill.active {
+    background: #dff6de;
+    border-color: #c9e8c7;
+}
+
+.wa-web-chat-list {
+    display: grid;
+    gap: 8px;
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.wa-web-chat-item {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+    text-decoration: none;
+    color: var(--text);
+    border: 1px solid transparent;
+    background: #fff;
+}
+
+.wa-web-chat-item.active {
+    border-color: #c9e8c7;
+    background: #ecf9ed;
+}
+
+.wa-web-chat-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #dff6de;
+    color: #155724;
+    font-weight: 800;
+}
+
+.wa-web-chat-avatar.large {
+    width: 56px;
+    height: 56px;
+    font-size: 1.1rem;
+}
+
+.wa-web-chat-meta {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.wa-web-chat-head strong,
+.wa-web-main-contact h2,
+.wa-web-tools-head h3 {
+    margin: 0;
+}
+
+.wa-web-chat-head span,
+.wa-web-chat-meta p {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.wa-web-chat-meta p {
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wa-web-chat-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.wa-web-main {
+    display: grid;
+    gap: 14px;
+    min-height: calc(100vh - 180px);
+}
+
+.wa-web-main-header,
+.wa-web-composer,
+.wa-web-empty {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+}
+
+.wa-web-main-contact {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.wa-web-composer-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.wa-web-tools {
+    display: grid;
+    gap: 12px;
+}
+
+.wa-web-tools-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+}
+
+.wa-web-action-grid {
+    justify-content: flex-start;
+}
+
+.wa-web-action-grid .btn {
+    flex: 1 1 140px;
+}
+
+@media (max-width: 1180px) {
+    .wa-web-shell {
+        grid-template-columns: 320px minmax(0, 1fr);
+    }
+
+    .wa-web-tools {
+        display: none;
+    }
+}
+
+@media (max-width: 880px) {
+    .wa-web-shell {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .wa-web-sidebar,
+    .wa-web-main {
+        min-height: auto;
+    }
+}
+
 .emoji-strip {
     display: flex;
     gap: 5px;
