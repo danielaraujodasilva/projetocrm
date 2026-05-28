@@ -51,21 +51,37 @@ if ($page === 'lead_public_update') {
         echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
         exit;
     }
+    $customer = !empty($lead['customer_id']) ? studio_find_customer($studio, (int)$lead['customer_id']) : null;
+    $customerSeed = is_array($customer) ? $customer : [];
     $missingFields = [];
-    foreach (['name' => 'Nome', 'phone' => 'Telefone', 'interest' => 'Interesse'] as $field => $label) {
-        if (trim((string)($lead[$field] ?? '')) === '') {
+    foreach ([
+        'name' => 'Nome',
+        'phone' => 'Telefone',
+        'interest' => 'Interesse',
+        'birth_date' => 'Data de nascimento',
+        'allergies' => 'Alergias',
+        'health_conditions' => 'Condições de saúde',
+        'data_processing_consent' => 'Consentimento LGPD',
+    ] as $field => $label) {
+        $value = $field === 'interest' ? (string)($lead[$field] ?? '') : (string)($customerSeed[$field] ?? $lead[$field] ?? '');
+        if (trim($value) === '') {
             $missingFields[$field] = $label;
         }
     }
-    render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $missingFields) {
-        echo '<section class="panel" style="max-width:760px;margin:0 auto"><h1>Atualize seu cadastro</h1><p class="muted">Preencha apenas o que estiver faltando. Isso ajuda a transformar seu lead em cliente com mais rapidez.</p>';
+    render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $customerSeed) {
+        $checked = static fn(string $field): string => !empty($customerSeed[$field]) ? ' checked' : '';
+        $value = static fn(string $field, string $fallback = ''): string => (string)($customerSeed[$field] ?? $fallback);
+        echo '<section class="panel" style="max-width:980px;margin:0 auto"><h1>Atualize seu cadastro</h1><p class="muted">Preencha sua ficha completa. Isso ajuda a transformar seu lead em cliente e deixa os próximos atendimentos mais seguros e rápidos.</p>';
         echo '<form class="form" method="post">';
         echo '<input type="hidden" name="action" value="public_lead_update"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="token" value="' . h($token) . '">';
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h((string)($lead['name'] ?? '')) . '" placeholder="Seu nome"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h((string)($lead['phone'] ?? '')) . '" placeholder="Seu telefone"></div></div>';
-        echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h((string)($lead['interest'] ?? '')) . '" placeholder="O que você quer fazer?"></div>';
-        echo '<button class="btn" type="submit">Salvar cadastro</button>';
+        echo '<div class="panel soft" style="margin-top:12px"><h2>Dados básicos</h2><div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome completo"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($value('phone', (string)($lead['phone'] ?? ''))) . '" placeholder="Seu telefone"></div></div><div class="grid cols-2"><div class="field"><label>Email</label><input name="email" type="email" value="' . h($value('email')) . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($value('instagram')) . '"></div></div><div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($value('document_number')) . '"></div><div class="field"><label>Profissão</label><input name="occupation" value="' . h($value('occupation')) . '"></div></div><div class="field"><label>Interesse</label><input name="interest" value="' . h((string)($lead['interest'] ?? '')) . '" placeholder="O que você quer fazer?"></div></div>';
+        echo '<div class="panel soft" style="margin-top:12px"><h2>Endereço</h2><div class="grid cols-3"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($value('address_zip')) . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($value('address_state')) . '"></div><div class="field"><label>Cidade</label><input name="address_city" value="' . h($value('address_city')) . '"></div></div><div class="field"><label>Rua</label><input name="address_street" value="' . h($value('address_street')) . '"></div><div class="grid cols-3"><div class="field"><label>Número</label><input name="address_number" value="' . h($value('address_number')) . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($value('address_complement')) . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($value('address_neighborhood')) . '"></div></div><div class="field"><label>Referência</label><input name="address_reference" value="' . h($value('address_reference')) . '"></div></div>';
+        echo '<div class="panel soft" style="margin-top:12px"><h2>Anamnese</h2><div class="grid cols-2"><div class="field"><label>Nome de emergência</label><input name="emergency_contact_name" value="' . h($value('emergency_contact_name')) . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($value('emergency_contact_phone')) . '"></div></div><div class="grid cols-2"><div class="field"><label>Região do corpo</label><input name="body_area" value="' . h($value('body_area')) . '"></div><div class="field"><label>Estilo de referência</label><input name="reference_style" value="' . h($value('reference_style')) . '"></div></div><div class="grid cols-2"><div class="field"><label>Já possui tatuagens?</label><textarea name="previous_tattoos">' . h($value('previous_tattoos')) . '</textarea></div><div class="field"><label>Resistência à dor</label><select name="pain_tolerance"><option value="">Selecionar</option><option value="baixa"' . (($value('pain_tolerance') === 'baixa') ? ' selected' : '') . '>Baixa</option><option value="media"' . (($value('pain_tolerance') === 'media') ? ' selected' : '') . '>Média</option><option value="alta"' . (($value('pain_tolerance') === 'alta') ? ' selected' : '') . '>Alta</option></select></div></div><div class="grid cols-2"><div class="field"><label>Alergias</label><textarea name="allergies">' . h($value('allergies')) . '</textarea></div><div class="field"><label>Medicamentos</label><textarea name="medications">' . h($value('medications')) . '</textarea></div></div><div class="grid cols-2"><div class="field"><label>Condições de saúde</label><textarea name="health_conditions">' . h($value('health_conditions')) . '</textarea></div><div class="field"><label>Condições de pele</label><textarea name="skin_conditions">' . h($value('skin_conditions')) . '</textarea></div></div><div class="grid cols-2"><div class="field"><label>Histórico de queloide</label><input name="keloid_history" value="' . h($value('keloid_history')) . '"></div><div class="field"><label>Uso de anticoagulantes</label><input name="anticoagulants" value="' . h($value('anticoagulants')) . '"></div></div><div class="grid cols-2"><div class="field"><label>Diabetes</label><input name="diabetes" value="' . h($value('diabetes')) . '"></div><div class="field"><label>Problemas de cicatrização</label><input name="healing_issues" value="' . h($value('healing_issues')) . '"></div></div></div>';
+        echo '<div class="panel soft" style="margin-top:12px"><h2>Consentimentos e comunicação</h2><div class="grid cols-2"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . $checked('data_processing_consent') . '> Autorizo o tratamento dos meus dados para atendimento</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . $checked('marketing_opt_in') . '> Quero receber marketing</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . $checked('whatsapp_opt_in') . '> Autorizo mensagens por WhatsApp</label><label class="checkline"><input type="checkbox" name="sms_opt_in" value="1"' . $checked('sms_opt_in') . '> Autorizo mensagens por SMS</label><label class="checkline"><input type="checkbox" name="email_opt_in" value="1"' . $checked('email_opt_in') . '> Autorizo mensagens por email</label><label class="checkline"><input type="checkbox" name="push_opt_in" value="1"' . $checked('push_opt_in') . '> Autorizo notificações push no futuro</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . $checked('social_network_opt_in') . '> Aceito marcação nas redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . $checked('share_before_after_opt_in') . '> Autorizo uso de fotos antes/depois</label></div><div class="field"><label>Canais preferidos</label><input name="marketing_channels" value="' . h($value('marketing_channels')) . '" placeholder="WhatsApp, email, push..."></div><div class="field"><label>Redes sociais</label><input name="social_networks" value="' . h($value('social_networks')) . '" placeholder="@perfil no Instagram, TikTok, etc."></div></div>';
+        echo '<div class="panel soft" style="margin-top:12px"><h2>Observações finais</h2><div class="field"><label>Observações</label><textarea name="notes">' . h($value('notes')) . '</textarea></div></div>';
+        echo '<button class="btn" type="submit">Salvar cadastro completo</button>';
         if ($missingFields) {
-            echo '<p class="muted" style="margin-top:12px">Faltando: ' . h(implode(', ', array_values($missingFields))) . '</p>';
+            echo '<p class="muted" style="margin-top:12px">Campos ainda em branco: ' . h(implode(', ', array_values($missingFields))) . '</p>';
         }
         echo '</form></section>';
     }, null);
@@ -258,23 +274,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
                 throw new RuntimeException('Link expirado ou invalido.');
             }
-            $payload = [
-                'id' => $leadId,
-                'customer_id' => (int)($lead['customer_id'] ?? 0),
+            $customerId = (int)($lead['customer_id'] ?? 0);
+            $customerPayload = array_merge($_POST, [
+                'id' => $customerId > 0 ? $customerId : null,
                 'name' => trim((string)($_POST['name'] ?? $lead['name'] ?? '')),
                 'phone' => trim((string)($_POST['phone'] ?? $lead['phone'] ?? '')),
-                'interest' => trim((string)($_POST['interest'] ?? $lead['interest'] ?? '')),
-                'status' => trim((string)($lead['status'] ?? 'novo')),
-                'pipeline_stage' => trim((string)($lead['pipeline_stage'] ?? 'entrada')),
-                'lead_score' => (int)($lead['lead_score'] ?? 0),
-                'estimated_value' => (string)($lead['estimated_value'] ?? '0'),
-                'source' => trim((string)($lead['source'] ?? 'manual')),
-                'public_update_token' => $token,
-            ];
-            if (trim($payload['name']) === '' && trim($payload['phone']) === '') {
+                'email' => trim((string)($_POST['email'] ?? '')),
+                'instagram' => trim((string)($_POST['instagram'] ?? '')),
+                'notes' => trim((string)($_POST['notes'] ?? '')),
+            ]);
+            if (trim((string)($customerPayload['name'] ?? '')) === '' && trim((string)($customerPayload['phone'] ?? '')) === '') {
                 throw new RuntimeException('Preencha pelo menos um campo de contato.');
             }
-            studio_save_lead($studio, $payload);
+            $savedCustomerId = studio_save_customer($studio, $customerPayload);
+            $leadStmt = studio_db($studio)->prepare('UPDATE leads SET customer_id = ?, name = COALESCE(NULLIF(?, ""), name), phone = COALESCE(NULLIF(?, ""), phone), interest = COALESCE(NULLIF(?, ""), interest), updated_at = NOW() WHERE id = ?');
+            $leadStmt->execute([
+                $savedCustomerId,
+                trim((string)($_POST['name'] ?? $lead['name'] ?? '')),
+                trim((string)($_POST['phone'] ?? $lead['phone'] ?? '')),
+                trim((string)($_POST['interest'] ?? $lead['interest'] ?? '')),
+                $leadId,
+            ]);
             flash_set('success', 'Cadastro atualizado. Obrigado!');
             redirect_to('lead_public_update', ['lead' => $leadId, 'token' => $token]);
         }
@@ -1484,7 +1504,8 @@ if ($page === 'studio_customer') {
 
         echo '<section class="lead-detail-head">';
         echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>' . h($customer['name'] ?: 'Cliente sem nome') . '</h2><p class="muted">' . h(($customer['phone'] ?: 'Sem telefone') . ' | ' . ($customer['instagram'] ?: 'sem Instagram')) . '</p></div><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Voltar</a></div>';
-        echo '<p>' . h($customer['notes'] ?: 'Sem observacoes cadastradas.') . '</p>';
+        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customer['email'] ?: 'Sem email') . '</strong><p class="muted" style="margin:4px 0 0">Email</p></div><div class="panel soft"><strong>' . h($customer['birth_date'] ?: 'Sem data de nascimento') . '</strong><p class="muted" style="margin:4px 0 0">Nascimento</p></div></div>';
+        echo '<div class="grid cols-2" style="margin-top:12px"><div class="panel soft"><strong>' . h($customer['body_area'] ?: 'Sem região do corpo') . '</strong><p class="muted" style="margin:4px 0 0">Área</p></div><div class="panel soft"><strong>' . h($customer['reference_style'] ?: 'Sem referência') . '</strong><p class="muted" style="margin:4px 0 0">Estilo</p></div></div>';
         echo '<div class="mini-metrics"><span><strong>' . h((string)count($activity['leads'])) . '</strong><small>Leads</small></span><span><strong>' . h((string)count($activity['appointments'])) . '</strong><small>Agendamentos</small></span><span><strong>' . h((string)count($activity['conversations'])) . '</strong><small>Conversas</small></span></div>';
         echo '</div>';
 
@@ -1493,7 +1514,22 @@ if ($page === 'studio_customer') {
         echo '<input type="hidden" name="action" value="save_customer"><input type="hidden" name="id" value="' . h((string)$customerId) . '"><input type="hidden" name="return_to_detail" value="1">';
         echo '<h2>Editar ficha</h2>';
         echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" required value="' . h($customer['name'] ?? '') . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($customer['phone'] ?? '') . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($customer['email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($customer['instagram'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="email" inputmode="email" name="email" value="' . h($customer['email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($customer['instagram'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($customer['birth_date'] ?? '') . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($customer['document_number'] ?? '') . '"></div><div class="field"><label>Profissão</label><input name="occupation" value="' . h($customer['occupation'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($customer['address_zip'] ?? '') . '"></div><div class="field"><label>Rua</label><input name="address_street" value="' . h($customer['address_street'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Número</label><input name="address_number" value="' . h($customer['address_number'] ?? '') . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($customer['address_complement'] ?? '') . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($customer['address_neighborhood'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-3"><div class="field"><label>Cidade</label><input name="address_city" value="' . h($customer['address_city'] ?? '') . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($customer['address_state'] ?? '') . '"></div><div class="field"><label>Referência</label><input name="address_reference" value="' . h($customer['address_reference'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Contato de emergência</label><input name="emergency_contact_name" value="' . h($customer['emergency_contact_name'] ?? '') . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($customer['emergency_contact_phone'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Região do corpo</label><input name="body_area" value="' . h($customer['body_area'] ?? '') . '"></div><div class="field"><label>Estilo de referência</label><input name="reference_style" value="' . h($customer['reference_style'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Já possui tatuagens?</label><textarea name="previous_tattoos">' . h($customer['previous_tattoos'] ?? '') . '</textarea></div><div class="field"><label>Resistência à dor</label><select name="pain_tolerance">';
+        render_options(['' => 'Selecionar', 'baixa' => 'Baixa', 'media' => 'Média', 'alta' => 'Alta'], (string)($customer['pain_tolerance'] ?? ''));
+        echo '</select></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Alergias</label><textarea name="allergies">' . h($customer['allergies'] ?? '') . '</textarea></div><div class="field"><label>Medicamentos</label><textarea name="medications">' . h($customer['medications'] ?? '') . '</textarea></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Condições de saúde</label><textarea name="health_conditions">' . h($customer['health_conditions'] ?? '') . '</textarea></div><div class="field"><label>Condições de pele</label><textarea name="skin_conditions">' . h($customer['skin_conditions'] ?? '') . '</textarea></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Histórico de queloide</label><input name="keloid_history" value="' . h($customer['keloid_history'] ?? '') . '"></div><div class="field"><label>Uso de anticoagulantes</label><input name="anticoagulants" value="' . h($customer['anticoagulants'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Diabetes</label><input name="diabetes" value="' . h($customer['diabetes'] ?? '') . '"></div><div class="field"><label>Problemas de cicatrização</label><input name="healing_issues" value="' . h($customer['healing_issues'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . (!empty($customer['data_processing_consent']) ? ' checked' : '') . '> Consentimento LGPD</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . (!empty($customer['marketing_opt_in']) ? ' checked' : '') . '> Quer receber marketing</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . (!empty($customer['whatsapp_opt_in']) ? ' checked' : '') . '> WhatsApp</label><label class="checkline"><input type="checkbox" name="sms_opt_in" value="1"' . (!empty($customer['sms_opt_in']) ? ' checked' : '') . '> SMS</label><label class="checkline"><input type="checkbox" name="email_opt_in" value="1"' . (!empty($customer['email_opt_in']) ? ' checked' : '') . '> Email</label><label class="checkline"><input type="checkbox" name="push_opt_in" value="1"' . (!empty($customer['push_opt_in']) ? ' checked' : '') . '> Push futuro</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . (!empty($customer['social_network_opt_in']) ? ' checked' : '') . '> Marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . (!empty($customer['share_before_after_opt_in']) ? ' checked' : '') . '> Antes/depois</label></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Canais preferidos</label><input name="marketing_channels" value="' . h($customer['marketing_channels'] ?? '') . '"></div><div class="field"><label>Redes sociais</label><input name="social_networks" value="' . h($customer['social_networks'] ?? '') . '"></div></div>';
         echo '<div class="field"><label>Observacoes</label><textarea name="notes">' . h($customer['notes'] ?? '') . '</textarea></div>';
         echo '<button class="btn" type="submit">Salvar ficha</button>';
         echo '</form></section>';

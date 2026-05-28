@@ -4058,17 +4058,14 @@ function studio_data_assistant_answer(array $studio, string $question): array
 function studio_save_customer(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
+    studio_ensure_customer_columns($studio);
     $id = (int)($data['id'] ?? 0);
-    $values = [
-        trim((string)($data['name'] ?? '')),
-        trim((string)($data['phone'] ?? '')),
-        strtolower(trim((string)($data['email'] ?? ''))),
-        trim((string)($data['instagram'] ?? '')),
-        trim((string)($data['notes'] ?? '')),
-    ];
+    $values = studio_customer_payload_values($data);
+    $columns = studio_customer_columns();
 
     if ($id > 0) {
-        $stmt = $pdo->prepare('UPDATE customers SET name = ?, phone = ?, email = ?, instagram = ?, notes = ?, updated_at = NOW() WHERE id = ?');
+        $assignments = implode(', ', array_map(static fn(string $column): string => $column . ' = ?', $columns));
+        $stmt = $pdo->prepare('UPDATE customers SET ' . $assignments . ', updated_at = NOW() WHERE id = ?');
         $stmt->execute([...$values, $id]);
         return $id;
     }
@@ -4078,10 +4075,174 @@ function studio_save_customer(array $studio, array $data): int
         throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
     }
 
-    $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
+    $stmt = $pdo->prepare('INSERT INTO customers (' . implode(', ', $columns) . ', created_at, updated_at) VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ', NOW(), NOW())');
     $stmt->execute($values);
 
     return (int)$pdo->lastInsertId();
+}
+
+function studio_customer_columns(): array
+{
+    return [
+        'name',
+        'phone',
+        'email',
+        'instagram',
+        'birth_date',
+        'document_number',
+        'gender',
+        'occupation',
+        'address_zip',
+        'address_street',
+        'address_number',
+        'address_complement',
+        'address_neighborhood',
+        'address_city',
+        'address_state',
+        'address_reference',
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'allergies',
+        'medications',
+        'health_conditions',
+        'skin_conditions',
+        'pregnant_or_breastfeeding',
+        'keloid_history',
+        'anticoagulants',
+        'diabetes',
+        'healing_issues',
+        'body_area',
+        'reference_style',
+        'previous_tattoos',
+        'pain_tolerance',
+        'marketing_opt_in',
+        'marketing_channels',
+        'sms_opt_in',
+        'whatsapp_opt_in',
+        'email_opt_in',
+        'push_opt_in',
+        'social_network_opt_in',
+        'social_networks',
+        'share_before_after_opt_in',
+        'data_processing_consent',
+        'notes',
+    ];
+}
+
+function studio_customer_payload_values(array $data): array
+{
+    $optIn = static function (mixed $value): int {
+        if (is_bool($value)) {
+            return $value ? 1 : 0;
+        }
+        $normalized = strtolower(trim((string)$value));
+        return in_array($normalized, ['1', 'true', 'on', 'yes', 'sim', 'checked'], true) ? 1 : 0;
+    };
+    $checkboxes = static function (array $keys) use ($data, $optIn): array {
+        $values = [];
+        foreach ($keys as $key) {
+            $values[] = $optIn($data[$key] ?? 0);
+        }
+        return $values;
+    };
+    return [
+        trim((string)($data['name'] ?? '')),
+        trim((string)($data['phone'] ?? '')),
+        strtolower(trim((string)($data['email'] ?? ''))),
+        trim((string)($data['instagram'] ?? '')),
+        trim((string)($data['birth_date'] ?? '')) ?: null,
+        trim((string)($data['document_number'] ?? '')),
+        trim((string)($data['gender'] ?? '')),
+        trim((string)($data['occupation'] ?? '')),
+        trim((string)($data['address_zip'] ?? '')),
+        trim((string)($data['address_street'] ?? '')),
+        trim((string)($data['address_number'] ?? '')),
+        trim((string)($data['address_complement'] ?? '')),
+        trim((string)($data['address_neighborhood'] ?? '')),
+        trim((string)($data['address_city'] ?? '')),
+        trim((string)($data['address_state'] ?? '')),
+        trim((string)($data['address_reference'] ?? '')),
+        trim((string)($data['emergency_contact_name'] ?? '')),
+        trim((string)($data['emergency_contact_phone'] ?? '')),
+        trim((string)($data['allergies'] ?? '')),
+        trim((string)($data['medications'] ?? '')),
+        trim((string)($data['health_conditions'] ?? '')),
+        trim((string)($data['skin_conditions'] ?? '')),
+        trim((string)($data['pregnant_or_breastfeeding'] ?? '')),
+        trim((string)($data['keloid_history'] ?? '')),
+        trim((string)($data['anticoagulants'] ?? '')),
+        trim((string)($data['diabetes'] ?? '')),
+        trim((string)($data['healing_issues'] ?? '')),
+        trim((string)($data['body_area'] ?? '')),
+        trim((string)($data['reference_style'] ?? '')),
+        trim((string)($data['previous_tattoos'] ?? '')),
+        trim((string)($data['pain_tolerance'] ?? '')),
+        $optIn($data['marketing_opt_in'] ?? 0),
+        trim((string)($data['marketing_channels'] ?? '')),
+        $optIn($data['sms_opt_in'] ?? 0),
+        $optIn($data['whatsapp_opt_in'] ?? 0),
+        $optIn($data['email_opt_in'] ?? 0),
+        $optIn($data['push_opt_in'] ?? 0),
+        $optIn($data['social_network_opt_in'] ?? 0),
+        trim((string)($data['social_networks'] ?? '')),
+        $optIn($data['share_before_after_opt_in'] ?? 0),
+        $optIn($data['data_processing_consent'] ?? 0),
+        trim((string)($data['notes'] ?? '')),
+    ];
+}
+
+function studio_ensure_customer_columns(array $studio): void
+{
+    static $done = [];
+    $studioId = (int)($studio['id'] ?? 0);
+    if ($studioId > 0 && isset($done[$studioId])) {
+        return;
+    }
+    try {
+        $pdo = studio_db($studio);
+        $pdo->exec('ALTER TABLE customers
+            ADD COLUMN IF NOT EXISTS birth_date DATE NULL AFTER instagram,
+            ADD COLUMN IF NOT EXISTS document_number VARCHAR(60) NULL AFTER birth_date,
+            ADD COLUMN IF NOT EXISTS gender VARCHAR(40) NULL AFTER document_number,
+            ADD COLUMN IF NOT EXISTS occupation VARCHAR(120) NULL AFTER gender,
+            ADD COLUMN IF NOT EXISTS address_zip VARCHAR(20) NULL AFTER occupation,
+            ADD COLUMN IF NOT EXISTS address_street VARCHAR(180) NULL AFTER address_zip,
+            ADD COLUMN IF NOT EXISTS address_number VARCHAR(30) NULL AFTER address_street,
+            ADD COLUMN IF NOT EXISTS address_complement VARCHAR(120) NULL AFTER address_number,
+            ADD COLUMN IF NOT EXISTS address_neighborhood VARCHAR(120) NULL AFTER address_complement,
+            ADD COLUMN IF NOT EXISTS address_city VARCHAR(120) NULL AFTER address_neighborhood,
+            ADD COLUMN IF NOT EXISTS address_state VARCHAR(40) NULL AFTER address_city,
+            ADD COLUMN IF NOT EXISTS address_reference VARCHAR(180) NULL AFTER address_state,
+            ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(160) NULL AFTER address_reference,
+            ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(40) NULL AFTER emergency_contact_name,
+            ADD COLUMN IF NOT EXISTS allergies TEXT NULL AFTER emergency_contact_phone,
+            ADD COLUMN IF NOT EXISTS medications TEXT NULL AFTER allergies,
+            ADD COLUMN IF NOT EXISTS health_conditions TEXT NULL AFTER medications,
+            ADD COLUMN IF NOT EXISTS skin_conditions TEXT NULL AFTER health_conditions,
+            ADD COLUMN IF NOT EXISTS pregnant_or_breastfeeding VARCHAR(80) NULL AFTER skin_conditions,
+            ADD COLUMN IF NOT EXISTS keloid_history VARCHAR(120) NULL AFTER pregnant_or_breastfeeding,
+            ADD COLUMN IF NOT EXISTS anticoagulants VARCHAR(120) NULL AFTER keloid_history,
+            ADD COLUMN IF NOT EXISTS diabetes VARCHAR(120) NULL AFTER anticoagulants,
+            ADD COLUMN IF NOT EXISTS healing_issues VARCHAR(160) NULL AFTER diabetes,
+            ADD COLUMN IF NOT EXISTS body_area VARCHAR(160) NULL AFTER healing_issues,
+            ADD COLUMN IF NOT EXISTS reference_style VARCHAR(160) NULL AFTER body_area,
+            ADD COLUMN IF NOT EXISTS previous_tattoos TEXT NULL AFTER reference_style,
+            ADD COLUMN IF NOT EXISTS pain_tolerance VARCHAR(40) NULL AFTER previous_tattoos,
+            ADD COLUMN IF NOT EXISTS marketing_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER pain_tolerance,
+            ADD COLUMN IF NOT EXISTS marketing_channels VARCHAR(120) NULL AFTER marketing_opt_in,
+            ADD COLUMN IF NOT EXISTS sms_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER marketing_channels,
+            ADD COLUMN IF NOT EXISTS whatsapp_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER sms_opt_in,
+            ADD COLUMN IF NOT EXISTS email_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER whatsapp_opt_in,
+            ADD COLUMN IF NOT EXISTS push_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER email_opt_in,
+            ADD COLUMN IF NOT EXISTS social_network_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER push_opt_in,
+            ADD COLUMN IF NOT EXISTS social_networks VARCHAR(180) NULL AFTER social_network_opt_in,
+            ADD COLUMN IF NOT EXISTS share_before_after_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER social_networks,
+            ADD COLUMN IF NOT EXISTS data_processing_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER share_before_after_opt_in');
+    } catch (Throwable) {
+    }
+    if ($studioId > 0) {
+        $done[$studioId] = true;
+    }
 }
 
 function studio_ensure_lead_public_update_token_column(array $studio): void
@@ -5125,7 +5286,7 @@ function studio_find_or_create_customer_from_import(array $studio, array $item, 
         return $existing;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, "", "", ?, NOW(), NOW())');
+    $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
     $stmt->execute([$item['name'], $item['phone'], 'Importado do Google Agenda. Titulo original: ' . $item['raw_title']]);
     $result['customers_created']++;
 
