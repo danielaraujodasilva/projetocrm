@@ -3610,54 +3610,37 @@ if ($page === 'studio_settings') {
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
         }
+        echo '<div class="settings-overview-grid">';
+        $settingsCards = [
+            'studio' => ['Est?dio', 'Dados base e integra??o'],
+            'agenda' => ['Agenda', 'Regras de hor?rio e dura??o'],
+            'whatsapp' => ['WhatsApp', 'Entrada e comportamento'],
+            'ia' => ['IA', 'Modelo, chave e automa??o'],
+            'quick_replies' => ['Respostas r?pidas', 'Biblioteca do atendimento'],
+            'rules' => ['Regras comerciais', 'Contexto para a IA'],
+        ];
+        foreach ($settingsCards as $key => [$title, $subtitle]) {
+            echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
+        }
+        echo '</div>';
+        echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configura??es</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
         echo '<form class="form panel" method="post" id="studioSettingsForm">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';
         echo '<input type="hidden" name="settings_tab" value="' . h($activeTab) . '">';
-        echo '<div id="topo-configuracoes" class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Configuracoes do estudio</h2><p class="muted">Separadas por assunto para ficar mais simples de mexer no dia a dia.</p></div><span class="badge">Operacao</span></div>';
-        echo '<div class="settings-tabs" role="tablist" aria-label="Configuracoes">';
-        $tabs = [
-            'studio' => 'Estúdio',
-            'agenda' => 'Agenda',
-            'whatsapp' => 'WhatsApp',
-            'ia' => 'IA',
-            'quick_replies' => 'Respostas rápidas',
-            'rules' => 'Regras comerciais',
-        ];
-        $tabAnchors = [
-            'studio' => 'settings-studio',
-            'agenda' => 'settings-agenda',
-            'whatsapp' => 'settings-whatsapp',
-            'ia' => 'settings-ia',
-            'quick_replies' => 'settings-quick-replies',
-            'rules' => 'settings-rules',
-        ];
-        foreach ($tabs as $key => $label) {
-            $activeClass = $activeTab === $key ? ' active' : '';
-            echo '<a class="settings-tab' . h($activeClass) . '" data-settings-tab="' . h($key) . '" aria-selected="' . ($activeTab === $key ? 'true' : 'false') . '" href="' . h(app_url('studio_settings', ['tab' => $key])) . '#' . h($tabAnchors[$key] ?? 'settings-studio') . '">' . h($label) . '</a>';
-        }
-        echo '</div>';
-
-        echo '<div class="settings-panel" id="settings-studio" data-settings-panel="studio">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Estúdio</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div id="settingsSourceStudio" hidden><div class="settings-panel" id="settings-studio" data-settings-panel="studio">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Est?dio</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
-        echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integração</label></div>';
+        echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integra??o</label></div>';
         echo '</div>';
-        echo '</div>';
-
-        $workDaysRaw = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
-        $selectedWorkDays = array_values(array_filter(array_map('trim', explode(',', $workDaysRaw)), static fn($value) => $value !== ''));
-        $dayOptions = ['1' => 'Segunda', '2' => 'Terça', '3' => 'Quarta', '4' => 'Quinta', '5' => 'Sexta', '6' => 'Sábado', '7' => 'Domingo'];
-        $durationMinutes = max(0, (int)($settings['appointment_duration_minutes'] ?? '300'));
-        $durationHours = intdiv($durationMinutes, 60);
-        $durationMins = $durationMinutes % 60;
-        echo '<div class="settings-panel" id="settings-agenda" data-settings-panel="agenda">';
+        echo '</div></div>';
+        echo '<div id="settingsSourceAgenda" hidden><div class="settings-panel" id="settings-agenda" data-settings-panel="agenda">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Agenda</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="panel soft">';
         echo '<h3 style="margin-top:0">Regras de agenda</h3>';
         echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Dias da semana disponíveis</label><div class="weekday-picker">';
+        echo '<div class="field"><label>Dias da semana dispon?veis</label><div class="weekday-picker">';
         foreach ($dayOptions as $dayValue => $dayLabel) {
             $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5'], true));
             echo '<label class="weekday-pill' . ($checked ? ' is-active' : '') . '">';
@@ -3665,12 +3648,12 @@ if ($page === 'studio_settings') {
             echo '<span>' . h($dayLabel) . '</span>';
             echo '</label>';
         }
-        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrão vem de segunda a sexta.</small></div>';
-        echo '<div class="field"><label>Horários disponíveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por vírgula. Ex: 10:00,15:00</small></div>';
-        echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale só para novos agendamentos. Os antigos mantêm o preço salvo neles.</small></div>';
+        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padr?o vem de segunda a sexta.</small></div>';
+        echo '<div class="field"><label>Hor?rios dispon?veis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por v?rgula. Ex: 10:00,15:00</small></div>';
+        echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale s? para novos agendamentos. Os antigos mant?m o pre?o salvo neles.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Duração do atendimento</label><div class="duration-picker">';
+        echo '<div class="field"><label>Dura??o do atendimento</label><div class="duration-picker">';
         echo '<label><span>Horas</span><select name="appointment_duration_hours">';
         for ($hours = 0; $hours <= 12; $hours++) {
             echo '<option value="' . $hours . '"' . ($hours === $durationHours ? ' selected' : '') . '>' . $hours . '</option>';
@@ -3681,25 +3664,23 @@ if ($page === 'studio_settings') {
             echo '<option value="' . $minutes . '"' . ($minutes === $durationMins ? ' selected' : '') . '>' . str_pad((string)$minutes, 2, '0', STR_PAD_LEFT) . '</option>';
         }
         echo '</select></label>';
-        echo '</div><small class="muted">O fim será calculado automaticamente. Ex: 5 horas = 10:00 até 15:00.</small></div>';
+        echo '</div><small class="muted">O fim ser? calculado automaticamente. Ex: 5 horas = 10:00 at? 15:00.</small></div>';
         echo '</div>';
-        echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
-        echo '<div class="field"><label>Mensagem de confirmação do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
-        echo '</div>';
-
-        echo '<div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
+        echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} ?s {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro hor?rio e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} ?s {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro hor?rio e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita vari?veis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
+        echo '<div class="field"><label>Mensagem de confirma??o do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sess?o est? confirmada para {{date}} ?s {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sess?o est? confirmada para {{date}} ?s {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita vari?veis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
+        echo '</div></div>';
+        echo '<div id="settingsSourceWhatsapp" hidden><div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">WhatsApp</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Padrao das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
+        echo '<div class="field"><label>Padr?o das novas conversas WhatsApp</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select></div>';
-        echo '<div class="field"><label>URL do servico Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
+        echo '<div class="field"><label>URL do servi?o Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"></div>';
         echo '</div>';
         echo '<div class="field"><label>Frases iniciais da campanha META</label><textarea name="meta_campaign_phrases" placeholder="Tenho interesse no fechamento!&#10;Quero fechar minha tattoo!">' . h($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!") . '</textarea><small class="muted">Use uma frase por linha. O card da home vai contar conversas/leads cuja primeira mensagem recebida bater com uma dessas frases.</small></div>';
         echo '<p class="muted">Controle a porta de entrada e o modo inicial das conversas do WhatsApp.</p>';
-        echo '</div>';
-
-        echo '<div class="settings-panel" id="settings-ia" data-settings-panel="ia">';
+        echo '</div></div>';
+        echo '<div id="settingsSourceIa" hidden><div class="settings-panel" id="settings-ia" data-settings-panel="ia">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">IA</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
@@ -3707,60 +3688,20 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($settings['ai_api_base_url'] ?? 'http://localhost:11434/v1') . '" placeholder="http://localhost:11434/v1"><small class="muted">Use a URL do servidor local ou da API escolhida.</small></div>';
-        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha só se usar OpenAI.</small></div>';
+        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha s? se usar OpenAI.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
+        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo tamb?m define o modelo local.</small></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugest?es automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
         echo '</div>';
-        echo '</div>';
-
-        echo '<div class="settings-panel" id="settings-rules" data-settings-panel="rules">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Regras comerciais</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
-        echo '<div class="field"><label>Regras e informações para IA</label><textarea name="business_rules" placeholder="Exemplo: Estúdio aberto de terça a sábado. Dois tatuadores. Responder sempre em português do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigatório. Não inventar preço. Se faltar informação, perguntar só uma coisa por vez. Priorize datas, horários e referências reais do estúdio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do estúdio, tom de atendimento, limites e informações que a IA deve respeitar sempre.</small></div>';
-        echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Você é o assistente do estúdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em português já pronto.</small></div>';
-        echo '</div>';
-
-        echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit" form="studioSettingsForm">Salvar configurações</button></div>';
-        echo '</form>';
-
-        echo '<div class="settings-panel" id="settings-tattooers" data-settings-panel="tattooers">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Tatuadores</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
-        echo '<div class="panel soft">';
-        echo '<p class="muted">Cadastre e gerencie os tatuadores que aparecem na agenda e nos agendamentos do estúdio.</p>';
-        render_artists_table($artists);
-        echo '<form class="form" method="post" style="margin-top:14px">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_artist">';
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" placeholder="Nome do tatuador" required></div><div class="field"><label>Cor</label><input type="color" name="color" value="#1f6f78"></div></div>';
-        echo '<div class="field"><label>Especialidade</label><input name="specialty" placeholder="Fine line, blackwork, realismo..."></div>';
-        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Tatuador ativo</label>';
-        echo '<button class="btn secondary" type="submit">Adicionar tatuador</button>';
-        echo '</form>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<div class="settings-panel" id="settings-quick-replies" data-settings-panel="quick_replies">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Respostas rápidas</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
-        echo '<div class="actions" style="justify-content:space-between"><div><p class="muted">Esses textos prontos ficam disponíveis no atendimento e continuam editáveis por aqui.</p></div><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
-        $replies = studio_list_quick_replies($studio);
-        echo '<div class="grid cols-2">';
-        echo '<form class="form panel" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_quick_reply">';
-        echo '<input type="hidden" name="return_to_settings" value="1">';
-        echo '<input type="hidden" name="settings_tab" value="quick_replies">';
-        echo '<div class="field"><label>Titulo</label><input name="title" required></div>';
-        echo '<div class="field"><label>Atalho</label><input name="shortcut" placeholder="/atalho"></div>';
-        echo '<div class="field"><label>Categoria</label><input name="category" value="Geral"></div>';
-        echo '<div class="field"><label>Texto</label><textarea name="body" required placeholder="Mensagem pronta para usar no atendimento..."></textarea></div>';
-        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Resposta ativa</label>';
-        echo '<button class="btn" type="submit">Salvar resposta</button>';
-        echo '</form>';
-        echo '<div class="panel"><h3 style="margin-top:0">Biblioteca atual</h3>';
-        render_quick_replies_table(array_slice($replies, 0, 12));
         echo '</div></div>';
-        echo '</div>';
+        echo '<div id="settingsSourceRules" hidden><div class="settings-panel" id="settings-rules" data-settings-panel="rules">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Regras comerciais</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="field"><label>Regras e informa??es para IA</label><textarea name="business_rules" placeholder="Exemplo: Est?dio aberto de ter?a a s?bado. Dois tatuadores. Responder sempre em portugu?s do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigat?rio. N?o inventar pre?o. Se faltar informa??o, perguntar s? uma coisa por vez. Priorize datas, hor?rios e refer?ncias reais do est?dio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do est?dio, tom de atendimento, limites e informa??es que a IA deve respeitar sempre.</small></div>';
+        echo '<div class="field"><label>Texto-base da IA para WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Voc? ? o assistente do est?dio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Se vazio, o sistema usa um texto-base em portugu?s j? pronto.</small></div>';
+        echo '</div></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configura??es</button></div>';
+        echo '</form>';
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
