@@ -3606,6 +3606,18 @@ if ($page === 'studio_settings') {
         $settings = studio_settings($studio);
         $artists = studio_list_artists($studio);
         $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
+        $dayOptions = [
+            '0' => 'Domingo',
+            '1' => 'Segunda',
+            '2' => 'Terça',
+            '3' => 'Quarta',
+            '4' => 'Quinta',
+            '5' => 'Sexta',
+            '6' => 'Sábado',
+        ];
+        $selectedWorkDays = array_values(array_filter(array_map('strval', (array)($settings['appointment_work_days'] ?? ['1', '2', '3', '4', '5']))));
+        $durationHours = max(0, (int)($settings['appointment_duration_hours'] ?? 5));
+        $durationMins = max(0, min(45, (int)($settings['appointment_duration_minutes_part'] ?? 0)));
         $activeTab = (string)($_GET['tab'] ?? 'studio');
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
