@@ -1125,14 +1125,6 @@ if ($page === 'studio_home') {
                 'tone' => 'warn',
             ];
         }
-        if ($todayAppointmentsCount > 0) {
-            $alerts[] = [
-                'title' => 'Agendamentos de hoje',
-                'description' => 'Você tem ' . $todayAppointmentsCount . ' agendamentos marcados para hoje.',
-                'href' => app_url('studio_agenda', ['date' => $todayIso]),
-                'tone' => 'ok',
-            ];
-        }
         if (plan_allows('whatsapp')) {
             if (($whatsappStatusData['ok'] ?? false) && in_array((string)($whatsappStatusData['status'] ?? ''), ['disconnected', 'error'], true)) {
                 $alerts[] = [
@@ -1370,12 +1362,12 @@ if ($page === 'studio_home') {
         if (!$alerts) {
             echo '<p class="muted">Sem alertas importantes no momento.</p>';
         } else {
-            echo '<div class="alert-grid">';
+            echo '<ul class="alert-list">';
             foreach ($alerts as $alert) {
                 $tone = (string)($alert['tone'] ?? 'warn');
-                echo '<article class="alert-card"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><p>' . h($alert['description'] ?? '') . '</p>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir área</a>' : '') . '</article>';
+                echo '<li class="alert-list-item"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><span class="alert-list-text">' . h($alert['description'] ?? '') . '</span>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir área</a>' : '') . '</li>';
             }
-            echo '</div>';
+            echo '</ul>';
         }
         echo '</section>';
     }, $flash);
