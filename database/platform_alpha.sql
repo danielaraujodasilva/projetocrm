@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS `public_lead_links` (
   `lead_id` BIGINT UNSIGNED NOT NULL,
   `token` VARCHAR(64) NOT NULL,
   `lead_customer_id` BIGINT UNSIGNED NULL,
+  `draft_payload` LONGTEXT NULL,
+  `last_step` VARCHAR(40) NULL,
+  `finished_at` DATETIME NULL,
   `last_accessed_at` DATETIME NULL,
   `last_ip_hash` VARCHAR(120) NULL,
   `last_user_agent` VARCHAR(255) NULL,
@@ -136,6 +139,21 @@ CREATE TABLE IF NOT EXISTS `public_lead_links` (
   CONSTRAINT `fk_public_lead_links_studio`
     FOREIGN KEY (`studio_id`) REFERENCES `studios` (`id`)
     ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `public_lead_events` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `studio_id` INT UNSIGNED NOT NULL,
+  `lead_id` BIGINT UNSIGNED NOT NULL,
+  `token` VARCHAR(64) NOT NULL,
+  `event_name` VARCHAR(60) NOT NULL,
+  `event_payload` LONGTEXT NULL,
+  `ip_hash` VARCHAR(120) NULL,
+  `user_agent` VARCHAR(255) NULL,
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_public_lead_events_lookup` (`studio_id`, `lead_id`, `event_name`, `created_at`),
+  KEY `idx_public_lead_events_token` (`token`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `commercial_plans`

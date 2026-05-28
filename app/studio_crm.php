@@ -2166,6 +2166,9 @@ function studio_ensure_public_lead_links_column(): void
                 `lead_id` BIGINT UNSIGNED NOT NULL,
                 `token` VARCHAR(64) NOT NULL,
                 `lead_customer_id` BIGINT UNSIGNED NULL,
+                `draft_payload` LONGTEXT NULL,
+                `last_step` VARCHAR(40) NULL,
+                `finished_at` DATETIME NULL,
                 `last_accessed_at` DATETIME NULL,
                 `last_ip_hash` VARCHAR(120) NULL,
                 `last_user_agent` VARCHAR(255) NULL,
@@ -2175,6 +2178,35 @@ function studio_ensure_public_lead_links_column(): void
                 UNIQUE KEY `uk_public_lead_links_token` (`token`),
                 UNIQUE KEY `uk_public_lead_links_studio_lead` (`studio_id`, `lead_id`),
                 KEY `idx_public_lead_links_studio` (`studio_id`, `created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    } catch (Throwable) {
+    }
+    $done = true;
+}
+
+function studio_ensure_public_lead_events_column(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    try {
+        $pdo = db();
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS `public_lead_events` (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `studio_id` INT UNSIGNED NOT NULL,
+                `lead_id` BIGINT UNSIGNED NOT NULL,
+                `token` VARCHAR(64) NOT NULL,
+                `event_name` VARCHAR(60) NOT NULL,
+                `event_payload` LONGTEXT NULL,
+                `ip_hash` VARCHAR(120) NULL,
+                `user_agent` VARCHAR(255) NULL,
+                `created_at` DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                KEY `idx_public_lead_events_lookup` (`studio_id`, `lead_id`, `event_name`, `created_at`),
+                KEY `idx_public_lead_events_token` (`token`, `created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
     } catch (Throwable) {
@@ -2197,6 +2229,80 @@ function studio_upsert_public_lead_link(array $studio, int $leadId, string $toke
         $stmt->execute([(int)$studio['id'], $leadId, $token, $customerId ?: null]);
     } catch (Throwable) {
     }
+}
+
+function studio_save_public_lead_progress(array $studio, int $leadId, string $token, array $payload, ?string $step = null, bool $finished = false): void
+{
+    studio_ensure_public_lead_links_column();
+    if ($leadId <= 0 || $token === '') {
+        return;
+    }
+    try {
+        $existing = studio_find_public_lead_link($leadId, $token);
+        $previousDraft = [];
+        if (is_array($existing) && !empty($existing['draft_payload'])) {
+            $decoded = json_decode((string)$existing['draft_payload'], true);
+            if (is_array($decoded)) {
+                $previousDraft = $decoded;
+            }
+        }
+        $merged = array_merge($previousDraft, array_filter($payload, static fn(mixed $value): bool => !($value === null || $value === '')));
+        $stmt = db()->prepare(
+            'INSERT INTO public_lead_links (studio_id, lead_id, token, draft_payload, last_step, finished_at, last_accessed_at, last_ip_hash, last_user_agent, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE draft_payload = VALUES(draft_payload), last_step = VALUES(last_step), finished_at = VALUES(finished_at), last_accessed_at = NOW(), last_ip_hash = VALUES(last_ip_hash), last_user_agent = VALUES(last_user_agent), updated_at = NOW()'
+        );
+        $stmt->execute([
+            (int)$studio['id'],
+            $leadId,
+            $token,
+            json_encode($merged, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            $step,
+            $finished ? date('Y-m-d H:i:s') : null,
+            studio_public_ip_hash(),
+            studio_public_user_agent(),
+        ]);
+    } catch (Throwable) {
+    }
+}
+
+function studio_log_public_lead_event(array $studio, int $leadId, string $token, string $eventName, array $payload = []): void
+{
+    studio_ensure_public_lead_events_column();
+    if ($leadId <= 0 || $token === '' || $eventName === '') {
+        return;
+    }
+    try {
+        $stmt = db()->prepare(
+            'INSERT INTO public_lead_events (studio_id, lead_id, token, event_name, event_payload, ip_hash, user_agent, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())'
+        );
+        $stmt->execute([
+            (int)$studio['id'],
+            $leadId,
+            $token,
+            $eventName,
+            $payload ? json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            studio_public_ip_hash(),
+            studio_public_user_agent(),
+        ]);
+    } catch (Throwable) {
+    }
+}
+
+function studio_public_ip_hash(): string
+{
+    $ip = (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
+    $ip = trim(explode(',', $ip)[0] ?? '');
+    if ($ip === '') {
+        return '';
+    }
+    return hash('sha256', $ip . '|' . (__FILE__ ?? 'projetocrm'));
+}
+
+function studio_public_user_agent(): string
+{
+    return mb_substr(trim((string)($_SERVER['HTTP_USER_AGENT'] ?? '')), 0, 255);
 }
 
 function studio_find_public_lead_link(int $leadId, string $token): ?array
@@ -4177,6 +4283,7 @@ function studio_customer_columns(): array
         'healing_issues',
         'body_area',
         'reference_style',
+        'reference_link',
         'previous_tattoos',
         'pain_tolerance',
         'marketing_opt_in',
@@ -4240,6 +4347,7 @@ function studio_customer_payload_values(array $data): array
         trim((string)($data['healing_issues'] ?? '')),
         trim((string)($data['body_area'] ?? '')),
         trim((string)($data['reference_style'] ?? '')),
+        trim((string)($data['reference_link'] ?? '')),
         trim((string)($data['previous_tattoos'] ?? '')),
         trim((string)($data['pain_tolerance'] ?? '')),
         $optIn($data['marketing_opt_in'] ?? 0),
@@ -4292,7 +4400,8 @@ function studio_ensure_customer_columns(array $studio): void
             ADD COLUMN IF NOT EXISTS healing_issues VARCHAR(160) NULL AFTER diabetes,
             ADD COLUMN IF NOT EXISTS body_area VARCHAR(160) NULL AFTER healing_issues,
             ADD COLUMN IF NOT EXISTS reference_style VARCHAR(160) NULL AFTER body_area,
-            ADD COLUMN IF NOT EXISTS previous_tattoos TEXT NULL AFTER reference_style,
+            ADD COLUMN IF NOT EXISTS reference_link VARCHAR(255) NULL AFTER reference_style,
+            ADD COLUMN IF NOT EXISTS previous_tattoos TEXT NULL AFTER reference_link,
             ADD COLUMN IF NOT EXISTS pain_tolerance VARCHAR(40) NULL AFTER previous_tattoos,
             ADD COLUMN IF NOT EXISTS marketing_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER pain_tolerance,
             ADD COLUMN IF NOT EXISTS marketing_channels VARCHAR(120) NULL AFTER marketing_opt_in,

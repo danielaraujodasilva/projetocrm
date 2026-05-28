@@ -36,6 +36,101 @@ $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
 
+if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $leadId = (int)($_POST['lead_id'] ?? 0);
+    $token = trim((string)($_POST['token'] ?? ''));
+    if ($leadId <= 0 || $token === '') {
+        http_response_code(404);
+        exit('Link invalido.');
+    }
+    studio_ensure_public_lead_links_column();
+    $link = studio_find_public_lead_link($leadId, $token);
+    if (!is_array($link) || empty($link['studio_id'])) {
+        http_response_code(404);
+        exit('Link invalido.');
+    }
+    $studio = get_studio((int)$link['studio_id']);
+    if (!$studio) {
+        http_response_code(404);
+        exit('Link invalido.');
+    }
+    $dbStatus = studio_db_status_for($studio);
+    if (!$dbStatus['ok']) {
+        http_response_code(503);
+        exit('Banco do estúdio indisponível.');
+    }
+    $lead = studio_find_lead($studio, $leadId);
+    if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
+        http_response_code(404);
+        exit('Link invalido.');
+    }
+    $payload = [
+        'name' => trim((string)($_POST['name'] ?? '')),
+        'phone' => trim((string)($_POST['phone'] ?? '')),
+        'interest' => trim((string)($_POST['interest'] ?? '')),
+        'body_area' => trim((string)($_POST['body_area'] ?? '')),
+        'reference_link' => trim((string)($_POST['reference_link'] ?? '')),
+        'best_contact_time' => trim((string)($_POST['best_contact_time'] ?? '')),
+        'allergies' => trim((string)($_POST['allergies'] ?? '')),
+        'medications' => trim((string)($_POST['medications'] ?? '')),
+        'health_conditions' => trim((string)($_POST['health_conditions'] ?? '')),
+        'skin_conditions' => trim((string)($_POST['skin_conditions'] ?? '')),
+        'keloid_history' => trim((string)($_POST['keloid_history'] ?? '')),
+        'anticoagulants' => trim((string)($_POST['anticoagulants'] ?? '')),
+        'diabetes' => trim((string)($_POST['diabetes'] ?? '')),
+        'healing_issues' => trim((string)($_POST['healing_issues'] ?? '')),
+        'data_processing_consent' => !empty($_POST['data_processing_consent']) ? '1' : '0',
+        'truthfulness_confirmed' => !empty($_POST['truthfulness_confirmed']) ? '1' : '0',
+        'marketing_opt_in' => !empty($_POST['marketing_opt_in']) ? '1' : '0',
+        'share_before_after_opt_in' => !empty($_POST['share_before_after_opt_in']) ? '1' : '0',
+        'social_network_opt_in' => !empty($_POST['social_network_opt_in']) ? '1' : '0',
+        'notes' => trim((string)($_POST['notes'] ?? '')),
+    ];
+    $action = (string)($_POST['action'] ?? 'public_lead_update');
+    if ($action === 'public_lead_autosave') {
+        studio_save_public_lead_progress($studio, $leadId, $token, $payload, (string)($_POST['step'] ?? 'draft'), false);
+        studio_log_public_lead_event($studio, $leadId, $token, (string)($_POST['step_event'] ?? 'started'), $payload);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    studio_save_public_lead_progress($studio, $leadId, $token, $payload, 'finished', true);
+    studio_log_public_lead_event($studio, $leadId, $token, 'finished', $payload);
+    $customerPayload = array_merge($payload, [
+        'id' => !empty($lead['customer_id']) ? (int)$lead['customer_id'] : null,
+        'email' => trim((string)($_POST['email'] ?? '')),
+        'instagram' => trim((string)($_POST['instagram'] ?? '')),
+        'birth_date' => trim((string)($_POST['birth_date'] ?? '')),
+        'document_number' => trim((string)($_POST['document_number'] ?? '')),
+        'occupation' => trim((string)($_POST['occupation'] ?? '')),
+        'address_zip' => trim((string)($_POST['address_zip'] ?? '')),
+        'address_street' => trim((string)($_POST['address_street'] ?? '')),
+        'address_number' => trim((string)($_POST['address_number'] ?? '')),
+        'address_complement' => trim((string)($_POST['address_complement'] ?? '')),
+        'address_neighborhood' => trim((string)($_POST['address_neighborhood'] ?? '')),
+        'address_city' => trim((string)($_POST['address_city'] ?? '')),
+        'address_state' => trim((string)($_POST['address_state'] ?? '')),
+        'address_reference' => trim((string)($_POST['address_reference'] ?? '')),
+        'emergency_contact_name' => trim((string)($_POST['emergency_contact_name'] ?? '')),
+        'emergency_contact_phone' => trim((string)($_POST['emergency_contact_phone'] ?? '')),
+        'previous_tattoos' => trim((string)($_POST['previous_tattoos'] ?? '')),
+        'pain_tolerance' => trim((string)($_POST['pain_tolerance'] ?? '')),
+        'social_networks' => trim((string)($_POST['social_networks'] ?? '')),
+        'whatsapp_opt_in' => !empty($_POST['whatsapp_opt_in']) ? '1' : '0',
+        'email_opt_in' => !empty($_POST['email_opt_in']) ? '1' : '0',
+        'sms_opt_in' => !empty($_POST['sms_opt_in']) ? '1' : '0',
+        'push_opt_in' => !empty($_POST['push_opt_in']) ? '1' : '0',
+        'marketing_channels' => trim((string)($_POST['marketing_channels'] ?? '')),
+        'reference_style' => trim((string)($_POST['reference_style'] ?? '')),
+        'notes' => trim((string)($_POST['notes'] ?? '')),
+    ]);
+    $savedCustomerId = studio_save_customer($studio, $customerPayload);
+    studio_db($studio)->prepare('UPDATE leads SET customer_id = ?, name = COALESCE(NULLIF(?, ""), name), phone = COALESCE(NULLIF(?, ""), phone), interest = COALESCE(NULLIF(?, ""), interest), updated_at = NOW() WHERE id = ?')
+        ->execute([$savedCustomerId, $payload['name'], $payload['phone'], $payload['interest'], $leadId]);
+    flash_set('success', 'Ficha enviada. Obrigado!');
+    redirect_to('lead_public_update', ['lead' => $leadId, 'token' => $token, 'done' => 1]);
+}
+
 if ($page === 'lead_public_update') {
     $leadId = (int)($_GET['lead'] ?? 0);
     $token = trim((string)($_GET['token'] ?? ''));
@@ -66,6 +161,18 @@ if ($page === 'lead_public_update') {
     if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
         http_response_code(404);
         echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
+        exit;
+    }
+    if (!empty($_GET['done'])) {
+        $studioPhone = preg_replace('/\D+/', '', (string)($studio['owner_phone'] ?? ''));
+        $waUrl = $studioPhone !== '' ? 'https://wa.me/55' . $studioPhone : '';
+        render_public_page('Ficha enviada', 'Obrigado por completar sua ficha.', function () use ($waUrl) {
+            echo '<div class="public-page-wrap" style="padding:40px 16px"><section class="panel" style="max-width:720px;margin:0 auto;text-align:center"><h1>Ficha enviada!</h1><p class="muted">Agora consigo analisar seu projeto com mais clareza e continuar seu atendimento sem ficar te perguntando tudo de novo.</p>';
+            if ($waUrl !== '') {
+                echo '<p style="margin-top:20px"><a class="btn" href="' . h($waUrl) . '" target="_blank" rel="noopener">Voltar para o WhatsApp</a></p>';
+            }
+            echo '</section></div>';
+        }, null);
         exit;
     }
     $customer = !empty($lead['customer_id']) ? studio_find_customer($studio, (int)$lead['customer_id']) : null;
