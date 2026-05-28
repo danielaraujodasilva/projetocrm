@@ -1541,7 +1541,7 @@ if ($page === 'studio_home') {
         $focus = (string)($_GET['focus'] ?? '');
         $homeDrilldowns = [
             'attention_leads' => [
-                'title' => 'Funil em aten??o',
+                'title' => 'Funil em aten&ccedil;&atilde;o',
                 'summary' => $attentionLeadsTotal . ' leads quentes, parados ou com retorno pendente.',
                 'type' => 'leads',
                 'items' => array_map(static function (array $lead): array {
@@ -1561,15 +1561,15 @@ if ($page === 'studio_home') {
                 }, $attentionLeads),
             ],
             'scheduled_month' => [
-                'title' => 'Agendado de hoje at? o fim do m?s',
+                'title' => 'Agendado de hoje at&eacute; o fim do m&ecirc;s',
                 'summary' => 'Total projetado a partir de hoje: ' . format_money($scheduledToEndOfMonth),
                 'type' => 'scheduled_month',
                 'items' => $scheduledMonthItems,
                 'filters' => [
-                    '7d' => 'Pr?ximos 7 dias',
-                    '15d' => 'Pr?ximos 15 dias',
-                    'month' => 'Este m?s',
-                    'next_month' => 'M?s que vem',
+                    '7d' => 'Pr&oacute;ximos 7 dias',
+                    '15d' => 'Pr&oacute;ximos 15 dias',
+                    'month' => 'Este m&ecirc;s',
+                    'next_month' => 'M&ecirc;s que vem',
                 ],
                 'rangeMap' => [
                     '7d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 7)),
@@ -1580,7 +1580,7 @@ if ($page === 'studio_home') {
             ],
             'today_agenda' => [
                 'title' => 'Agenda de hoje',
-                'summary' => 'Hor?rio, cliente, status, valor e sinal do dia corrente.',
+                'summary' => 'Hor&aacute;rio, cliente, status, valor e sinal do dia corrente.',
                 'type' => 'appointments',
                 'kind' => 'appointment',
                 'items' => $todayAppointments,
@@ -1601,13 +1601,13 @@ if ($page === 'studio_home') {
                 'title' => 'Conversas do WhatsApp que precisam de resposta',
                 'summary' => plan_allows('whatsapp')
                     ? ('Aguardando resposta: ' . count($pendingWhatsappConversations) . ' | Pediram humano: ' . count($needsHumanConversations))
-                    : 'WhatsApp n?o liberado no plano atual.',
+                    : 'WhatsApp n&atilde;o liberado no plano atual.',
                 'type' => 'whatsapp',
                 'items' => array_slice(array_values($whatsappConversationItems), 0, 10),
                 'filterLabel' => 'Filtrar conversas',
             ],
             'free_windows' => [
-                'title' => 'Pr?ximos hor?rios livres',
+                'title' => 'Pr&oacute;ximos hor&aacute;rios livres',
                 'summary' => 'Primeiras janelas livres reais encontradas na agenda.',
                 'type' => 'availability',
                 'items' => array_slice($nextAvailableSlots, 0, 12),
@@ -1615,8 +1615,8 @@ if ($page === 'studio_home') {
                     '3d' => '3 dias',
                     '7d' => '7 dias',
                     '15d' => '15 dias',
-                    'month' => 'Este m?s',
-                    'next_month' => 'M?s que vem',
+                    'month' => 'Este m&ecirc;s',
+                    'next_month' => 'M&ecirc;s que vem',
                 ],
                 'rangeMap' => [
                     '3d' => studio_schedule_available_slots($studio, 3, $current),
@@ -1628,7 +1628,7 @@ if ($page === 'studio_home') {
             ],
             'available_slots' => [
                 'title' => 'Vagas livres na agenda',
-                'summary' => 'Dias ?teis restantes: ' . $remainingWorkDays . ' | slots por dia: ' . $slotCount . ' | vagas livres estimadas: ' . $availableSlots,
+                'summary' => 'Dias &uacute;teis restantes: ' . $remainingWorkDays . ' | slots por dia: ' . $slotCount . ' | vagas livres estimadas: ' . $availableSlots,
                 'type' => 'availability',
                 'default_range' => '7d',
                 'ranges' => (static function (array $studio): array {
@@ -1651,8 +1651,8 @@ if ($page === 'studio_home') {
                                 '3d' => '3 dias',
                                 '7d' => '7 dias',
                                 '15d' => '15 dias',
-                                'month' => 'Este m?s',
-                                'next_month' => 'M?s que vem',
+                                'month' => 'Este m&ecirc;s',
+                                'next_month' => 'M&ecirc;s que vem',
                             ][$rangeKey] ?? $rangeKey,
                             'items' => studio_schedule_available_slots($studio, $days, $rangeInfo['start'] ?? null),
                         ];
@@ -1672,25 +1672,25 @@ if ($page === 'studio_home') {
             ],
             'open_value' => [
                 'title' => 'Valor em oportunidades abertas',
-                'summary' => 'Soma estimada dos leads ainda n?o perdidos ou fechados: ' . format_money($stats['open_value']),
+                'summary' => 'Soma estimada dos leads ainda n&atilde;o perdidos ou fechados: ' . format_money($stats['open_value']),
                 'type' => 'finance',
                 'items' => [
                     ['label' => 'Oportunidades abertas', 'value' => format_money($stats['open_value']), 'detail' => 'Leads em aberto e em conversa que ainda podem virar agendamento.'],
                     ['label' => 'Leads no funil', 'value' => (string)$stats['leads'], 'detail' => 'Quantidade atual de leads ativos no sistema.'],
-                    ['label' => 'Clientes cadastrados', 'value' => (string)$stats['customers'], 'detail' => 'Base total de clientes no est?dio.'],
+                    ['label' => 'Clientes cadastrados', 'value' => (string)$stats['customers'], 'detail' => 'Base total de clientes no est&uacute;dio.'],
                 ],
             ],
             'appointments' => [
-                'title' => 'Pr?ximos atendimentos',
+                'title' => 'Pr&oacute;ximos atendimentos',
                 'summary' => (string)$stats['appointments'] . ' atendimentos futuros ativos.',
                 'kind' => 'appointment',
                 'type' => 'appointments',
                 'items' => array_slice(array_map($decorateAppointmentCard, $appointments), 0, 8),
                 'filters' => [
-                    '7d' => 'Pr?ximos 7 dias',
-                    '15d' => 'Pr?ximos 15 dias',
-                    'month' => 'Este m?s',
-                    'next_month' => 'M?s que vem',
+                    '7d' => 'Pr&oacute;ximos 7 dias',
+                    '15d' => 'Pr&oacute;ximos 15 dias',
+                    'month' => 'Este m&ecirc;s',
+                    'next_month' => 'M&ecirc;s que vem',
                 ],
                 'rangeMap' => [
                     '7d' => array_map($decorateAppointmentCard, studio_upcoming_appointments($studio, 7)),
@@ -1700,18 +1700,33 @@ if ($page === 'studio_home') {
                 ],
             ],
         ];
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Alertas operacionais</h2><p class="muted">SituaÃ§Ãµes que pedem aÃ§Ã£o agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relatÃ³rios</a></div>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Alertas operacionais</h2><p class="muted">Situa&ccedil;&otilde;es que pedem a&ccedil;&atilde;o agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relat&oacute;rios</a></div>';
         if (!$alerts) {
             echo '<p class="muted">Sem alertas importantes no momento.</p>';
         } else {
             echo '<ul class="alert-list">';
             foreach ($alerts as $alert) {
                 $tone = (string)($alert['tone'] ?? 'warn');
-                echo '<li class="alert-list-item"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><span class="alert-list-text">' . h($alert['description'] ?? '') . '</span>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir Ã¡rea</a>' : '') . '</li>';
+                echo '<li class="alert-list-item"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><span class="alert-list-text">' . h($alert['description'] ?? '') . '</span>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir &aacute;rea</a>' : '') . '</li>';
             }
             echo '</ul>';
         }
         echo '</section>';
+
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Atalhos da Home</h2><p class="muted">Toque em um card para abrir o conte&uacute;do em overlay.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
+        echo '<div class="grid cols-3" style="margin-top:12px">';
+        $homeCards = [
+            ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
+            ['label' => 'Agenda de hoje', 'summary' => 'Atendimentos do dia e status atual.', 'focus' => 'today_agenda'],
+            ['label' => 'Leads do Meta', 'summary' => 'Leads captados por campanha e faixa de data.', 'focus' => 'meta_campaign'],
+            ['label' => 'Pr&oacute;ximos atendimentos', 'summary' => 'Agenda futura com filtros por per&iacute;odo.', 'focus' => 'appointments'],
+            ['label' => 'Hor&aacute;rios livres', 'summary' => 'Janelas dispon&iacute;veis na agenda.', 'focus' => 'free_windows'],
+            ['label' => 'Resultado do m?s', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
+        ];
+        foreach ($homeCards as $card) {
+            echo '<button type="button" class="panel soft" data-home-focus="' . h((string)$card['focus']) . '" style="text-align:left;cursor:pointer;min-height:132px;border:1px solid rgba(255,255,255,0.08)"><p class="muted" style="margin:0 0 8px">' . h((string)$card['label']) . '</p><h3 style="margin:0 0 10px">' . h((string)$card['summary']) . '</h3><span class="btn tiny secondary" style="pointer-events:none">Abrir</span></button>';
+        }
+        echo '</div></section>';
     }, $flash);
     exit;
 }
@@ -4922,7 +4937,6 @@ function render_report_table(array $rows, string $labelKey): void
     }
     echo '</tbody></table>';
 }
-
 
 
 
