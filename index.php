@@ -3176,12 +3176,12 @@ if ($page === 'studio_finance') {
         $summary = studio_finance_summary($studio);
         $expenses = studio_list_expenses($studio);
         echo '<section class="grid cols-3">';
-        echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_agenda')) . '"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Ver agendamentos</span></a>';
-        echo '<a class="panel dashboard-stat" href="#nova-despesa"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></a>';
-        echo '<a class="panel dashboard-stat" href="#despesas-recentes"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></a>';
+        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></button>';
         echo '</section>';
-        echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<form class="form panel" method="post" id="nova-despesa">';
+        echo '<div id="financeAgendaSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Agenda no mês</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Resumo financeiro ligado aos agendamentos do período.</p></div></div>';
+        echo '<div id="financeExpenseSource" hidden><form class="form panel" method="post" id="nova-despesa">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_expense">';
         echo '<div class="actions" style="justify-content:space-between"><h2>Nova despesa</h2><span class="badge">Controle rapido</span></div>';
@@ -3190,13 +3190,14 @@ if ($page === 'studio_finance') {
         echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="amount" required placeholder="120,00"></div><div class="field"><label>Pagamento</label><input name="payment_method" placeholder="Pix, cartao, dinheiro..."></div></div>';
         echo '<div class="field"><label>Observacoes</label><textarea name="notes"></textarea></div>';
         echo '<button class="btn" type="submit">Salvar despesa</button>';
-        echo '</form>';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Despesas por categoria</h2><a class="btn secondary" href="#despesas-recentes">Ver recentes</a></div>';
+        echo '</form></div>';
+        echo '<div id="financeRecentSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Despesas por categoria</h2><span class="muted">Abrir detalhes e lista</span></div>';
         render_category_totals($summary['by_category']);
-        echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px" id="despesas-recentes"><div class="actions" style="justify-content:space-between"><h2>Despesas recentes</h2><span class="muted">Lista completa do mes</span></div>';
+        echo '<div class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Despesas recentes</h2><span class="muted">Lista completa do mês</span></div>';
         render_expenses_table($expenses);
-        echo '</section>';
+        echo '</div></div></div>';
+        echo '<div id="financeOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="financeOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="financeOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closeFinanceOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="financeOverlayBody" class="p-4"></div></div></div>';
+        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no mês";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -3235,17 +3236,17 @@ if ($page === 'studio_people') {
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        if ($view !== 'customers') {
-            echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
-            render_leads_table(array_slice($leads, 0, 12));
-            echo '</div>';
-        }
-        if ($view !== 'leads') {
-            echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
-            render_customers_table(array_slice($customers, 0, 12));
-            echo '</div>';
-        }
+        echo '<button type="button" class="panel dashboard-stat" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista em overlay</span></button>';
         echo '</section>';
+        echo '<div id="peopleLeadsSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        render_leads_table(array_slice($leads, 0, 12));
+        echo '</div></div>';
+        echo '<div id="peopleCustomersSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
+        render_customers_table(array_slice($customers, 0, 12));
+        echo '</div></div>';
+        echo '<div id="peopleOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="peopleOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="peopleOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closePeopleOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="peopleOverlayBody" class="p-4"></div></div></div>';
+        echo '<script>(function(){const modal=document.getElementById("peopleOverlay");const title=document.getElementById("peopleOverlayTitle");const summary=document.getElementById("peopleOverlaySummary");const body=document.getElementById("peopleOverlayBody");const closeBtn=document.getElementById("closePeopleOverlay");const leadsSource=document.getElementById("peopleLeadsSource");const customersSource=document.getElementById("peopleCustomersSource");if(!modal||!title||!summary||!body||!leadsSource||!customersSource)return;function openOverlay(kind){if(kind==="leads"){title.textContent="Leads recentes";summary.textContent="' . h((string)$totalLeads) . ' registros mostrados em overlay.";body.innerHTML=leadsSource.innerHTML;}else{title.textContent="Clientes recentes";summary.textContent="' . h((string)$totalCustomers) . ' registros mostrados em overlay.";body.innerHTML=customersSource.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-people-overlay]").forEach((btn)=>{btn.addEventListener("click",()=>openOverlay(btn.getAttribute("data-people-overlay")||""));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
