@@ -1727,6 +1727,10 @@ if ($page === 'studio_home') {
             echo '<button type="button" class="panel soft" data-home-focus="' . h((string)$card['focus']) . '" style="text-align:left;cursor:pointer;min-height:132px;border:1px solid rgba(255,255,255,0.08)"><p class="muted" style="margin:0 0 8px">' . h((string)$card['label']) . '</p><h3 style="margin:0 0 10px">' . h((string)$card['summary']) . '</h3><span class="btn tiny secondary" style="pointer-events:none">Abrir</span></button>';
         }
         echo '</div></section>';
+        echo '<div id="homeDrilldownModal" class="modal hidden"><div class="modal-card" style="max-width:1120px;width:min(1120px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 id="homeDrilldownTitle" style="margin:0">Detalhe rápido</h2><p id="homeDrilldownSummary" class="muted" style="margin:6px 0 0"></p></div><button type="button" class="btn secondary" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')">Fechar</button></div><div id="homeDrilldownBody"></div></div></div>';
+        echo '<div id="homeTodayAgendaModal" class="modal hidden"><div class="modal-card" style="max-width:1180px;width:min(1180px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 style="margin:0">Agenda de hoje</h2><p class="muted" style="margin:6px 0 0">Leitura rápida dos agendamentos do dia.</p></div><button type="button" class="btn secondary" id="closeHomeTodayAgendaModal">Fechar</button></div><div id="homeTodayAgendaBody"></div></div></div>';
+        echo '<script>window.homeDrilldowns = ' . json_encode(normalize_display_value($homeDrilldowns), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';window.homeTodayAgenda = ' . json_encode(normalize_display_value(['items' => $todayAppointments, 'date' => format_date_pt($todayIso)]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
+        echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '?v=' . h(app_build_version()) . '"></script>';
     }, $flash);
     exit;
 }
@@ -4937,6 +4941,5 @@ function render_report_table(array $rows, string $labelKey): void
     }
     echo '</tbody></table>';
 }
-
 
 

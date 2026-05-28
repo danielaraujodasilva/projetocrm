@@ -4,7 +4,45 @@ declare(strict_types=1);
 
 function h(mixed $value): string
 {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars(repair_display_text((string)$value), ENT_QUOTES, 'UTF-8');
+}
+
+function repair_display_text(string $value): string
+{
+    if ($value === '' || !preg_match('/Ã|Â|â€|â€™|â€œ|â€|â€¦/u', $value)) {
+        return $value;
+    }
+
+    $current = $value;
+    for ($i = 0; $i < 4; $i++) {
+        $next = @iconv('Windows-1252', 'UTF-8//IGNORE', @iconv('UTF-8', 'Windows-1252//IGNORE', $current));
+        if (!is_string($next) || $next === '' || $next === $current) {
+            break;
+        }
+        $current = $next;
+        if (!preg_match('/Ã|Â|â€|â€™|â€œ|â€|â€¦/u', $current)) {
+            break;
+        }
+    }
+
+    return $current;
+}
+
+function normalize_display_value(mixed $value): mixed
+{
+    if (is_array($value)) {
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            $normalized[$key] = normalize_display_value($item);
+        }
+        return $normalized;
+    }
+
+    if (is_string($value)) {
+        return repair_display_text($value);
+    }
+
+    return $value;
 }
 
 function app_config(string $key): array
