@@ -1727,8 +1727,8 @@ if ($page === 'studio_home') {
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric">' . h((string)$card['label']) . '</p><p class="muted" style="margin:0">' . h((string)$card['summary']) . '</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
-        echo '<div id="homeDrilldownModal" class="modal hidden"><div class="modal-card crm-modal-panel" style="max-width:1120px;width:min(1120px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 id="homeDrilldownTitle" style="margin:0">Detalhe rápido</h2><p id="homeDrilldownSummary" class="muted" style="margin:6px 0 0"></p></div><button type="button" class="btn secondary" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')">Fechar</button></div><div id="homeDrilldownBody"></div></div></div>';
-        echo '<div id="homeTodayAgendaModal" class="modal hidden"><div class="modal-card crm-modal-panel" style="max-width:1180px;width:min(1180px,96vw)"><div class="actions" style="justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h2 style="margin:0">Agenda de hoje</h2><p class="muted" style="margin:6px 0 0">Leitura rápida dos agendamentos do dia.</p></div><button type="button" class="btn secondary" id="closeHomeTodayAgendaModal">Fechar</button></div><div id="homeTodayAgendaBody"></div></div></div>';
+        echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1120px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rápido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" class="crm-button crm-icon-button" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
+        echo '<div id="homeTodayAgendaModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Agenda de hoje</h3><p class="muted" style="margin:4px 0 0">Leitura rápida dos agendamentos do dia.</p></div><button type="button" class="crm-button crm-icon-button" id="closeHomeTodayAgendaModal"><i class="fa-solid fa-xmark"></i></button></div><div id="homeTodayAgendaBody" class="p-4"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode(normalize_display_value($homeDrilldowns), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';window.homeTodayAgenda = ' . json_encode(normalize_display_value(['items' => $todayAppointments, 'date' => format_date_pt($todayIso)]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script src="' . h(app_asset_url('assets/home_drilldown.js')) . '?v=' . h(app_build_version()) . '"></script>';
     }, $flash);
@@ -3204,13 +3204,13 @@ if ($page === 'studio_people') {
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<button type="button" class="panel dashboard-stat" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista em overlay</span></button>';
         echo '</section>';
-        echo '<div id="peopleLeadsSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
+        echo '<div id="peopleLeadsSource" class="hidden" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
         render_leads_table(array_slice($leads, 0, 12));
         echo '</div></div>';
-        echo '<div id="peopleCustomersSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
+        echo '<div id="peopleCustomersSource" class="hidden" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Clientes recentes</h2><a class="btn secondary" href="' . h(app_url('studio_customers')) . '">Abrir clientes</a></div>';
         render_customers_table(array_slice($customers, 0, 12));
         echo '</div></div>';
         echo '<div id="peopleOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="peopleOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="peopleOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closePeopleOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="peopleOverlayBody" class="p-4"></div></div></div>';
@@ -4941,4 +4941,3 @@ function render_report_table(array $rows, string $labelKey): void
     }
     echo '</tbody></table>';
 }
-

@@ -466,6 +466,10 @@ textarea {
     transform: translateY(1px);
 }
 
+.hidden {
+    display: none !important;
+}
+
 .crm-modal {
     position: fixed;
     inset: 0;
