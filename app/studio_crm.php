@@ -2151,6 +2151,70 @@ function studio_appointment_blocking_statuses(): array
     return ['pre_agendado', 'agendado', 'confirmado', 'em_atendimento', 'pendente'];
 }
 
+function studio_ensure_public_lead_links_column(): void
+{
+    static $done = false;
+    if ($done) {
+        return;
+    }
+    try {
+        $pdo = db();
+        $pdo->exec(
+            'CREATE TABLE IF NOT EXISTS `public_lead_links` (
+                `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                `studio_id` INT UNSIGNED NOT NULL,
+                `lead_id` BIGINT UNSIGNED NOT NULL,
+                `token` VARCHAR(64) NOT NULL,
+                `lead_customer_id` BIGINT UNSIGNED NULL,
+                `last_accessed_at` DATETIME NULL,
+                `last_ip_hash` VARCHAR(120) NULL,
+                `last_user_agent` VARCHAR(255) NULL,
+                `created_at` DATETIME NOT NULL,
+                `updated_at` DATETIME NOT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uk_public_lead_links_token` (`token`),
+                UNIQUE KEY `uk_public_lead_links_studio_lead` (`studio_id`, `lead_id`),
+                KEY `idx_public_lead_links_studio` (`studio_id`, `created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+    } catch (Throwable) {
+    }
+    $done = true;
+}
+
+function studio_upsert_public_lead_link(array $studio, int $leadId, string $token, ?int $customerId = null): void
+{
+    studio_ensure_public_lead_links_column();
+    if ($leadId <= 0 || $token === '') {
+        return;
+    }
+    try {
+        $stmt = db()->prepare(
+            'INSERT INTO public_lead_links (studio_id, lead_id, token, lead_customer_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE token = VALUES(token), lead_customer_id = VALUES(lead_customer_id), updated_at = NOW()'
+        );
+        $stmt->execute([(int)$studio['id'], $leadId, $token, $customerId ?: null]);
+    } catch (Throwable) {
+    }
+}
+
+function studio_find_public_lead_link(int $leadId, string $token): ?array
+{
+    studio_ensure_public_lead_links_column();
+    if ($leadId <= 0 || $token === '') {
+        return null;
+    }
+    try {
+        $stmt = db()->prepare('SELECT * FROM public_lead_links WHERE lead_id = ? AND token = ? LIMIT 1');
+        $stmt->execute([$leadId, $token]);
+        $row = $stmt->fetch();
+        return is_array($row) ? $row : null;
+    } catch (Throwable) {
+        return null;
+    }
+}
+
 function studio_appointment_blocking_statuses_for_status(string $status): array
 {
     $blockingStatuses = studio_appointment_blocking_statuses();
@@ -4125,6 +4189,7 @@ function studio_customer_columns(): array
         'social_networks',
         'share_before_after_opt_in',
         'data_processing_consent',
+        'truthfulness_confirmed',
         'notes',
     ];
 }
@@ -4187,6 +4252,7 @@ function studio_customer_payload_values(array $data): array
         trim((string)($data['social_networks'] ?? '')),
         $optIn($data['share_before_after_opt_in'] ?? 0),
         $optIn($data['data_processing_consent'] ?? 0),
+        $optIn($data['truthfulness_confirmed'] ?? 0),
         trim((string)($data['notes'] ?? '')),
     ];
 }
@@ -4237,7 +4303,8 @@ function studio_ensure_customer_columns(array $studio): void
             ADD COLUMN IF NOT EXISTS social_network_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER push_opt_in,
             ADD COLUMN IF NOT EXISTS social_networks VARCHAR(180) NULL AFTER social_network_opt_in,
             ADD COLUMN IF NOT EXISTS share_before_after_opt_in TINYINT(1) NOT NULL DEFAULT 0 AFTER social_networks,
-            ADD COLUMN IF NOT EXISTS data_processing_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER share_before_after_opt_in');
+            ADD COLUMN IF NOT EXISTS data_processing_consent TINYINT(1) NOT NULL DEFAULT 0 AFTER share_before_after_opt_in,
+            ADD COLUMN IF NOT EXISTS truthfulness_confirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER data_processing_consent');
     } catch (Throwable) {
     }
     if ($studioId > 0) {
@@ -4273,11 +4340,15 @@ function studio_ensure_lead_public_update_token(array $studio, int $leadId): str
     $stmt->execute([$leadId]);
     $token = trim((string)($stmt->fetchColumn() ?: ''));
     if ($token !== '') {
+        $customerStmt = $pdo->prepare('SELECT customer_id FROM leads WHERE id = ? LIMIT 1');
+        $customerStmt->execute([$leadId]);
+        studio_upsert_public_lead_link($studio, $leadId, $token, (int)($customerStmt->fetchColumn() ?: 0));
         return $token;
     }
     $token = bin2hex(random_bytes(16));
     $update = $pdo->prepare('UPDATE leads SET public_update_token = ?, updated_at = NOW() WHERE id = ?');
     $update->execute([$token, $leadId]);
+    studio_upsert_public_lead_link($studio, $leadId, $token, (int)($pdo->query('SELECT customer_id FROM leads WHERE id = ' . (int)$leadId . ' LIMIT 1')->fetchColumn() ?: 0));
     return $token;
 }
 
@@ -4314,6 +4385,7 @@ function studio_save_lead(array $studio, array $data): int
              WHERE id = ?'
         );
         $stmt->execute([...$values, $token, $id]);
+        studio_upsert_public_lead_link($studio, $id, $token, (int)($values[0] ?? 0) ?: null);
         return $id;
     }
 
@@ -4327,9 +4399,12 @@ function studio_save_lead(array $studio, array $data): int
             (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, public_update_token, last_contact_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())'
     );
-    $stmt->execute([...$values, bin2hex(random_bytes(16))]);
+    $token = bin2hex(random_bytes(16));
+    $stmt->execute([...$values, $token]);
+    $newId = (int)$pdo->lastInsertId();
+    studio_upsert_public_lead_link($studio, $newId, $token, (int)($values[0] ?? 0) ?: null);
 
-    return (int)$pdo->lastInsertId();
+    return $newId;
 }
 
 function studio_save_appointment(array $studio, array $data): int

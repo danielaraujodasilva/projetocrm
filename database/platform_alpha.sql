@@ -118,6 +118,26 @@ CREATE TABLE IF NOT EXISTS `studio_users` (
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `public_lead_links` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `studio_id` INT UNSIGNED NOT NULL,
+  `lead_id` BIGINT UNSIGNED NOT NULL,
+  `token` VARCHAR(64) NOT NULL,
+  `lead_customer_id` BIGINT UNSIGNED NULL,
+  `last_accessed_at` DATETIME NULL,
+  `last_ip_hash` VARCHAR(120) NULL,
+  `last_user_agent` VARCHAR(255) NULL,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_public_lead_links_token` (`token`),
+  UNIQUE KEY `uk_public_lead_links_studio_lead` (`studio_id`, `lead_id`),
+  KEY `idx_public_lead_links_studio` (`studio_id`, `created_at`),
+  CONSTRAINT `fk_public_lead_links_studio`
+    FOREIGN KEY (`studio_id`) REFERENCES `studios` (`id`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO `commercial_plans`
   (`name`, `slug`, `short_description`, `description`, `monthly_price`, `annual_price`, `currency_code`, `recommended`, `studio_limit`, `user_limit`, `tattoo_artist_limit`, `lead_limit`, `whatsapp_session_limit`, `allow_whatsapp`, `allow_ai`, `allow_data_assistant`, `allow_finance`, `allow_advanced_reports`, `allow_automations`, `allow_multi_studio`, `allow_external_integrations`, `allow_advanced_customization`, `features_text`, `limits_text`, `sort_order`, `is_active`, `created_at`, `updated_at`)
 VALUES

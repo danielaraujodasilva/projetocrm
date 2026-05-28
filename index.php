@@ -37,16 +37,33 @@ $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
 
 if ($page === 'lead_public_update') {
-    $studio = require_studio();
+    $leadId = (int)($_GET['lead'] ?? 0);
+    $token = trim((string)($_GET['token'] ?? ''));
+    studio_ensure_public_lead_links_column();
+    $link = null;
+    if ($leadId > 0 && $token !== '') {
+        $stmt = db()->prepare('SELECT * FROM public_lead_links WHERE lead_id = ? AND token = ? LIMIT 1');
+        $stmt->execute([$leadId, $token]);
+        $link = $stmt->fetch();
+    }
+    if (!is_array($link) || empty($link['studio_id'])) {
+        http_response_code(404);
+        echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
+        exit;
+    }
+    $studio = get_studio((int)$link['studio_id']);
+    if (!$studio) {
+        http_response_code(404);
+        echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
+        exit;
+    }
     $dbStatus = studio_db_status_for($studio);
     if (!$dbStatus['ok']) {
         render_studio_db_missing($studio, $dbStatus['error']);
         exit;
     }
-    $leadId = (int)($_GET['lead'] ?? 0);
-    $token = trim((string)($_GET['token'] ?? ''));
-    $lead = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
-    if (!$lead || $token === '' || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
+    $lead = studio_find_lead($studio, $leadId);
+    if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
         http_response_code(404);
         echo '<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link invalido</title><link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body><main class="container" style="padding:40px 16px"><section class="panel"><h1>Link invalido</h1><p class="muted">Esse link nao existe ou expirou.</p></section></main></body></html>';
         exit;
@@ -69,7 +86,7 @@ if ($page === 'lead_public_update') {
         }
     }
     render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $customerSeed, $missingFields) {
-        $checked = static fn(string $field): string => ' checked';
+        $checked = static fn(string $field): string => in_array($field, ['data_processing_consent', 'truthfulness_confirmed'], true) ? ' checked' : '';
         $value = static fn(string $field, string $fallback = ''): string => (string)($customerSeed[$field] ?? $fallback);
         $progress = min(100, 100 - (count($missingFields) * 12));
         echo '<style>
@@ -123,7 +140,7 @@ if ($page === 'lead_public_update') {
         echo '<section class="public-lead-section"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Dados básicos</h2><span class="badge">1 de 4</span></div><p class="public-lead-note">Comece pelo essencial. O resto você preenche em seguida sem pressa.</p><div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome completo"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($value('phone', (string)($lead['phone'] ?? ''))) . '" placeholder="Seu telefone"></div></div><div class="grid cols-2"><div class="field"><label>Email</label><input name="email" type="email" value="' . h($value('email')) . '" placeholder="seuemail@exemplo.com"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($value('instagram')) . '" placeholder="@seuusuario"></div></div><div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($value('document_number')) . '" placeholder="CPF ou outro documento"></div><div class="field"><label>Profissão</label><input name="occupation" value="' . h($value('occupation')) . '" placeholder="O que você faz?"></div></div><div class="field"><label>Interesse</label><textarea name="interest" rows="4" placeholder="Conte o que você quer fazer">' . h((string)($lead['interest'] ?? '')) . '</textarea></div></section>';
         echo '<section class="public-lead-section"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Endereço</h2><span class="badge">2 de 4</span></div><p class="public-lead-note">Se for mais fácil, deixe isso para depois. Não é obrigatório.</p><div class="grid cols-3"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($value('address_zip')) . '" placeholder="00000-000"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($value('address_state')) . '" placeholder="UF"></div><div class="field"><label>Cidade</label><input name="address_city" value="' . h($value('address_city')) . '"></div></div><div class="field"><label>Rua</label><input name="address_street" value="' . h($value('address_street')) . '" placeholder="Nome da rua"></div><div class="grid cols-3"><div class="field"><label>Número</label><input name="address_number" value="' . h($value('address_number')) . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($value('address_complement')) . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($value('address_neighborhood')) . '"></div></div><div class="field"><label>Referência</label><input name="address_reference" value="' . h($value('address_reference')) . '" placeholder="Ponto de referência"></div></section>';
         echo '<section class="public-lead-section"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Anamnese</h2><span class="badge">3 de 4</span></div><p class="public-lead-note">Essas respostas ajudam a personalizar a sessão e evitar imprevistos.</p><div class="grid cols-2"><div class="field"><label>Nome de emergência</label><input name="emergency_contact_name" value="' . h($value('emergency_contact_name')) . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($value('emergency_contact_phone')) . '"></div></div><div class="grid cols-2"><div class="field"><label>Região do corpo</label><input name="body_area" value="' . h($value('body_area')) . '" placeholder="Ex.: braço, costela..."></div><div class="field"><label>Estilo de referência</label><input name="reference_style" value="' . h($value('reference_style')) . '" placeholder="Ex.: floral, fine line..."></div></div><div class="grid cols-2"><div class="field"><label>Já possui tatuagens?</label><textarea name="previous_tattoos" rows="4" placeholder="Conte um pouco do seu histórico">' . h($value('previous_tattoos')) . '</textarea></div><div class="field"><label>Resistência à dor</label><select name="pain_tolerance"><option value="">Selecionar</option><option value="baixa"' . (($value('pain_tolerance') === 'baixa') ? ' selected' : '') . '>Baixa</option><option value="media"' . (($value('pain_tolerance') === 'media') ? ' selected' : '') . '>Média</option><option value="alta"' . (($value('pain_tolerance') === 'alta') ? ' selected' : '') . '>Alta</option></select></div></div><div class="grid cols-2"><div class="field"><label>Alergias</label><textarea name="allergies" rows="3" placeholder="Medicamentos, materiais, tintas...">' . h($value('allergies')) . '</textarea></div><div class="field"><label>Medicamentos</label><textarea name="medications" rows="3">' . h($value('medications')) . '</textarea></div></div><div class="grid cols-2"><div class="field"><label>Condições de saúde</label><textarea name="health_conditions" rows="3" placeholder="Ex.: diabetes, pressão alta...">' . h($value('health_conditions')) . '</textarea></div><div class="field"><label>Condições de pele</label><textarea name="skin_conditions" rows="3">' . h($value('skin_conditions')) . '</textarea></div></div><div class="grid cols-2"><div class="field"><label>Histórico de queloide</label><input name="keloid_history" value="' . h($value('keloid_history')) . '"></div><div class="field"><label>Uso de anticoagulantes</label><input name="anticoagulants" value="' . h($value('anticoagulants')) . '"></div><div class="field"><label>Diabetes</label><input name="diabetes" value="' . h($value('diabetes')) . '"></div><div class="field"><label>Problemas de cicatrização</label><input name="healing_issues" value="' . h($value('healing_issues')) . '"></div></div></section>';
-        echo '<section class="public-lead-section" id="consentimentos"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Consentimentos</h2><span class="badge">4 de 4</span></div><p class="public-lead-note">Todos os aceites começam marcados. Se quiser negar algum, é só desmarcar.</p><div class="public-lead-consent-grid"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . $checked('data_processing_consent') . '> Consentimento LGPD</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . $checked('marketing_opt_in') . '> Quero receber marketing</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . $checked('whatsapp_opt_in') . '> Mensagens por WhatsApp</label><label class="checkline"><input type="checkbox" name="sms_opt_in" value="1"' . $checked('sms_opt_in') . '> Mensagens por SMS</label><label class="checkline"><input type="checkbox" name="email_opt_in" value="1"' . $checked('email_opt_in') . '> Mensagens por email</label><label class="checkline"><input type="checkbox" name="push_opt_in" value="1"' . $checked('push_opt_in') . '> Notificações push no futuro</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . $checked('social_network_opt_in') . '> Marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . $checked('share_before_after_opt_in') . '> Uso de fotos antes/depois</label></div></section>';
+        echo '<section class="public-lead-section" id="consentimentos"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Consentimentos</h2><span class="badge">4 de 4</span></div><p class="public-lead-note">Os itens opcionais começam desmarcados. Você decide o que autoriza.</p><div class="public-lead-consent-grid"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"' . $checked('data_processing_consent') . '> Autorizo o uso dos meus dados para atendimento</label><label class="checkline"><input type="checkbox" name="truthfulness_confirmed" value="1"' . $checked('truthfulness_confirmed') . '> Confirmo que as informações preenchidas são verdadeiras</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"' . $checked('marketing_opt_in') . '> Aceito receber promoções pelo WhatsApp</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"' . $checked('whatsapp_opt_in') . '> Autorizo mensagens por WhatsApp</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"' . $checked('social_network_opt_in') . '> Autorizo marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"' . $checked('share_before_after_opt_in') . '> Autorizo uso de fotos no portfólio</label></div></section>';
         echo '<section class="public-lead-section"><h2>Observações finais</h2><p class="public-lead-note">Se houver algo importante, pode deixar aqui. Se não tiver nada, está tudo certo.</p><div class="field"><label>Observações</label><textarea name="notes" rows="4" placeholder="Alguma informação importante para o atendimento?">' . h($value('notes')) . '</textarea></div></section>';
         echo '<div class="public-lead-footerbar"><div class="inner"><div><strong style="color:#0f172a">Quase pronto</strong><div class="muted" style="margin-top:2px">' . h($progress) . '% da ficha preenchida</div></div><div class="public-lead-submit" style="padding-top:0"><button class="btn" type="submit">Salvar cadastro completo</button></div></div></div>';
         if ($missingFields) {
@@ -310,11 +327,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
         }
 
         if ($action === 'public_lead_update') {
-            $studio = require_studio();
             $leadId = (int)($_POST['lead_id'] ?? 0);
             $token = trim((string)($_POST['token'] ?? ''));
             if ($leadId <= 0 || $token === '') {
                 throw new RuntimeException('Link invalido.');
+            }
+            studio_ensure_public_lead_links_column();
+            $link = null;
+            $stmt = db()->prepare('SELECT * FROM public_lead_links WHERE lead_id = ? AND token = ? LIMIT 1');
+            $stmt->execute([$leadId, $token]);
+            $link = $stmt->fetch();
+            if (!is_array($link) || empty($link['studio_id'])) {
+                throw new RuntimeException('Link expirado ou invalido.');
+            }
+            $studio = get_studio((int)$link['studio_id']);
+            if (!$studio) {
+                throw new RuntimeException('Link expirado ou invalido.');
+            }
+            $dbStatus = studio_db_status_for($studio);
+            if (!$dbStatus['ok']) {
+                throw new RuntimeException('Banco do estúdio indisponível.');
             }
             $lead = studio_find_lead($studio, $leadId);
             if (!$lead || trim((string)($lead['public_update_token'] ?? '')) !== $token) {
