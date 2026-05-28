@@ -2483,6 +2483,14 @@ if ($page === 'studio_agenda') {
             echo '<div class="panel soft"><p class="muted">Pomadas</p><h3 style="margin-top:0">' . h((string)($selectedAppointment['pomadas_quantity'] ?? 0)) . '</h3><p class="muted">Quantidade vinculada ao agendamento</p></div>';
             echo '<div class="panel soft"><p class="muted">Origem</p><h3 style="margin-top:0">' . h(appointment_origin_label((string)($selectedAppointment['import_source'] ?? 'manual'))) . '</h3><p class="muted">' . h((string)($selectedAppointment['raw_title'] ?? '')) . '</p></div>';
             echo '</div>';
+            $healthAlerts = studio_appointment_health_alerts_from_row($selectedAppointment);
+            if ($healthAlerts) {
+                echo '<div class="panel" style="margin-top:12px;border-left:4px solid #eab308;background:#fffbeb"><strong>Alertas de saúde</strong><div class="stack-list" style="margin-top:10px">';
+                foreach ($healthAlerts as $alert) {
+                    echo '<div class="activity-card"><strong>' . h((string)$alert['label']) . '</strong><span>' . h((string)$alert['detail']) . '</span></div>';
+                }
+                echo '</div></div>';
+            }
             if (!empty($selectedAppointment['description'])) {
                 echo '<div class="field"><label>Descricao</label><div class="info-box">' . h($selectedAppointment['description']) . '</div></div>';
             }
@@ -3335,10 +3343,16 @@ if ($page === 'studio_reports') {
             ];
         }
         $todayAppointments = $pdo->query(
-            "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.status, a.value, a.deposit_value,
-                    COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name
+            "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.status, a.value, a.deposit_value, a.customer_id, a.lead_id,
+                    COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name,
+                    c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                    c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                    l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                    l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                    l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
              FROM appointments a
              LEFT JOIN customers c ON c.id = a.customer_id
+             LEFT JOIN leads l ON l.id = a.lead_id
              LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
              WHERE a.appointment_date = '" . $today->format('Y-m-d') . "'
                AND a.status NOT IN ('cancelado')
@@ -3358,6 +3372,24 @@ if ($page === 'studio_reports') {
                         'href' => $href,
                     ];
                 }, $todayAppointments),
+            ];
+        }
+        $todayHealthAlerts = array_values(array_filter($todayAppointments, static fn(array $appointment): bool => (bool)studio_appointment_health_alerts_from_row($appointment)));
+        if ($todayHealthAlerts) {
+            $alerts[] = [
+                'title' => 'Alertas de saúde de hoje',
+                'count' => count($todayHealthAlerts),
+                'tone' => 'warn',
+                'items' => array_map(static function (array $appointment): array {
+                    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+                    $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
+                    $labels = array_map(static fn(array $alert): string => (string)($alert['label'] ?? ''), $healthAlerts);
+                    return [
+                        'label' => ($appointment['customer_name'] ?: 'Atendimento'),
+                        'detail' => format_date_pt((string)$appointment['appointment_date']) . ' · ' . substr((string)$appointment['start_time'], 0, 5) . (empty($labels) ? '' : ' · ' . implode(' · ', array_slice($labels, 0, 3))),
+                        'href' => $href,
+                    ];
+                }, $todayHealthAlerts),
             ];
         }
         $confirmationAutomation = studio_schedule_appointment_confirmations($studio);
@@ -4415,7 +4447,8 @@ function render_calendar_event(array $appointment): void
     $status_class = appointment_status_class($status);
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
-    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span></a>';
+    $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
+    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . '</a>';
 }
 
 function render_calendar_block(array $appointment): void
@@ -4434,6 +4467,9 @@ function render_calendar_block(array $appointment): void
     echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
     echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     echo '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>';
+    if (studio_appointment_health_alerts_from_row($appointment)) {
+        echo '<span class="badge warn">saúde</span>';
+    }
     echo '</a>';
 }
 
@@ -4658,7 +4694,7 @@ function render_appointments_table(array $appointments): void
 $appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
 $appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
 echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sinal ' . h(format_money($appointmentDeposit)) . '</span></td>';
-        echo '<td><span class="badge">' . h($appointment['status']) . '</span><br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
+        echo '<td><span class="badge">' . h($appointment['status']) . '</span>' . (studio_appointment_health_alerts_from_row($appointment) ? '<br><span class="badge warn">saúde</span>' : '') . '<br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
     echo '</tbody></table>';

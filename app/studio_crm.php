@@ -1254,9 +1254,15 @@ function studio_recent_leads(array $studio, int $limit = 8): array
 function studio_upcoming_appointments(array $studio, int $limit = 8): array
 {
     $stmt = studio_db($studio)->prepare(
-        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name, ta.color AS artist_color
+        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name, ta.color AS artist_color,
+                c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
+         LEFT JOIN leads l ON l.id = a.lead_id
          LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
          WHERE a.appointment_date >= CURDATE() AND a.status NOT IN ('cancelado')
          ORDER BY a.appointment_date ASC, a.start_time ASC
@@ -1275,7 +1281,12 @@ function studio_find_appointment(array $studio, int $id): ?array
     }
 
     $stmt = studio_db($studio)->prepare(
-        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+        "SELECT a.*, COALESCE(c.name, a.title) AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color,
+                c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
@@ -1329,6 +1340,81 @@ function studio_find_customer(array $studio, int $id): ?array
     return is_array($customer) ? $customer : null;
 }
 
+function studio_customer_health_alerts(array $customer): array
+{
+    $fields = [
+        'allergies' => 'Alergia',
+        'medications' => 'Medicamento importante',
+        'health_conditions' => 'Condição de saúde',
+        'skin_conditions' => 'Condição de pele',
+        'keloid_history' => 'Histórico de queloide',
+        'anticoagulants' => 'Uso de anticoagulante',
+        'diabetes' => 'Diabetes',
+        'healing_issues' => 'Cicatrização',
+        'pregnant_or_breastfeeding' => 'Gestação/amamentação',
+    ];
+
+    $alerts = [];
+    foreach ($fields as $field => $label) {
+        $value = trim((string)($customer[$field] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+        $normalized = mb_strtolower($value, 'UTF-8');
+        if (in_array($normalized, ['não', 'nao', 'não sei', 'nao sei', 'no', 'n/a', 'na'], true)) {
+            continue;
+        }
+        $alerts[] = [
+            'field' => $field,
+            'label' => $label,
+            'value' => $value,
+        ];
+    }
+
+    return $alerts;
+}
+
+function studio_appointment_health_alerts_from_row(array $appointment): array
+{
+    $fields = [
+        'allergies' => 'Alergia',
+        'medications' => 'Medicamento importante',
+        'health_conditions' => 'Condição de saúde',
+        'skin_conditions' => 'Condição de pele',
+        'keloid_history' => 'Histórico de queloide',
+        'anticoagulants' => 'Uso de anticoagulante',
+        'diabetes' => 'Diabetes',
+        'healing_issues' => 'Cicatrização',
+        'pregnant_or_breastfeeding' => 'Gestação/amamentação',
+    ];
+
+    $alerts = [];
+    foreach ($fields as $field => $label) {
+        $value = '';
+        foreach (['customer_', 'lead_'] as $prefix) {
+            $candidate = trim((string)($appointment[$prefix . $field] ?? ''));
+            if ($candidate !== '') {
+                $value = $candidate;
+                break;
+            }
+        }
+        if ($value === '') {
+            continue;
+        }
+        $normalized = mb_strtolower($value, 'UTF-8');
+        if (in_array($normalized, ['não', 'nao', 'não sei', 'nao sei', 'no', 'n/a', 'na'], true)) {
+            continue;
+        }
+        $alerts[] = [
+            'field' => $field,
+            'label' => $label,
+            'detail' => $value === 'Sim' ? 'Confirmado no cadastro' : $value,
+        ];
+    }
+
+    return $alerts;
+}
+
 function studio_customer_activity(array $studio, int $customerId): array
 {
     $pdo = studio_db($studio);
@@ -1336,7 +1422,12 @@ function studio_customer_activity(array $studio, int $customerId): array
     $leadStmt->execute([$customerId]);
 
     $appointmentStmt = $pdo->prepare(
-        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color,
+                c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
@@ -1608,7 +1699,12 @@ function studio_lead_activity(array $studio, int $leadId): array
 function studio_list_appointments(array $studio): array
 {
     $stmt = studio_db($studio)->query(
-        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color,
+                c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
@@ -1623,7 +1719,12 @@ function studio_list_appointments(array $studio): array
 function studio_calendar_appointments(array $studio, string $startDate, string $endDate): array
 {
     $stmt = studio_db($studio)->prepare(
-        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color
+        "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color,
+                c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                l.allergies AS lead_allergies, l.medications AS lead_medications, l.health_conditions AS lead_health_conditions, l.skin_conditions AS lead_skin_conditions,
+                l.keloid_history AS lead_keloid_history, l.anticoagulants AS lead_anticoagulants, l.diabetes AS lead_diabetes, l.healing_issues AS lead_healing_issues, l.pregnant_or_breastfeeding AS lead_pregnant_or_breastfeeding,
+                l.body_area AS lead_body_area, l.reference_style AS lead_reference_style, l.tattoo_size AS lead_tattoo_size, l.reference_link AS lead_reference_link, l.best_contact_time AS lead_best_contact_time
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
