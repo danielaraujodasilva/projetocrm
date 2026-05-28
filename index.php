@@ -69,6 +69,7 @@ if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'phone' => trim((string)($_POST['phone'] ?? '')),
         'interest' => trim((string)($_POST['interest'] ?? '')),
         'body_area' => trim((string)($_POST['body_area'] ?? '')),
+        'tattoo_size' => trim((string)($_POST['tattoo_size'] ?? '')),
         'reference_link' => trim((string)($_POST['reference_link'] ?? '')),
         'best_contact_time' => trim((string)($_POST['best_contact_time'] ?? '')),
         'allergies' => trim((string)($_POST['allergies'] ?? '')),
@@ -93,6 +94,10 @@ if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
+    }
+    if ($payload['data_processing_consent'] !== '1' || $payload['truthfulness_confirmed'] !== '1') {
+        flash_set('error', 'Marque os consentimentos obrigatórios para enviar.');
+        redirect_to('lead_public_update', ['lead' => $leadId, 'token' => $token]);
     }
     studio_save_public_lead_progress($studio, $leadId, $token, $payload, 'finished', true);
     studio_log_public_lead_event($studio, $leadId, $token, 'finished', $payload);
@@ -177,25 +182,8 @@ if ($page === 'lead_public_update') {
     }
     $customer = !empty($lead['customer_id']) ? studio_find_customer($studio, (int)$lead['customer_id']) : null;
     $customerSeed = is_array($customer) ? $customer : [];
-    $missingFields = [];
-    foreach ([
-        'name' => 'Nome',
-        'phone' => 'Telefone',
-        'interest' => 'Interesse',
-        'birth_date' => 'Data de nascimento',
-        'allergies' => 'Alergias',
-        'health_conditions' => 'Condições de saúde',
-        'data_processing_consent' => 'Consentimento LGPD',
-    ] as $field => $label) {
-        $value = $field === 'interest' ? (string)($lead[$field] ?? '') : (string)($customerSeed[$field] ?? $lead[$field] ?? '');
-        if (trim($value) === '') {
-            $missingFields[$field] = $label;
-        }
-    }
-    render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $customerSeed, $missingFields) {
-        $checked = static fn(string $field): string => in_array($field, ['data_processing_consent', 'truthfulness_confirmed'], true) ? ' checked' : '';
+    render_public_page('Atualizar cadastro', 'Complete seus dados para agilizar o atendimento.', function () use ($lead, $leadId, $token, $customerSeed) {
         $value = static fn(string $field, string $fallback = ''): string => (string)($customerSeed[$field] ?? $fallback);
-        $progress = min(100, 100 - (count($missingFields) * 12));
         echo '<style>
             .public-lead-shell{max-width:860px;margin:0 auto;padding:0 0 24px}
             .public-lead-hero{position:relative;overflow:hidden;border:1px solid rgba(31,111,120,.14);background:linear-gradient(135deg,#0f172a,#1f6f78);color:#f8fafc;border-radius:20px;padding:26px;box-shadow:0 24px 60px rgba(15,23,42,.18)}
@@ -208,14 +196,6 @@ if ($page === 'lead_public_update') {
             .public-lead-section h2{margin:0 0 10px;font-size:1.05rem;color:#0f172a}
             .public-lead-section .field label{font-size:.86rem;color:#334155}
             .public-lead-note{font-size:.92rem;color:#475569;line-height:1.6;margin:0 0 12px}
-            .public-lead-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-            .public-lead-chip{display:flex;flex-direction:column;justify-content:flex-start;gap:6px;border:1px solid rgba(148,163,184,.24);border-radius:14px;padding:14px;background:rgba(248,250,252,.95)}
-            .public-lead-chip strong{font-size:.98rem;color:#0f172a}
-            .public-lead-chip span{color:#475569;font-size:.88rem;line-height:1.45}
-            .public-lead-pill-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-            .public-lead-pill{border:1px solid rgba(148,163,184,.22);border-radius:14px;background:#fff;padding:12px}
-            .public-lead-pill strong{display:block;font-size:.95rem}
-            .public-lead-pill span{display:block;color:#64748b;font-size:.85rem;margin-top:4px}
             .public-lead-consent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
             .public-lead-consent-grid .checkline{margin:0;padding:14px;border:1px solid rgba(148,163,184,.18);border-radius:14px;background:#f8fafc;align-items:flex-start}
             .public-lead-submit{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding-top:6px}
@@ -233,32 +213,33 @@ if ($page === 'lead_public_update') {
             .public-choice{border:1px solid rgba(148,163,184,.22);border-radius:14px;background:#fff;padding:12px 10px;font-weight:700;color:#0f172a;text-align:center;min-height:48px}
             .public-choice.active{background:#1f6f78;color:#fff;border-color:#1f6f78}
             @media (max-width: 900px){
-                .public-lead-summary,.public-lead-pill-grid,.public-lead-consent-grid,.public-choicebar{grid-template-columns:1fr}
+                .public-lead-consent-grid,.public-choicebar{grid-template-columns:1fr}
                 .public-lead-footerbar{position:static}
             }
         </style>';
         echo '<div class="public-lead-shell" id="public-lead-wizard">';
         echo '<section class="public-lead-hero">';
-        echo '<span class="public-lead-kicker">Atualização de cadastro</span>';
-        echo '<h1>Uma etapa rápida para deixar tudo pronto para o seu atendimento</h1>';
-        echo '<p>Quanto mais completo o seu cadastro, mais fácil fica organizar seu histórico, evitar perguntas repetidas e agilizar o próximo agendamento. Você faz isso em poucos minutos, no seu ritmo.</p>';
-        echo '<div class="public-lead-btn-row" style="margin-top:18px"><a class="btn" href="#lead-form">Começar agora</a><a class="btn secondary" href="#consentimentos">Ir para consentimentos</a></div>';
+        echo '<span class="public-lead-kicker">Ficha rápida</span>';
+        echo '<h1>Falta só o básico pra eu entender sua tattoo</h1>';
+        echo '<p>Leva menos de 1 minuto.</p>';
+        echo '<div class="public-lead-btn-row" style="margin-top:18px"><a class="btn" href="#lead-form">Começar</a></div>';
+        echo '<div class="muted" style="margin-top:10px;color:#dbeafe">Seu progresso é salvo automaticamente.</div>';
         echo '</section>';
         echo '<div class="public-lead-flow">';
-        echo '<div class="public-lead-summary">';
-        echo '<div class="public-lead-chip"><strong>1. Dados básicos</strong><span>Contato, documento e interesse.</span></div>';
-        echo '<div class="public-lead-chip"><strong>2. Endereço opcional</strong><span>Ajuda a organizar o atendimento.</span></div>';
-        echo '<div class="public-lead-chip"><strong>3. Anamnese e consentimentos</strong><span>Mais segurança, mais personalização.</span></div>';
+        echo '<div class="public-lead-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">';
+        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>1</strong><span>Contato</span></div>';
+        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>2</strong><span>Tattoo</span></div>';
+        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>3</strong><span>Segurança</span></div>';
+        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>4</strong><span>Enviar</span></div>';
         echo '</div>';
-        echo '<div class="public-lead-disclaimer"><div><strong>Antes de começar</strong><span class="muted">Vamos te mostrar uma etapa por vez. O sistema salva o que você já digitou, então você não precisa enfrentar um formulário longo de uma vez.</span></div></div>';
         echo '<form class="form" method="post" id="lead-form">';
         echo '<input type="hidden" name="action" value="public_lead_update"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="token" value="' . h($token) . '"><input type="hidden" name="wizard_step" id="wizard-step" value="1"><input type="hidden" name="step_event" id="step-event" value="opened">';
-        echo '<section class="public-lead-section public-step is-active" data-step="1"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Etapa 1. Contato</h2><span class="badge">1 de 4</span></div><p class="public-lead-note">Comece pelo essencial. O resto fica guardado para continuar depois, se precisar.</p><div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome completo"></div><div class="field"><label>WhatsApp</label><input name="phone" value="' . h($value('phone', (string)($lead['phone'] ?? ''))) . '" placeholder="(00) 00000-0000"></div></div></section>';
-        echo '<section class="public-lead-section public-step" data-step="2" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Etapa 2. Projeto da tatuagem</h2><span class="badge">2 de 4</span></div><p class="public-lead-note">A ideia entra melhor quando você escreve do seu jeito, sem virar um texto formal.</p><div class="field"><label>O que você quer tatuar?</label><textarea name="interest" rows="4" placeholder="Conte sua ideia">' . h((string)($lead['interest'] ?? '')) . '</textarea></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>Região do corpo</label><select name="body_area"><option value="">Escolha</option>' . implode('', array_map(static fn(string $option): string => '<option value="' . h($option) . '"' . ((trim((string)($customerSeed['body_area'] ?? '')) === $option) ? ' selected' : '') . '>' . h($option) . '</option>', ['Braço','Perna','Costas','Peito','Antebraço','Costela','Outro'])) . '</select></div><div class="field"><label>Tamanho aproximado</label><select name="tattoo_size"><option value="">Escolha</option>' . implode('', array_map(static fn(string $option): string => '<option value="' . h($option) . '">' . h($option) . '</option>', ['Pequena','Média','Grande','Fechamento'])) . '</select></div><div class="field"><label>Melhor horário para contato</label><input name="best_contact_time" value="' . h($value('best_contact_time')) . '" placeholder="Noite, tarde..."></div></div><div class="field" style="margin-top:12px"><label>Link de referência</label><input name="reference_link" value="' . h($value('reference_link')) . '" placeholder="Link do Instagram, Pinterest, etc."></div></section>';
-        echo '<section class="public-lead-section public-step" data-step="3" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Etapa 3. Segurança rápida</h2><span class="badge">3 de 4</span></div><p class="public-lead-note">Se você não souber alguma coisa, tudo bem. Dá para responder sem travar.</p><div class="public-lead-choicebar" data-group="allergies"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="allergies" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Qual alergia?</label><textarea name="allergies_details" rows="3"></textarea></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Medicamentos importantes</label><textarea name="medications" rows="3">' . h($value('medications')) . '</textarea></div><div class="field"><label>Condições de saúde</label><textarea name="health_conditions" rows="3">' . h($value('health_conditions')) . '</textarea></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Condições de pele</label><textarea name="skin_conditions" rows="3">' . h($value('skin_conditions')) . '</textarea></div><div class="field"><label>Problemas de cicatrização</label><textarea name="healing_issues" rows="3">' . h($value('healing_issues')) . '</textarea></div></div></section>';
-        echo '<section class="public-lead-section public-step" data-step="4" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Etapa 4. Consentimentos essenciais</h2><span class="badge">4 de 4</span></div><p class="public-lead-note">Os opcionais começam desligados. Você escolhe o que quer autorizar.</p><div class="public-lead-consent-grid"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1" checked> Autorizo o uso dos meus dados para atendimento</label><label class="checkline"><input type="checkbox" name="truthfulness_confirmed" value="1" checked> Confirmo que as informações preenchidas são verdadeiras</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"> Aceito receber promoções pelo WhatsApp</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"> Autorizo uso de fotos da tatuagem no portfólio</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"> Autorizo marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"> Autorizo contato por WhatsApp para meu atendimento</label></div><div class="public-lead-section-toggle" style="margin-top:14px"><button type="button" class="btn secondary" id="wizard-toggle-advanced">Ficha completa opcional</button><button class="btn" type="submit">Enviar e agilizar meu atendimento</button></div><div id="advanced-fields" class="public-lead-advanced" style="display:none;margin-top:14px"><div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($value('document_number')) . '" placeholder="CPF ou documento"></div><div class="field"><label>Profissão</label><input name="occupation" value="' . h($value('occupation')) . '"></div></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($value('address_zip')) . '" placeholder="00000-000"></div><div class="field"><label>Cidade</label><input name="address_city" value="' . h($value('address_city')) . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($value('address_state')) . '"></div></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>Número</label><input name="address_number" value="' . h($value('address_number')) . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($value('address_complement')) . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($value('address_neighborhood')) . '"></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Contato de emergência</label><input name="emergency_contact_name" value="' . h($value('emergency_contact_name')) . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($value('emergency_contact_phone')) . '"></div></div></div></section>';
-        echo '<div class="public-progress"><div><strong style="display:block;color:#0f172a">Etapa atual</strong><span class="muted" id="wizard-label">Contato</span></div><div class="track"><span id="wizard-bar"></span></div></div>';
-        echo '<div class="public-lead-footerbar"><div class="inner"><div class="muted">Salvando automaticamente enquanto você avança.</div><div class="public-step-nav"><button type="button" class="btn secondary" id="wizard-prev">Voltar</button><button type="button" class="btn" id="wizard-next">Continuar</button></div></div></div>';
+        echo '<section class="public-lead-section public-step is-active" data-step="1"><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Como posso te chamar?</h2><span class="badge">1 de 4</span></div><div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($value('name', (string)($lead['name'] ?? ''))) . '" placeholder="Seu nome"></div><div class="field"><label>WhatsApp</label><input name="phone" value="' . h($value('phone', (string)($lead['phone'] ?? ''))) . '" placeholder="(00) 00000-0000"></div></div></section>';
+        echo '<section class="public-lead-section public-step" data-step="2" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Me conta sua ideia</h2><span class="badge">2 de 4</span></div><p class="public-lead-note">Pode escrever do seu jeito.</p><div class="field"><label>O que você quer tatuar?</label><textarea name="interest" rows="4" placeholder="Conte sua ideia">' . h((string)($lead['interest'] ?? '')) . '</textarea></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>Região do corpo</label><select name="body_area"><option value="">Escolha</option>' . implode('', array_map(static fn(string $option): string => '<option value="' . h($option) . '"' . ((trim((string)($customerSeed['body_area'] ?? '')) === $option) ? ' selected' : '') . '>' . h($option) . '</option>', ['Braço','Perna','Costas','Peito','Antebraço','Costela','Outro'])) . '</select></div><div class="field"><label>Tamanho aproximado</label><select name="tattoo_size"><option value="">Escolha</option>' . implode('', array_map(static fn(string $option): string => '<option value="' . h($option) . '">' . h($option) . '</option>', ['Pequena','Média','Grande','Fechamento'])) . '</select></div><div class="field"><label>Melhor horário</label><input name="best_contact_time" value="' . h($value('best_contact_time')) . '" placeholder="Noite, tarde..."></div></div><div class="field" style="margin-top:12px"><label>Link de referência</label><input name="reference_link" value="' . h($value('reference_link')) . '" placeholder="Instagram, Pinterest, etc."></div></section>';
+        echo '<section class="public-lead-section public-step" data-step="3" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Só umas perguntas de segurança</h2><span class="badge">3 de 4</span></div><p class="public-lead-note">Responda o que souber.</p><div class="grid cols-2"><div class="field"><label>Tem alergia importante?</label><div class="public-choicebar" data-group="allergies"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="allergies" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Qual alergia?</label><textarea name="allergies_details" rows="3"></textarea></div></div><div class="field"><label>Usa medicamento importante?</label><div class="public-choicebar" data-group="medications"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="medications" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Qual medicamento?</label><textarea name="medications_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem diabetes?</label><div class="public-choicebar" data-group="diabetes"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="diabetes" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Conte um pouco</label><textarea name="diabetes_details" rows="3"></textarea></div></div><div class="field"><label>Usa anticoagulante?</label><div class="public-choicebar" data-group="anticoagulants"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="anticoagulants" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Qual anticoagulante?</label><textarea name="anticoagulants_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem histórico de queloide?</label><div class="public-choicebar" data-group="keloid_history"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="keloid_history" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Me conta mais</label><textarea name="keloid_history_details" rows="3"></textarea></div></div><div class="field"><label>Tem problema de cicatrização?</label><div class="public-choicebar" data-group="healing_issues"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="healing_issues" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Me conta mais</label><textarea name="healing_issues_details" rows="3"></textarea></div></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Tem alguma condição de pele importante?</label><div class="public-choicebar" data-group="skin_conditions"><button type="button" class="public-choice" data-value="Não">Não</button><button type="button" class="public-choice" data-value="Sim">Sim</button><button type="button" class="public-choice" data-value="Não sei">Não sei</button></div><input type="hidden" name="skin_conditions" value=""><div class="field public-step-extra" style="display:none;margin-top:10px"><label>Qual condição?</label><textarea name="skin_conditions_details" rows="3"></textarea></div></div><div class="field"><label>Observações rápidas</label><textarea name="notes" rows="3">' . h($value('notes')) . '</textarea></div></div></section>';
+        echo '<section class="public-lead-section public-step" data-step="4" hidden><div class="actions" style="justify-content:space-between;align-items:flex-start"><h2 style="margin-top:0">Última etapa</h2><span class="badge">4 de 4</span></div><p class="public-lead-note">Marque o que você autoriza.</p><div class="public-lead-consent-grid"><label class="checkline"><input type="checkbox" name="data_processing_consent" value="1"> Autorizo o uso dos meus dados para atendimento</label><label class="checkline"><input type="checkbox" name="truthfulness_confirmed" value="1"> Confirmo que as informações preenchidas são verdadeiras</label><label class="checkline"><input type="checkbox" name="marketing_opt_in" value="1"> Aceito receber promoções pelo WhatsApp</label><label class="checkline"><input type="checkbox" name="share_before_after_opt_in" value="1"> Autorizo uso de fotos no portfólio</label><label class="checkline"><input type="checkbox" name="social_network_opt_in" value="1"> Autorizo marcação em redes sociais</label><label class="checkline"><input type="checkbox" name="whatsapp_opt_in" value="1"> Autorizo contato por WhatsApp</label></div><div class="public-lead-section-toggle" style="margin-top:14px"><button type="button" class="btn secondary" id="wizard-toggle-advanced">Ficha completa opcional</button><button class="btn" type="submit">Enviar e agilizar meu atendimento</button></div><div id="advanced-fields" class="public-lead-advanced" style="display:none;margin-top:14px"><div class="grid cols-3"><div class="field"><label>Data de nascimento</label><input type="date" name="birth_date" value="' . h($value('birth_date')) . '"></div><div class="field"><label>Documento</label><input name="document_number" value="' . h($value('document_number')) . '" placeholder="CPF ou documento"></div><div class="field"><label>Profissão</label><input name="occupation" value="' . h($value('occupation')) . '"></div></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>CEP</label><input name="address_zip" value="' . h($value('address_zip')) . '" placeholder="00000-000"></div><div class="field"><label>Cidade</label><input name="address_city" value="' . h($value('address_city')) . '"></div><div class="field"><label>Estado</label><input name="address_state" value="' . h($value('address_state')) . '"></div></div><div class="grid cols-3" style="margin-top:12px"><div class="field"><label>Número</label><input name="address_number" value="' . h($value('address_number')) . '"></div><div class="field"><label>Complemento</label><input name="address_complement" value="' . h($value('address_complement')) . '"></div><div class="field"><label>Bairro</label><input name="address_neighborhood" value="' . h($value('address_neighborhood')) . '"></div></div><div class="grid cols-2" style="margin-top:12px"><div class="field"><label>Contato de emergência</label><input name="emergency_contact_name" value="' . h($value('emergency_contact_name')) . '"></div><div class="field"><label>Telefone de emergência</label><input name="emergency_contact_phone" value="' . h($value('emergency_contact_phone')) . '"></div></div></div></section>';
+        echo '<div class="public-progress"><div><strong style="display:block;color:#0f172a">Etapa</strong><span class="muted" id="wizard-label">Contato</span></div><div class="track"><span id="wizard-bar"></span></div></div>';
+        echo '<div class="public-lead-footerbar"><div class="inner"><div class="muted">Salvo automaticamente.</div><div class="public-step-nav"><button type="button" class="btn secondary" id="wizard-prev">Voltar</button><button type="button" class="btn" id="wizard-next">Continuar</button></div></div></div>';
         echo '</form>';
         echo '<script>
             (function(){
@@ -301,24 +282,33 @@ if ($page === 'lead_public_update') {
                         advancedFields.style.display = advancedFields.style.display === "none" ? "block" : "none";
                     });
                 }
-                const choicebar = form.querySelector("[data-group=\"allergies\"]");
-                if (choicebar) {
-                    const hidden = form.querySelector("input[name=\"allergies\"]");
-                    const extra = form.querySelector(".public-step-extra");
-                    choicebar.querySelectorAll(".public-choice").forEach((btn) => {
+                const groups = ["allergies","medications","diabetes","anticoagulants","keloid_history","healing_issues","skin_conditions"];
+                groups.forEach((name) => {
+                    const barEl = form.querySelector(`[data-group="${name}"]`);
+                    const hidden = form.querySelector(`input[name="${name}"]`);
+                    const extra = barEl ? barEl.parentElement.querySelector(".public-step-extra") : null;
+                    if (!barEl || !hidden) return;
+                    barEl.querySelectorAll(".public-choice").forEach((btn) => {
                         btn.addEventListener("click", () => {
-                            choicebar.querySelectorAll(".public-choice").forEach((other) => other.classList.remove("active"));
+                            barEl.querySelectorAll(".public-choice").forEach((other) => other.classList.remove("active"));
                             btn.classList.add("active");
-                            if (hidden) hidden.value = btn.dataset.value || "";
+                            hidden.value = btn.dataset.value || "";
                             if (extra) extra.style.display = btn.dataset.value === "Sim" ? "block" : "none";
                         });
                     });
-                }
+                });
                 form.addEventListener("submit", async (ev) => {
                     if (step < 4) {
                         ev.preventDefault();
                         await autosave(step === 1 ? "step_contact_completed" : step === 2 ? "step_project_completed" : "step_health_completed");
                         show(step + 1);
+                    } else {
+                        const consent1 = form.querySelector("input[name=\"data_processing_consent\"]");
+                        const consent2 = form.querySelector("input[name=\"truthfulness_confirmed\"]");
+                        if (!consent1?.checked || !consent2?.checked) {
+                            ev.preventDefault();
+                            alert("Marque os consentimentos obrigatórios para enviar.");
+                        }
                     }
                 });
                 autosave("opened");
