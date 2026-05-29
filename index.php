@@ -2621,8 +2621,13 @@ if ($page === 'studio_whatsapp') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
+            'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
-        $conversations = studio_list_whatsapp_conversations($studio, $filters);
+        $conversationPageSize = 30;
+        $conversations = studio_list_whatsapp_conversations($studio, $filters, $conversationPageSize);
+        $nextConversationOffset = (int)$filters['offset'] + $conversationPageSize;
+        $hasMoreConversations = count(studio_list_whatsapp_conversations($studio, array_merge($filters, ['offset' => $nextConversationOffset]), $conversationPageSize)) > 0;
+        $conversationPageSize = 30;
         $serviceState = (string)($serviceStatus['status'] ?? 'offline');
         $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
         $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
@@ -2840,8 +2845,11 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<section class="wa-web-shell">';
         echo '<aside class="wa-web-sidebar">';
         echo '<div class="wa-web-sidebar-top">';
-        echo '<div><h2 style="margin:0">WhatsApp</h2><p class="muted" style="margin:4px 0 0">Visual de atendimento com tudo por perto.</p></div>';
-        echo '<a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Central</a>';
+        echo '<div class="wa-web-brand">';
+        echo '<div class="wa-web-brand-title"><h2>WhatsApp</h2><span class="wa-web-brand-dot"></span></div>';
+        echo '<p class="muted">Seu histórico de conversas</p>';
+        echo '</div>';
+        echo '<div class="wa-web-top-actions"><button class="wa-web-icon-btn" type="button" aria-label="Nova conversa"><i class="fa-solid fa-comment-medical"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '</div>';
         echo '<form class="wa-web-search" method="get">';
         echo '<input type="hidden" name="page" value="studio_whatsapp_workspace">';
@@ -2859,6 +2867,7 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
         echo '</div>';
+        echo '<div class="wa-web-archive-row"><span class="wa-web-archive-icon"><i class="fa-solid fa-box-archive"></i></span><strong>Arquivadas</strong><span class="wa-web-archive-count">2</span></div>';
         echo '<div class="wa-web-chat-list">';
         if ($conversations) {
             foreach ($conversations as $row) {
@@ -2877,6 +2886,10 @@ if ($page === 'studio_whatsapp_workspace') {
                 echo '<p>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</p>';
                 echo '<div class="wa-web-chat-badges">';
                 echo '<span class="badge ' . (($row['attendance_mode'] ?? 'human') === 'bot' ? 'ok' : '') . '">' . h(($row['attendance_mode'] ?? 'human') === 'bot' ? 'IA' : 'Humano') . '</span>';
+                $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
+                if ($rowUnreadCount > 0) {
+                    echo '<span class="wa-web-unread-badge">' . h((string)$rowUnreadCount) . '</span>';
+                }
                 if (!empty($row['needs_human'])) {
                     echo '<span class="badge warn">Pediu humano</span>';
                 }
@@ -2888,26 +2901,40 @@ if ($page === 'studio_whatsapp_workspace') {
         } else {
             echo '<div class="panel"><p class="muted">Nenhuma conversa encontrada com esse filtro.</p></div>';
         }
+        if ($hasMoreConversations) {
+            $loadMoreHref = app_url('studio_whatsapp_workspace', array_filter([
+                'id' => $conversationId > 0 ? $conversationId : null,
+                'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
+                'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                'conv_offset' => $nextConversationOffset,
+            ], static fn($value) => $value !== null && $value !== ''));
+            echo '<a class="wa-web-load-more" href="' . h($loadMoreHref) . '">Carregar mais conversas</a>';
+        }
         echo '</div>';
         echo '</aside>';
 
         echo '<section class="wa-web-main">';
         if (!$conversation) {
-            echo '<div class="wa-web-empty panel"><h2>Escolha uma conversa</h2><p class="muted">Quando voce abrir uma conversa, o chat e as ferramentas do CRM aparecem aqui.</p></div>';
+            echo '<div class="wa-web-empty">';
+            echo '<div class="wa-web-empty-illustration"><div class="wa-web-empty-bubble"></div><div class="wa-web-empty-badge"><i class="fa-solid fa-lock"></i></div></div>';
+            echo '<h2>WhatsApp Business Web</h2>';
+            echo '<p class="muted">Amplie, organize e gerencie sua conta comercial.</p>';
+            echo '<small class="wa-web-empty-lock"><i class="fa-solid fa-lock"></i> Suas mensagens pessoais são protegidas com criptografia de ponta a ponta.</small>';
+            echo '</div>';
         } else {
             echo '<div class="wa-web-main-header">';
-            echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div><h2>' . h($displayName) . '</h2><p class="muted">' . h((string)($conversation['phone'] ?? '')) . '</p></div></div>';
-            echo '<div class="wa-web-main-actions"><button class="btn secondary" type="button" id="openAppointmentModalButton">Agendar</button>';
+            echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span></div></div></div>';
+            echo '<div class="wa-web-main-actions"><button class="wa-web-icon-btn" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button>';
             if ($publicUpdateUrl !== '') {
-                echo '<a class="btn secondary" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Cadastro</a>';
+                echo '<a class="wa-web-icon-btn" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i></a>';
             }
-            echo '<button class="btn secondary" type="button" id="openWorkspaceToolsButton">Ferramentas</button></div></div>';
+            echo '<button class="wa-web-icon-btn" type="button" id="openWorkspaceToolsButton" aria-label="Ferramentas"><i class="fa-solid fa-bars-staggered"></i></button></div></div>';
             render_chat_messages($messages);
             echo '<form class="form wa-web-composer" method="post" enctype="multipart/form-data" id="chatComposer">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_workspace" value="1">';
-            echo '<div class="field" style="margin:0"><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="3"></textarea></div>';
-            echo '<div class="wa-web-composer-bar"><div class="wa-web-composer-actions"><input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><button class="btn secondary" type="button" id="chatAttachmentButton">Anexar</button><button class="btn secondary" type="button" id="chatRecordButton">Gravar audio</button><span id="chatRecordingState" class="muted"></span></div><button class="btn" type="submit">Enviar</button></div>';
+            echo '<div class="wa-web-composer-input"><button class="wa-web-icon-btn" type="button" id="chatAttachmentButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1"></textarea><button class="wa-web-icon-btn" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i></button></div>';
+            echo '<div class="wa-web-composer-bar"><div class="wa-web-composer-actions"><input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><span id="chatRecordingState" class="muted"></span></div><button class="wa-web-send-btn" type="submit" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button></div>';
             echo '<div id="chatAttachmentPreview" class="chat-attachment-preview hidden"></div>';
             echo '</form>';
         }
@@ -3226,27 +3253,25 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="conversation-header-main">';
         echo '<div class="conversation-avatar">' . h(strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', (string)$displayName) ?: 'W', 0, 1))) . '</div>';
         echo '<div class="conversation-header-text">';
-        echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div></div>';
-        echo '<div class="actions conversation-header-actions"><button class="btn secondary" type="button" id="openConversationToolsButton">Ferramentas</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div>';
+        echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p><span class="conversation-header-sub">Conta comercial</span></div></div>';
+        echo '<div class="actions conversation-header-actions"><button class="wa-web-icon-btn" type="button" id="openConversationToolsButton" aria-label="Etiqueta e ações"><i class="fa-regular fa-bookmark"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Chamada"><i class="fa-solid fa-video"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Pesquisar"><i class="fa-solid fa-magnifying-glass"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '</div>';
         render_chat_messages($messages);
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h($conversation['phone']) . '">';
-        echo '<div class="field"><label>Responder</label><textarea id="reply-message" name="message" placeholder="Digite a resposta para o cliente"></textarea></div>';
+        echo '<div class="wa-web-composer-input"><button class="wa-web-icon-btn" type="button" id="chatAttachmentButton" aria-label="Anexar"><i class="fa-regular fa-square-plus"></i></button><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1"></textarea><button class="wa-web-icon-btn" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i></button></div>';
         echo '<div class="emoji-strip" aria-label="Emojis rapidos">';
-        foreach (['ðŸ˜€','','','','ðŸ˜‚','','ðŸŽ¯','âœ…'] as $emoji) {
+        foreach (['😀','😂','🎯','✅'] as $emoji) {
             echo '<button type="button" class="btn tiny secondary quick-reply-copy" data-reply="' . h($emoji) . '">' . h($emoji) . '</button>';
         }
         echo '</div>';
         echo '<div class="chat-attach-row">';
         echo '<input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
-        echo '<button class="btn secondary" type="button" id="chatAttachmentButton">Anexar</button>';
-        echo '<button class="btn secondary" type="button" id="chatRecordButton">Gravar audio</button>';
         echo '<span id="chatRecordingState" class="muted"></span>';
         echo '</div>';
         echo '<div id="chatAttachmentPreview" class="chat-attachment-preview hidden"></div>';
-        echo '<button class="btn" type="submit">Enviar mensagem</button>';
+        echo '<button class="wa-web-send-btn" type="submit" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button>';
         echo '</form></div>';
 
         echo '<div id="conversationToolsOverlay" class="crm-modal hidden">';

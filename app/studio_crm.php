@@ -1896,6 +1896,12 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     if ($where) {
         $sql .= ' WHERE ' . implode(' AND ', $where);
     }
+    $offset = max(0, (int)($filters['offset'] ?? 0));
+    $fetchLimit = $limit > 0 ? ($limit + $offset) : 0;
+    if ($fetchLimit <= 0) {
+        $fetchLimit = 160;
+    }
+
     $sql .= " GROUP BY wc.id
          ORDER BY COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at), wc.updated_at) DESC, wc.id DESC
          LIMIT ?";
@@ -1904,7 +1910,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     foreach ($params as $index => $param) {
         $stmt->bindValue($index + 1, $param);
     }
-    $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
+    $stmt->bindValue(count($params) + 1, $fetchLimit, PDO::PARAM_INT);
     $stmt->execute();
 
     $rows = $stmt->fetchAll() ?: [];
@@ -1928,6 +1934,10 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
             default => true,
         };
     }));
+
+    if ($offset > 0 || $limit > 0) {
+        $rows = array_slice($rows, $offset, $limit > 0 ? $limit : null);
+    }
 
     return $rows;
 }
@@ -2085,7 +2095,8 @@ function studio_whatsapp_unread_count(array $conversation, array $studio): int
         return 0;
     }
 
-    return max(1, (int)($conversation['message_count'] ?? 1));
+    $totalMessages = max(1, (int)($conversation['message_count'] ?? 1));
+    return min(99, $totalMessages);
 }
 
 function studio_update_whatsapp_conversation(array $studio, array $data): void
