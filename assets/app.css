@@ -1698,6 +1698,85 @@ textarea {
 }
 
 .conversation-main {
+    background:
+        linear-gradient(180deg, rgba(17, 27, 33, 0.04), rgba(17, 27, 33, 0.01)),
+        #f0f2f5;
+    border: 1px solid #d1d7db;
+}
+
+.conversation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #d1d7db;
+    background: rgba(255, 255, 255, .82);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+}
+
+.conversation-header-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.conversation-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #00a884, #128c7e);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    flex: 0 0 auto;
+}
+
+.conversation-header-text {
+    min-width: 0;
+}
+
+.conversation-header-text h2 {
+    margin: 0;
+    font-size: 17px;
+    line-height: 1.2;
+    color: #111b21;
+}
+
+.conversation-header-text p {
+    margin: 2px 0 0;
+}
+
+.conversation-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.conversation-main .chat-thread {
+    background:
+        radial-gradient(circle at top left, rgba(0, 168, 132, 0.07), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(17, 27, 33, 0.03), transparent 18%),
+        #efeae2;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+}
+
+.conversation-main .send-box {
+    background: rgba(255, 255, 255, .82);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid #d1d7db;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+}
+
+.conversation-main {
     gap: 10px;
 }
 
@@ -1711,10 +1790,52 @@ textarea {
     width: min(96vw, 860px);
 }
 
+.whatsapp-conversations-table .badge.danger,
+.whatsapp-conversations-table .badge.warn {
+    text-transform: none;
+}
+
+.whatsapp-conversations-table tr:nth-child(even) {
+    background: #f8fbfd;
+}
+
+.whatsapp-conversations-table td:first-child strong {
+    color: #111b21;
+}
+
 .conversation-tools-body {
     display: grid;
     gap: 14px;
     padding: 18px;
+}
+
+.conversation-inline-tools {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #d1d7db;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, .72);
+    backdrop-filter: blur(8px);
+}
+
+.conversation-inline-group {
+    display: grid;
+    gap: 10px;
+}
+
+.conversation-inline-group strong {
+    color: #111b21;
+    font-size: 13px;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+
+.conversation-inline-group .quick-reply-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .conversation-tools-actions {
@@ -3151,6 +3272,10 @@ textarea {
 
     .conversation-layout {
         gap: 10px;
+    }
+
+    .conversation-inline-tools {
+        grid-template-columns: 1fr;
     }
 
     .whatsapp-overview,

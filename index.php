@@ -35,6 +35,9 @@ function app_build_version(): string
 $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
+if ($page === 'studio_whatsapp_workspace') {
+    $page = 'studio_whatsapp_conversation';
+}
 
 if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $leadId = (int)($_POST['lead_id'] ?? 0);
@@ -789,6 +792,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
                 redirect_to('studio_whatsapp_conversation', ['id' => (int)$_POST['conversation_id']]);
             }
             redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'mark_whatsapp_read' || $action === 'mark_whatsapp_unread') {
+            $studio = require_studio();
+            $conversationId = (int)($_POST['conversation_id'] ?? 0);
+            if ($action === 'mark_whatsapp_read') {
+                studio_whatsapp_mark_read($studio, $conversationId);
+                flash_set('success', 'Conversa marcada como lida.');
+            } else {
+                studio_whatsapp_mark_unread($studio, $conversationId);
+                flash_set('success', 'Conversa marcada como nao lida.');
+            }
+            redirect_to('studio_whatsapp', array_filter([
+                'filter' => (string)($_POST['filter'] ?? $_GET['filter'] ?? 'all'),
+                'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
+                'mode' => (string)($_POST['mode'] ?? $_GET['mode'] ?? ''),
+                'needs_human' => !empty($_POST['needs_human'] ?? $_GET['needs_human']) ? 1 : null,
+                'min_score' => (int)($_POST['min_score'] ?? $_GET['min_score'] ?? 0) ?: null,
+            ], static fn($value) => $value !== null && $value !== ''));
         }
 
         if ($action === 'update_whatsapp_conversation') {
@@ -3203,7 +3225,13 @@ if ($page === 'studio_whatsapp_conversation') {
 
         echo '<section class="conversation-layout" style="grid-template-columns:minmax(0,1fr)">';
         echo '<div class="panel conversation-main">';
-        echo '<div class="actions" style="justify-content:space-between"><div><h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div><div class="actions"><button class="btn secondary" type="button" id="openConversationToolsButton">Ferramentas</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div></div>';
+        echo '<div class="conversation-header">';
+        echo '<div class="conversation-header-main">';
+        echo '<div class="conversation-avatar">' . h(strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', (string)$displayName) ?: 'W', 0, 1))) . '</div>';
+        echo '<div class="conversation-header-text">';
+        echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p></div></div>';
+        echo '<div class="actions conversation-header-actions"><button class="btn secondary" type="button" id="openConversationToolsButton">Ferramentas</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Voltar</a></div>';
+        echo '</div>';
         render_chat_messages($messages);
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
         echo csrf_field();
@@ -3240,10 +3268,41 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<button class="btn secondary" type="button" data-mode-toggle="human">Humano</button>';
         echo '<button class="btn secondary" type="button" data-status-set="novo">Novo</button>';
         echo '<button class="btn secondary" type="button" id="openAppointmentModalButton">Agendar</button>';
+        echo '<button class="btn secondary" type="button" id="toggleUnreadButton">Marcar nao lida</button>';
         echo '</div>';
         echo '</div>';
         echo '</div>';
         echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span><span><strong data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</strong><small>Funil</small></span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
+        echo '<div class="conversation-inline-tools">';
+        echo '<div class="conversation-inline-group">';
+        echo '<strong>Respostas rápidas</strong>';
+        echo '<div class="quick-reply-list side-reply-list">';
+        foreach (array_slice($quickReplies, 0, 12) as $reply) {
+            echo '<button class="btn tiny secondary quick-reply-copy" type="button" data-reply="' . h($reply['body']) . '">' . h($reply['title']) . '</button>';
+        }
+        echo '</div>';
+        echo '</div>';
+        echo '<div class="conversation-inline-group">';
+        echo '<strong>Sugestões da IA</strong>';
+        if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
+            echo '<div class="stack-list">';
+            if (!empty($assistantInsights['suggested_name'])) {
+                echo '<div class="drilldown-card compact"><strong>Nome sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_name']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['suggested_interest'])) {
+                echo '<div class="drilldown-card compact"><strong>Interesse sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_interest']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['suggested_notes'])) {
+                echo '<div class="drilldown-card compact"><strong>Observação sugerida</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
+            }
+            if (!empty($assistantInsights['schedule_reason'])) {
+                echo '<div class="drilldown-card compact"><strong>Sugestão de agendamento</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div></div>';
+            }
+        } else {
+            echo '<p class="muted">Nenhuma sugestão clara detectada ainda.</p>';
+        }
+        echo '</div>';
+        echo '</div>';
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
@@ -3286,57 +3345,6 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<label class="checkline"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label>';
         echo '<button class="btn" type="submit">Salvar cadastro</button>';
         echo '</form>';
-
-        echo '<details class="panel side-tool-panel" ' . (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['schedule_reason']) ? 'open' : '') . '>';
-        echo '<summary>Sugestões da IA</summary>';
-        if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
-            echo '<div class="stack-list">';
-            if (!empty($assistantInsights['suggested_name'])) {
-                echo '<div class="drilldown-card compact"><strong>Nome sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_name']) . '</div></div>';
-            }
-            if (!empty($assistantInsights['suggested_interest'])) {
-                echo '<div class="drilldown-card compact"><strong>Interesse sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_interest']) . '</div></div>';
-            }
-            if (!empty($assistantInsights['suggested_notes'])) {
-                echo '<div class="drilldown-card compact"><strong>Observação sugerida</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
-            }
-            if (!empty($assistantInsights['schedule_reason'])) {
-                echo '<div class="drilldown-card compact"><strong>Sugestão de agendamento</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div><div class="mini-metrics side-suggestion-metrics"><span><strong>' . h((string)($scheduleSuggestion['date'] ?? '')) . '</strong><small>Data</small></span><span><strong>' . h((string)($scheduleSuggestion['time'] ?? '')) . '</strong><small>Hora</small></span><span><strong>' . h((string)($scheduleSuggestion['end_time'] ?? '')) . '</strong><small>Fim</small></span></div></div>';
-            }
-            echo '<p class="muted">Quando o assistente encontra nome, interesse ou uma janela boa de agenda, ele preenche os campos acima para agilizar o atendimento.</p>';
-        } else {
-            echo '<p class="muted">Nenhuma sugestão clara detectada ainda.</p>';
-        }
-        echo '</details>';
-
-        echo '<details class="panel side-tool-panel" open>';
-        echo '<summary>Respostas rapidas</summary>';
-        if ($quickReplies) {
-            echo '<div class="quick-reply-list side-reply-list">';
-            foreach (array_slice($quickReplies, 0, 12) as $reply) {
-                echo '<button class="btn tiny secondary quick-reply-copy" type="button" data-reply="' . h($reply['body']) . '">' . h($reply['title']) . '</button>';
-            }
-            echo '</div>';
-        } else {
-            echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
-        }
-        echo '</details>';
-
-        echo '<details class="panel side-tool-panel">';
-        echo '<summary>Sugestao de agendamento</summary>';
-        if ($scheduleSuggestion) {
-            echo '<p class="muted">' . h($scheduleSuggestion['reason']) . '</p>';
-            echo '<div class="mini-metrics side-suggestion-metrics">';
-            echo '<span><strong>' . h($scheduleSuggestion['title']) . '</strong><small>Titulo</small></span>';
-            echo '<span><strong>' . h($scheduleSuggestion['date']) . '</strong><small>Data</small></span>';
-            echo '<span><strong>' . h($scheduleSuggestion['time']) . '</strong><small>Hora</small></span>';
-            echo '<span><strong>' . h($scheduleSuggestion['end_time'] ?? '') . '</strong><small>Fim</small></span>';
-            echo '</div>';
-            echo '<button class="btn secondary" type="button" id="applyScheduleSuggestionButton" style="margin-top:10px">Usar sugestao</button>';
-        } else {
-            echo '<p class="muted">Ainda sem sugestao para esta conversa.</p>';
-        }
-        echo '</details>';
         echo '<div class="info-list">';
         echo '<p><strong>Cliente:</strong> ' . ($conversation['customer_id'] ? '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '">' . h($conversation['customer_name'] ?: 'Abrir cliente') . '</a>' : '<span class="muted">sem cliente vinculado</span>') . '</p>';
         echo '<p><strong>Lead:</strong> ' . ($conversation['lead_id'] ? '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">' . h($conversation['lead_name'] ?: 'Abrir lead') . '</a>' : '<span class="muted">sem lead vinculado</span>') . '</p>';
@@ -3441,13 +3449,18 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'if (appointmentDateInput) appointmentDateInput.addEventListener("change", syncAppointmentEndTime); if (appointmentStartTimeInput) appointmentStartTimeInput.addEventListener("change", syncAppointmentEndTime); syncAppointmentEndTime();';
         echo 'document.querySelectorAll("[data-appointment-date]").forEach(button => button.addEventListener("click", () => { const dateInput = document.querySelector(\'[name="appointment_date"]\'); const timeInput = document.querySelector(\'[name="start_time"]\'); if (dateInput) dateInput.value = button.dataset.appointmentDate || dateInput.value; if (timeInput) timeInput.value = button.dataset.appointmentTime || timeInput.value; syncAppointmentEndTime(); }));';
         echo 'async function postConversationUpdate(payload, errorMessage){ const body = new URLSearchParams({ csrf_token: csrfToken, conversation_id: String(conversationId), ...payload }); const response = await fetch(window.location.pathname + window.location.search, { method: "POST", headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/plain, */*" }, body }); const text = await response.text(); if (!response.ok) { throw new Error(text.trim() || errorMessage); } return text; }';
+        echo 'let conversationMarkedUnread = false;';
+        echo 'function refreshUnreadButtonLabel(){ const toggleUnreadButton = document.getElementById("toggleUnreadButton"); if (toggleUnreadButton) toggleUnreadButton.textContent = conversationMarkedUnread ? "Marcar lida" : "Marcar nao lida"; }';
+        echo 'async function loadConversationReadState(){ try { const response = await fetch("api/whatsapp_read_state.php", { cache: "no-store", headers: { "Accept": "application/json" } }); const data = await response.json().catch(() => null); conversationMarkedUnread = !(data?.ok && data.read && data.read[String(conversationId)]); refreshUnreadButtonLabel(); } catch (error) {} }';
+        echo 'async function setConversationReadState(mode = "read"){ try { await fetch("api/whatsapp_read_state.php", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ id: conversationId, mode }) }); conversationMarkedUnread = mode === "unread"; refreshUnreadButtonLabel(); } catch (error) {} }';
         echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button => button.addEventListener("click", async () => { try { const isBot = button.dataset.modeToggle === "bot"; const payload = { action: "update_whatsapp_profile", attendance_mode: isBot ? "bot" : "human", needs_human: isBot ? 0 : 1, ai_last_status: isBot ? "IA pronta" : "IA inativa" }; await postConversationUpdate(payload, "Nao foi possivel atualizar o atendimento."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o atendimento."); } }));';
         echo 'document.querySelectorAll("[data-status-set]").forEach(button => button.addEventListener("click", async () => { try { const payload = { action: "update_whatsapp_profile", status: button.dataset.statusSet || "novo", create_lead: 1 }; await postConversationUpdate(payload, "Nao foi possivel atualizar o status."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o status."); } }));';
         echo 'async function toggleRecording(){ if (recorder && recorder.state === "recording") { recorder.stop(); return; } if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { alert("Seu navegador nao liberou gravacao de audio aqui."); return; } try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const preferredMime = MediaRecorder.isTypeSupported("audio/ogg;codecs=opus") ? "audio/ogg;codecs=opus" : (MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : ""); const options = preferredMime ? { mimeType: preferredMime } : {}; recorder = new MediaRecorder(stream, options); chunks = []; startedAt = Date.now(); recordBtn.textContent = "Parar"; recordState.textContent = "Gravando..."; recordingTimer = setInterval(() => { const elapsed = Math.floor((Date.now() - startedAt) / 1000); recordState.textContent = `Gravando ${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`; }, 500); recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); }; recorder.onstop = () => { if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; } if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } const mime = recorder.mimeType || preferredMime || "audio/webm"; const ext = mime.includes("ogg") || mime.includes("opus") ? "ogg" : "webm"; const blob = new Blob(chunks, { type: mime }); recordedFile = new File([blob], `audio_${Date.now()}.${ext}`, { type: mime }); const dt = new DataTransfer(); dt.items.add(recordedFile); input.files = dt.files; renderPreview(); recordBtn.textContent = "Gravar audio"; recordState.textContent = "Audio pronto para envio"; }; recorder.start(); } catch (error) { alert("Nao foi possivel iniciar a gravacao."); } }';
         echo 'recordBtn.addEventListener("click", toggleRecording);';
         echo 'if (form) form.addEventListener("submit", async (event) => { event.preventDefault(); event.stopPropagation(); const hasText = !!textarea.value.trim(); const hasFile = !!(input.files && input.files.length); if (!hasText && !hasFile) return; const formData = new FormData(form); try { const response = await fetch(window.location.pathname + window.location.search, { method: "POST", body: formData }); if (!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); textarea.value = ""; clearAttachment(); location.reload(); } catch (error) { alert(error.message || "Erro ao enviar mensagem"); } });';
-        echo 'const pollConversation = async () => { try { const response = await fetch(`api_chat.php?id=${encodeURIComponent(conversationId)}&_=${Date.now()}`, { cache: "no-store", headers: { "Accept": "application/json" } }); const data = await response.json().catch(() => null); if (!data?.ok) return; syncConversationUI(data.conversation || {}); const messages = Array.isArray(data.mensagens) ? data.mensagens : []; const count = messages.length; if (count !== lastMessageCount) { lastMessageCount = count; updateConversationMeta(count); renderChatThread(messages); return; } if (messages.length > 0) { const latestSignature = `${messages[messages.length - 1]?.message_id || ""}|${messages[messages.length - 1]?.sent_at || ""}|${messages[messages.length - 1]?.transcricao || ""}|${messages[messages.length - 1]?.transcript || ""}`; if (pollConversation._lastSignature !== latestSignature) { pollConversation._lastSignature = latestSignature; renderChatThread(messages); } } } catch (error) {} };';
+        echo 'const pollConversation = async () => { try { const response = await fetch(`api_chat.php?id=${encodeURIComponent(conversationId)}&_=${Date.now()}`, { cache: "no-store", headers: { "Accept": "application/json" } }); const data = await response.json().catch(() => null); if (!data?.ok) return; syncConversationUI(data.conversation || {}); const messages = Array.isArray(data.mensagens) ? data.mensagens : []; const count = messages.length; if (count !== lastMessageCount) { lastMessageCount = count; updateConversationMeta(count); renderChatThread(messages); } else if (messages.length > 0) { const latestSignature = `${messages[messages.length - 1]?.message_id || ""}|${messages[messages.length - 1]?.sent_at || ""}|${messages[messages.length - 1]?.transcricao || ""}|${messages[messages.length - 1]?.transcript || ""}`; if (pollConversation._lastSignature !== latestSignature) { pollConversation._lastSignature = latestSignature; renderChatThread(messages); } } if (messages.some(msg => !msg.from_me && !msg.fromMe)) { setConversationReadState("read"); } } catch (error) {} };';
         echo 'pollConversation._lastSignature = "";';
+        echo 'loadConversationReadState().then(() => { const toggleUnreadButton = document.getElementById("toggleUnreadButton"); if (toggleUnreadButton) toggleUnreadButton.addEventListener("click", () => setConversationReadState(conversationMarkedUnread ? "read" : "unread")); setConversationReadState("read"); });';
         echo 'setInterval(pollConversation, 3000);';
         echo 'document.addEventListener("click", async (event) => { const btn = event.target.closest("[data-transcribe-audio]"); if (!btn) return; event.preventDefault(); if (btn.dataset.busy === "1") return; btn.dataset.busy = "1"; const oldLabel = btn.textContent; btn.textContent = "Transcrevendo..."; try { const response = await fetch("api/whatsapp_transcribe_audio_v2.php", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ conversation_id: ' . (int)$conversationId . ', message_id: btn.dataset.transcribeAudio || "", media_url: btn.dataset.mediaUrl || "" }) }); const data = await response.json().catch(() => null); if (!data?.ok) throw new Error(data?.error || "Nao foi possivel transcrever o audio"); const bubble = btn.closest(".chat-bubble"); if (bubble) { let box = bubble.querySelector(".chat-transcription-result"); if (!box) { box = document.createElement("div"); box.className = "chat-transcription-result"; box.style.cssText = "margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,.2);font-size:.9rem"; bubble.appendChild(box); } box.textContent = "Transcricao: " + data.text; } btn.textContent = "Transcrito"; } catch (error) { alert(error.message); btn.textContent = oldLabel; } finally { btn.dataset.busy = "0"; } });';
         echo '})();';
@@ -5144,12 +5157,8 @@ function render_whatsapp_table(array $conversations): void
         $name = $conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Sem nome'));
         $needsHuman = !empty($conversation['needs_human']);
         $href = app_url('studio_whatsapp_conversation', ['id' => (int)$conversation['id']]);
-        $isUnreplied = false;
-        $lastIncoming = trim((string)($conversation['last_incoming_at'] ?? ''));
-        $lastOutgoing = trim((string)($conversation['last_outgoing_at'] ?? ''));
-        if ($lastIncoming !== '' && ($lastOutgoing === '' || strtotime($lastIncoming) > strtotime($lastOutgoing))) {
-            $isUnreplied = true;
-        }
+        $unreadCount = studio_whatsapp_unread_count($conversation, current_studio() ?: []);
+        $isUnreplied = $unreadCount > 0;
         $linkedLabel = !empty($conversation['customer_id']) ? 'Cliente vinculado' : (!empty($conversation['lead_id']) ? 'Lead vinculado' : 'Sem vínculo');
         $linkBadgeClass = $linkedLabel === 'Sem vínculo' ? 'warn' : '';
         $statusBadges = [];
@@ -5164,11 +5173,16 @@ function render_whatsapp_table(array $conversations): void
         echo '<td><a href="' . h($href) . '"><strong>' . h($name) . '</strong></a><br><span class="muted">' . h($conversation['phone']) . '</span><br><span class="muted">' . h((string)($conversation['message_count'] ?? 0)) . ' mensagens</span></td>';
         $messageMoment = (string)($conversation['message_last_at'] ?? $conversation['last_message_at'] ?? '');
         $lastMessage = trim((string)($conversation['last_message_preview'] ?? $conversation['latest_message_preview'] ?? ''));
-        echo '<td><strong>' . h($lastMessage !== '' ? $lastMessage : '-') . '</strong><br><span class="muted">' . h(studio_relative_time_label($messageMoment)) . '</span></td>';
+        echo '<td><strong>' . h($lastMessage !== '' ? $lastMessage : '-') . '</strong><br><span class="muted">' . h(studio_relative_time_label($messageMoment)) . '</span>' . ($isUnreplied ? '<br><span class="badge danger">Nao lida</span>' : '') . '</td>';
         echo '<td>' . implode('<br>', $statusBadges) . '</td>';
         echo '<td><span class="badge ' . h($linkBadgeClass) . '">' . h($linkedLabel) . '</span></td>';
         echo '<td><strong>' . h((string)($conversation['lead_score'] ?? '-')) . '/10</strong><br><span class="muted">' . h($conversation['ai_last_status'] ?: '-') . '</span></td>';
         echo '<td><div class="actions"><a class="btn tiny" href="' . h($href) . '">Abrir</a>';
+        if ($isUnreplied) {
+            echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversation['id']) . '"><button class="btn tiny secondary" type="submit">Marcar lida</button></form>';
+        } else {
+            echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversation['id']) . '"><button class="btn tiny secondary" type="submit">Marcar nao lida</button></form>';
+        }
         if (!empty($conversation['lead_id'])) {
             echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '">Lead</a>';
         }

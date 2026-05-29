@@ -2010,6 +2010,84 @@ function studio_whatsapp_messages(array $studio, int $conversationId, int $limit
     return array_reverse($messages);
 }
 
+function studio_whatsapp_read_state_path(array $studio): string
+{
+    $studioId = max(0, (int)($studio['id'] ?? 0));
+    $dir = APP_BASE_PATH . '/storage/whatsapp';
+    if (!is_dir($dir)) {
+        mkdir($dir, 0775, true);
+    }
+
+    return $dir . '/read_state_' . $studioId . '.json';
+}
+
+function studio_whatsapp_read_state(array $studio): array
+{
+    $path = studio_whatsapp_read_state_path($studio);
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $decoded = json_decode((string)@file_get_contents($path), true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function studio_whatsapp_save_read_state(array $studio, array $state): void
+{
+    $path = studio_whatsapp_read_state_path($studio);
+    $tmp = $path . '.tmp';
+    file_put_contents($tmp, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    rename($tmp, $path);
+}
+
+function studio_whatsapp_get_read_at(array $studio, int $conversationId): string
+{
+    $state = studio_whatsapp_read_state($studio);
+    return trim((string)($state[(string)$conversationId] ?? ''));
+}
+
+function studio_whatsapp_mark_read(array $studio, int $conversationId): string
+{
+    if ($conversationId <= 0) {
+        throw new RuntimeException('Conversa invalida.');
+    }
+
+    $state = studio_whatsapp_read_state($studio);
+    $readAt = date('Y-m-d H:i:s');
+    $state[(string)$conversationId] = $readAt;
+    studio_whatsapp_save_read_state($studio, $state);
+
+    return $readAt;
+}
+
+function studio_whatsapp_mark_unread(array $studio, int $conversationId): void
+{
+    if ($conversationId <= 0) {
+        throw new RuntimeException('Conversa invalida.');
+    }
+
+    $state = studio_whatsapp_read_state($studio);
+    unset($state[(string)$conversationId]);
+    studio_whatsapp_save_read_state($studio, $state);
+}
+
+function studio_whatsapp_unread_count(array $conversation, array $studio): int
+{
+    $readAt = studio_whatsapp_get_read_at($studio, (int)($conversation['id'] ?? 0));
+    $lastRead = $readAt !== '' ? strtotime($readAt) : 0;
+    $lastIncoming = trim((string)($conversation['last_incoming_at'] ?? ''));
+    if ($lastIncoming === '') {
+        return 0;
+    }
+
+    $incomingTs = strtotime($lastIncoming);
+    if ($incomingTs === false || $incomingTs <= $lastRead) {
+        return 0;
+    }
+
+    return max(1, (int)($conversation['message_count'] ?? 1));
+}
+
 function studio_update_whatsapp_conversation(array $studio, array $data): void
 {
     $id = (int)($data['conversation_id'] ?? $data['id'] ?? 0);
