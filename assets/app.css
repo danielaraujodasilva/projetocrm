@@ -3005,6 +3005,12 @@ textarea {
     color: #ffffff;
 }
 
+.wa-web-composer-shell .wa-web-icon-btn.is-recording {
+    background: #7a1f28;
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+
 .wa-web-composer-input {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
@@ -3031,6 +3037,27 @@ textarea {
 
 .wa-web-composer-bar {
     display: none;
+}
+
+.wa-web-emoji-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 2px 0;
+}
+
+.wa-web-emoji-panel .btn.tiny.secondary {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #202c33;
+    border-color: rgba(255, 255, 255, .06);
+    color: #f4f7f8;
+}
+
+.wa-web-tools-highlight {
+    box-shadow: 0 0 0 2px rgba(37, 211, 102, .32);
 }
 
 .wa-web-tools-card label,
