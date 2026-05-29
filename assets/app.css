@@ -2379,23 +2379,34 @@ textarea {
 
 .wa-web-shell {
     display: grid;
-    grid-template-columns: 340px minmax(0, 1fr) 360px;
-    gap: 16px;
+    grid-template-columns: 375px minmax(0, 1fr) 376px;
+    gap: 12px;
     align-items: start;
+    min-height: calc(100vh - 132px);
+    padding: 10px;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at top left, rgba(37, 211, 102, .08), transparent 30%),
+        radial-gradient(circle at top right, rgba(11, 20, 26, .45), transparent 24%),
+        linear-gradient(180deg, #0f1114 0%, #111318 100%);
+    box-shadow: 0 22px 48px rgba(0, 0, 0, .12);
 }
 
 .wa-web-sidebar,
 .wa-web-tools {
-    background: #f7f9fb;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    padding: 14px;
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, .06);
+    border-radius: 0;
+    padding: 0;
+    color: #e9edef;
+    overflow: hidden;
 }
 
 .wa-web-sidebar {
     display: grid;
-    gap: 12px;
-    min-height: calc(100vh - 180px);
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    gap: 0;
+    min-height: calc(100vh - 156px);
 }
 
 .wa-web-sidebar-top,
@@ -2412,50 +2423,86 @@ textarea {
     flex-wrap: wrap;
 }
 
+.wa-web-sidebar-top {
+    padding: 18px 16px 12px;
+    align-items: flex-start;
+}
+
+.wa-web-sidebar-top h2 {
+    margin: 0;
+    color: #e9edef;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+.wa-web-sidebar-top .muted {
+    color: #aebac1 !important;
+}
+
+.wa-web-sidebar-top .btn.secondary {
+    background: transparent;
+    border-color: rgba(255, 255, 255, .08);
+    color: #e9edef;
+}
+
 .wa-web-search input {
     width: 100%;
     min-height: 46px;
     border-radius: 999px;
+    border: 0;
+    background: #202c33;
+    color: #e9edef;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
+}
+
+.wa-web-search input::placeholder {
+    color: #8696a0;
+}
+
+.wa-web-search {
+    padding: 0 16px 12px;
 }
 
 .wa-web-filter-pill {
     padding: 8px 12px;
     border-radius: 999px;
-    border: 1px solid var(--line);
-    background: #fff;
-    color: var(--text);
+    border: 1px solid rgba(134, 150, 160, .35);
+    background: #111b21;
+    color: #d1d7db;
     text-decoration: none;
     font-size: 13px;
     font-weight: 700;
 }
 
 .wa-web-filter-pill.active {
-    background: #dff6de;
-    border-color: #c9e8c7;
+    background: rgba(37, 211, 102, .15);
+    border-color: rgba(37, 211, 102, .42);
+    color: #e9edef;
 }
 
 .wa-web-chat-list {
     display: grid;
     gap: 8px;
     overflow: auto;
-    padding-right: 4px;
+    padding: 8px 8px 12px 8px;
+    border-top: 1px solid rgba(255, 255, 255, .06);
 }
 
 .wa-web-chat-item {
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr);
     gap: 10px;
-    padding: 12px;
-    border-radius: 16px;
+    padding: 12px 10px;
+    border-radius: 12px;
     text-decoration: none;
-    color: var(--text);
+    color: #e9edef;
     border: 1px solid transparent;
-    background: #fff;
+    background: transparent;
 }
 
 .wa-web-chat-item.active {
-    border-color: #c9e8c7;
-    background: #ecf9ed;
+    background: rgba(255, 255, 255, .04);
 }
 
 .wa-web-chat-avatar {
@@ -2465,9 +2512,10 @@ textarea {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: #dff6de;
-    color: #155724;
+    background: linear-gradient(180deg, #202c33, #1f2c33);
+    color: #25d366;
     font-weight: 800;
+    box-shadow: inset 0 0 0 1px rgba(37, 211, 102, .22);
 }
 
 .wa-web-chat-avatar.large {
@@ -2490,7 +2538,7 @@ textarea {
 
 .wa-web-chat-head span,
 .wa-web-chat-meta p {
-    color: var(--muted);
+    color: #8696a0;
     font-size: 12px;
 }
 
@@ -2510,16 +2558,17 @@ textarea {
 .wa-web-main {
     display: grid;
     gap: 14px;
-    min-height: calc(100vh - 180px);
+    min-height: calc(100vh - 156px);
 }
 
 .wa-web-main-header,
 .wa-web-composer,
 .wa-web-empty {
-    background: #fff;
-    border: 1px solid var(--line);
-    border-radius: 18px;
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, .06);
+    border-radius: 0;
     padding: 16px;
+    color: #e9edef;
 }
 
 .wa-web-main-contact {
@@ -2541,9 +2590,9 @@ textarea {
 }
 
 .wa-web-tools-card {
-    background: #fff;
-    border: 1px solid var(--line);
-    border-radius: 18px;
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, .06);
+    border-radius: 0;
     padding: 14px;
     display: grid;
     gap: 12px;
@@ -2555,6 +2604,87 @@ textarea {
 
 .wa-web-action-grid .btn {
     flex: 1 1 140px;
+}
+
+.wa-web-main-header {
+    padding-top: 14px;
+    padding-bottom: 14px;
+}
+
+.wa-web-main-header .btn.secondary,
+.wa-web-composer .btn.secondary,
+.wa-web-tools .btn.secondary {
+    background: #202c33;
+    border-color: transparent;
+    color: #e9edef;
+}
+
+.wa-web-main-header .btn,
+.wa-web-composer .btn,
+.wa-web-tools .btn {
+    border-radius: 999px;
+}
+
+.wa-web-empty {
+    min-height: calc(100vh - 360px);
+    display: grid;
+    place-items: center;
+    text-align: center;
+}
+
+.wa-web-empty h2 {
+    margin-bottom: 8px;
+    color: #e9edef;
+}
+
+.wa-web-empty .muted {
+    color: #aebac1 !important;
+}
+
+.wa-web-main-contact h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+}
+
+.wa-web-main-contact p {
+    margin: 3px 0 0;
+    color: #8696a0 !important;
+}
+
+.wa-web-main-header .wa-web-main-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.wa-web-sidebar-top,
+.wa-web-search,
+.wa-web-filter-row,
+.wa-web-chat-list,
+.wa-web-main-header,
+.wa-web-composer,
+.wa-web-tools-card {
+    position: relative;
+}
+
+.wa-web-filter-row {
+    padding: 0 16px 12px;
+    overflow: auto hidden;
+    white-space: nowrap;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .16) transparent;
+}
+
+.wa-web-filter-row::-webkit-scrollbar,
+.wa-web-chat-list::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.wa-web-filter-row::-webkit-scrollbar-thumb,
+.wa-web-chat-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, .12);
+    border-radius: 999px;
 }
 
 @media (max-width: 1180px) {
@@ -2575,6 +2705,11 @@ textarea {
     .wa-web-sidebar,
     .wa-web-main {
         min-height: auto;
+    }
+
+    .wa-web-shell {
+        padding: 8px;
+        border-radius: 18px;
     }
 }
 
