@@ -2887,7 +2887,7 @@ if ($page === 'studio_whatsapp_workspace') {
                     'q' => $filters['q'] !== '' ? $filters['q'] : null,
                 ], static fn($value) => $value !== null && $value !== ''));
                 $rowActive = $rowId === $conversationId ? ' active' : '';
-                echo '<a class="wa-web-chat-item' . h($rowActive) . '" href="' . h($rowHref) . '">';
+                echo '<a class="wa-web-chat-item' . h($rowActive) . '" href="' . h($rowHref) . '" data-search-name="' . h($rowName) . '" data-search-phone="' . h((string)($row['phone'] ?? '')) . '" data-search-preview="' . h($rowPreview) . '">';
                 echo '<div class="wa-web-chat-avatar">' . h(strtoupper(substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1))) . '</div>';
                 echo '<div class="wa-web-chat-meta"><div class="wa-web-chat-head"><strong>' . h($rowName) . '</strong><span>' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</span></div>';
                 echo '<p>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</p>';
@@ -3123,6 +3123,16 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '})();';
             echo '</script>';
         }
+        echo '<script>';
+        echo '(function(){';
+        echo 'const searchForm=document.getElementById("waWorkspaceSearchForm"); const searchInput=document.getElementById("waWorkspaceSearchInput"); const searchSuggestions=document.getElementById("waWorkspaceSearchSuggestions"); const searchConversationIndex=' . json_encode(array_map(static function (array $row) use ($filters): array { $rowId = (int)($row['id'] ?? 0); $rowName = (string)($row['customer_name'] ?: ($row['lead_name'] ?: ($row['name'] ?: 'Contato WhatsApp'))); $rowPreview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? '')); return ['id' => $rowId, 'name' => $rowName, 'phone' => (string)($row['phone'] ?? ''), 'preview' => $rowPreview, 'href' => app_url('studio_whatsapp_workspace', array_filter(['id' => $rowId, 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null], static fn($value) => $value !== null && $value !== ''))]; }, $conversationSearchIndex), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const searchItems=[...document.querySelectorAll(".wa-web-chat-item")];';
+        echo 'function escapeHtml(value){ return String(value ?? "").replace(/[&<>"\x27]/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;" }[char] || char)); }';
+        echo 'function closeSearchSuggestions(){ searchSuggestions?.classList.add("hidden"); if(searchSuggestions) searchSuggestions.innerHTML=""; }';
+        echo 'function filterVisibleConversations(query){ const needle=String(query||"").trim().toLowerCase(); searchItems.forEach((item)=>{ const haystack=[item.dataset.searchName,item.dataset.searchPhone,item.dataset.searchPreview].join(" ").toLowerCase(); item.classList.toggle("hidden", needle!=="" && !haystack.includes(needle)); }); }';
+        echo 'function renderSearchSuggestions(query){ if(!searchInput||!searchSuggestions) return; const needle=String(query||"").trim().toLowerCase(); filterVisibleConversations(needle); if(needle.length<2){ closeSearchSuggestions(); return; } const matches=searchConversationIndex.filter((item)=>[item.name,item.phone,item.preview].join(" ").toLowerCase().includes(needle)).slice(0,8); if(!matches.length){ closeSearchSuggestions(); return; } searchSuggestions.innerHTML=matches.map((item)=>`<a class="wa-web-search-suggestion" href="${escapeHtml(item.href)}"><strong>${escapeHtml(item.name||item.phone||"Contato")}</strong><span>${escapeHtml(item.phone||"")}</span><small>${escapeHtml(item.preview||"Sem mensagem ainda")}</small></a>`).join(""); searchSuggestions.classList.remove("hidden"); }';
+        echo 'searchInput?.addEventListener("input",()=>renderSearchSuggestions(searchInput.value)); searchInput?.addEventListener("focus",()=>renderSearchSuggestions(searchInput.value)); searchInput?.addEventListener("search",()=>renderSearchSuggestions(searchInput.value)); searchInput?.addEventListener("keydown",(event)=>{ if(event.key==="Escape"){ searchInput.value=""; filterVisibleConversations(""); closeSearchSuggestions(); } }); document.addEventListener("click",(event)=>{ if(searchForm && !searchForm.contains(event.target)) closeSearchSuggestions(); });';
+        echo '})();';
+        echo '</script>';
     }, $flash);
     exit;
 }
