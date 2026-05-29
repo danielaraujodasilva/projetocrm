@@ -35,9 +35,6 @@ function app_build_version(): string
 $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'dashboard');
-if ($page === 'studio_whatsapp_workspace') {
-    $page = 'studio_whatsapp_conversation';
-}
 
 if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $leadId = (int)($_POST['lead_id'] ?? 0);
