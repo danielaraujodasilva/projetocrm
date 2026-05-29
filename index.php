@@ -2790,8 +2790,12 @@ if ($page === 'studio_whatsapp_workspace') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
+            'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
-        $conversations = studio_list_whatsapp_conversations($studio, $filters);
+        $conversationPageSize = 30;
+        $conversations = studio_list_whatsapp_conversations($studio, $filters, $conversationPageSize);
+        $nextConversationOffset = (int)$filters['offset'] + $conversationPageSize;
+        $hasMoreConversations = count(studio_list_whatsapp_conversations($studio, array_merge($filters, ['offset' => $nextConversationOffset]), $conversationPageSize)) > 0;
         $conversationId = (int)($_GET['id'] ?? 0);
         if ($conversationId <= 0 && !empty($conversations[0]['id'])) {
             $conversationId = (int)$conversations[0]['id'];
@@ -2857,11 +2861,12 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<input type="text" name="q" placeholder="Buscar conversa..." value="' . h($filters['q']) . '">';
         echo '</form>';
         echo '<div class="wa-web-filter-row">';
-        foreach (['all' => 'Todas', 'unreplied' => 'Sem resposta', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
+        foreach (['all' => 'Tudo', 'unreplied' => 'Nao lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
                 'filter' => $filterKey !== 'all' ? $filterKey : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                'conv_offset' => null,
             ], static fn($value) => $value !== null && $value !== ''));
             $active = ($filters['filter'] ?: 'all') === $filterKey ? ' active' : '';
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
@@ -2928,13 +2933,20 @@ if ($page === 'studio_whatsapp_workspace') {
             if ($publicUpdateUrl !== '') {
                 echo '<a class="wa-web-icon-btn" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i></a>';
             }
-            echo '<button class="wa-web-icon-btn" type="button" id="openWorkspaceToolsButton" aria-label="Ferramentas"><i class="fa-solid fa-bars-staggered"></i></button></div></div>';
+            echo '<button class="wa-web-tools-toggle" type="button" id="openWorkspaceToolsButton" aria-label="Ferramentas"><i class="fa-solid fa-sliders"></i><span>Ferramentas</span></button></div></div>';
             render_chat_messages($messages);
             echo '<form class="form wa-web-composer" method="post" enctype="multipart/form-data" id="chatComposer">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_workspace" value="1">';
-            echo '<div class="wa-web-composer-input"><button class="wa-web-icon-btn" type="button" id="chatAttachmentButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1"></textarea><button class="wa-web-icon-btn" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i></button></div>';
-            echo '<div class="wa-web-composer-bar"><div class="wa-web-composer-actions"><input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><span id="chatRecordingState" class="muted"></span></div><button class="wa-web-send-btn" type="submit" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button></div>';
+            echo '<div class="wa-web-composer-shell">';
+            echo '<button class="wa-web-icon-btn" type="button" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button>';
+            echo '<button class="wa-web-icon-btn" type="button" id="chatAttachmentButton" aria-label="Anexar"><i class="fa-solid fa-plus"></i></button>';
+            echo '<div class="wa-web-composer-input"><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1"></textarea></div>';
+            echo '<input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
+            echo '<span id="chatRecordingState" class="muted wa-web-recording-state"></span>';
+            echo '<button class="wa-web-icon-btn" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i></button>';
+            echo '<button class="wa-web-send-btn" type="submit" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i></button>';
+            echo '</div>';
             echo '<div id="chatAttachmentPreview" class="chat-attachment-preview hidden"></div>';
             echo '</form>';
         }
@@ -2954,7 +2966,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 $notesFieldValue = (string)$assistantInsights['suggested_notes'];
             }
 
-            echo '<template id="workspaceToolsRail">';
+            ob_start();
             echo '<div class="wa-web-tools-card">';
             echo '<div class="wa-web-tools-head"><h3>Radar do atendimento</h3><span class="badge ' . (((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'ok' : 'warn') . '">' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Humano') . '</span></div>';
             echo '<div class="mini-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens</small></span><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Leitura IA</small></span><span><strong>' . h((string)$pendingAudioCount) . '</strong><small>Audios sem transcricao</small></span></div>';
@@ -3045,7 +3057,9 @@ if ($page === 'studio_whatsapp_workspace') {
                 echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
             }
             echo '</div>';
-            echo '</template>';
+            $workspaceToolsMarkup = (string)ob_get_clean();
+            echo '<aside class="wa-web-tools wa-web-tools-desktop" id="workspaceToolsDesktop">' . $workspaceToolsMarkup . '</aside>';
+            echo '<template id="workspaceToolsRail">' . $workspaceToolsMarkup . '</template>';
 
             echo '<div id="workspaceToolsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,900px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">A mesma lateral, otimizada para tela pequena.</p></div><button type="button" id="closeWorkspaceToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceToolsOverlayBody"></div></div></div>';
 
@@ -3092,7 +3106,7 @@ if ($page === 'studio_whatsapp_workspace') {
             echo 'closeMediaOverlay?.addEventListener("click",()=>mediaOverlay.classList.add("hidden")); mediaOverlay?.addEventListener("click",(event)=>{ if(event.target===mediaOverlay) mediaOverlay.classList.add("hidden"); });';
             echo 'function openAppointment(){ appointmentModal?.classList.remove("hidden"); } openAppointmentModalButton?.addEventListener("click",openAppointment); openAppointmentFromTools?.addEventListener("click",openAppointment); closeAppointmentModal?.addEventListener("click",()=>appointmentModal.classList.add("hidden")); appointmentModal?.addEventListener("click",(event)=>{ if(event.target===appointmentModal) appointmentModal.classList.add("hidden"); });';
         echo 'if(toolsButton&&toolsOverlay&&toolsOverlayBody&&toolsRail){ toolsButton.addEventListener("click",()=>{ toolsOverlayBody.innerHTML=toolsRail.innerHTML; toolsOverlay.classList.remove("hidden"); }); } closeToolsOverlay?.addEventListener("click",()=>toolsOverlay.classList.add("hidden")); toolsOverlay?.addEventListener("click",(event)=>{ if(event.target===toolsOverlay) toolsOverlay.classList.add("hidden"); });';
-        echo 'const waLoadMoreLink=document.getElementById("waLoadMoreLink"); if(waLoadMoreLink){ const loadMoreObserver=new IntersectionObserver((entries)=>{ entries.forEach((entry)=>{ if(entry.isIntersecting && waLoadMoreLink.getAttribute("href")){ const href=waLoadMoreLink.getAttribute("href"); waLoadMoreLink.textContent="Carregando..."; waLoadMoreLink.removeAttribute("href"); window.location.href=href; } }); }, { root:null, threshold:0.9 }); loadMoreObserver.observe(waLoadMoreLink); }';
+        echo 'const chatList=document.querySelector(".wa-web-chat-list"); let loadMoreBusy=false; async function loadMoreConversations(link){ if(loadMoreBusy||!link||!link.href||!chatList) return; loadMoreBusy=true; const href=link.href; link.textContent="Carregando..."; try{ const response=await fetch(href,{ credentials:"same-origin" }); const html=await response.text(); const doc=new DOMParser().parseFromString(html,"text/html"); const incomingItems=[...doc.querySelectorAll(".wa-web-chat-list .wa-web-chat-item")]; const currentIds=new Set([...chatList.querySelectorAll(".wa-web-chat-item")].map((item)=>item.getAttribute("href")||"")); incomingItems.forEach((item)=>{ const key=item.getAttribute("href")||""; if(!currentIds.has(key)){ chatList.insertBefore(item, link); currentIds.add(key); } }); const nextLink=doc.getElementById("waLoadMoreLink"); if(nextLink&&nextLink.getAttribute("href")){ link.href=nextLink.getAttribute("href"); link.dataset.nextOffset=nextLink.dataset.nextOffset||\"\"; link.textContent=\"Carregar mais conversas\"; } else { link.remove(); } } catch(error){ link.textContent=\"Tentar novamente\"; } finally { loadMoreBusy=false; }} const waLoadMoreLink=document.getElementById("waLoadMoreLink"); if(waLoadMoreLink){ waLoadMoreLink.addEventListener("click",(event)=>{ event.preventDefault(); loadMoreConversations(waLoadMoreLink); }); const loadMoreObserver=new IntersectionObserver((entries)=>{ entries.forEach((entry)=>{ if(entry.isIntersecting){ loadMoreConversations(waLoadMoreLink); } }); }, { root:null, threshold:0.35 }); loadMoreObserver.observe(waLoadMoreLink); }';
             echo 'document.getElementById("copyWorkspacePublicUpdateUrl")?.addEventListener("click", async ()=>{ const input=document.getElementById("workspacePublicUpdateUrl"); if(!input) return; try{ await navigator.clipboard.writeText(input.value||""); }catch(error){ input.select(); document.execCommand("copy"); }});';
             echo 'document.getElementById("transcribePendingAudioButton")?.addEventListener("click",()=>{ const buttons=[...document.querySelectorAll("[data-transcribe-audio]")]; buttons.forEach((button,index)=>{ setTimeout(()=>button.click(), index*350); }); });';
             echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button=>button.addEventListener("click", async ()=>{ try{ const isBot=button.dataset.modeToggle==="bot"; const body=new URLSearchParams({ csrf_token: csrfToken, action:"update_whatsapp_profile", conversation_id:String(conversationId), return_to_workspace:"1", attendance_mode:isBot?"bot":"human", needs_human:isBot?"0":"1", ai_last_status:isBot?"IA pronta":"IA inativa" }); const response=await fetch(window.location.pathname+window.location.search,{ method:"POST", headers:{ "X-Requested-With":"XMLHttpRequest","Accept":"application/json, text/plain, */*" }, body }); if(!response.ok){ throw new Error("Nao foi possivel atualizar o atendimento."); } location.reload(); }catch(error){ alert(error.message||"Nao foi possivel atualizar o atendimento."); }}));';
