@@ -2519,7 +2519,8 @@ textarea {
 
 .wa-web-search input {
     width: 100%;
-    min-height: 46px;
+    min-height: 40px;
+    padding: 0 16px;
     border-radius: 999px;
     border: 0;
     background: #202c33;
@@ -2532,7 +2533,53 @@ textarea {
 }
 
 .wa-web-search {
-    padding: 0 16px 12px;
+    padding: 0 16px 10px;
+    position: relative;
+}
+
+.wa-web-search-suggestions {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    top: calc(100% - 4px);
+    z-index: 12;
+    display: grid;
+    gap: 1px;
+    padding: 6px 0;
+    border: 1px solid rgba(255, 255, 255, .08);
+    border-radius: 14px;
+    background: #111b21;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, .36);
+}
+
+.wa-web-search-suggestion {
+    display: grid;
+    gap: 2px;
+    padding: 10px 14px;
+    color: #e9edef;
+    text-decoration: none;
+    background: transparent;
+}
+
+.wa-web-search-suggestion:hover {
+    background: rgba(255, 255, 255, .05);
+}
+
+.wa-web-search-suggestion strong {
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+.wa-web-search-suggestion span,
+.wa-web-search-suggestion small {
+    color: #8696a0;
+    line-height: 1.2;
+}
+
+.wa-web-search-suggestion small {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .wa-web-filter-pill {
@@ -2679,9 +2726,9 @@ textarea {
 }
 
 .wa-web-composer {
-    padding: 10px 16px 12px;
+    padding: 6px 10px 10px;
     display: grid;
-    gap: 10px;
+    gap: 6px;
     border-top: 1px solid rgba(255, 255, 255, .06);
     background: #111b21;
     position: sticky;
@@ -2694,7 +2741,7 @@ textarea {
     grid-template-columns: 42px minmax(0, 1fr) 42px;
     gap: 10px;
     align-items: center;
-    padding: 10px 12px;
+    padding: 8px 12px;
     background: #2a3942;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, .04);
@@ -2921,7 +2968,7 @@ textarea {
 }
 
 .wa-web-composer {
-    padding: 8px 12px 12px;
+    padding: 4px 10px 8px;
     background: #111b21;
 }
 
@@ -2930,23 +2977,22 @@ textarea {
     grid-template-columns: 40px 40px minmax(0, 1fr) auto 40px 44px;
     gap: 8px;
     align-items: center;
-    padding: 6px 8px;
-    border-top: 1px solid rgba(255, 255, 255, .04);
+    padding: 4px 6px;
 }
 
 .wa-web-composer-input {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;
-    min-height: 44px;
-    padding: 10px 14px;
+    min-height: 38px;
+    padding: 8px 14px;
     background: #202c33;
     box-shadow: none;
 }
 
 .wa-web-composer-input textarea {
-    min-height: 22px;
+    min-height: 18px;
     font-size: 14px;
-    line-height: 1.45;
+    line-height: 1.35;
 }
 
 .wa-web-recording-state {
