@@ -1698,10 +1698,8 @@ textarea {
 }
 
 .conversation-main {
-    background:
-        linear-gradient(180deg, rgba(17, 27, 33, 0.04), rgba(17, 27, 33, 0.01)),
-        #f0f2f5;
-    border: 1px solid #d1d7db;
+    background: #111b21;
+    border: 1px solid rgba(255, 255, 255, .06);
 }
 
 .conversation-header {
@@ -1709,15 +1707,13 @@ textarea {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 14px;
-    border-bottom: 1px solid #d1d7db;
-    background: rgba(255, 255, 255, .82);
-    backdrop-filter: blur(10px);
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+    background: #111b21;
+    backdrop-filter: none;
     position: sticky;
     top: 0;
     z-index: 4;
-    border-top-left-radius: 16px;
-    border-top-right-radius: 16px;
 }
 
 .conversation-header-main {
@@ -1745,13 +1741,26 @@ textarea {
 
 .conversation-header-text h2 {
     margin: 0;
-    font-size: 17px;
+    font-size: 14px;
     line-height: 1.2;
-    color: #111b21;
+    color: #e9edef;
 }
 
 .conversation-header-text p {
     margin: 2px 0 0;
+    color: #aebac1;
+    font-size: 12px;
+}
+
+.conversation-header-sub {
+    display: inline-block;
+    margin-top: 2px;
+    color: #aebac1;
+    font-size: 12px;
+}
+
+.conversation-header .wa-web-icon-btn {
+    background: transparent;
 }
 
 .conversation-header-actions {
@@ -2262,13 +2271,13 @@ textarea {
     gap: 8px;
     max-height: 580px;
     overflow: auto;
-    padding: 20px 18px;
+    padding: 18px 18px 20px;
     border: 1px solid rgba(255, 255, 255, .04);
     border-radius: 0;
     background:
-        radial-gradient(circle at 20px 20px, rgba(255,255,255,.025) 1px, transparent 1px) 0 0/22px 22px,
-        radial-gradient(circle at 11px 11px, rgba(255,255,255,.018) 1px, transparent 1px) 0 0/44px 44px,
-        linear-gradient(180deg, #111b21 0%, #0f1a20 100%);
+        radial-gradient(circle at 20px 20px, rgba(255,255,255,.02) 1px, transparent 1px) 0 0/22px 22px,
+        radial-gradient(circle at 11px 11px, rgba(255,255,255,.014) 1px, transparent 1px) 0 0/44px 44px,
+        linear-gradient(180deg, #111b21 0%, #0b141a 100%);
 }
 
 .whatsapp-conversations-table td {
@@ -2289,10 +2298,10 @@ textarea {
 }
 
 .chat-bubble {
-    max-width: min(720px, 80%);
-    padding: 7px 10px 6px;
-    border: 1px solid rgba(255, 255, 255, .03);
-    border-radius: 7px;
+    max-width: min(720px, 78%);
+    padding: 7px 9px 6px;
+    border: 1px solid rgba(255, 255, 255, .02);
+    border-radius: 6px;
     background: #202c33;
     box-shadow: 0 1px 1px rgba(0, 0, 0, .10);
     color: #e9edef;
@@ -2300,15 +2309,15 @@ textarea {
 
 .chat-message.out .chat-bubble {
     background: #005c4b;
-    border-color: rgba(37, 211, 102, .09);
-    border-radius: 7px;
+    border-color: rgba(37, 211, 102, .08);
+    border-radius: 6px;
 }
 
 .chat-bubble p {
     margin: 0 0 6px;
     white-space: pre-wrap;
     font-size: 13px;
-    line-height: 1.42;
+    line-height: 1.38;
 }
 
 .chat-bubble span {
@@ -2670,10 +2679,14 @@ textarea {
 }
 
 .wa-web-composer {
-    padding: 12px 16px 14px;
+    padding: 10px 16px 12px;
     display: grid;
     gap: 10px;
     border-top: 1px solid rgba(255, 255, 255, .06);
+    background: #111b21;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
 }
 
 .wa-web-composer-input {
@@ -2681,9 +2694,9 @@ textarea {
     grid-template-columns: 42px minmax(0, 1fr) 42px;
     gap: 10px;
     align-items: center;
-    padding: 10px 14px;
+    padding: 10px 12px;
     background: #2a3942;
-    border-radius: 24px;
+    border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, .04);
 }
 
@@ -2697,6 +2710,11 @@ textarea {
     color: #e9edef;
     padding: 0;
     line-height: 1.5;
+}
+
+.wa-web-composer-bar {
+    justify-content: space-between;
+    align-items: center;
 }
 
 .wa-web-composer-input textarea::placeholder {
@@ -2729,6 +2747,10 @@ textarea {
     padding-top: 14px;
     padding-bottom: 14px;
     border-bottom: 1px solid rgba(255, 255, 255, .06);
+    background: #111b21;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .wa-web-main-header .btn.secondary,
@@ -2755,6 +2777,41 @@ textarea {
     border-radius: 50%;
     background: #25d366;
     color: #111b21;
+}
+
+.emoji-strip {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    margin-top: -2px;
+    opacity: .55;
+}
+
+.emoji-strip .btn.tiny.secondary {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    border: 0;
+    opacity: .6;
+}
+
+.chat-attach-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    min-height: 0;
+    margin-top: -2px;
+}
+
+.chat-attachment-preview {
+    margin-top: 0;
+    padding: 8px 10px;
+    border: 1px dashed rgba(255, 255, 255, .10);
+    border-radius: 10px;
+    background: #111b21;
 }
 
 .wa-web-send-btn {
@@ -2793,6 +2850,11 @@ textarea {
     color: #aebac1 !important;
     max-width: 58ch;
     line-height: 1.7;
+}
+
+.conversation-main .chat-thread {
+    border-left: 1px solid rgba(255, 255, 255, .04);
+    border-right: 1px solid rgba(255, 255, 255, .04);
 }
 
 .wa-web-main-contact h2 {
