@@ -2927,7 +2927,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 $notesFieldValue = (string)$assistantInsights['suggested_notes'];
             }
 
-            echo '<aside class="wa-web-tools" id="workspaceToolsRail">';
+            echo '<div class="wa-web-tools" id="workspaceToolsRail" hidden aria-hidden="true">';
             echo '<div class="wa-web-tools-card">';
             echo '<div class="wa-web-tools-head"><h3>Radar do atendimento</h3><span class="badge ' . (((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'ok' : 'warn') . '">' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Humano') . '</span></div>';
             echo '<div class="mini-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens</small></span><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Leitura IA</small></span><span><strong>' . h((string)$pendingAudioCount) . '</strong><small>Audios sem transcricao</small></span></div>';
@@ -3018,7 +3018,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
             }
             echo '</div>';
-            echo '</aside>';
+            echo '</div>';
 
             echo '<div id="workspaceToolsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,900px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">A mesma lateral, otimizada para tela pequena.</p></div><button type="button" id="closeWorkspaceToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceToolsOverlayBody"></div></div></div>';
 
