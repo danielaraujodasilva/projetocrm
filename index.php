@@ -2551,8 +2551,8 @@ if ($page === 'studio_agenda') {
         }
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<button type="button" class="panel dashboard-stat" id="openNewSlotOverlay"><p class="metric">Novo horário</p><p class="muted">Abrir formulário em overlay</p></button>';
-        echo '<button type="button" class="panel dashboard-stat" id="openAgendaTableOverlay"><p class="metric">Agenda cadastrada</p><p class="muted">Ver lista paginada em overlay</p></button>';
+        echo '<button type="button" class="panel dashboard-stat" id="openNewSlotOverlay"><p class="metric">Novo horário</p><p class="muted">Abrir formulário</p></button>';
+        echo '<button type="button" class="panel dashboard-stat" id="openAgendaTableOverlay"><p class="metric">Agenda cadastrada</p><p class="muted">Ver lista paginada</p></button>';
         echo '</section>';
         echo '<div id="newSlotOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">' . h($selectedAppointment ? 'Editar horario' : 'Novo horario') . '</h3><p class="muted" style="margin:4px 0 0">Cadastre ou ajuste um atendimento sem sair da agenda.</p></div><button type="button" id="closeNewSlotOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="newSlotOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="agendaTableOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Agenda cadastrada</h3><p class="muted" style="margin:4px 0 0">Lista paginada de agendamentos.</p></div><button type="button" id="closeAgendaTableOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="agendaTableOverlayBody" class="p-4"></div></div></div>';
@@ -2629,7 +2629,7 @@ if ($page === 'studio_whatsapp') {
         $hasMoreConversations = count(studio_list_whatsapp_conversations($studio, array_merge($filters, ['offset' => $nextConversationOffset]), $conversationPageSize)) > 0;
         $conversationPageSize = 30;
         $serviceState = (string)($serviceStatus['status'] ?? 'offline');
-        $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
+        $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando código' : ($serviceState === 'starting' ? 'Iniciando' : 'Não conectado'));
         $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
         $conversationsPage = max(1, (int)($_GET['wa_page'] ?? 1));
         $conversationsPerPage = 12;
@@ -2641,7 +2641,7 @@ if ($page === 'studio_whatsapp') {
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
         echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>' . h((string)$summary['human']) . '</strong><span>Workspace WhatsApp</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conexão, pareamento e ações</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio em overlay</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura rápida</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>' . h((string)$conversationsTotal) . '</strong><span>Conversas importadas</span><small>Ver lista paginada</small></button>';
         echo '</section>';
@@ -2650,7 +2650,7 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessão do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
-        $sessionSummary = 'Nao conectado';
+        $sessionSummary = 'Não conectado';
         $connectedPhone = preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''));
         if ($connectedPhone !== '') {
             $sessionSummary = 'Conectado no numero ' . $connectedPhone;
@@ -3539,7 +3539,7 @@ if ($page === 'studio_finance') {
         $expenses = studio_list_expenses($studio);
         echo '<section class="grid cols-3">';
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Abrir detalhes</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lançar despesa</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></button>';
         echo '</section>';
         echo '<div id="financeAgendaSource" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Agenda no mês</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Resumo financeiro ligado aos agendamentos do período.</p></div></div>';
@@ -3907,7 +3907,7 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em detalhes.</p></div><span class="badge">Painel</span></div>';
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em detalhes.</p></div><span class="badge">Leitura</span></div>';
         echo '<div class="settings-overview-grid">';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir detalhes</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir detalhes</span></button>';

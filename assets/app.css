@@ -12,7 +12,7 @@
     --ok: #1d7f48;
     --warn: #a86300;
     --danger: #a33b3b;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -31,6 +31,7 @@ body {
         radial-gradient(circle at top left, rgba(179, 84, 65, .06), transparent 28%),
         var(--bg);
     color: var(--text);
+    line-height: 1.45;
 }
 
 a {
@@ -52,19 +53,21 @@ a:hover {
 .sidebar {
     background: #16232b;
     color: #eff5f7;
-    padding: 22px;
+    padding: 24px 22px;
     position: sticky;
     top: 0;
     min-height: 100vh;
+    box-shadow: 10px 0 30px rgba(10, 16, 22, .08);
 }
 
 .brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 28px;
+    margin-bottom: 30px;
     font-weight: 800;
     font-size: 18px;
+    letter-spacing: -.02em;
 }
 
 .brand-mark {
@@ -83,8 +86,9 @@ a:hover {
 
 .nav a {
     color: #d8e2e6;
-    padding: 10px 12px;
-    border-radius: 6px;
+    padding: 11px 12px;
+    border-radius: 10px;
+    transition: background-color .14s ease, transform .14s ease;
 }
 
 .nav a.active,
@@ -94,7 +98,7 @@ a:hover {
 }
 
 .main {
-    padding: 26px;
+    padding: 28px;
     width: 100%;
     min-width: 0;
 }
@@ -110,7 +114,8 @@ a:hover {
 
 .topbar h1 {
     margin: 0;
-    font-size: 26px;
+    font-size: 28px;
+    letter-spacing: -.02em;
 }
 
 .topbar p {
@@ -890,6 +895,7 @@ textarea {
     width: 100%;
     position: relative;
     overflow: hidden;
+    min-height: 132px;
 }
 
 .settings-overview-grid {
@@ -906,7 +912,7 @@ textarea {
 
 .dashboard-stat:hover {
     transform: translateY(-1px);
-    box-shadow: 0 10px 24px rgba(18, 28, 37, .10);
+    box-shadow: 0 14px 30px rgba(18, 28, 37, .12);
     text-decoration: none;
 }
 
@@ -932,8 +938,12 @@ textarea {
 }
 
 .home-action-card .metric {
-    font-size: 19px;
-    font-weight: 800;
+    font-size: 18px;
+    line-height: 1.18;
+}
+
+.home-action-card .muted {
+    font-size: 13px;
 }
 
 .dashboard-hero {
@@ -1013,10 +1023,10 @@ textarea {
 .dashboard-hero .quick-action-card {
     display: grid;
     gap: 4px;
-    min-height: 92px;
+    min-height: 100px;
     padding: 14px 16px;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 14px;
     background: var(--surface);
     color: var(--text);
     text-decoration: none;
