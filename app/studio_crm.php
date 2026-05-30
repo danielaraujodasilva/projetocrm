@@ -377,7 +377,7 @@ function studio_whatsapp_request(array $studio, string $method, string $path, ar
     $method = strtoupper($method);
 
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
     curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
@@ -953,17 +953,17 @@ function studio_queue_whatsapp_action(array $studio, string $action, ?array $pay
     return ['ok' => false, 'error' => 'Disparo em background ainda nao configurado para este sistema operacional.'];
 }
 
-function studio_wait_whatsapp_health(array $studio, int $seconds = 10): array
+function studio_wait_whatsapp_health(array $studio, int $seconds = 10, int $requestTimeout = 2): array
 {
     $last = [];
     $deadline = microtime(true) + $seconds;
 
     while (microtime(true) < $deadline) {
-        $last = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
+        $last = studio_whatsapp_request($studio, 'GET', '/health', [], $requestTimeout);
         if (!empty($last['ok'])) {
             return $last;
         }
-        usleep(500000);
+        usleep(750000);
     }
 
     return $last ?: ['ok' => false, 'error' => 'Servico WhatsApp nao respondeu dentro do tempo esperado.'];
@@ -1033,7 +1033,7 @@ function studio_ensure_whatsapp_service(array $studio, array $ctx): array
         return $launch;
     }
 
-    $health = studio_wait_whatsapp_health($studio, 15);
+    $health = studio_wait_whatsapp_health($studio, 30, 3);
     if (!studio_whatsapp_health_is_current($health)) {
         return [
             'ok' => false,
