@@ -1744,7 +1744,7 @@ if ($page === 'studio_home') {
         }
         echo '</section>';
 
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Atalhos da Home</h2><p class="muted">Toque em um card para abrir o conte&uacute;do em overlay.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Atalhos da Home</h2><p class="muted">Clique em um card para abrir os detalhes rapidamente.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
         echo '<div class="settings-overview-grid dashboard-home-blocks" style="margin-top:12px">';
         $homeCards = [
             ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
@@ -1755,7 +1755,7 @@ if ($page === 'studio_home') {
             ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
         ];
         foreach ($homeCards as $card) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric">' . h((string)$card['label']) . '</p><p class="muted" style="margin:0">' . h((string)$card['summary']) . '</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric">' . h((string)$card['label']) . '</p><p class="muted" style="margin:0">' . h((string)$card['summary']) . '</p><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</div></section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1120px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rápido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" class="crm-button crm-icon-button" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
@@ -3538,7 +3538,7 @@ if ($page === 'studio_finance') {
         $summary = studio_finance_summary($studio);
         $expenses = studio_list_expenses($studio);
         echo '<section class="grid cols-3">';
-        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Abrir detalhes</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></button>';
         echo '<button type="button" class="panel dashboard-stat" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></button>';
         echo '</section>';
@@ -3598,8 +3598,8 @@ if ($page === 'studio_people') {
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista</span></button>';
+        echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista</span></button>';
         echo '</section>';
         echo '<div id="peopleLeadsSource" class="hidden" hidden><div class="panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Leads recentes</h2><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Abrir funil</a></div>';
         render_leads_table(array_slice($leads, 0, 12));
@@ -3907,17 +3907,17 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em detalhes.</p></div><span class="badge">Painel</span></div>';
         echo '<div class="settings-overview-grid">';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir detalhes</span></button>';
+        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir detalhes</span></button>';
         if (plan_allows('advanced_reports')) {
-            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</div></section>';
         echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatórios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
@@ -4039,7 +4039,7 @@ if ($page === 'studio_settings') {
             'rules' => ['Regras comerciais', 'Contexto para a IA'],
         ];
         foreach ($settingsCards as $key => [$title, $subtitle]) {
-            echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir detalhes</span></button>';
         }
         echo '</div>';
         echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
