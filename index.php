@@ -2348,8 +2348,8 @@ if ($page === 'studio_agenda') {
         $appointmentsPageRows = array_slice($appointments, $appointmentsOffset, $appointmentsPerPage);
 
         echo '<section class="panel"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap calendar-toolbar">';
-        echo '<h2 class="mb-0">Calendario</h2>';
-        echo '<form class="inline-form" method="post" enctype="multipart/form-data">';
+        echo '<div><h2 class="mb-0">Calendario</h2><p class="muted mb-0">Visão principal para revisar, importar e organizar os horários.</p></div>';
+        echo '<form class="inline-form d-flex flex-wrap gap-2 align-items-end" method="post" enctype="multipart/form-data">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="import_calendar_ics">';
         echo '<input type="file" name="ics_file" accept=".ics,text/calendar" required>';
@@ -2645,12 +2645,12 @@ if ($page === 'studio_whatsapp') {
         $conversationsPage = min($conversationsPage, $conversationsTotalPages);
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
-        echo '<section class="quick-actions-grid whatsapp-quick-links">';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>Abrir workspace</strong><span>' . h((string)$summary['human']) . ' em humano</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status e pareamento</span><small>Ver conexão, pareamento e ações</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>Mensagem manual</strong><span>' . h((string)$summary['total']) . ' conversas</span><small>Abrir envio em overlay</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
+        echo '<section class="quick-actions-grid whatsapp-quick-links row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3">';
+        echo '<a class="panel quick-action-card h-100 text-start" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>Abrir workspace</strong><span>' . h((string)$summary['human']) . ' em humano</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
+        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status e pareamento</span><small>Ver conexão, pareamento e ações</small></button>';
+        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openManualMessageOverlay"><strong>Mensagem manual</strong><span>' . h((string)$summary['total']) . ' conversas</span><small>Abrir envio em overlay</small></button>';
+        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
+        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
         echo '</section>';
         echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conexão, pareamento e ações rápidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
@@ -2700,15 +2700,15 @@ if ($page === 'studio_whatsapp') {
             echo '<p class="muted">Ultimo erro do servico: ' . h((string)$serviceStatus['lastError']) . '</p>';
         }
         echo '</div>';
-        echo '<div class="actions whatsapp-session-actions">';
+        echo '<div class="actions whatsapp-session-actions d-flex flex-wrap gap-2">';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="start_whatsapp_session"><button class="btn" type="submit">Iniciar pareamento</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="disconnect_whatsapp_session"><button class="btn secondary" type="submit">Desconectar</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_session"><button class="btn secondary" type="submit">Limpar sessão</button></form>';
         echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="restart_whatsapp_service"><button class="btn secondary" type="submit">Reiniciar serviço</button></form>';
         echo '</div>';
-        echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
+        echo '<form method="post" class="inline-form whatsapp-session-actions d-flex flex-wrap gap-2 align-items-end" style="margin-top:12px">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
-        echo '<div class="field pairing-phone-field" style="margin:0;min-width:220px"><label>C?digo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
+        echo '<div class="field pairing-phone-field" style="margin:0;min-width:220px;flex:1 1 220px"><label>C?digo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
         echo '<button class="btn secondary" type="submit">Gerar c?digo</button>';
         echo '</form>';
         echo '</div>';
@@ -2749,19 +2749,19 @@ if ($page === 'studio_whatsapp') {
             echo '<a class="filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
         echo '</div>';
-        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_whatsapp">';
+        echo '<form class="filter-bar row row-cols-1 row-cols-md-2 row-cols-xl-6 g-2 align-items-end" method="get"><input type="hidden" name="page" value="studio_whatsapp">';
         echo '<input type="hidden" name="filter" value="' . h($filters['filter'] ?: 'all') . '">';
-        echo '<input name="q" placeholder="Buscar contato, telefone ou mensagem..." value="' . h($filters['q']) . '">';
-        echo '<select name="mode"><option value="">Todos os modos</option>';
+        echo '<div class="col"><input name="q" placeholder="Buscar contato, telefone ou mensagem..." value="' . h($filters['q']) . '"></div>';
+        echo '<div class="col"><select name="mode"><option value="">Todos os modos</option>';
         render_options(['human' => 'Humano', 'bot' => 'IA'], $filters['mode']);
-        echo '</select>';
-        echo '<select name="min_score"><option value="0">Qualquer nota</option>';
+        echo '</select></div>';
+        echo '<div class="col"><select name="min_score"><option value="0">Qualquer nota</option>';
         foreach ([5, 7, 9] as $score) {
             echo '<option value="' . h((string)$score) . '" ' . ((int)$filters['min_score'] === $score ? 'selected' : '') . '>Nota ' . h((string)$score) . '+</option>';
         }
-        echo '</select>';
-        echo '<label class="checkline compact"><input type="checkbox" name="needs_human" value="1" ' . ($filters['needs_human'] ? 'checked' : '') . '> Quer humano</label>';
-        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Limpar</a></form>';
+        echo '</select></div>';
+        echo '<div class="col"><label class="checkline compact"><input type="checkbox" name="needs_human" value="1" ' . ($filters['needs_human'] ? 'checked' : '') . '> Quer humano</label></div>';
+        echo '<div class="col d-flex gap-2 flex-wrap"><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_whatsapp')) . '">Limpar</a></div></form>';
         render_whatsapp_table($conversationsPageRows);
         if ($conversationsTotalPages > 1) {
             echo '<div class="actions" style="justify-content:space-between;margin-top:12px;flex-wrap:wrap">';
@@ -5045,7 +5045,7 @@ function render_appointments_table(array $appointments): void
         echo '<p class="muted">Nenhum horario cadastrado ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Quando</th><th>Atendimento</th><th>Tatuador</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
+    echo '<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Quando</th><th>Atendimento</th><th>Tatuador</th><th>Valor</th><th>Status</th></tr></thead><tbody>';
     foreach ($appointments as $appointment) {
         $date = format_date_pt((string)$appointment['appointment_date']);
         $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
@@ -5059,7 +5059,7 @@ echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sina
         echo '<td><span class="badge">' . h($appointment['status']) . '</span>' . (studio_appointment_health_alerts_from_row($appointment) ? '<br><span class="badge warn">saúde</span>' : '') . '<br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody></table></div>';
 }
 
 function render_expenses_table(array $expenses): void

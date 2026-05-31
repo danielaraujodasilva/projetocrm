@@ -368,6 +368,16 @@ textarea {
     margin: 14px 0;
 }
 
+.filter-bar.row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.filter-bar.row > .col {
+    min-width: 0;
+}
+
 .whatsapp-filter-tabs {
     display: flex;
     flex-wrap: wrap;
@@ -875,6 +885,16 @@ textarea {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 10px;
+}
+
+.quick-actions-grid.row {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.quick-actions-grid.row > .quick-action-card {
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .quick-action-card {
