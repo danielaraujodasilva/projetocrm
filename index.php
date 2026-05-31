@@ -237,11 +237,11 @@ if ($page === 'lead_public_update') {
         echo '<div class="muted" style="margin-top:10px;color:#dbeafe">Seu progresso &eacute; salvo automaticamente.</div>';
         echo '</section>';
         echo '<div class="public-lead-flow">';
-        echo '<div class="public-lead-summary public-lead-summary-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">';
-        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>1</strong><span>Dados</span></div>';
-        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>2</strong><span>Contato</span></div>';
-        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>3</strong><span>Saúde</span></div>';
-        echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>4</strong><span>Enviar</span></div>';
+        echo '<div class="public-lead-summary public-lead-summary-grid row row-cols-2 row-cols-md-4 g-2">';
+        echo '<div class="public-lead-chip h-100"><strong>1</strong><span>Dados</span></div>';
+        echo '<div class="public-lead-chip h-100"><strong>2</strong><span>Contato</span></div>';
+        echo '<div class="public-lead-chip h-100"><strong>3</strong><span>Saúde</span></div>';
+        echo '<div class="public-lead-chip h-100"><strong>4</strong><span>Enviar</span></div>';
         echo '</div>';
         echo '<form class="form" method="post" id="lead-form">';
         echo '<input type="hidden" name="action" value="public_lead_update"><input type="hidden" name="lead_id" value="' . h((string)$leadId) . '"><input type="hidden" name="token" value="' . h($token) . '"><input type="hidden" name="wizard_step" id="wizard-step" value="1"><input type="hidden" name="step_event" id="step-event" value="opened">';
@@ -3915,17 +3915,17 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
-        echo '<div class="settings-overview-grid">';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<section class="panel shadow-sm border-0" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
+        echo '<div class="settings-overview-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
         if (plan_allows('advanced_reports')) {
-            echo '<button type="button" class="panel dashboard-stat" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
         echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatórios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
