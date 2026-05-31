@@ -208,6 +208,40 @@ div {
     box-shadow: 0 .5rem 1.5rem rgba(15, 23, 42, .05);
 }
 
+.overlay-toolbar {
+    padding: 14px 16px 0;
+}
+
+.overlay-toolbar-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.7fr) repeat(2, minmax(140px, .7fr)) repeat(2, minmax(120px, .55fr)) auto;
+    gap: 10px;
+    align-items: end;
+    padding: 14px;
+    border: 1px solid rgba(148, 163, 184, .18);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(248, 250, 252, .96), rgba(255, 255, 255, .98));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .75);
+}
+
+.overlay-toolbar-grid .form-control {
+    min-width: 0;
+    height: 44px;
+    border-radius: 12px;
+    border-color: rgba(148, 163, 184, .22);
+    background: #fff;
+}
+
+.overlay-toolbar-grid .overlay-clear {
+    min-height: 44px;
+    padding-inline: 16px;
+    white-space: nowrap;
+}
+
+.overlay-toolbar-grid .form-control:focus {
+    box-shadow: 0 0 0 4px rgba(45, 137, 146, .12);
+}
+
 .auth-page {
     min-height: 100vh;
     display: grid;
@@ -4793,6 +4827,22 @@ textarea {
     .table-wrap {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+    }
+
+    .overlay-toolbar {
+        padding: 10px 10px 0;
+    }
+
+    .overlay-toolbar-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .overlay-toolbar-grid .form-control,
+    .overlay-toolbar-grid .overlay-clear {
+        width: 100%;
     }
 }
 
