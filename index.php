@@ -3298,7 +3298,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="conversation-avatar">' . h(strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', (string)$displayName) ?: 'W', 0, 1))) . '</div>';
         echo '<div class="conversation-header-text">';
         echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p><span class="conversation-header-sub">Conta comercial</span></div></div>';
-        echo '<div class="actions conversation-header-actions"><button class="wa-web-icon-btn" type="button" id="openConversationToolsButton" aria-label="Etiqueta e ações"><i class="fa-regular fa-bookmark"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Chamada"><i class="fa-solid fa-video"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Pesquisar"><i class="fa-solid fa-magnifying-glass"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
+        echo '<div class="actions conversation-header-actions d-flex flex-wrap gap-2 justify-content-end"><button class="wa-web-icon-btn" type="button" id="openConversationToolsButton" aria-label="Etiqueta e ações"><i class="fa-regular fa-bookmark"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Chamada"><i class="fa-solid fa-video"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Pesquisar"><i class="fa-solid fa-magnifying-glass"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '</div>';
         render_chat_messages($messages);
         echo '<form class="form send-box" method="post" enctype="multipart/form-data" id="chatComposer">';
@@ -3323,13 +3323,13 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um só lugar.</p></div><button type="button" id="closeConversationToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div>';
         echo '<div class="panel conversation-tools-body">';
         echo '<div class="conversation-tools-actions">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:center">';
-        echo '<div class="actions">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
+        echo '<div class="actions" style="gap:8px;flex-wrap:wrap">';
         echo '<span class="score-pill small">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span>';
         echo '<span class="badge ' . h($aiStateTone) . '" data-ai-state-badge>' . h($aiStateLabel) . '</span>';
         echo '<span class="badge" data-conversation-confidence>' . h((string)$assistantConfidence) . '% leitura</span>';
         echo '</div>';
-        echo '<div class="actions">';
+        echo '<div class="actions" style="gap:8px;flex-wrap:wrap">';
         echo '<button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button>';
         echo '<button class="btn secondary" type="button" data-mode-toggle="human">Humano</button>';
         echo '<button class="btn secondary" type="button" data-status-set="novo">Novo</button>';
@@ -3338,8 +3338,8 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '</div>';
         echo '</div>';
         echo '</div>';
-        echo '<div class="mini-metrics conversation-metrics"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span><span><strong data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</strong><small>Funil</small></span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
-        echo '<div class="conversation-inline-tools">';
+        echo '<div class="mini-metrics conversation-metrics row row-cols-1 row-cols-md-2 row-cols-xl-5 g-2"><span><strong data-message-count>' . h((string)count($messages)) . '</strong><small>Mensagens exibidas</small></span><span><strong data-wa-attendance>' . h($conversation['attendance_mode']) . '</strong><small>Atendimento</small></span><span><strong data-wa-needs-human>' . h(!empty($conversation['needs_human']) ? 'sim' : 'nao') . '</strong><small>Quer humano</small></span><span><strong data-wa-lead-status>' . h(($conversation['lead_status'] ?: 'em_conversa') . ' / ' . ($conversation['lead_pipeline_stage'] ?: 'em_conversa')) . '</strong><small>Funil</small></span><span class="ai-state-chip" data-ai-state data-ai-state-label="' . h($aiStateLabel) . '" data-ai-state-tone="' . h($aiStateTone) . '">' . h($conversation['ai_last_status'] ?: (($conversation['attendance_mode'] === 'bot') ? 'IA pronta' : 'IA inativa')) . '</span></div>';
+        echo '<div class="conversation-inline-tools row row-cols-1 row-cols-lg-2 g-3">';
         echo '<div class="conversation-inline-group">';
         echo '<strong>Respostas rápidas</strong>';
         echo '<div class="quick-reply-list side-reply-list">';
@@ -3376,8 +3376,8 @@ if ($page === 'studio_whatsapp_conversation') {
         if (($nameFieldValue === '' || in_array(function_exists('mb_strtolower') ? mb_strtolower($nameFieldValue, 'UTF-8') : strtolower($nameFieldValue), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true)) && !empty($assistantInsights['suggested_name'])) {
             $nameFieldValue = (string)$assistantInsights['suggested_name'];
         }
-        echo '<div class="grid cols-2"><div class="field"><label>Nome</label><input name="name" value="' . h($nameFieldValue !== '' ? $nameFieldValue : $displayName) . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($conversation['phone']) . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($conversation['customer_email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($conversation['customer_instagram'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Nome</label><input name="name" value="' . h($nameFieldValue !== '' ? $nameFieldValue : $displayName) . '"></div><div class="field"><label>Telefone</label><input name="phone" value="' . h($conversation['phone']) . '"></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Email</label><input type="text" inputmode="email" name="email" value="' . h($conversation['customer_email'] ?? '') . '"></div><div class="field"><label>Instagram</label><input name="instagram" value="' . h($conversation['customer_instagram'] ?? '') . '"></div></div>';
         echo '<div class="field"><label>Cliente vinculado</label><select name="customer_id"><option value="">Criar/sem cliente</option>';
         render_customer_options($customers, (int)($conversation['customer_id'] ?? 0));
         echo '</select></div>';
@@ -3389,15 +3389,15 @@ if ($page === 'studio_whatsapp_conversation') {
             $interestFieldValue = (string)$assistantInsights['suggested_interest'];
         }
         echo '<div class="field"><label>Interesse</label><input name="interest" value="' . h($interestFieldValue) . '"></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Status</label><select name="status">';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Status</label><select name="status">';
         render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
         echo '</select></div><div class="field"><label>Etapa </label><select name="pipeline_stage">';
         foreach (studio_list_pipeline_stages($studio) as $stage) {
             echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
         }
         echo '</select></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($conversation['lead_estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="WhatsApp"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Modo de atendimento</label><select name="attendance_mode">';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($conversation['lead_estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="WhatsApp"></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Modo de atendimento</label><select name="attendance_mode">';
         render_options(['human' => 'Humano', 'bot' => 'IA'], (string)$conversation['attendance_mode']);
         echo '</select></div><div class="field"><label>Nota do lead</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></div></div>';
         echo '<div class="field"><label>Status da analise</label><input name="ai_last_status" value="' . h($conversation['ai_last_status'] ?? '') . '" placeholder="ex: precisa retorno"></div>';
@@ -3427,16 +3427,16 @@ if ($page === 'studio_whatsapp_conversation') {
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="whatsapp"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
         echo '<h3>Criar agendamento</h3>';
-        echo '<div class="grid cols-2"><div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div><div class="field"><label>Imagem de referencia</label><input id="appointmentReferenceInput" type="file" name="reference_image" accept="image/*" hidden><button class="btn secondary" type="button" id="appointmentReferenceButton">Anexar referencia</button></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Quantidade de pomadas</label><input type="number" min="0" step="1" name="pomadas_quantity" value="0" placeholder="0"><small class="muted">Quantas pomadas o cliente vai levar/fechar junto com o atendimento.</small></div><div class="field"><label>&nbsp;</label><div class="muted" style="padding-top:10px">Esse valor vai junto no agendamento.</div></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Titulo</label><input name="title" required value="' . h($conversation['lead_interest'] ?: 'Atendimento') . '"></div><div class="field"><label>Imagem de referencia</label><input id="appointmentReferenceInput" type="file" name="reference_image" accept="image/*" hidden><button class="btn secondary" type="button" id="appointmentReferenceButton">Anexar referencia</button></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Quantidade de pomadas</label><input type="number" min="0" step="1" name="pomadas_quantity" value="0" placeholder="0"><small class="muted">Quantas pomadas o cliente vai levar/fechar junto com o atendimento.</small></div><div class="field"><label>&nbsp;</label><div class="muted" style="padding-top:10px">Esse valor vai junto no agendamento.</div></div></div>';
         echo '<div id="appointmentReferencePreview" class="chat-attachment-preview hidden"></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Tatuador</label><select name="artist_id">';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Tatuador</label><select name="artist_id">';
         render_artist_options($artists, default_artist_id($studio) ?? 0);
         echo '</select></div><div class="field"><label>Status</label><select name="status">';
         render_options(appointment_status_options(), 'pre_agendado');
         echo '</select></div></div>';
-        echo '<div class="grid cols-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="value" value="' . h((string)($conversation['lead_estimated_value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-3 g-3"><div class="field"><label>Data</label><input type="date" name="appointment_date" required value="' . h(date('Y-m-d')) . '"></div><div class="field"><label>Inicio</label><input type="time" name="start_time" required value="10:00"></div><div class="field"><label>Fim</label><input type="time" name="end_time" readonly></div></div>';
+        echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Valor</label><input name="value" value="' . h((string)($conversation['lead_estimated_value'] ?? '')) . '"></div><div class="field"><label>Sinal</label><input name="deposit_value"></div></div>';
         echo '<div class="field"><label>Descricao</label><textarea name="description">' . h($conversation['last_message_preview'] ?? '') . '</textarea></div>';
         echo '<div class="panel" style="padding:12px">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Disponibilidade rapida</h3><span class="muted">Clique num dia e horario</span></div>';
