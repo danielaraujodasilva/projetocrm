@@ -386,6 +386,37 @@ textarea {
     margin-bottom: 14px;
 }
 
+.agenda-shell {
+    padding: 18px 18px 20px;
+}
+
+.agenda-toolbar-copy {
+    display: grid;
+    gap: 6px;
+    min-width: 240px;
+}
+
+.agenda-toolbar-copy h2 {
+    font-size: 26px;
+    line-height: 1.05;
+}
+
+.agenda-import-form {
+    align-self: flex-start;
+    padding: 10px 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, .18);
+    background: rgba(248, 250, 252, .9);
+}
+
+.calendar-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+}
+
 .calendar-spacer {
     flex: 1 1 auto;
 }
@@ -1554,14 +1585,15 @@ textarea {
 }
 
 .calendar-cell {
-    min-height: 132px;
+    min-height: 142px;
     border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--surface-soft);
-    padding: 8px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.96));
+    padding: 10px;
     overflow: hidden;
     display: grid;
     gap: 8px;
+    box-shadow: 0 8px 20px rgba(18, 28, 37, .04);
 }
 
 .calendar-cell.muted-day {
@@ -1575,6 +1607,8 @@ textarea {
     gap: 8px;
     font-weight: 800;
     margin-bottom: 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(148, 163, 184, .12);
 }
 
 .calendar-date a {
@@ -1589,6 +1623,9 @@ textarea {
 .calendar-day-summary {
     display: grid;
     gap: 2px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    background: rgba(241, 245, 249, .78);
 }
 
 .calendar-day-summary small {
@@ -1602,18 +1639,33 @@ textarea {
 }
 
 .calendar-event {
-    display: block;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
     border-left: 4px solid var(--brand);
     background: #fff;
-    border-radius: 6px;
-    padding: 6px 7px;
-    margin-bottom: 6px;
+    border-radius: 10px;
+    padding: 8px 9px;
     font-size: 12px;
     line-height: 1.3;
     color: var(--text);
     text-decoration: none;
     cursor: pointer;
     transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.calendar-event strong {
+    white-space: nowrap;
+}
+
+.calendar-event .badge {
+    justify-self: end;
+}
+
+.calendar-grid.month .calendar-event,
+.calendar-grid.week .calendar-event {
+    grid-template-columns: auto 1fr;
 }
 
 .calendar-event.status-cancelado,
@@ -4165,8 +4217,29 @@ textarea {
 
     .calendar-grid.month,
     .calendar-grid.week {
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        overflow-x: auto;
+        grid-template-columns: 1fr;
+    }
+
+    .agenda-shell {
+        padding: 14px;
+    }
+
+    .agenda-toolbar-copy {
+        min-width: 0;
+    }
+
+    .agenda-import-form {
+        width: 100%;
+    }
+
+    .calendar-toolbar-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .calendar-toolbar-actions .btn {
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     .pipeline-board {

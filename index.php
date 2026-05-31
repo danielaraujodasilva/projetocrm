@@ -2456,24 +2456,25 @@ if ($page === 'studio_agenda') {
         $appointmentsOffset = ($appointmentsPage - 1) * $appointmentsPerPage;
         $appointmentsPageRows = array_slice($appointments, $appointmentsOffset, $appointmentsPerPage);
 
-        echo '<section class="panel"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap calendar-toolbar">';
-        echo '<div><h2 class="mb-0">Calendario</h2><p class="muted mb-0">Visão principal para revisar, importar e organizar os horários.</p></div>';
-        echo '<form class="inline-form d-flex flex-wrap gap-2 align-items-end" method="post" enctype="multipart/form-data">';
+        echo '<section class="panel agenda-shell"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap calendar-toolbar">';
+        echo '<div class="agenda-toolbar-copy"><span class="badge ok">Agenda viva</span><h2 class="mb-0">Calendario</h2><p class="muted mb-0">Visão principal para revisar, importar e organizar os horários sem ruído extra.</p></div>';
+        echo '<form class="inline-form d-flex flex-wrap gap-2 align-items-end agenda-import-form" method="post" enctype="multipart/form-data">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="import_calendar_ics">';
         echo '<input type="file" name="ics_file" accept=".ics,text/calendar" required>';
         echo '<button class="btn secondary" type="submit">Importar ICS</button>';
         echo '</form>';
+        echo '<div class="calendar-toolbar-actions">';
         foreach (['month' => 'Mes', 'week' => 'Semana', 'day' => 'Dia', 'list' => 'Blocos'] as $key => $label) {
             echo '<a class="btn ' . ($view === $key ? '' : 'secondary') . '" href="' . h(app_url('studio_agenda', ['cal_view' => $key, 'date' => $focus->format('Y-m-d')])) . '">' . h($label) . '</a>';
         }
         $prev = calendar_shift_date($view, $focus, -1);
         $next = calendar_shift_date($view, $focus, 1);
-        echo '<span class="calendar-spacer"></span>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
         echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button>';
+        echo '</div>';
         echo '</div>';
         if (is_array($importPreview)) {
             $analysis = $importPreview['analysis'] ?? [];
