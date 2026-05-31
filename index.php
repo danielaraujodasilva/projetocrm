@@ -971,9 +971,10 @@ document.addEventListener("click", async function (event) {
 function render_auth_page(string $title, string $subtitle, callable $content, ?array $flash): void
 {
     render_head($title);
-    echo '<div class="auth-page container-fluid py-3 py-md-5"><main class="auth-card card shadow-sm border-0 mx-auto w-100">';
+    echo '<div class="auth-page container-fluid d-flex align-items-center justify-content-center py-3 py-md-5">';
+    echo '<main class="auth-card card shadow-lg border-0 mx-auto w-100 rounded-4">';
     echo '<div class="auth-card-kicker">Acesso seguro</div>';
-    echo '<h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p>';
+    echo '<h1 class="display-6 fw-bold">' . h($title) . '</h1><p class="lead mb-4">' . h($subtitle) . '</p>';
     render_flash($flash);
     $content();
     echo '</main></div>';
@@ -986,9 +987,9 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     $admin = current_admin();
     render_head($title);
     echo '<div class="shell d-flex flex-column flex-lg-row min-vh-100">';
-    echo '<aside class="sidebar d-flex flex-column flex-shrink-0">';
+    echo '<aside class="sidebar d-flex flex-column flex-shrink-0 rounded-end-4">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>Projeto CRM</span></div>';
-    echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Área administrativa</span><strong>' . h($admin['name'] ?? 'Gerente') . '</strong></div>';
+    echo '<div class="sidebar-meta shadow-sm"><span class="sidebar-meta-label">Área administrativa</span><strong>' . h($admin['name'] ?? 'Gerente') . '</strong></div>';
     echo '<nav class="nav nav-pills flex-row flex-lg-column flex-wrap gap-2">';
     echo '<a class="' . ($active === 'dashboard' ? 'active' : '') . '" href="' . h(app_url('dashboard')) . '">Painel</a>';
     echo '<a class="' . ($active === 'studios' ? 'active' : '') . '" href="' . h(app_url('studios')) . '">Estudios</a>';
@@ -996,9 +997,9 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<a class="' . ($active === 'new_studio' ? 'active' : '') . '" href="' . h(app_url('new_studio')) . '">Novo estúdio</a>';
     echo '<a href="' . h(app_url('logout')) . '">Sair</a>';
     echo '</nav></aside>';
-    echo '<main class="main flex-grow-1">';
-    echo '<div class="topbar"><div><div class="topbar-kicker">Painel gerente</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
-    echo '<span class="badge">' . h($admin['name'] ?? 'Gerente') . '</span></div>';
+    echo '<main class="main flex-grow-1 container-fluid py-3 py-lg-4">';
+    echo '<div class="topbar d-flex justify-content-between align-items-start gap-3 flex-wrap pb-3 mb-4 border-bottom"><div><div class="topbar-kicker">Painel gerente</div><h1 class="h2 mb-1">' . h($title) . '</h1><p class="mb-0">' . h($subtitle) . '</p></div>';
+    echo '<span class="badge text-bg-secondary rounded-pill px-3 py-2">' . h($admin['name'] ?? 'Gerente') . '</span></div>';
     render_flash($flash);
     $content();
     echo '</main></div>';
@@ -1011,9 +1012,9 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     $user = current_studio_user();
     render_head($title);
     echo '<div class="shell d-flex flex-column flex-lg-row min-vh-100">';
-    echo '<aside class="sidebar d-flex flex-column flex-shrink-0">';
+    echo '<aside class="sidebar d-flex flex-column flex-shrink-0 rounded-end-4">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estúdio') . '</span></div>';
-    echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Operação do estúdio</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></div>';
+    echo '<div class="sidebar-meta shadow-sm"><span class="sidebar-meta-label">Operação do estúdio</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></div>';
     echo '<nav class="nav nav-pills flex-row flex-lg-column flex-wrap gap-2">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Início</a>';
     echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
@@ -1025,9 +1026,9 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
-    echo '<main class="main flex-grow-1">';
-    echo '<div class="topbar"><div><div class="topbar-kicker">Painel do estúdio</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
-    echo '<span class="badge">' . h($user['name'] ?? 'Usuario') . '</span></div>';
+    echo '<main class="main flex-grow-1 container-fluid py-3 py-lg-4">';
+    echo '<div class="topbar d-flex justify-content-between align-items-start gap-3 flex-wrap pb-3 mb-4 border-bottom"><div><div class="topbar-kicker">Painel do estúdio</div><h1 class="h2 mb-1">' . h($title) . '</h1><p class="mb-0">' . h($subtitle) . '</p></div>';
+    echo '<span class="badge text-bg-secondary rounded-pill px-3 py-2">' . h($user['name'] ?? 'Usuario') . '</span></div>';
     render_flash($flash);
     $content();
     echo '</main></div>';
@@ -1038,7 +1039,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
 function render_public_page(string $title, string $subtitle, callable $content): void
 {
     render_public_head($title, $subtitle);
-    echo '<div class="public-page-wrap container-xl px-3 px-md-4">';
+    echo '<div class="public-page-wrap container-xl px-3 px-md-4 py-3 py-md-4">';
     $content();
     echo '</div>';
     render_scripts();
