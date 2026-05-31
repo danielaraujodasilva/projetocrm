@@ -23,6 +23,11 @@
     box-sizing: border-box;
 }
 
+html {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
@@ -42,6 +47,34 @@ a {
 
 a:hover {
     text-decoration: underline;
+}
+
+img,
+video,
+iframe,
+canvas,
+svg {
+    max-width: 100%;
+    height: auto;
+}
+
+pre,
+code {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+li,
+span,
+div {
+    overflow-wrap: anywhere;
 }
 
 .shell {
@@ -405,6 +438,7 @@ textarea {
     display: block;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    max-width: 100%;
 }
 
 .table thead,
