@@ -3960,7 +3960,7 @@ textarea {
     }
 
     .main {
-        padding: 16px;
+        padding: 14px;
     }
 
     .topbar {
@@ -3969,13 +3969,36 @@ textarea {
     }
 
     .topbar h1 {
-        font-size: 22px;
+        font-size: 21px;
     }
 
     .sidebar {
         position: static;
         min-height: auto;
-        padding: 18px;
+        padding: 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, .04);
+    }
+
+    .brand {
+        margin-bottom: 12px;
+    }
+
+    .sidebar-meta {
+        margin-bottom: 14px;
+    }
+
+    .nav {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+        scrollbar-width: thin;
+    }
+
+    .nav a {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 10px 12px;
     }
 
     .grid.cols-3,
@@ -3998,11 +4021,11 @@ textarea {
     }
 
     .quick-actions-grid {
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        grid-template-columns: 1fr;
     }
 
     .whatsapp-quick-links {
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        grid-template-columns: 1fr;
     }
 
     .settings-switch-grid {
@@ -4021,6 +4044,23 @@ textarea {
 
     .conversation-layout {
         gap: 10px;
+    }
+
+    .conversation-header,
+    .wa-web-main-header,
+    .wa-web-sidebar-top {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .conversation-header-actions,
+    .wa-web-main-header .wa-web-main-actions {
+        width: 100%;
+    }
+
+    .wa-web-main-header .wa-web-main-actions .wa-web-action-pill,
+    .wa-web-main-header .wa-web-main-actions .wa-web-tools-toggle {
+        width: 100%;
     }
 
     .conversation-inline-tools {
@@ -4053,6 +4093,61 @@ textarea {
 
     .send-box {
         padding: 10px;
+    }
+
+    .conversation-header {
+        gap: 10px;
+    }
+
+    .conversation-header-main,
+    .wa-web-main-contact {
+        width: 100%;
+    }
+
+    .conversation-header-text h2,
+    .wa-web-main-contact h2 {
+        font-size: 18px;
+    }
+
+    .wa-web-composer-input {
+        grid-template-columns: 36px minmax(0, 1fr) 36px;
+        padding: 8px 10px;
+    }
+
+    .wa-web-composer-shell {
+        grid-template-columns: auto auto 1fr auto;
+    }
+
+    .wa-web-composer-shell .wa-web-composer-action,
+    .wa-web-send-btn {
+        min-height: 42px;
+    }
+
+    .wa-web-search input {
+        padding: 12px 14px;
+    }
+
+    .wa-web-filter-row {
+        padding: 0 14px 12px;
+    }
+
+    .wa-web-archive-row,
+    .wa-web-load-more {
+        margin-left: 12px;
+        margin-right: 12px;
+    }
+
+    .wa-web-chat-item {
+        padding: 12px 14px;
+    }
+
+    .wa-web-chat-avatar {
+        width: 44px;
+        height: 44px;
+    }
+
+    .wa-web-main {
+        padding: 12px;
     }
 
     .side-tool-panel {
@@ -4125,6 +4220,11 @@ textarea {
     .public-final-card {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .public-final-card .btn,
+    .public-actions .btn {
+        width: 100%;
     }
 
     .public-plan-price {
