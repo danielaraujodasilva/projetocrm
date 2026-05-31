@@ -2437,7 +2437,10 @@ if ($page === 'studio_agenda') {
         $pomadaUnitPrice = (float)(studio_settings($studio)['pomada_unit_price'] ?? 100);
         $todayDate = date('Y-m-d');
         $todayAppointments = studio_calendar_appointments($studio, $todayDate, $todayDate);
-        $nextAvailableSlots = studio_schedule_available_slots($studio, 14, $focus);
+        $nextAvailableSlots = array_values(array_filter(
+            studio_schedule_available_slots($studio, 60, $focus),
+            static fn(array $slot): bool => !empty($slot['allowed']) && !empty($slot['free_slots'])
+        ));
         $preScheduledNoSignalCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND status = 'pre_agendado' AND COALESCE(deposit_value, 0) <= 0")->fetchColumn();
         $missingArtistCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(artist_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
         $missingContactCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(customer_id, 0) = 0 AND COALESCE(lead_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
@@ -2592,7 +2595,7 @@ if ($page === 'studio_agenda') {
         echo '</div>';
         echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list d-grid gap-2">';
         if (!$nextAvailableSlots) {
-            echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
+            echo '<p class="muted">Não foi possível encontrar vagas livres nas próximas semanas.</p>';
         } else {
             foreach (array_slice($nextAvailableSlots, 0, 12) as $slot) {
                 $href = app_url('studio_agenda', ['date' => (string)$slot['date']]) . '#appointment-form';
