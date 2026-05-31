@@ -2011,7 +2011,7 @@ if ($page === 'studio_leads') {
         echo '</div>';
         echo '<div class="dashboard-hero-actions">';
         foreach ($leadLinks as $action) {
-            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir agora</span></a>';
+            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir seção</span></a>';
         }
         echo '</div>';
         echo '</section>';
@@ -2078,7 +2078,7 @@ if ($page === 'studio_leads') {
         echo '</section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Leads que pedem atenção</h2><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Leads que pedem atenção</h2><p class="muted">Os contatos mais urgentes para responder ou avançar hoje.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
         if (!$hotLeads && !$staleLeads) {
             echo '<p class="muted">Sem leads pendentes no momento.</p>';
         } else {
@@ -2163,7 +2163,7 @@ if ($page === 'studio_leads') {
         }
         echo '</div>';
 
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><h2>Filtro rápido de etapas</h2><span class="badge">Status comercial</span></div>';
+        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Filtro rápido de etapas</h2><p class="muted">Clique numa etapa para focar o trabalho comercial.</p></div><span class="badge">Status comercial</span></div>';
         echo '<div class="stack-list">';
         foreach ($board as $stageName => $column) {
             $count = count($column['leads'] ?? []);

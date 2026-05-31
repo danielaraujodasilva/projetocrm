@@ -1089,6 +1089,18 @@ textarea {
     border-radius: 16px;
 }
 
+.sidebar .brand span:last-child {
+    letter-spacing: -.01em;
+}
+
+.topbar p {
+    max-width: 62ch;
+}
+
+.panel h2 + .muted {
+    margin-top: 4px;
+}
+
 .dashboard-hero .quick-action-card:hover {
     transform: translateY(-1px);
     box-shadow: 0 6px 18px rgba(18, 28, 37, .08);
