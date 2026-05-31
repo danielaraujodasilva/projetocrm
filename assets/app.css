@@ -4238,3 +4238,370 @@ textarea {
         grid-template-columns: 1fr;
     }
 }
+
+@media (max-width: 640px) {
+    .main {
+        padding: 12px;
+    }
+
+    .panel {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    .auth-card {
+        padding: 22px;
+    }
+
+    .auth-card h1,
+    .topbar h1 {
+        font-size: 20px;
+    }
+
+    .topbar {
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+
+    .topbar .badge {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .sidebar {
+        padding: 12px;
+    }
+
+    .brand {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+    }
+
+    .sidebar-meta {
+        padding: 10px 11px;
+        border-radius: 10px;
+    }
+
+    .sidebar-meta-label {
+        font-size: 10px;
+    }
+
+    .sidebar-meta strong {
+        font-size: 13px;
+    }
+
+    .nav {
+        gap: 6px;
+        padding-bottom: 2px;
+    }
+
+    .nav a {
+        padding: 9px 11px;
+        font-size: 13px;
+    }
+
+    .grid.cols-3,
+    .grid.cols-2,
+    .grid.cols-4,
+    .grid.cols-5 {
+        gap: 12px;
+    }
+
+    .dashboard-stat {
+        min-height: 108px;
+        padding: 14px 15px;
+    }
+
+    .dashboard-stat .metric {
+        font-size: 24px;
+    }
+
+    .dashboard-hero,
+    .dashboard-hero-actions,
+    .quick-actions-grid,
+    .whatsapp-quick-links,
+    .settings-overview-grid,
+    .module-list {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-hero .quick-action-card,
+    .quick-action-card {
+        min-height: 84px;
+        padding: 12px 14px;
+    }
+
+    .dashboard-hero .quick-action-card strong {
+        font-size: 14px;
+    }
+
+    .filter-bar {
+        grid-template-columns: 1fr;
+    }
+
+    .filter-bar input,
+    .filter-bar select,
+    .filter-bar .btn,
+    .filter-pill,
+    .settings-tab,
+    .checkline.compact {
+        width: 100%;
+    }
+
+    .checkline {
+        align-items: flex-start;
+    }
+
+    .checkline input {
+        margin-top: 3px;
+    }
+
+    .table {
+        font-size: 13px;
+    }
+
+    .table th,
+    .table td {
+        padding: 10px 8px;
+    }
+
+    .crm-modal {
+        padding: 10px;
+    }
+
+    .crm-modal-panel {
+        width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
+        border-radius: 16px;
+    }
+
+    .crm-modal-panel .crm-panel-header {
+        padding: 14px 15px;
+    }
+
+    .crm-modal-panel > .p-4 {
+        padding: 14px !important;
+    }
+
+    .wa-web-shell {
+        padding: 6px;
+        gap: 8px;
+        border-radius: 20px;
+    }
+
+    .wa-web-sidebar,
+    .wa-web-main,
+    .wa-web-tools {
+        min-height: auto;
+        border-radius: 16px;
+    }
+
+    .wa-web-sidebar {
+        grid-template-rows: auto auto auto auto auto;
+    }
+
+    .wa-web-sidebar-top {
+        padding: 14px 14px 10px;
+    }
+
+    .wa-web-brand-title h2 {
+        font-size: 20px;
+    }
+
+    .wa-web-search,
+    .wa-web-filter-row,
+    .wa-web-archive-row {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .wa-web-search input {
+        padding: 11px 12px;
+        font-size: 15px;
+    }
+
+    .wa-web-filter-row {
+        gap: 8px;
+    }
+
+    .wa-web-filter-pill {
+        font-size: 12px;
+        padding: 7px 10px;
+    }
+
+    .wa-web-chat-item {
+        grid-template-columns: 42px minmax(0, 1fr);
+        padding: 11px 12px;
+    }
+
+    .wa-web-chat-avatar {
+        width: 42px;
+        height: 42px;
+    }
+
+    .wa-web-chat-meta {
+        gap: 5px;
+    }
+
+    .wa-web-chat-head strong {
+        font-size: 14px;
+    }
+
+    .wa-web-main {
+        padding: 10px;
+    }
+
+    .wa-web-main-header {
+        padding: 12px;
+        gap: 10px;
+        border-radius: 14px;
+    }
+
+    .wa-web-main-contact {
+        gap: 10px;
+        align-items: flex-start;
+    }
+
+    .wa-web-main-contact .wa-web-chat-avatar.large {
+        width: 48px;
+        height: 48px;
+    }
+
+    .wa-web-main-contact h2 {
+        font-size: 16px;
+    }
+
+    .wa-web-main-submeta {
+        flex-wrap: wrap;
+    }
+
+    .wa-web-main-header .wa-web-main-actions {
+        width: 100%;
+    }
+
+    .wa-web-main-header .wa-web-main-actions .wa-web-action-pill,
+    .wa-web-main-header .wa-web-main-actions .wa-web-tools-toggle {
+        width: 100%;
+    }
+
+    .chat-thread {
+        max-height: 46vh;
+        padding: 10px;
+        gap: 7px;
+    }
+
+    .chat-bubble {
+        max-width: 100%;
+        padding: 8px 10px;
+    }
+
+    .send-box {
+        padding: 10px;
+    }
+
+    .wa-web-composer-input {
+        grid-template-columns: 34px minmax(0, 1fr) 34px;
+        gap: 8px;
+        padding: 7px 10px;
+    }
+
+    .wa-web-composer-shell {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .wa-web-composer-action,
+    .wa-web-send-btn {
+        min-height: 42px;
+        width: 100%;
+    }
+
+    .wa-web-send-btn {
+        grid-column: 1 / -1;
+    }
+
+    .wa-web-emoji-panel {
+        padding-top: 4px;
+    }
+
+    .wa-web-emoji-panel .btn.tiny.secondary {
+        width: 34px;
+        height: 34px;
+    }
+
+    .conversation-header {
+        padding: 10px 12px;
+    }
+
+    .conversation-header-main,
+    .conversation-header-actions {
+        width: 100%;
+    }
+
+    .conversation-header-actions .wa-web-icon-btn {
+        width: 42px;
+        height: 42px;
+    }
+
+    .conversation-tools-body,
+    .conversation-tools-panel {
+        padding: 12px;
+    }
+
+    .conversation-inline-tools,
+    .settings-switch-grid,
+    .duration-picker {
+        grid-template-columns: 1fr;
+    }
+
+    .mini-metrics {
+        gap: 8px;
+    }
+
+    .mini-metrics > * {
+        padding: 10px;
+    }
+
+    .drilldown-panel-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .drilldown-card.compact {
+        padding: 14px;
+    }
+
+    .public-page-wrap {
+        width: min(100% - 16px, 1180px);
+        padding: 16px 0 48px;
+    }
+
+    .public-hero-copy,
+    .public-hero-card,
+    .public-plan-card,
+    .public-audience-card,
+    .public-benefit,
+    .public-final-card,
+    .public-empty {
+        padding: 16px;
+        border-radius: 14px;
+    }
+
+    .public-hero h1 {
+        font-size: 30px;
+    }
+
+    .public-lead {
+        font-size: 16px;
+    }
+
+    .public-plan-price strong {
+        font-size: 24px;
+    }
+}
