@@ -4953,7 +4953,9 @@ function render_customers_table(array $customers): void
     echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($customers as $customer) {
         $href = app_url('studio_customer', ['id' => (int)$customer['id']]);
-        echo '<tr data-overlay-item data-overlay-date="' . h((string)($appointment['appointment_date'] ?? '')) . '" data-overlay-time="' . h(substr((string)$appointment['start_time'], 0, 5)) . '">';
+        $lastAppointmentDate = trim((string)($customer['last_appointment_date'] ?? ''));
+        $lastMessageAt = trim((string)($customer['last_message_at'] ?? ''));
+        echo '<tr data-overlay-item data-overlay-date="' . h($lastAppointmentDate !== '' ? $lastAppointmentDate : $lastMessageAt) . '" data-overlay-time="' . h(substr($lastMessageAt, 11, 5)) . '">';
         echo '<td><a href="' . h($href) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
