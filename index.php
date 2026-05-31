@@ -921,6 +921,112 @@ function render_flash(?array $flash): void
 function render_scripts(): void
 {
     echo '<script>
+function crmParseOverlayDate(value) {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function crmEnhanceOverlay(modal) {
+    if (!modal || modal.dataset.crmOverlayEnhanced === "1") return;
+    const panel = modal.querySelector(".crm-modal-panel");
+    const header = modal.querySelector(".crm-panel-header");
+    const body = modal.querySelector(".p-4");
+    if (!panel || !header || !body) return;
+    modal.dataset.crmOverlayEnhanced = "1";
+
+    const toolbar = document.createElement("div");
+    toolbar.className = "overlay-toolbar";
+    toolbar.innerHTML = `
+        <div class="overlay-toolbar-grid">
+            <input type="search" class="form-control overlay-search" placeholder="Buscar dentro deste overlay">
+            <input type="date" class="form-control overlay-date-from" aria-label="Data inicial">
+            <input type="date" class="form-control overlay-date-to" aria-label="Data final">
+            <input type="time" class="form-control overlay-time-from" aria-label="Hora inicial">
+            <input type="time" class="form-control overlay-time-to" aria-label="Hora final">
+            <button type="button" class="btn secondary overlay-clear">Limpar filtros</button>
+        </div>
+    `;
+    panel.insertBefore(toolbar, body);
+
+    const searchInput = toolbar.querySelector(".overlay-search");
+    const dateFromInput = toolbar.querySelector(".overlay-date-from");
+    const dateToInput = toolbar.querySelector(".overlay-date-to");
+    const timeFromInput = toolbar.querySelector(".overlay-time-from");
+    const timeToInput = toolbar.querySelector(".overlay-time-to");
+    const clearButton = toolbar.querySelector(".overlay-clear");
+
+    const candidates = Array.from(body.querySelectorAll([
+        "tbody tr[data-overlay-item]",
+        "tbody tr",
+        ".activity-card",
+        ".alert-card",
+        ".dashboard-stat",
+        ".public-plan-card",
+        ".public-audience-card",
+        ".public-benefit",
+        ".public-final-card",
+        ".wa-web-chat-item",
+        ".lead-card",
+        ".drilldown-card",
+        ".stack-list > *"
+    ].join(",")));
+
+    if (!candidates.length) {
+        const tables = Array.from(body.querySelectorAll("table tbody tr"));
+        candidates.push(...tables);
+    }
+
+    const normaliseTime = (value) => {
+        const raw = String(value || "").trim();
+        if (!raw) return "";
+        const match = raw.match(/(\d{1,2}):(\d{2})/);
+        if (!match) return "";
+        return `${String(match[1]).padStart(2, "0")}:${match[2]}`;
+    };
+
+    const refresh = () => {
+        const needle = String(searchInput?.value || "").trim().toLowerCase();
+        const fromDate = crmParseOverlayDate(dateFromInput?.value || "");
+        const toDate = crmParseOverlayDate(dateToInput?.value || "");
+        const fromTime = normaliseTime(timeFromInput?.value || "");
+        const toTime = normaliseTime(timeToInput?.value || "");
+
+        candidates.forEach((item) => {
+            const text = String(item.dataset.overlayText || item.textContent || "").toLowerCase();
+            const dateValue = item.dataset.overlayDate || "";
+            const timeValue = item.dataset.overlayTime || "";
+            const itemDate = crmParseOverlayDate(dateValue);
+            const itemTime = normaliseTime(timeValue);
+            let visible = needle === "" || text.includes(needle);
+            if (visible && (fromDate || toDate) && itemDate) {
+                if (fromDate && itemDate < fromDate) visible = false;
+                if (toDate && itemDate > new Date(toDate.getTime() + 86399999)) visible = false;
+            }
+            if (visible && (fromTime || toTime) && itemTime) {
+                if (fromTime && itemTime < fromTime) visible = false;
+                if (toTime && itemTime > toTime) visible = false;
+            }
+            item.style.display = visible ? "" : "none";
+        });
+    };
+
+    [searchInput, dateFromInput, dateToInput, timeFromInput, timeToInput].forEach((input) => input && input.addEventListener("input", refresh));
+    clearButton.addEventListener("click", () => {
+        [searchInput, dateFromInput, dateToInput, timeFromInput, timeToInput].forEach((input) => { if (input) input.value = ""; });
+        refresh();
+    });
+
+    refresh();
+}
+
+setInterval(function () {
+    document.querySelectorAll(".crm-modal:not(.hidden)").forEach(crmEnhanceOverlay);
+}, 350);
+
 document.addEventListener("click", function (event) {
     var button = event.target.closest(".quick-reply-copy");
     if (!button) return;
@@ -4844,7 +4950,7 @@ function render_customers_table(array $customers): void
     echo '<table class="table"><thead><tr><th>Cliente</th><th>Contato</th><th>Observacoes</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($customers as $customer) {
         $href = app_url('studio_customer', ['id' => (int)$customer['id']]);
-        echo '<tr>';
+        echo '<tr data-overlay-item data-overlay-date="' . h((string)($appointment['appointment_date'] ?? '')) . '" data-overlay-time="' . h(substr((string)$appointment['start_time'], 0, 5)) . '">';
         echo '<td><a href="' . h($href) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
@@ -4863,7 +4969,7 @@ function render_artists_table(array $artists): void
     echo '<table class="table"><thead><tr><th>Tatuador</th><th>Especialidade</th><th>Status</th></tr></thead><tbody>';
     foreach ($artists as $artist) {
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($artist['color'] ?? '')) ? $artist['color'] : '#1f6f78';
-        echo '<tr>';
+        echo '<tr data-overlay-item data-overlay-date="' . h((string)($expense['expense_date'] ?? '')) . '">';
         echo '<td><span class="color-dot" style="background:' . h($color) . '"></span><strong>' . h($artist['name']) . '</strong></td>';
         echo '<td>' . h($artist['specialty'] ?: '-') . '</td>';
         echo '<td><span class="badge ' . (!empty($artist['is_active']) ? 'ok' : 'warn') . '">' . (!empty($artist['is_active']) ? 'ativo' : 'inativo') . '</span></td>';
@@ -5008,7 +5114,7 @@ function render_leads_table(array $leads): void
     echo '<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($leads as $lead) {
         $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
-        echo '<tr>';
+        echo '<tr data-overlay-item>';
         echo '<td><a href="' . h($href) . '"><strong>' . h($lead['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($lead['phone'] ?: $lead['interest']) . '</span></td>';
         echo '<td><span class="badge">' . h($lead['status']) . '</span><br><span class="muted">' . h($lead['pipeline_stage'] ?: '-') . '</span></td>';
         echo '<td>' . h(format_money($lead['estimated_value'] ?? 0)) . '<br><span class="muted">' . h($lead['source'] ?: '-') . '</span></td>';
@@ -5049,7 +5155,7 @@ function render_appointments_table(array $appointments): void
     foreach ($appointments as $appointment) {
         $date = format_date_pt((string)$appointment['appointment_date']);
         $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
-        echo '<tr>';
+        echo '<tr data-overlay-item data-overlay-date="' . h((string)($conversation['message_last_at'] ?? $conversation['last_message_at'] ?? '')) . '">';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
         echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
