@@ -2007,38 +2007,38 @@ if ($page === 'studio_leads') {
             $leadLinks[] = ['label' => 'Exportar', 'href' => studio_lead_stage_export_url($studio), 'safe' => true];
         }
 
-        echo '<section class="panel dashboard-hero" style="margin-bottom:16px">';
+        echo '<section class="panel dashboard-hero shadow-sm border-0" style="margin-bottom:16px">';
         echo '<div class="dashboard-hero-copy">';
         echo '<p class="muted" style="margin:0 0 6px">Funil comercial do estúdio</p>';
         echo '<div class="dashboard-hero-title"><h2 style="margin:0">Funil de Leads</h2><span class="badge ok">' . h(current_studio_plan_name()) . '</span></div>';
         echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, orçamentos e agendamentos do estúdio.</p>';
         echo '</div>';
-        echo '<div class="dashboard-hero-actions">';
+        echo '<div class="dashboard-hero-actions row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
         foreach ($leadLinks as $action) {
-            echo '<a class="quick-action-card" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir seção</span></a>';
+            echo '<a class="quick-action-card h-100 text-start" href="' . h($action['href']) . '"><strong>' . h($action['label']) . '</strong><span class="muted">Abrir seção</span></a>';
         }
         echo '</div>';
         echo '</section>';
 
-        echo '<form class="filter-bar panel" method="get" style="margin-bottom:16px">';
+        echo '<form class="filter-bar panel row row-cols-1 row-cols-md-2 row-cols-xl-6 g-2 align-items-end" method="get" style="margin-bottom:16px">';
         echo '<input type="hidden" name="page" value="studio_leads">';
-        echo '<input name="q" placeholder="Buscar por nome, telefone, interesse ou origem..." value="' . h($filters['q']) . '">';
-        echo '<select name="status"><option value="">Todos os status</option>';
+        echo '<div class="col"><input name="q" placeholder="Buscar por nome, telefone, interesse ou origem..." value="' . h($filters['q']) . '"></div>';
+        echo '<div class="col"><select name="status"><option value="">Todos os status</option>';
         foreach (lead_status_options() as $key => $label) {
             echo '<option value="' . h($key) . '" ' . ($filters['status'] === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
-        echo '</select>';
-        echo '<select name="source"><option value="">Todas as origens</option>';
+        echo '</select></div>';
+        echo '<div class="col"><select name="source"><option value="">Todas as origens</option>';
         foreach ($sources as $source) {
             echo '<option value="' . h($source) . '" ' . ($filters['source'] === $source ? 'selected' : '') . '>' . h($source) . '</option>';
         }
-        echo '</select>';
-        echo '<select name="min_score">';
+        echo '</select></div>';
+        echo '<div class="col"><select name="min_score">';
         foreach ([0 => 'Qualquer nota', 4 => 'Nota mínima 4', 7 => 'Nota mínima 7', 8 => 'Quentes (8+)'] as $key => $label) {
             echo '<option value="' . h((string)$key) . '" ' . ($filters['min_score'] === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
-        echo '</select>';
-        echo '<select name="focus"><option value="">Todos os leads</option>';
+        echo '</select></div>';
+        echo '<div class="col"><select name="focus"><option value="">Todos os leads</option>';
         foreach ([
             'hot' => 'Quentes',
             'stale' => 'Parados',
@@ -2048,8 +2048,8 @@ if ($page === 'studio_leads') {
         ] as $key => $label) {
             echo '<option value="' . h($key) . '" ' . ($focus === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
-        echo '</select>';
-        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Limpar</a>';
+        echo '</select></div>';
+        echo '<div class="col d-flex gap-2 flex-wrap"><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_leads')) . '">Limpar</a></div>';
         echo '</form>';
 
         echo '<section class="grid cols-4 dashboard-kpis">';
@@ -2082,7 +2082,7 @@ if ($page === 'studio_leads') {
         echo '</section>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Leads que pedem atenção</h2><p class="muted">Os contatos mais urgentes para responder ou avançar hoje.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
+        echo '<div class="panel shadow-sm border-0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Leads que pedem atenção</h2><p class="muted">Os contatos mais urgentes para responder ou avançar hoje.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
         if (!$hotLeads && !$staleLeads) {
             echo '<p class="muted">Sem leads pendentes no momento.</p>';
         } else {
@@ -2167,7 +2167,7 @@ if ($page === 'studio_leads') {
         }
         echo '</div>';
 
-        echo '<div class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Filtro rápido de etapas</h2><p class="muted">Clique numa etapa para focar o trabalho comercial.</p></div><span class="badge">Status comercial</span></div>';
+        echo '<div class="panel shadow-sm border-0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Filtro rápido de etapas</h2><p class="muted">Clique numa etapa para focar o trabalho comercial.</p></div><span class="badge">Status comercial</span></div>';
         echo '<div class="stack-list">';
         foreach ($board as $stageName => $column) {
             $count = count($column['leads'] ?? []);
@@ -3590,15 +3590,15 @@ if ($page === 'studio_people') {
         }
         $totalCustomers = count($customers);
         $totalLeads = count($leads);
-        echo '<section class="panel"><div class="actions" style="justify-content:space-between"><div><h2>Pessoas</h2><p class="muted">Clientes e leads num unico lugar.</p></div><span class="badge">' . h((string)($totalCustomers + $totalLeads)) . ' registros</span></div>';
-        echo '<form class="filter-bar" method="get"><input type="hidden" name="page" value="studio_people">';
-        echo '<input name="q" placeholder="Buscar por nome, telefone, email ou interesse..." value="' . h($q) . '">';
-        echo '<select name="view">';
+        echo '<section class="panel shadow-sm border-0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Pessoas</h2><p class="muted">Clientes e leads num unico lugar.</p></div><span class="badge">' . h((string)($totalCustomers + $totalLeads)) . ' registros</span></div>';
+        echo '<form class="filter-bar row row-cols-1 row-cols-md-2 row-cols-xl-4 g-2 align-items-end" method="get"><input type="hidden" name="page" value="studio_people">';
+        echo '<div class="col"><input name="q" placeholder="Buscar por nome, telefone, email ou interesse..." value="' . h($q) . '"></div>';
+        echo '<div class="col"><select name="view">';
         foreach (['all' => 'Tudo', 'leads' => 'Leads', 'customers' => 'Clientes'] as $key => $label) {
             echo '<option value="' . h($key) . '" ' . ($view === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
-        echo '</select>';
-        echo '<button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_people')) . '">Limpar</a></form>';
+        echo '</select></div>';
+        echo '<div class="col d-flex gap-2 flex-wrap"><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_people')) . '">Limpar</a></div></form>';
         echo '</section>';
         echo '<section class="grid cols-3" style="margin-top:16px">';
         echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></button>';
