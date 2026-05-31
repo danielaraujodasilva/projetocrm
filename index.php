@@ -893,6 +893,7 @@ function render_head(string $title): void
     echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<title>' . h($title) . '</title>';
+    echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body>';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
 }
@@ -903,6 +904,7 @@ function render_public_head(string $title, string $description): void
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
     echo '<meta name="description" content="' . h($description) . '">';
     echo '<title>' . h($title) . '</title>';
+    echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISV5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
     echo '</head><body class="public-page">';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-ui') . '" value="' . h(app_build_version() . '-ui') . '" title="Clique para selecionar a versao">';
@@ -963,12 +965,13 @@ document.addEventListener("click", async function (event) {
     }
 });
 </script>';
+    echo '<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>';
 }
 
 function render_auth_page(string $title, string $subtitle, callable $content, ?array $flash): void
 {
     render_head($title);
-    echo '<div class="auth-page"><main class="auth-card">';
+    echo '<div class="auth-page container-fluid py-3 py-md-5"><main class="auth-card card shadow-sm border-0 mx-auto w-100">';
     echo '<div class="auth-card-kicker">Acesso seguro</div>';
     echo '<h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p>';
     render_flash($flash);
@@ -982,18 +985,18 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
 {
     $admin = current_admin();
     render_head($title);
-    echo '<div class="shell">';
-    echo '<aside class="sidebar">';
+    echo '<div class="shell d-flex flex-column flex-lg-row min-vh-100">';
+    echo '<aside class="sidebar d-flex flex-column flex-shrink-0">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>Projeto CRM</span></div>';
     echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Área administrativa</span><strong>' . h($admin['name'] ?? 'Gerente') . '</strong></div>';
-    echo '<nav class="nav">';
+    echo '<nav class="nav nav-pills flex-row flex-lg-column flex-wrap gap-2">';
     echo '<a class="' . ($active === 'dashboard' ? 'active' : '') . '" href="' . h(app_url('dashboard')) . '">Painel</a>';
     echo '<a class="' . ($active === 'studios' ? 'active' : '') . '" href="' . h(app_url('studios')) . '">Estudios</a>';
     echo '<a class="' . ($active === 'plans' ? 'active' : '') . '" href="' . h(app_url('plans')) . '">Planos</a>';
     echo '<a class="' . ($active === 'new_studio' ? 'active' : '') . '" href="' . h(app_url('new_studio')) . '">Novo estúdio</a>';
     echo '<a href="' . h(app_url('logout')) . '">Sair</a>';
     echo '</nav></aside>';
-    echo '<main class="main">';
+    echo '<main class="main flex-grow-1">';
     echo '<div class="topbar"><div><div class="topbar-kicker">Painel gerente</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
     echo '<span class="badge">' . h($admin['name'] ?? 'Gerente') . '</span></div>';
     render_flash($flash);
@@ -1007,11 +1010,11 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
 {
     $user = current_studio_user();
     render_head($title);
-    echo '<div class="shell">';
-    echo '<aside class="sidebar">';
+    echo '<div class="shell d-flex flex-column flex-lg-row min-vh-100">';
+    echo '<aside class="sidebar d-flex flex-column flex-shrink-0">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estúdio') . '</span></div>';
     echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Operação do estúdio</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></div>';
-    echo '<nav class="nav">';
+    echo '<nav class="nav nav-pills flex-row flex-lg-column flex-wrap gap-2">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Início</a>';
     echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
     echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
@@ -1022,7 +1025,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
-    echo '<main class="main">';
+    echo '<main class="main flex-grow-1">';
     echo '<div class="topbar"><div><div class="topbar-kicker">Painel do estúdio</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
     echo '<span class="badge">' . h($user['name'] ?? 'Usuario') . '</span></div>';
     render_flash($flash);
@@ -1035,7 +1038,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
 function render_public_page(string $title, string $subtitle, callable $content): void
 {
     render_public_head($title, $subtitle);
-    echo '<div class="public-page-wrap">';
+    echo '<div class="public-page-wrap container-xl px-3 px-md-4">';
     $content();
     echo '</div>';
     render_scripts();
