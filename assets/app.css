@@ -2582,6 +2582,7 @@ textarea {
 
 .wa-web-sidebar-top .muted {
     color: #aebac1 !important;
+    line-height: 1.35;
 }
 
 .wa-web-top-actions {
@@ -2715,6 +2716,10 @@ textarea {
     background: rgba(255, 255, 255, .05);
     border-left: 4px solid #25d366;
     padding-left: 12px;
+}
+
+.wa-web-chat-item.hidden {
+    display: none !important;
 }
 
 .wa-web-chat-avatar {
@@ -2881,6 +2886,10 @@ textarea {
     flex: 1 1 140px;
 }
 
+.wa-web-action-grid .btn.secondary {
+    justify-content: center;
+}
+
 .wa-web-main-header {
     padding-top: 14px;
     padding-bottom: 14px;
@@ -3032,6 +3041,12 @@ textarea {
     gap: 8px;
     flex-wrap: wrap;
     align-items: center;
+}
+
+.wa-web-main-header .wa-web-main-actions .wa-web-action-pill,
+.wa-web-main-header .wa-web-main-actions .wa-web-tools-toggle {
+    min-width: 124px;
+    justify-content: center;
 }
 
 .wa-web-main-header .wa-web-main-actions .btn.secondary {

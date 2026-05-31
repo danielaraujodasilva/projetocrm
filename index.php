@@ -2608,7 +2608,7 @@ if ($page === 'studio_agenda') {
 
 if ($page === 'studio_whatsapp') {
     $studio = require_studio();
-    render_studio_shell('WhatsApp', 'Central de conversas e sessao Baileys deste estudio.', 'whatsapp', function () use ($studio) {
+    render_studio_shell('WhatsApp', 'Central de conversas, sessao Baileys e respostas do estúdio.', 'whatsapp', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -2642,11 +2642,11 @@ if ($page === 'studio_whatsapp') {
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="quick-actions-grid whatsapp-quick-links">';
-        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>' . h((string)$summary['human']) . '</strong><span>Workspace WhatsApp</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status do WhatsApp</span><small>Ver conexão, pareamento e ações</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>' . h($summary['total']) . '</strong><span>Enviar mensagem manual</span><small>Abrir envio em overlay</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>' . h($summary['analyzed']) . '</strong><span>Leitura rápida</span><small>Resumo do fluxo atual</small></button>';
-        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>' . h((string)$conversationsTotal) . '</strong><span>Conversas importadas</span><small>Ver lista paginada</small></button>';
+        echo '<a class="panel quick-action-card" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>Abrir workspace</strong><span>' . h((string)$summary['human']) . ' em humano</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status e pareamento</span><small>Ver conexão, pareamento e ações</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openManualMessageOverlay"><strong>Mensagem manual</strong><span>' . h((string)$summary['total']) . ' conversas</span><small>Abrir envio em overlay</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
+        echo '<button type="button" class="panel quick-action-card" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
         echo '</section>';
         echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conexão, pareamento e ações rápidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
@@ -2721,7 +2721,7 @@ if ($page === 'studio_whatsapp') {
         echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rápida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota média</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
         echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">Página ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between"><h2>Conversas importadas</h2><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Conversas importadas</h2><p class="muted">Filtre por urgência, IA, humano e vínculos.</p></div><span class="badge">Baileys multi-estudio</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
@@ -2855,18 +2855,18 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<div class="wa-web-sidebar-top">';
         echo '<div class="wa-web-brand">';
         echo '<div class="wa-web-brand-title"><h2>WhatsApp</h2><span class="wa-web-brand-dot"></span></div>';
-        echo '<p class="muted">Seu histórico de conversas</p>';
+        echo '<p class="muted">Histórico, triagem e resposta do estúdio</p>';
         echo '</div>';
         echo '<div class="wa-web-top-actions"><button class="wa-web-icon-btn" type="button" aria-label="Nova conversa"><i class="fa-solid fa-comment-medical"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '</div>';
         echo '<form class="wa-web-search" method="get" id="waWorkspaceSearchForm" autocomplete="off">';
         echo '<input type="hidden" name="page" value="studio_whatsapp_workspace">';
         echo '<input type="hidden" name="filter" value="' . h($filters['filter'] ?: 'all') . '">';
-        echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar ou comecar uma nova conversa" value="' . h($filters['q']) . '">';
+        echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar ou começar uma nova conversa" value="' . h($filters['q']) . '">';
         echo '<div class="wa-web-search-suggestions hidden" id="waWorkspaceSearchSuggestions"></div>';
         echo '</form>';
         echo '<div class="wa-web-filter-row">';
-        foreach (['all' => 'Tudo', 'unreplied' => 'Nao lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
+        foreach (['all' => 'Tudo', 'unreplied' => 'Não lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
                 'filter' => $filterKey !== 'all' ? $filterKey : null,
@@ -2928,13 +2928,13 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<div class="wa-web-empty">';
             echo '<div class="wa-web-empty-illustration"><div class="wa-web-empty-bubble"></div><div class="wa-web-empty-badge"><i class="fa-solid fa-lock"></i></div></div>';
             echo '<h2>WhatsApp Business Web</h2>';
-            echo '<p class="muted">Amplie, organize e gerencie sua conta comercial.</p>';
+            echo '<p class="muted">Selecione uma conversa para ver mensagens, cadastro e próximos passos.</p>';
             echo '<small class="wa-web-empty-lock"><i class="fa-solid fa-lock"></i> Suas mensagens pessoais são protegidas com criptografia de ponta a ponta.</small>';
-            echo '</div>';
+        echo '</div>';
         } else {
-            echo '<div class="wa-web-main-header">';
-            echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span></div></div></div>';
-            echo '<div class="wa-web-main-actions"><button class="wa-web-action-pill" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
+        echo '<div class="wa-web-main-header">';
+        echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span></div></div></div>';
+        echo '<div class="wa-web-main-actions"><button class="wa-web-action-pill" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
             if ($publicUpdateUrl !== '') {
                 echo '<a class="wa-web-action-pill" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i><span>Cadastro</span></a>';
             }
@@ -2979,7 +2979,7 @@ if ($page === 'studio_whatsapp_workspace') {
             ob_start();
             echo '<div class="wa-web-tools-card">';
             echo '<div class="wa-web-tools-head"><h3>Radar do atendimento</h3><span class="badge ' . (((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'ok' : 'warn') . '">' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Humano') . '</span></div>';
-            echo '<div class="mini-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens</small></span><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Leitura IA</small></span><span><strong>' . h((string)$pendingAudioCount) . '</strong><small>Audios sem transcricao</small></span></div>';
+            echo '<div class="mini-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Mensagens</small></span><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>Leitura IA</small></span><span><strong>' . h((string)$pendingAudioCount) . '</strong><small>Áudios sem transcrição</small></span></div>';
             echo '<div class="wa-web-action-grid">';
             echo '<button class="btn secondary" type="button" data-mode-toggle="bot">Bot</button>';
             echo '<button class="btn secondary" type="button" data-mode-toggle="human">Humano</button>';
@@ -2989,6 +2989,7 @@ if ($page === 'studio_whatsapp_workspace') {
 
             echo '<div class="wa-web-tools-card">';
             echo '<div class="wa-web-tools-head"><h3>Cadastro e funil</h3><span class="badge">' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span></div>';
+            echo '<p class="muted" style="margin-top:-2px">Atualize o cadastro só do que importa para avançar a conversa.</p>';
             echo '<form class="form" method="post">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_workspace" value="1">';
