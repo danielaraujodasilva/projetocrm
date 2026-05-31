@@ -4949,7 +4949,7 @@ function render_pipeline_card(array $lead, array $stageNames): void
     $artistName = trim((string)($lead['artist_name'] ?? $lead['tattoo_artist_name'] ?? $lead['responsible_name'] ?? ''));
     $isScheduled = in_array($status, ['agendado', 'pre_agendado'], true);
 
-    echo '<article class="lead-card' . ($isStale ? ' stale' : '') . '" draggable="true" data-lead-id="' . h((string)$leadId) . '" data-stage-name="' . h($currentStage) . '">';
+    echo '<article class="lead-card card shadow-sm border-0' . ($isStale ? ' stale' : '') . '" draggable="true" data-lead-id="' . h((string)$leadId) . '" data-stage-name="' . h($currentStage) . '">';
     echo '<button type="button" class="lead-card-title-button" data-lead-open="' . h((string)$leadId) . '"><strong class="lead-card-title">' . h($lead['name'] ?: 'Lead sem nome') . '</strong></button>';
     echo '<div class="lead-card-submeta compact">';
     echo '<span class="badge">' . h($status !== '' ? $status : 'sem status') . '</span>';
@@ -4985,11 +4985,11 @@ function render_pipeline_card(array $lead, array $stageNames): void
     echo '<span class="muted">Origem: ' . h($lead['source'] ?: 'Sem origem') . '</span>';
     echo '<span class="muted">Atualizado ' . h($createdOrUpdated !== '' ? $createdOrUpdated : '-') . '</span>';
     echo '</div>';
-    echo '<div class="lead-card-actions lead-card-actions-quick">';
+    echo '<div class="lead-card-actions lead-card-actions-quick d-flex flex-wrap gap-2">';
     echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">Ver</a>';
     echo '<button type="button" class="btn tiny secondary" data-lead-open="' . h((string)$leadId) . '">Detalhes</button>';
     echo '</div>';
-    echo '<div class="lead-card-actions">';
+    echo '<div class="lead-card-actions d-flex flex-wrap gap-2">';
     foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
         if ($move['stage'] === '') {
             continue;
@@ -5005,7 +5005,7 @@ function render_leads_table(array $leads): void
         echo '<p class="muted">Nenhum lead cadastrado ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
+    echo '<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Lead</th><th>Funil</th><th>Valor</th><th>Nota</th><th>Acoes</th></tr></thead><tbody>';
     foreach ($leads as $lead) {
         $href = app_url('studio_lead', ['id' => (int)$lead['id']]);
         echo '<tr>';
@@ -5016,7 +5016,7 @@ function render_leads_table(array $leads): void
         echo '<td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody></table></div>';
 }
 
 function render_lead_conversations(array $conversations): void
@@ -5277,9 +5277,9 @@ function render_chat_messages(array $messages): void
         return $type ?: 'document';
     };
 
-    echo '<div class="chat-thread">';
+    echo '<div class="chat-thread d-flex flex-column gap-3">';
     if (!$messages) {
-        echo '<p class="muted">Ainda nao ha mensagens registradas nesta conversa.</p>';
+        echo '<div class="alert alert-light border mb-0">Ainda nao ha mensagens registradas nesta conversa.</div>';
     }
     foreach ($messages as $message) {
         $direction = (string)($message['direction'] ?? 'in');
@@ -5294,14 +5294,14 @@ function render_chat_messages(array $messages): void
             $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl);
         }
         echo '<div class="chat-message ' . h($class) . '">';
-        echo '<div class="chat-bubble">';
+        echo '<div class="chat-bubble card shadow-sm border-0">';
         if ($mediaUrl !== '') {
             if ($kind === 'image') {
-                echo '<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="' . h($mediaUrl) . '" data-media-title="' . h($mediaName ?: 'mídia') . '" data-media-kind="image" aria-label="Abrir imagem em tamanho grande"><img src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'mídia') . '" style="max-width:260px;max-height:220px;border-radius:8px"></button>';
+                echo '<button type="button" class="chat-media-thumb" onclick="window.openMediaOverlay && window.openMediaOverlay(this.dataset.mediaSrc, this.dataset.mediaTitle, this.dataset.mediaKind)" data-media-src="' . h($mediaUrl) . '" data-media-title="' . h($mediaName ?: 'mídia') . '" data-media-kind="image" aria-label="Abrir imagem em tamanho grande"><img class="img-fluid rounded-3" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'mídia') . '"></button>';
             } elseif ($kind === 'video') {
-                echo '<video src="' . h($mediaUrl) . '" controls style="max-width:280px;max-height:220px;border-radius:8px"></video>';
+                echo '<video class="img-fluid rounded-3" src="' . h($mediaUrl) . '" controls></video>';
             } elseif ($kind === 'audio') {
-                echo '<audio src="' . h($mediaUrl) . '" controls style="width:280px;max-width:100%"></audio>';
+                echo '<audio class="w-100" src="' . h($mediaUrl) . '" controls></audio>';
                 if (empty($message['transcricao']) && empty($message['transcript'])) {
                     echo '<button class="btn tiny secondary" type="button" data-transcribe-audio="' . h($message['message_id'] ?? '') . '" data-media-url="' . h($mediaUrl) . '">Transcrever audio</button>';
                 }
@@ -5322,7 +5322,7 @@ function render_chat_messages(array $messages): void
         if ($transcribedError !== '') {
             echo '<div class="chat-transcription-error">' . h($transcribedError) . '</div>';
         }
-        echo '<span>' . h(($message['sender_type'] ?? '-') . ' | ' . format_datetime_pt((string)($message['sent_at'] ?? '')) . (($message['status'] ?? '') ? ' | ' . $message['status'] : '')) . '</span>';
+        echo '<span class="text-muted small d-block mt-2">' . h(($message['sender_type'] ?? '-') . ' | ' . format_datetime_pt((string)($message['sent_at'] ?? '')) . (($message['status'] ?? '') ? ' | ' . $message['status'] : '')) . '</span>';
         echo '</div></div>';
     }
     echo '</div>';
