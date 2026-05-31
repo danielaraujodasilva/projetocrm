@@ -1738,7 +1738,7 @@ if ($page === 'studio_home') {
                 ],
             ],
         ];
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><div><h2>Alertas operacionais</h2><p class="muted">Situa&ccedil;&otilde;es que pedem a&ccedil;&atilde;o agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relat&oacute;rios</a></div>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Alertas operacionais</h2><p class="muted mb-0">Situa&ccedil;&otilde;es que pedem a&ccedil;&atilde;o agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relat&oacute;rios</a></div>';
         if (!$alerts) {
             echo '<p class="muted">Sem alertas importantes no momento.</p>';
         } else {
@@ -1751,8 +1751,8 @@ if ($page === 'studio_home') {
         }
         echo '</section>';
 
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Atalhos da Home</h2><p class="muted">Toque em um card para abrir o conte&uacute;do em overlay.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
-        echo '<div class="settings-overview-grid dashboard-home-blocks" style="margin-top:12px">';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Atalhos da Home</h2><p class="muted mb-0">Toque em um card para abrir o conte&uacute;do em overlay.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
+        echo '<div class="settings-overview-grid dashboard-home-blocks row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 mt-3">';
         $homeCards = [
             ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
             ['label' => 'Agenda de hoje', 'summary' => 'Atendimentos do dia e status atual.', 'focus' => 'today_agenda'],
@@ -1762,7 +1762,7 @@ if ($page === 'studio_home') {
             ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
         ];
         foreach ($homeCards as $card) {
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric">' . h((string)$card['label']) . '</p><p class="muted" style="margin:0">' . h((string)$card['summary']) . '</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card text-start" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric h4 mb-1">' . h((string)$card['label']) . '</p><p class="muted mb-2">' . h((string)$card['summary']) . '</p><span class="muted small">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1120px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rápido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" class="crm-button crm-icon-button" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
@@ -2347,8 +2347,8 @@ if ($page === 'studio_agenda') {
         $appointmentsOffset = ($appointmentsPage - 1) * $appointmentsPerPage;
         $appointmentsPageRows = array_slice($appointments, $appointmentsOffset, $appointmentsPerPage);
 
-        echo '<section class="panel"><div class="actions calendar-toolbar">';
-        echo '<h2>Calendario</h2>';
+        echo '<section class="panel"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap calendar-toolbar">';
+        echo '<h2 class="mb-0">Calendario</h2>';
         echo '<form class="inline-form" method="post" enctype="multipart/form-data">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="import_calendar_ics">';
@@ -2370,10 +2370,10 @@ if ($page === 'studio_agenda') {
             $analysis = $importPreview['analysis'] ?? [];
             $candidates = $analysis['candidates'] ?? [];
             $skipped = $analysis['skipped'] ?? [];
-            echo '<section class="panel" style="margin-top:16px;background:linear-gradient(180deg,rgba(48, 91, 255, 0.08),rgba(48, 91, 255, 0.02))">';
-            echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
-            echo '<div><h2>Revisar importacao Google Agenda</h2><p class="muted">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estúdio.</p></div>';
-            echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+            echo '<section class="panel border-primary-subtle" style="margin-top:16px;background:linear-gradient(180deg,rgba(48, 91, 255, 0.08),rgba(48, 91, 255, 0.02))">';
+            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+            echo '<div><h2 class="mb-1">Revisar importacao Google Agenda</h2><p class="muted mb-0">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estúdio.</p></div>';
+            echo '<div class="d-flex gap-2 flex-wrap">';
             echo '<button class="btn secondary" type="button" data-import-toggle="all">Selecionar tudo</button>';
             echo '<button class="btn secondary" type="button" data-import-toggle="none">Desmarcar tudo</button>';
             echo '</div>';
@@ -2382,13 +2382,13 @@ if ($page === 'studio_agenda') {
             echo csrf_field();
             echo '<input type="hidden" name="action" value="import_calendar_ics_confirm">';
             echo '<input type="hidden" name="import_token" value="' . h($importPreviewToken) . '">';
-            echo '<div class="alert-grid" style="margin-bottom:16px">';
+            echo '<div class="alert-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-3">';
             echo '<article class="alert-card"><span class="badge ok">' . h((string)count($candidates)) . '</span><p><strong>Candidatos</strong></p><p class="muted">Eventos prontos para revisar.</p></article>';
             echo '<article class="alert-card"><span class="badge warn">' . h((string)($analysis['duplicates'] ?? 0)) . '</span><p><strong>Possiveis duplicados</strong></p><p class="muted">Eventos ja importados ou muito parecidos com importações anteriores.</p></article>';
             echo '<article class="alert-card"><span class="badge">' . h((string)count($skipped)) . '</span><p><strong>Ignorados</strong></p><p class="muted">Entradas sem sinal claro de atendimento.</p></article>';
             echo '<article class="alert-card"><span class="badge">' . h((string)($analysis['events_total'] ?? 0)) . '</span><p><strong>Total no ICS</strong></p><p class="muted">' . h((string)$importPreview['file_name']) . '</p></article>';
             echo '</div>';
-            echo '<div class="stack" style="gap:12px">';
+            echo '<div class="stack d-grid gap-3">';
             foreach ($candidates as $candidate) {
                 $uid = (string)($candidate['uid'] ?? '');
                 $title = (string)($candidate['name'] ?? $candidate['raw_title'] ?? '');
@@ -2396,24 +2396,24 @@ if ($page === 'studio_agenda') {
                 $description = (string)($candidate['description_original'] ?? '');
                 $notes = (string)($candidate['notes'] ?? '');
                 $conflicts = $candidate['conflicts'] ?? [];
-                echo '<article class="panel" style="padding:16px;border:1px solid rgba(0,0,0,0.08);box-shadow:none">';
-                echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">';
-                echo '<label class="form-check" style="display:flex;align-items:flex-start;gap:10px;margin:0;flex:1">';
+                echo '<article class="panel shadow-sm" style="padding:16px;border:1px solid rgba(0,0,0,0.08)">';
+                echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+                echo '<label class="form-check d-flex align-items-start gap-2 m-0 flex-grow-1">';
                 echo '<input class="form-check-input import-select" type="checkbox" name="items[' . h($uid) . '][selected]" value="1" checked data-import-row="' . h($uid) . '">';
                 echo '<span><strong>' . h($title) . '</strong><br><span class="muted">' . h($rawTitle) . '</span></span>';
                 echo '</label>';
-                echo '<span class="badge ' . ($conflicts ? 'warn' : '') . '">' . h($conflicts ? 'conflito' : (string)($candidate['reason'] ?? 'candidato')) . '</span>';
+                echo '<span class="badge ' . ($conflicts ? 'warn' : '') . ' align-self-start">' . h($conflicts ? 'conflito' : (string)($candidate['reason'] ?? 'candidato')) . '</span>';
                 echo '</div>';
                 if ($conflicts) {
-                    echo '<div class="panel soft" style="margin-top:12px;padding:12px;border:1px solid rgba(255,165,0,0.35);background:rgba(255,165,0,0.06)">';
+                    echo '<div class="panel soft border-warning-subtle" style="margin-top:12px;padding:12px;background:rgba(255,165,0,0.06)">';
                     echo '<strong>Conflito com agenda atual</strong>';
-                    echo '<div class="stack" style="margin-top:8px;gap:8px">';
+                    echo '<div class="stack d-grid gap-2 mt-2">';
                     foreach ($conflicts as $conflict) {
                         $conflictName = (string)($conflict['customer_name'] ?? $conflict['title'] ?? 'Agendamento');
                         $conflictArtist = (string)($conflict['artist_name'] ?? 'sem tatuador');
                         $conflictStart = substr((string)($conflict['start_time'] ?? ''), 0, 5);
                         $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time'] ?? ''), 0, 5);
-                        echo '<div class="panel" style="padding:10px;background:#fff;border:1px solid rgba(0,0,0,0.06)">';
+                        echo '<div class="panel bg-white" style="padding:10px;border:1px solid rgba(0,0,0,0.06)">';
                         echo '<strong>' . h(format_date_pt((string)$conflict['appointment_date']) . ' ' . $conflictStart . ($conflictEnd !== '' ? ' - ' . $conflictEnd : '')) . '</strong>';
                         echo '<div class="muted">' . h($conflictName) . ' · ' . h($conflictArtist) . ' · ' . h((string)($conflict['status'] ?? '')) . '</div>';
                         echo '</div>';
@@ -2425,7 +2425,7 @@ if ($page === 'studio_agenda') {
                     echo '</label>';
                     echo '</div>';
                 }
-                echo '<div class="grid grid-4-mobile-safe" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px">';
+                echo '<div class="grid grid-4-mobile-safe row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mt-3">';
                 echo '<label>Nome<input type="text" name="items[' . h($uid) . '][name]" value="' . h((string)$title) . '"></label>';
                 echo '<label>Data<input type="date" name="items[' . h($uid) . '][date]" value="' . h((string)($candidate['date'] ?? '')) . '"></label>';
                 echo '<label>Início<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
@@ -2444,8 +2444,8 @@ if ($page === 'studio_agenda') {
                 echo '<div class="alert-card"><p><strong>Nenhum candidato encontrado</strong></p><p class="muted">Esse arquivo não gerou eventos aptos para importação.</p></div>';
             }
             echo '</div>';
-            echo '<div class="actions" style="justify-content:space-between;margin-top:16px;gap:12px;flex-wrap:wrap">';
-            echo '<p class="muted">Itens com conflito ficam destacados. Por padrão eles não são importados, a menos que você marque a opção de manter mesmo assim.</p>';
+            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mt-3">';
+            echo '<p class="muted mb-0">Itens com conflito ficam destacados. Por padrão eles não são importados, a menos que você marque a opção de manter mesmo assim.</p>';
             echo '<button class="btn" type="submit">Importar selecionados</button>';
             echo '</div>';
             echo '</form>';
@@ -2478,13 +2478,13 @@ if ($page === 'studio_agenda') {
                 })();
             </script>';
         }
-        echo '<div class="alert-grid" style="margin-top:14px">';
+        echo '<div class="alert-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mt-3">';
         echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
         echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
         echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
         echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
         echo '</div>';
-        echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list">';
+        echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list d-grid gap-2">';
         if (!$nextAvailableSlots) {
             echo '<p class="muted">Não foi possível calcular horários livres neste recorte.</p>';
         } else {
@@ -2508,10 +2508,10 @@ if ($page === 'studio_agenda') {
 
         if ($selectedAppointment) {
             $selectedDate = (string)($selectedAppointment['appointment_date'] ?? date('Y-m-d'));
-            echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Detalhes do agendamento</h2><p class="muted">Clique num item da agenda para revisar, editar ou excluir sem perder o contexto.</p></div><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '">Limpar selecao</a></div>';
-            echo '<div class="grid cols-2">';
-            echo '<div class="panel soft"><p class="muted">Quando</p><h3 style="margin-top:0">' . h(format_date_pt($selectedDate) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted">' . h($selectedAppointment['status']) . '</p></div>';
-            echo '<div class="panel soft"><p class="muted">Cliente / Lead</p><h3 style="margin-top:0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
+            echo '<section class="panel mt-3"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Detalhes do agendamento</h2><p class="muted mb-0">Clique num item da agenda para revisar, editar ou excluir sem perder o contexto.</p></div><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '">Limpar selecao</a></div>';
+            echo '<div class="grid cols-2 mt-3">';
+            echo '<div class="panel soft"><p class="muted mb-1">Quando</p><h3 class="mt-0">' . h(format_date_pt($selectedDate) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted mb-0">' . h($selectedAppointment['status']) . '</p></div>';
+            echo '<div class="panel soft"><p class="muted mb-1">Cliente / Lead</p><h3 class="mt-0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted mb-0">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
             $selectedValue = appointment_display_amount($selectedAppointment['value'] ?? 0);
             $selectedDeposit = appointment_display_amount($selectedAppointment['deposit_value'] ?? 0);
             $selectedPomadaUnit = isset($selectedAppointment['pomada_unit_price']) && $selectedAppointment['pomada_unit_price'] !== null && $selectedAppointment['pomada_unit_price'] !== ''
