@@ -969,6 +969,7 @@ function render_auth_page(string $title, string $subtitle, callable $content, ?a
 {
     render_head($title);
     echo '<div class="auth-page"><main class="auth-card">';
+    echo '<div class="auth-card-kicker">Acesso seguro</div>';
     echo '<h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p>';
     render_flash($flash);
     $content();
@@ -984,6 +985,7 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<div class="shell">';
     echo '<aside class="sidebar">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>Projeto CRM</span></div>';
+    echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Área administrativa</span><strong>' . h($admin['name'] ?? 'Gerente') . '</strong></div>';
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'dashboard' ? 'active' : '') . '" href="' . h(app_url('dashboard')) . '">Painel</a>';
     echo '<a class="' . ($active === 'studios' ? 'active' : '') . '" href="' . h(app_url('studios')) . '">Estudios</a>';
@@ -992,7 +994,7 @@ function render_app_shell(string $title, string $subtitle, string $active, calla
     echo '<a href="' . h(app_url('logout')) . '">Sair</a>';
     echo '</nav></aside>';
     echo '<main class="main">';
-    echo '<div class="topbar"><div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
+    echo '<div class="topbar"><div><div class="topbar-kicker">Painel gerente</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
     echo '<span class="badge">' . h($admin['name'] ?? 'Gerente') . '</span></div>';
     render_flash($flash);
     $content();
@@ -1008,6 +1010,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<div class="shell">';
     echo '<aside class="sidebar">';
     echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estúdio') . '</span></div>';
+    echo '<div class="sidebar-meta"><span class="sidebar-meta-label">Operação do estúdio</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></div>';
     echo '<nav class="nav">';
     echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Início</a>';
     echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
@@ -1020,7 +1023,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
     echo '<main class="main">';
-    echo '<div class="topbar"><div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
+    echo '<div class="topbar"><div><div class="topbar-kicker">Painel do estúdio</div><h1>' . h($title) . '</h1><p>' . h($subtitle) . '</p></div>';
     echo '<span class="badge">' . h($user['name'] ?? 'Usuario') . '</span></div>';
     render_flash($flash);
     $content();
