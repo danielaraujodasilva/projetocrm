@@ -4471,6 +4471,20 @@ textarea {
         max-width: 100%;
     }
 
+    .sidebar {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .nav {
+        width: 100%;
+    }
+
+    .nav a {
+        width: 100%;
+        white-space: normal;
+    }
+
     .wa-web-sidebar {
         grid-template-rows: auto auto auto auto auto;
     }
@@ -4652,6 +4666,16 @@ textarea {
         max-width: 100%;
     }
 
+    .public-lead-summary-grid,
+    .grid-4-mobile-safe {
+        grid-template-columns: 1fr !important;
+    }
+
+    .pairing-phone-field {
+        min-width: 0 !important;
+        width: 100%;
+    }
+
     .public-hero-copy,
     .public-hero-card,
     .public-plan-card,
@@ -4752,5 +4776,10 @@ textarea {
     .public-page-wrap {
         width: min(100% - 12px, 1180px);
         padding: 12px 0 40px;
+    }
+
+    .public-lead-summary-grid,
+    .grid-4-mobile-safe {
+        gap: 8px;
     }
 }

@@ -237,7 +237,7 @@ if ($page === 'lead_public_update') {
         echo '<div class="muted" style="margin-top:10px;color:#dbeafe">Seu progresso &eacute; salvo automaticamente.</div>';
         echo '</section>';
         echo '<div class="public-lead-flow">';
-        echo '<div class="public-lead-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">';
+        echo '<div class="public-lead-summary public-lead-summary-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>1</strong><span>Dados</span></div>';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>2</strong><span>Contato</span></div>';
         echo '<div class="public-lead-chip" style="padding:12px 10px"><strong>3</strong><span>Saúde</span></div>';
@@ -2424,7 +2424,7 @@ if ($page === 'studio_agenda') {
                     echo '</label>';
                     echo '</div>';
                 }
-                echo '<div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px">';
+                echo '<div class="grid grid-4-mobile-safe" style="grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:12px">';
                 echo '<label>Nome<input type="text" name="items[' . h($uid) . '][name]" value="' . h((string)$title) . '"></label>';
                 echo '<label>Data<input type="date" name="items[' . h($uid) . '][date]" value="' . h((string)($candidate['date'] ?? '')) . '"></label>';
                 echo '<label>Início<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
@@ -2707,7 +2707,7 @@ if ($page === 'studio_whatsapp') {
         echo '</div>';
         echo '<form method="post" class="inline-form whatsapp-session-actions" style="margin-top:12px;gap:8px;align-items:flex-end;flex-wrap:wrap">' . csrf_field();
         echo '<input type="hidden" name="action" value="request_whatsapp_pairing_code">';
-        echo '<div class="field" style="margin:0;min-width:220px"><label>C?digo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
+        echo '<div class="field pairing-phone-field" style="margin:0;min-width:220px"><label>C?digo por telefone</label><input name="pairing_phone" placeholder="5521999999999"></div>';
         echo '<button class="btn secondary" type="submit">Gerar c?digo</button>';
         echo '</form>';
         echo '</div>';
