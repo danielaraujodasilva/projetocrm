@@ -4436,6 +4436,14 @@ textarea {
         grid-template-columns: 1fr;
     }
 
+    .dashboard-hero-actions.row,
+    .quick-actions-grid.row,
+    .whatsapp-quick-links.row,
+    .settings-overview-grid.row {
+        display: flex;
+        flex-direction: column;
+    }
+
     .dashboard-hero .quick-action-card,
     .quick-action-card {
         min-height: 84px;
@@ -4614,6 +4622,12 @@ textarea {
         width: 100%;
     }
 
+    .wa-web-main-header .wa-web-main-actions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
     .chat-thread {
         max-height: 46vh;
         padding: 10px;
@@ -4739,6 +4753,46 @@ textarea {
 
     .public-plan-price strong {
         font-size: 24px;
+    }
+
+    .public-plan-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .public-hero {
+        padding: 16px;
+    }
+
+    .public-compare-table {
+        min-width: 720px;
+    }
+
+    .public-lead-summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .public-lead-chip {
+        padding: 10px 8px;
+    }
+
+    .alert-grid,
+    .settings-overview-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .report-card,
+    .alert-card,
+    .dashboard-stat,
+    .public-plan-card,
+    .public-audience-card,
+    .public-benefit,
+    .public-final-card {
+        border-radius: 14px;
+    }
+
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
 }
 
