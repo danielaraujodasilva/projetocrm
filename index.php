@@ -4340,8 +4340,14 @@ if ($page === 'studio_meta_ads') {
         $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
         $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
         $campaignsData = null;
+        $adsetsData = null;
+        $adsData = null;
+        $audiencesData = null;
         $leadsData = null;
         $campaignsError = null;
+        $adsetsError = null;
+        $adsError = null;
+        $audiencesError = null;
         $leadsError = null;
         if (!empty($settings['meta_ads_access_token']) && $accountId !== '') {
             $campaignsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/campaigns', trim((string)$settings['meta_ads_access_token']), [
@@ -4352,6 +4358,33 @@ if ($page === 'studio_meta_ads') {
                 $campaignsData = is_array($campaignsResponse['json']['data'] ?? null) ? $campaignsResponse['json']['data'] : [];
             } else {
                 $campaignsError = (string)($campaignsResponse['error'] ?? 'Erro ao carregar campanhas.');
+            }
+            $adsetsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/adsets', trim((string)$settings['meta_ads_access_token']), [
+                'fields' => 'id,name,status,effective_status,campaign_id,optimization_goal,billing_event,created_time,updated_time',
+                'limit' => 12,
+            ]);
+            if (!empty($adsetsResponse['ok'])) {
+                $adsetsData = is_array($adsetsResponse['json']['data'] ?? null) ? $adsetsResponse['json']['data'] : [];
+            } else {
+                $adsetsError = (string)($adsetsResponse['error'] ?? 'Erro ao carregar conjuntos de anúncios.');
+            }
+            $adsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/ads', trim((string)$settings['meta_ads_access_token']), [
+                'fields' => 'id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time',
+                'limit' => 12,
+            ]);
+            if (!empty($adsResponse['ok'])) {
+                $adsData = is_array($adsResponse['json']['data'] ?? null) ? $adsResponse['json']['data'] : [];
+            } else {
+                $adsError = (string)($adsResponse['error'] ?? 'Erro ao carregar anuncios.');
+            }
+            $audiencesResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/customaudiences', trim((string)$settings['meta_ads_access_token']), [
+                'fields' => 'id,name,description,approximate_count,operation_status,subtype,delivery_status,lookalike_spec',
+                'limit' => 12,
+            ]);
+            if (!empty($audiencesResponse['ok'])) {
+                $audiencesData = is_array($audiencesResponse['json']['data'] ?? null) ? $audiencesResponse['json']['data'] : [];
+            } else {
+                $audiencesError = (string)($audiencesResponse['error'] ?? 'Erro ao carregar públicos.');
             }
         }
         if (!empty($settings['meta_ads_access_token']) && $leadFormId !== '') {
@@ -4512,6 +4545,65 @@ if ($page === 'studio_meta_ads') {
             echo '</tbody></table></div>';
         } else {
             echo '<p class="muted mb-0 mt-3">Sem leads retornados ainda. Se o formulário existir e houver permissões, eles aparecem aqui.</p>';
+        }
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Conjuntos de anúncios</h2><p class="muted mb-0">Agrupamento de anúncios por público, objetivo e entrega.</p></div><span class="badge">' . h((string)count($adsetsData ?? [])) . ' conjuntos</span></div>';
+        if ($adsetsError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar conjuntos de anúncios:</strong> ' . h($adsetsError) . '</p></div>';
+        } elseif ($adsetsData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Conjunto</th><th>Status</th><th>Campanha</th><th>Objetivo</th><th>Atualizado</th></tr></thead><tbody>';
+            foreach ($adsetsData as $adset) {
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($adset['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($adset['id'] ?? '')) . '</span></td>';
+                echo '<td><span class="badge ' . h(((string)($adset['effective_status'] ?? $adset['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($adset['effective_status'] ?? $adset['status'] ?? '')) . '</span></td>';
+                echo '<td>' . h((string)($adset['campaign_id'] ?? '')) . '</td>';
+                echo '<td>' . h((string)($adset['optimization_goal'] ?? '')) . '</td>';
+                echo '<td>' . h(format_date_pt((string)($adset['updated_time'] ?? $adset['created_time'] ?? ''))) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Nenhum conjunto retornado ainda.</p>';
+        }
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Anúncios</h2><p class="muted mb-0">Itens individuais da conta, ligados a campanha e conjunto.</p></div><span class="badge">' . h((string)count($adsData ?? [])) . ' anúncios</span></div>';
+        if ($adsError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar anúncios:</strong> ' . h($adsError) . '</p></div>';
+        } elseif ($adsData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Anúncio</th><th>Status</th><th>Conjunto</th><th>Campanha</th><th>Atualizado</th></tr></thead><tbody>';
+            foreach ($adsData as $ad) {
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($ad['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($ad['id'] ?? '')) . '</span></td>';
+                echo '<td><span class="badge ' . h(((string)($ad['effective_status'] ?? $ad['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($ad['effective_status'] ?? $ad['status'] ?? '')) . '</span></td>';
+                echo '<td>' . h((string)($ad['adset_id'] ?? '')) . '</td>';
+                echo '<td>' . h((string)($ad['campaign_id'] ?? '')) . '</td>';
+                echo '<td>' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Nenhum anúncio retornado ainda.</p>';
+        }
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Públicos personalizados</h2><p class="muted mb-0">Listagem de públicos para remarketing e segmentação.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
+        if ($audiencesError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
+        } elseif ($audiencesData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Público</th><th>Tipo</th><th>Status</th><th>Quantidade</th><th>Descrição</th></tr></thead><tbody>';
+            foreach ($audiencesData as $audience) {
+                $delivery = is_array($audience['delivery_status'] ?? null) ? $audience['delivery_status'] : [];
+                $deliveryStatus = is_array($delivery) && isset($delivery['code']) ? (string)$delivery['code'] : (string)($audience['operation_status']['code'] ?? $audience['operation_status'] ?? '');
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($audience['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($audience['id'] ?? '')) . '</span></td>';
+                echo '<td>' . h((string)($audience['subtype'] ?? '')) . '</td>';
+                echo '<td>' . h($deliveryStatus) . '</td>';
+                echo '<td>' . h((string)($audience['approximate_count'] ?? '')) . '</td>';
+                echo '<td class="muted">' . h((string)($audience['description'] ?? '')) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
         }
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão ou puxe os leads do formulário para o CRM.</p></div><div class="d-flex gap-2 flex-wrap"><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit">Sincronizar leads agora</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></div></section>';
