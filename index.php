@@ -849,6 +849,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             flash_set('success', 'Teste da Meta Ads executado.');
             redirect_to('studio_meta_ads');
         }
+
+        if ($action === 'sync_meta_ads_leads') {
+            $studio = require_studio();
+            $_SESSION['meta_ads_sync_result'] = studio_meta_ads_sync_leads($studio);
+            flash_set('success', 'Sincronizacao da Meta Ads executada.');
+            redirect_to('studio_meta_ads');
+        }
     } catch (Throwable $e) {
         flash_set('error', $e->getMessage());
         redirect_to($page);
@@ -4316,9 +4323,14 @@ if ($page === 'studio_meta_ads') {
         }
         $settings = studio_settings($studio);
         $testResult = null;
+        $syncResult = null;
         if (isset($_SESSION['meta_ads_test_result']) && is_array($_SESSION['meta_ads_test_result'])) {
             $testResult = $_SESSION['meta_ads_test_result'];
             unset($_SESSION['meta_ads_test_result']);
+        }
+        if (isset($_SESSION['meta_ads_sync_result']) && is_array($_SESSION['meta_ads_sync_result'])) {
+            $syncResult = $_SESSION['meta_ads_sync_result'];
+            unset($_SESSION['meta_ads_sync_result']);
         }
         $enabled = !empty($settings['meta_ads_enabled']);
         $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
@@ -4364,7 +4376,7 @@ if ($page === 'studio_meta_ads') {
         echo '<section class="panel">';
         echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
         echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
-        echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span></div>';
+        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="document.getElementById(\'metaAdsAdvanced\').classList.toggle(\'d-none\')">AVANÇADO</button></div>';
         echo '</div>';
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
@@ -4390,8 +4402,24 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</div>';
         }
-        echo '<div class="grid cols-2" style="margin-top:16px">';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Resumo rápido</h3><ul class="list-unstyled mb-0">';
+        if (is_array($syncResult)) {
+            $syncTone = !empty($syncResult['ok']) ? 'ok' : 'danger';
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Resultado da sincronização</h3><p class="muted mb-0">Importação dos leads do formulário para o CRM.</p></div><span class="badge ' . h($syncTone) . '">' . h(!empty($syncResult['ok']) ? 'Sincronizado' : 'Erro') . '</span></div>';
+            if (!empty($syncResult['ok'])) {
+                echo '<div class="grid cols-4" style="margin-top:12px">';
+                echo '<div class="field"><strong>Total</strong><p class="muted mb-0">' . h((string)($syncResult['total'] ?? 0)) . '</p></div>';
+                echo '<div class="field"><strong>Criados</strong><p class="muted mb-0">' . h((string)($syncResult['leads_created'] ?? 0)) . '</p></div>';
+                echo '<div class="field"><strong>Atualizados</strong><p class="muted mb-0">' . h((string)($syncResult['leads_updated'] ?? 0)) . '</p></div>';
+                echo '<div class="field"><strong>Novos clientes</strong><p class="muted mb-0">' . h((string)($syncResult['customers_created'] ?? 0)) . '</p></div>';
+                echo '</div>';
+            } else {
+                echo '<p class="mb-0" style="margin-top:12px"><strong>Erro:</strong> ' . h((string)($syncResult['error'] ?? 'Erro desconhecido')) . '</p>';
+            }
+            echo '</div>';
+        }
+        echo '<div id="metaAdsAdvanced" class="d-none" style="margin-top:16px">';
+        echo '<div class="grid cols-2">';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Resumo técnico</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
         echo '<li class="mb-2"><strong>Conta:</strong> ' . h($accountId !== '' ? 'act_' . $accountId : 'não configurada') . '</li>';
         echo '<li class="mb-2"><strong>Ativação:</strong> ' . h($enabled ? 'Liberada' : 'Ainda não liberada') . '</li>';
@@ -4404,19 +4432,20 @@ if ($page === 'studio_meta_ads') {
         echo '<li>Validar a conta de anúncio e os ativos associados.</li>';
         echo '</ol></div>';
         echo '</div>';
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><h2 class="mb-3">Endpoints úteis</h2><div class="grid cols-2">';
+        echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Endpoints úteis</h3><div class="grid cols-2">';
         foreach ($examples as $example) {
             $fullUrl = $baseGraphUrl . (string)$example['path'];
             echo '<div class="panel soft"><div class="d-flex justify-content-between gap-2 flex-wrap"><strong>' . h((string)$example['title']) . '</strong><span class="badge">' . h((string)$example['method']) . '</span></div><p class="muted">' . h((string)$example['description']) . '</p><code style="display:block;white-space:pre-wrap;word-break:break-word">' . h($fullUrl) . '</code></div>';
         }
-        echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px"><h2 class="mb-3">Próximas melhorias da integração</h2><div class="grid cols-2">';
+        echo '</div></div>';
+        echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Próximas melhorias da integração</h3><div class="grid cols-2">';
         echo '<div class="panel soft"><strong>Sincronizar campanhas</strong><p class="muted">Importar campanhas ativas e relacionar gastos com o funil interno.</p></div>';
         echo '<div class="panel soft"><strong>Importar leads</strong><p class="muted">Buscar leads dos formulários e criar contatos no CRM automaticamente.</p></div>';
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
-        echo '</div></section>';
+        echo '</div></div>';
+        echo '</div>';
+        echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Campanhas ao vivo</h2><p class="muted mb-0">Dados reais da conta conectada, para leitura rápida.</p></div><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div>';
         if ($campaignsError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar campanhas:</strong> ' . h($campaignsError) . '</p></div>';
@@ -4465,7 +4494,7 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Sem leads retornados ainda. Se o formulário existir e houver permissões, eles aparecem aqui.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Testar agora</h2><p class="muted mb-0">Esse botão valida token, conta e lista algumas campanhas reais.</p></div><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão ou puxe os leads do formulário para o CRM.</p></div><div class="d-flex gap-2 flex-wrap"><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit">Sincronizar leads agora</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
     exit;

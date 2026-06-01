@@ -5745,6 +5745,211 @@ function studio_find_or_create_customer_from_import(array $studio, array $item, 
     return (int)$pdo->lastInsertId();
 }
 
+function studio_meta_ads_field_map(array $fieldData): array
+{
+    $map = [];
+    foreach ($fieldData as $field) {
+        if (!is_array($field)) {
+            continue;
+        }
+        $name = trim((string)($field['name'] ?? ''));
+        $values = is_array($field['values'] ?? null) ? $field['values'] : [];
+        if ($name === '' || !$values) {
+            continue;
+        }
+        $map[strtolower($name)] = trim(implode(', ', array_map('strval', $values)));
+    }
+    return $map;
+}
+
+function studio_meta_ads_extract_phone(array $map): string
+{
+    foreach (['phone_number', 'phone', 'celular', 'telefone', 'whatsapp'] as $key) {
+        if (!empty($map[$key])) {
+            $raw = preg_replace('/\D+/', '', (string)$map[$key]);
+            if ($raw !== '') {
+                if (strlen($raw) === 13 && str_starts_with($raw, '55')) {
+                    return '+' . $raw;
+                }
+                if (strlen($raw) === 11) {
+                    return '+55' . $raw;
+                }
+                return '+' . $raw;
+            }
+        }
+    }
+    return '';
+}
+
+function studio_meta_ads_extract_name(array $map, string $fallback = ''): string
+{
+    foreach (['full_name', 'name', 'nome', 'nome_completo'] as $key) {
+        if (!empty($map[$key])) {
+            return trim((string)$map[$key]);
+        }
+    }
+    return trim($fallback);
+}
+
+function studio_meta_ads_extract_email(array $map): string
+{
+    foreach (['email', 'e-mail', 'mail'] as $key) {
+        if (!empty($map[$key])) {
+            return trim((string)$map[$key]);
+        }
+    }
+    return '';
+}
+
+function studio_meta_ads_upsert_lead(array $studio, array $lead, array &$result): int
+{
+    $pdo = studio_db($studio);
+    $leadId = trim((string)($lead['id'] ?? ''));
+    if ($leadId === '') {
+        return 0;
+    }
+    $stmt = $pdo->prepare('SELECT id FROM leads WHERE import_source = "meta_ads" AND import_uid = ? LIMIT 1');
+    $stmt->execute([$leadId]);
+    $existing = (int)$stmt->fetchColumn();
+
+    $fieldMap = studio_meta_ads_field_map((array)($lead['field_data'] ?? []));
+    $name = studio_meta_ads_extract_name($fieldMap, (string)($lead['ad_name'] ?? 'Lead Meta Ads'));
+    $phone = studio_meta_ads_extract_phone($fieldMap);
+    $email = studio_meta_ads_extract_email($fieldMap);
+    $interestParts = [];
+    if (!empty($lead['campaign_name'])) {
+        $interestParts[] = (string)$lead['campaign_name'];
+    }
+    if (!empty($lead['ad_name'])) {
+        $interestParts[] = (string)$lead['ad_name'];
+    }
+    if (!empty($fieldMap)) {
+        $interestParts[] = implode(' | ', array_slice(array_map(static fn(string $k, string $v): string => $k . ': ' . $v, array_keys($fieldMap), array_values($fieldMap)), 0, 4));
+    }
+    $interest = trim(implode(' · ', array_filter($interestParts)));
+    if ($interest === '') {
+        $interest = 'Lead Meta Ads';
+    }
+    $source = 'Meta Ads';
+    $status = 'novo';
+    $pipelineStage = 'entrada';
+    $leadScore = 5;
+    $estimatedValue = 0.0;
+    $rawTitle = trim((string)($lead['campaign_name'] ?? $lead['ad_name'] ?? 'Lead Meta Ads'));
+    $lastContactAt = trim((string)($lead['created_time'] ?? date('Y-m-d H:i:s')));
+    $customerId = 0;
+    if ($phone !== '') {
+        $customerStmt = $pdo->prepare('SELECT id FROM customers WHERE phone = ? LIMIT 1');
+        $customerStmt->execute([$phone]);
+        $customerId = (int)$customerStmt->fetchColumn();
+    }
+    if ($customerId <= 0 && $email !== '') {
+        $customerStmt = $pdo->prepare('SELECT id FROM customers WHERE email = ? LIMIT 1');
+        $customerStmt->execute([$email]);
+        $customerId = (int)$customerStmt->fetchColumn();
+    }
+    if ($customerId <= 0) {
+        $customerStmt = $pdo->prepare('INSERT INTO customers (name, phone, email, notes, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())');
+        $customerStmt->execute([
+            $name !== '' ? $name : 'Lead Meta Ads',
+            $phone,
+            $email,
+            'Criado automaticamente a partir do formulário Meta Ads. Lead ID: ' . $leadId,
+        ]);
+        $customerId = (int)$pdo->lastInsertId();
+        $result['customers_created'] = (int)($result['customers_created'] ?? 0) + 1;
+    }
+
+    if ($existing > 0) {
+        $stmt = $pdo->prepare(
+            'UPDATE leads
+             SET customer_id = ?, name = ?, phone = ?, interest = ?, status = ?, pipeline_stage = ?, lead_score = ?, estimated_value = ?, source = ?, raw_title = ?, updated_at = NOW()
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            $customerId,
+            $name !== '' ? $name : 'Lead Meta Ads',
+            $phone,
+            $interest,
+            $status,
+            $pipelineStage,
+            $leadScore,
+            $estimatedValue,
+            $source,
+            mb_substr($rawTitle, 0, 260),
+            $existing,
+        ]);
+        $result['leads_updated'] = (int)($result['leads_updated'] ?? 0) + 1;
+        return $existing;
+    }
+
+    $token = bin2hex(random_bytes(16));
+    $stmt = $pdo->prepare(
+        'INSERT INTO leads
+            (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, import_source, import_uid, raw_title, public_update_token, last_contact_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "meta_ads", ?, ?, ?, ?, NOW(), NOW())'
+    );
+    $stmt->execute([
+        $customerId,
+        $name !== '' ? $name : 'Lead Meta Ads',
+        $phone,
+        $interest,
+        $status,
+        $pipelineStage,
+        $leadScore,
+        $estimatedValue,
+        $source,
+        $leadId,
+        mb_substr($rawTitle, 0, 260),
+        $token,
+        $lastContactAt,
+    ]);
+    $newId = (int)$pdo->lastInsertId();
+    studio_upsert_public_lead_link($studio, $newId, $token, $customerId ?: null);
+    $result['leads_created'] = (int)($result['leads_created'] ?? 0) + 1;
+    return $newId;
+}
+
+function studio_meta_ads_sync_leads(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $leadFormId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_lead_form_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+    if ($token === '') {
+        return ['ok' => false, 'error' => 'Access Token da Meta nao configurado.'];
+    }
+    if ($leadFormId === '') {
+        return ['ok' => false, 'error' => 'ID do formulario de leads nao configurado.'];
+    }
+
+    $response = studio_meta_ads_request($version, '/' . $leadFormId . '/leads', $token, [
+        'fields' => 'id,created_time,field_data,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name',
+        'limit' => 100,
+    ]);
+    if (!$response['ok']) {
+        return $response;
+    }
+
+    $items = is_array($response['json']['data'] ?? null) ? $response['json']['data'] : [];
+    $result = [
+        'ok' => true,
+        'form_id' => $leadFormId,
+        'created' => 0,
+        'updated' => 0,
+        'total' => count($items),
+    ];
+
+    foreach ($items as $lead) {
+        if (!is_array($lead)) {
+            continue;
+        }
+        studio_meta_ads_upsert_lead($studio, $lead, $result);
+    }
+
+    return $result;
+}
+
 function studio_find_or_create_lead_from_import(array $studio, array $item, int $customerId, array &$result): int
 {
     $pdo = studio_db($studio);
