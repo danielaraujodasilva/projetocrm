@@ -4324,8 +4324,35 @@ if ($page === 'studio_meta_ads') {
         $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
         $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
         $accountId = preg_replace('/^act_/', '', $accountId);
+        $leadFormId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_lead_form_id'] ?? '')));
         $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
         $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
+        $campaignsData = null;
+        $leadsData = null;
+        $campaignsError = null;
+        $leadsError = null;
+        if (!empty($settings['meta_ads_access_token']) && $accountId !== '') {
+            $campaignsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/campaigns', trim((string)$settings['meta_ads_access_token']), [
+                'fields' => 'id,name,status,objective,created_time,updated_time,buying_type,effective_status',
+                'limit' => 12,
+            ]);
+            if (!empty($campaignsResponse['ok'])) {
+                $campaignsData = is_array($campaignsResponse['json']['data'] ?? null) ? $campaignsResponse['json']['data'] : [];
+            } else {
+                $campaignsError = (string)($campaignsResponse['error'] ?? 'Erro ao carregar campanhas.');
+            }
+        }
+        if (!empty($settings['meta_ads_access_token']) && $leadFormId !== '') {
+            $leadsResponse = studio_meta_ads_request($apiVersion, '/' . $leadFormId . '/leads', trim((string)$settings['meta_ads_access_token']), [
+                'fields' => 'created_time,field_data,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name',
+                'limit' => 12,
+            ]);
+            if (!empty($leadsResponse['ok'])) {
+                $leadsData = is_array($leadsResponse['json']['data'] ?? null) ? $leadsResponse['json']['data'] : [];
+            } else {
+                $leadsError = (string)($leadsResponse['error'] ?? 'Erro ao carregar leads.');
+            }
+        }
         $examples = [
             ['title' => 'Campanhas', 'method' => 'GET', 'path' => '/' . $accountRef . '/campaigns', 'description' => 'Lista campanhas, status e objetivo.'],
             ['title' => 'Conjuntos de anúncios', 'method' => 'GET', 'path' => '/' . $accountRef . '/adsets', 'description' => 'Mostra os conjuntos vinculados à conta.'],
@@ -4390,6 +4417,54 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Campanhas ao vivo</h2><p class="muted mb-0">Dados reais da conta conectada, para leitura rápida.</p></div><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div>';
+        if ($campaignsError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar campanhas:</strong> ' . h($campaignsError) . '</p></div>';
+        } elseif ($campaignsData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Campanha</th><th>Status</th><th>Objetivo</th><th>Tipo</th><th>Criada</th></tr></thead><tbody>';
+            foreach ($campaignsData as $campaign) {
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($campaign['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($campaign['id'] ?? '')) . '</span></td>';
+                echo '<td><span class="badge ' . h(((string)($campaign['effective_status'] ?? $campaign['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($campaign['effective_status'] ?? $campaign['status'] ?? '')) . '</span></td>';
+                echo '<td>' . h((string)($campaign['objective'] ?? '')) . '</td>';
+                echo '<td>' . h((string)($campaign['buying_type'] ?? '')) . '</td>';
+                echo '<td>' . h(format_date_pt((string)($campaign['created_time'] ?? ''))) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Nenhuma campanha retornada até agora. Isso pode significar conta vazia ou falta de permissão de leitura.</p>';
+        }
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Leads do formulário</h2><p class="muted mb-0">Se o formulário estiver preenchido, trazemos os leads mais recentes aqui.</p></div><span class="badge">' . h($leadFormId !== '' ? 'Formulário ' . $leadFormId : 'Sem formulário') . '</span></div>';
+        if ($leadFormId === '') {
+            echo '<div class="panel soft mt-3"><p class="mb-0">Preencha o <strong>ID do formulário de leads</strong> nas configurações para ver os leads aqui.</p></div>';
+        } elseif ($leadsError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar leads:</strong> ' . h($leadsError) . '</p></div>';
+        } elseif ($leadsData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Lead</th><th>Captado em</th><th>Campos</th><th>Anúncio</th><th>Campanha</th></tr></thead><tbody>';
+            foreach ($leadsData as $lead) {
+                $fieldData = [];
+                if (!empty($lead['field_data']) && is_array($lead['field_data'])) {
+                    foreach ($lead['field_data'] as $field) {
+                        $label = (string)($field['name'] ?? '');
+                        $values = is_array($field['values'] ?? null) ? $field['values'] : [];
+                        $fieldData[] = $label !== '' ? $label . ': ' . implode(', ', array_map('strval', $values)) : implode(', ', array_map('strval', $values));
+                    }
+                }
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($lead['id'] ?? '')) . '</strong></td>';
+                echo '<td>' . h(format_date_pt((string)($lead['created_time'] ?? ''))) . '</td>';
+                echo '<td class="muted">' . h($fieldData ? implode(' · ', $fieldData) : 'Sem campos') . '</td>';
+                echo '<td>' . h((string)($lead['ad_name'] ?? $lead['ad_id'] ?? '')) . '</td>';
+                echo '<td>' . h((string)($lead['campaign_name'] ?? $lead['campaign_id'] ?? '')) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Sem leads retornados ainda. Se o formulário existir e houver permissões, eles aparecem aqui.</p>';
+        }
+        echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Testar agora</h2><p class="muted mb-0">Esse botão valida token, conta e lista algumas campanhas reais.</p></div><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
