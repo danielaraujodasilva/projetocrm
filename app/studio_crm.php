@@ -5894,6 +5894,17 @@ function studio_save_settings(array $studio, array $data): void
     }
     $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
     $metaCampaignPhrases = trim((string)($data['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!"));
+    $metaAdsEnabled = !empty($data['meta_ads_enabled']) ? 1 : 0;
+    $metaAdsAppId = trim((string)($data['meta_ads_app_id'] ?? ''));
+    $metaAdsAppSecret = trim((string)($data['meta_ads_app_secret'] ?? ''));
+    $metaAdsAccessToken = trim((string)($data['meta_ads_access_token'] ?? ''));
+    $metaAdsBusinessId = trim((string)($data['meta_ads_business_id'] ?? ''));
+    $metaAdsAdAccountId = trim((string)($data['meta_ads_ad_account_id'] ?? ''));
+    $metaAdsPixelId = trim((string)($data['meta_ads_pixel_id'] ?? ''));
+    $metaAdsLeadFormId = trim((string)($data['meta_ads_lead_form_id'] ?? ''));
+    $metaAdsApiVersion = trim((string)($data['meta_ads_api_version'] ?? 'v22.0'));
+    $metaAdsRedirectUri = trim((string)($data['meta_ads_redirect_uri'] ?? ''));
+    $metaAdsNotes = trim((string)($data['meta_ads_notes'] ?? ''));
     if ($appointmentDurationMinutes <= 0) {
         $appointmentDurationMinutes = 300;
     }
@@ -5913,6 +5924,17 @@ function studio_save_settings(array $studio, array $data): void
         'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
+        'meta_ads_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
+        'meta_ads_app_id' => 'VARCHAR(40) NULL',
+        'meta_ads_app_secret' => 'TEXT NULL',
+        'meta_ads_access_token' => 'TEXT NULL',
+        'meta_ads_business_id' => 'VARCHAR(40) NULL',
+        'meta_ads_ad_account_id' => 'VARCHAR(40) NULL',
+        'meta_ads_pixel_id' => 'VARCHAR(40) NULL',
+        'meta_ads_lead_form_id' => 'VARCHAR(40) NULL',
+        'meta_ads_api_version' => 'VARCHAR(20) NOT NULL DEFAULT "v22.0"',
+        'meta_ads_redirect_uri' => 'VARCHAR(255) NULL',
+        'meta_ads_notes' => 'TEXT NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -5923,7 +5945,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -5947,6 +5969,17 @@ function studio_save_settings(array $studio, array $data): void
         $aiWhatsAppPrompt,
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
+        $metaAdsEnabled,
+        $metaAdsAppId,
+        $metaAdsAppSecret,
+        $metaAdsAccessToken,
+        $metaAdsBusinessId,
+        $metaAdsAdAccountId,
+        $metaAdsPixelId,
+        $metaAdsLeadFormId,
+        $metaAdsApiVersion !== '' ? $metaAdsApiVersion : 'v22.0',
+        $metaAdsRedirectUri,
+        $metaAdsNotes,
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');

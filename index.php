@@ -1429,7 +1429,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -1863,6 +1863,7 @@ if ($page === 'studio_home') {
             ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
             ['label' => 'Agenda de hoje', 'summary' => 'Atendimentos do dia e status atual.', 'focus' => 'today_agenda'],
             ['label' => 'Leads do Meta', 'summary' => 'Leads captados por campanha e faixa de data.', 'focus' => 'meta_campaign'],
+            ['label' => 'Meta Ads', 'summary' => 'Acesso às funções mais úteis da API para anúncios, campanhas e relatórios.', 'focus' => 'meta_ads'],
             ['label' => 'Pr&oacute;ximos atendimentos', 'summary' => 'Agenda futura com filtros por per&iacute;odo.', 'focus' => 'appointments'],
             ['label' => 'Hor&aacute;rios livres', 'summary' => 'Janelas dispon&iacute;veis na agenda.', 'focus' => 'free_windows'],
             ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
@@ -4119,7 +4120,7 @@ if ($page === 'studio_data_assistant') {
 if ($page === 'studio_settings') {
     $studio = require_studio();
     $activeSettingsTab = (string)($_GET['tab'] ?? 'studio');
-    if (!in_array($activeSettingsTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
+    if (!in_array($activeSettingsTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
         $activeSettingsTab = 'studio';
     }
     render_studio_shell('Configurações do estúdio', 'Regras comerciais e preparação dos módulos de IA/WhatsApp.', 'settings', function () use ($studio) {
@@ -4144,7 +4145,7 @@ if ($page === 'studio_settings') {
         $durationHours = max(0, (int)($settings['appointment_duration_hours'] ?? 5));
         $durationMins = max(0, min(45, (int)($settings['appointment_duration_minutes_part'] ?? 0)));
         $activeTab = (string)($_GET['tab'] ?? 'studio');
-        if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'quick_replies', 'rules'], true)) {
+        if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
         }
         echo '<div class="settings-overview-grid">';
@@ -4153,6 +4154,7 @@ if ($page === 'studio_settings') {
             'agenda' => ['Agenda', 'Regras de horário e duração'],
             'whatsapp' => ['WhatsApp', 'Entrada e comportamento'],
             'ia' => ['IA', 'Modelo, chave e automação'],
+            'meta_ads' => ['Meta Ads', 'Integração com a API de anúncios'],
             'quick_replies' => ['Respostas rápidas', 'Biblioteca do atendimento'],
             'rules' => ['Regras comerciais', 'Contexto para a IA'],
         ];
@@ -4232,6 +4234,44 @@ if ($page === 'studio_settings') {
         echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
         echo '</div>';
         echo '</div></div>';
+        echo '<div id="settingsSourceMetaAds" hidden><div class="settings-panel" id="settings-meta-ads" data-settings-panel="meta_ads">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Meta Ads</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="panel soft">';
+        echo '<h3 style="margin-top:0">Integração com a API da Meta</h3>';
+        echo '<p class="muted">Use este bloco para guardar o que o CRM precisa para falar com a Marketing API e organizar campanhas, públicos, anúncios e métricas.</p>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Integração Meta Ads ativa</label><label class="checkline"><input type="checkbox" name="meta_ads_enabled" value="1" ' . (!empty($settings['meta_ads_enabled']) ? 'checked' : '') . '> Liberar a página e os testes da API</label></div>';
+        echo '<div class="field"><label>ID da conta de anúncio</label><input name="meta_ads_ad_account_id" value="' . h($settings['meta_ads_ad_account_id'] ?? '') . '" placeholder="act_1234567890"><small class="muted">Você pode colar com ou sem `act_`. O sistema normaliza depois.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>ID do App Meta</label><input name="meta_ads_app_id" value="' . h($settings['meta_ads_app_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Aparece no painel do app em developers.facebook.com.</small></div>';
+        echo '<div class="field"><label>Secret do App Meta</label><input name="meta_ads_app_secret" type="password" value="' . h($settings['meta_ads_app_secret'] ?? '') . '" placeholder="App Secret"><small class="muted">Guarde com cuidado. Use apenas em ambiente seguro.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Access Token</label><input name="meta_ads_access_token" type="password" value="' . h($settings['meta_ads_access_token'] ?? '') . '" placeholder="EAAB..."><small class="muted">Normalmente um token de System User com permissões de anúncios.</small></div>';
+        echo '<div class="field"><label>ID do Business Manager</label><input name="meta_ads_business_id" value="' . h($settings['meta_ads_business_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Ajuda a conferir a origem dos ativos e as permissões corretas.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>ID do Pixel</label><input name="meta_ads_pixel_id" value="' . h($settings['meta_ads_pixel_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Opcional, mas muito útil para eventos e acompanhamento de conversões.</small></div>';
+        echo '<div class="field"><label>ID do formulário de leads</label><input name="meta_ads_lead_form_id" value="' . h($settings['meta_ads_lead_form_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Se você for usar campanhas de lead ads, esse ID simplifica o consumo de formulários.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Versão da API</label><input name="meta_ads_api_version" value="' . h($settings['meta_ads_api_version'] ?? 'v22.0') . '" placeholder="v22.0"><small class="muted">Use a versão que seu app estiver homologado para usar.</small></div>';
+        echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="' . h($settings['meta_ads_redirect_uri'] ?? '') . '" placeholder="https://seu-dominio.com/index.php?page=studio_meta_ads"><small class="muted">Necessária se você quiser fazer o fluxo de conexão OAuth pela tela.</small></div>';
+        echo '</div>';
+        echo '<div class="field"><label>Observações operacionais</label><textarea name="meta_ads_notes" placeholder="Ex.: usamos essa conta para campanhas de fechamento, catálogo e remarketing. A conta fica em nome do business X.">' . h($settings['meta_ads_notes'] ?? '') . '</textarea><small class="muted">Isso não vai para a Meta. Fica só como documentação interna do estúdio.</small></div>';
+        echo '</div>';
+        echo '<div class="panel soft" style="margin-top:16px">';
+        echo '<h3 style="margin-top:0">O que essa página vai mostrar</h3>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><strong>Campanhas</strong><p class="muted">Listagem, status, objetivo e orçamento das campanhas ativas.</p></div>';
+        echo '<div class="field"><strong>Conjuntos e anúncios</strong><p class="muted">Visão por conjunto de anúncios, criativos e status de entrega.</p></div>';
+        echo '<div class="field"><strong>Leads e formulários</strong><p class="muted">Acesso aos leads de formulário e correlação com o CRM.</p></div>';
+        echo '<div class="field"><strong>Relatórios</strong><p class="muted">Métricas como impressões, cliques, CPC, CPM, CTR e gasto.</p></div>';
+        echo '<div class="field"><strong>Públicos</strong><p class="muted">Reuso de públicos personalizados e lookalikes quando disponível.</p></div>';
+        echo '<div class="field"><strong>Tokens e diagnóstico</strong><p class="muted">Checagem de token, permissões e ligação com a conta de anúncio.</p></div>';
+        echo '</div>';
+        echo '</div></div>';
         echo '<div id="settingsSourceRules" hidden><div class="settings-panel" id="settings-rules" data-settings-panel="rules">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Regras comerciais</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="field"><label>Regras e informações para IA</label><textarea name="business_rules" placeholder="Exemplo: Estúdio aberto de terça a sábado. Dois tatuadores. Responder sempre em português do Brasil. Quando o cliente pedir agendamento, considerar sinal obrigatório. Não inventar preço. Se faltar informação, perguntar só uma coisa por vez. Priorize datas, horários e referências reais do estúdio.">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Esse texto entra no contexto da IA. Aqui vale escrever regras reais do estúdio, tom de atendimento, limites e informações que a IA deve respeitar sempre.</small></div>';
@@ -4260,8 +4300,68 @@ if ($page === 'studio_settings') {
         echo '</div></div>';
         echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configurações</button></div>';
         echo '</form>';
-        echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const sourceMap={studio:{title:"Estúdio",summary:"Dados base e integração",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horário e duração",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automação",source:"settingsSourceIa"},quick_replies:{title:"Respostas rápidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Regras comerciais",summary:"Contexto para a IA",source:"settingsSourceRules"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
-        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
+        echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const sourceMap={studio:{title:"Estúdio",summary:"Dados base e integração",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horário e duração",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automação",source:"settingsSourceIa"},meta_ads:{title:"Meta Ads",summary:"Credenciais, IDs e diagnóstico",source:"settingsSourceMetaAds"},quick_replies:{title:"Respostas rápidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Regras comerciais",summary:"Contexto para a IA",source:"settingsSourceRules"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_meta_ads') {
+    $studio = require_studio();
+    render_studio_shell('Meta Ads', 'Acesso rápido para configurar e explorar a API de anúncios da Meta.', 'home', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+        $settings = studio_settings($studio);
+        $enabled = !empty($settings['meta_ads_enabled']);
+        $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+        $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
+        $accountId = preg_replace('/^act_/', '', $accountId);
+        $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
+        $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
+        $examples = [
+            ['title' => 'Campanhas', 'method' => 'GET', 'path' => '/' . $accountRef . '/campaigns', 'description' => 'Lista campanhas, status e objetivo.'],
+            ['title' => 'Conjuntos de anúncios', 'method' => 'GET', 'path' => '/' . $accountRef . '/adsets', 'description' => 'Mostra os conjuntos vinculados à conta.'],
+            ['title' => 'Anúncios', 'method' => 'GET', 'path' => '/' . $accountRef . '/ads', 'description' => 'Lista anúncios, criativos e status de entrega.'],
+            ['title' => 'Insights', 'method' => 'GET', 'path' => '/' . $accountRef . '/insights?fields=impressions,clicks,spend,cpm,cpc,ctr,reach', 'description' => 'Retorna métricas para relatório e BI.'],
+            ['title' => 'Lead Ads', 'method' => 'GET', 'path' => '/{lead_form_id}/leads', 'description' => 'Consome leads captados por formulário.'],
+            ['title' => 'Públicos', 'method' => 'GET', 'path' => '/act_' . ($accountId !== '' ? $accountId : '{ad_account_id}') . '/customaudiences', 'description' => 'Consulta públicos personalizados disponíveis.'],
+        ];
+        echo '<section class="panel">';
+        echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+        echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
+        echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2" style="margin-top:16px">';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Resumo rápido</h3><ul class="list-unstyled mb-0">';
+        echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
+        echo '<li class="mb-2"><strong>Conta:</strong> ' . h($accountId !== '' ? 'act_' . $accountId : 'não configurada') . '</li>';
+        echo '<li class="mb-2"><strong>Ativação:</strong> ' . h($enabled ? 'Liberada' : 'Ainda não liberada') . '</li>';
+        echo '<li class="mb-2"><strong>Fluxo sugerido:</strong> token de System User, conta de anúncio, pixel e, se usar leads, formulário.</li>';
+        echo '</ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Checklist de teste</h3><ol class="mb-0">';
+        echo '<li>Preencher os campos de acesso em Configurações.</li>';
+        echo '<li>Confirmar que o app Meta tem o produto Marketing API habilitado.</li>';
+        echo '<li>Gerar um token válido com as permissões corretas.</li>';
+        echo '<li>Validar a conta de anúncio e os ativos associados.</li>';
+        echo '</ol></div>';
+        echo '</div>';
+        echo '</section>';
+        echo '<section class="panel" style="margin-top:16px"><h2 class="mb-3">Endpoints úteis</h2><div class="grid cols-2">';
+        foreach ($examples as $example) {
+            $fullUrl = $baseGraphUrl . (string)$example['path'];
+            echo '<div class="panel soft"><div class="d-flex justify-content-between gap-2 flex-wrap"><strong>' . h((string)$example['title']) . '</strong><span class="badge">' . h((string)$example['method']) . '</span></div><p class="muted">' . h((string)$example['description']) . '</p><code style="display:block;white-space:pre-wrap;word-break:break-word">' . h($fullUrl) . '</code></div>';
+        }
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><h2 class="mb-3">Próximas melhorias da integração</h2><div class="grid cols-2">';
+        echo '<div class="panel soft"><strong>Sincronizar campanhas</strong><p class="muted">Importar campanhas ativas e relacionar gastos com o funil interno.</p></div>';
+        echo '<div class="panel soft"><strong>Importar leads</strong><p class="muted">Buscar leads dos formulários e criar contatos no CRM automaticamente.</p></div>';
+        echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
+        echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
     exit;
 }
