@@ -1507,6 +1507,14 @@ if ($page === 'studio_home') {
         $nextMonthStart = new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo'));
         $nextMonthEnd = new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
         $settings = studio_settings($studio);
+        $metaInsights = null;
+        if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
+            try {
+                $metaInsights = studio_meta_ads_insights_summary($studio, 30);
+            } catch (Throwable) {
+                $metaInsights = null;
+            }
+        }
         $allowedDays = studio_schedule_days($studio);
         $allowedSlots = studio_schedule_slots($studio);
         $allowedDaySet = array_fill_keys(array_map('strval', $allowedDays), true);
@@ -1638,6 +1646,10 @@ if ($page === 'studio_home') {
         }
         $metaCampaignItems = $metaCampaignRangeMap['today'] ?? [];
         $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada hoje.';
+        $metaSpendLabel = 'Meta Ads pronta';
+        if (is_array($metaInsights) && !empty($metaInsights['ok'])) {
+            $metaSpendLabel = format_money((float)($metaInsights['spend'] ?? 0)) . ' gasto · ' . (int)($metaInsights['clicks'] ?? 0) . ' cliques';
+        }
         $decorateAppointmentCard = static function (array $appointment) use ($pomadaUnitPrice): array {
             $rawValue = appointment_display_amount($appointment['value'] ?? 0);
             $rawDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
@@ -1915,7 +1927,7 @@ if ($page === 'studio_home') {
             ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
             ['label' => 'Agenda de hoje', 'summary' => 'Atendimentos do dia e status atual.', 'focus' => 'today_agenda'],
             ['label' => 'Leads do Meta', 'summary' => 'Leads captados por campanha e faixa de data.', 'focus' => 'meta_campaign'],
-            ['label' => 'Meta Ads', 'summary' => 'Acesso às funções mais úteis da API para anúncios, campanhas e relatórios.', 'focus' => 'meta_ads'],
+            ['label' => 'Meta Ads', 'summary' => $metaSpendLabel, 'focus' => 'meta_ads'],
             ['label' => 'Pr&oacute;ximos atendimentos', 'summary' => 'Agenda futura com filtros por per&iacute;odo.', 'focus' => 'appointments'],
             ['label' => 'Hor&aacute;rios livres', 'summary' => 'Janelas dispon&iacute;veis na agenda.', 'focus' => 'free_windows'],
             ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
@@ -4379,6 +4391,14 @@ if ($page === 'studio_meta_ads') {
         if (isset($_SESSION['meta_ads_oauth_accounts']) && is_array($_SESSION['meta_ads_oauth_accounts'])) {
             $oauthAccounts = $_SESSION['meta_ads_oauth_accounts'];
         }
+        $performanceSummary = null;
+        if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
+            try {
+                $performanceSummary = studio_meta_ads_insights_summary($studio, 30);
+            } catch (Throwable) {
+                $performanceSummary = null;
+            }
+        }
         $enabled = !empty($settings['meta_ads_enabled']);
         $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
         $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
@@ -4496,6 +4516,19 @@ if ($page === 'studio_meta_ads') {
                 echo '<p class="mb-0" style="margin-top:12px"><strong>Erro:</strong> ' . h((string)($syncResult['error'] ?? 'Erro desconhecido')) . '</p>';
             }
             echo '</div>';
+        }
+        if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
+            echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Performance de mídia</h2><p class="muted mb-0">Resumo dos últimos 30 dias da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
+            echo '<div class="grid cols-4" style="margin-top:12px">';
+            echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>Cliques</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>CTR</strong><p class="muted mb-0">' . h(number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.')) . '%</p></div>';
+            echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpc'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpm'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>Conta</strong><p class="muted mb-0">' . h((string)($performanceSummary['account_id'] ?? '')) . '</p></div>';
+            echo '</div></section>';
         }
         if (is_array($oauthResult)) {
             echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';

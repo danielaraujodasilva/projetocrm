@@ -3798,6 +3798,41 @@ function studio_meta_ads_test_connection(array $studio): array
     ];
 }
 
+function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $accountId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+    if ($token === '' || $accountId === '') {
+        return ['ok' => false, 'error' => 'Meta Ads sem token ou conta de anuncio configurados.'];
+    }
+    $days = max(1, min(365, $days));
+    $response = studio_meta_ads_request($version, '/act_' . $accountId . '/insights', $token, [
+        'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
+        'date_preset' => $days <= 7 ? 'last_7d' : ($days <= 30 ? 'last_30d' : 'last_90d'),
+        'level' => 'account',
+        'limit' => 1,
+    ]);
+    if (!$response['ok']) {
+        return $response;
+    }
+    $items = is_array($response['json']['data'] ?? null) ? $response['json']['data'] : [];
+    $row = $items[0] ?? [];
+    return [
+        'ok' => true,
+        'account_id' => 'act_' . $accountId,
+        'days' => $days,
+        'spend' => (float)($row['spend'] ?? 0),
+        'impressions' => (int)($row['impressions'] ?? 0),
+        'clicks' => (int)($row['clicks'] ?? 0),
+        'ctr' => (float)($row['ctr'] ?? 0),
+        'cpc' => (float)($row['cpc'] ?? 0),
+        'cpm' => (float)($row['cpm'] ?? 0),
+        'reach' => (int)($row['reach'] ?? 0),
+    ];
+}
+
 function studio_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
     $settings = studio_settings($studio);
