@@ -4376,7 +4376,7 @@ if ($page === 'studio_meta_ads') {
         echo '<section class="panel">';
         echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
         echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
-        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="document.getElementById(\'metaAdsAdvanced\').classList.toggle(\'d-none\')">AVANÇADO</button></div>';
+        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">AVANÇADO</button></div>';
         echo '</div>';
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
@@ -4417,7 +4417,7 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</div>';
         }
-        echo '<div id="metaAdsAdvanced" class="d-none" style="margin-top:16px">';
+        echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
         echo '<div class="grid cols-2">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Resumo técnico</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
