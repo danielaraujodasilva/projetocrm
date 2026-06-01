@@ -861,19 +861,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             $studio = require_studio();
             $settings = studio_settings($studio);
             $appId = trim((string)($settings['meta_ads_app_id'] ?? ''));
-            $redirectUri = trim((string)($settings['meta_ads_redirect_uri'] ?? (app_base_path() . '/meta_oauth_callback.php')));
+            $redirectUri = 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php';
             if ($appId === '') {
                 flash_set('error', 'Configure o App ID antes de conectar com a Meta.');
                 redirect_to('studio_meta_ads');
             }
             $_SESSION['meta_ads_oauth_state'] = bin2hex(random_bytes(24));
-            $authUrl = 'https://www.facebook.com/v22.0/dialog/oauth?' . http_build_query([
-                'client_id' => $appId,
-                'redirect_uri' => $redirectUri,
-                'scope' => 'ads_read,business_management,pages_show_list,pages_read_engagement,leads_retrieval',
-                'response_type' => 'code',
-                'state' => $_SESSION['meta_ads_oauth_state'],
-            ]);
+            $authUrl = 'https://www.facebook.com/v22.0/dialog/oauth?'
+                . 'client_id=' . rawurlencode($appId)
+                . '&redirect_uri=' . rawurlencode($redirectUri)
+                . '&scope=' . rawurlencode('ads_read,business_management,pages_show_list,pages_read_engagement,leads_retrieval')
+                . '&response_type=' . rawurlencode('code')
+                . '&state=' . rawurlencode($_SESSION['meta_ads_oauth_state']);
             header('Location: ' . $authUrl);
             exit;
         }
@@ -4315,7 +4314,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Versão da API</label><input name="meta_ads_api_version" value="' . h($settings['meta_ads_api_version'] ?? 'v22.0') . '" placeholder="v22.0"><small class="muted">Use a versão que seu app estiver homologado para usar.</small></div>';
-        echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="' . h($settings['meta_ads_redirect_uri'] ?? 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php') . '" placeholder="https://danieltatuador.com/projetocrm/meta_oauth_callback.php"><small class="muted">Usada apenas no callback limpo da Meta.</small></div>';
+        echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="https://danieltatuador.com/projetocrm/meta_oauth_callback.php" placeholder="https://danieltatuador.com/projetocrm/meta_oauth_callback.php"><small class="muted">Fixada para o callback limpo da Meta. O botão Conectar usa exatamente essa URL.</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Observações operacionais</label><textarea name="meta_ads_notes" placeholder="Ex.: usamos essa conta para campanhas de fechamento, catálogo e remarketing. A conta fica em nome do business X.">' . h($settings['meta_ads_notes'] ?? '') . '</textarea><small class="muted">Isso não vai para a Meta. Fica só como documentação interna do estúdio.</small></div>';
         echo '<div class="actions" style="justify-content:flex-end;margin-top:12px"><button class="btn" type="button" data-settings-submit>Salvar configurações</button></div>';
