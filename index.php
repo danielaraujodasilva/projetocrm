@@ -4260,6 +4260,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="' . h($settings['meta_ads_redirect_uri'] ?? '') . '" placeholder="https://seu-dominio.com/index.php?page=studio_meta_ads"><small class="muted">Necessária se você quiser fazer o fluxo de conexão OAuth pela tela.</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Observações operacionais</label><textarea name="meta_ads_notes" placeholder="Ex.: usamos essa conta para campanhas de fechamento, catálogo e remarketing. A conta fica em nome do business X.">' . h($settings['meta_ads_notes'] ?? '') . '</textarea><small class="muted">Isso não vai para a Meta. Fica só como documentação interna do estúdio.</small></div>';
+        echo '<div class="actions" style="justify-content:flex-end;margin-top:12px"><button class="btn" type="submit">Salvar configurações</button></div>';
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">O que essa página vai mostrar</h3>';
