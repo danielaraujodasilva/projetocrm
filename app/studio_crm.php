@@ -3703,6 +3703,91 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     ];
 }
 
+function studio_meta_ads_request(string $version, string $path, string $accessToken, array $query = [], string $method = 'GET', ?array $body = null, ?int $timeoutSeconds = null): array
+{
+    $version = trim($version) !== '' ? trim($version) : 'v22.0';
+    $version = preg_replace('/^v?/', 'v', $version) ?: 'v22.0';
+    $path = '/' . ltrim($path, '/');
+    $url = 'https://graph.facebook.com/' . rawurlencode($version) . $path;
+    if ($query) {
+        $url .= '?' . http_build_query($query);
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $accessToken,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_TIMEOUT => $timeoutSeconds ?? 30,
+    ]);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'error' => $error ?: 'Falha na chamada da Meta API.', 'status' => $status];
+    }
+
+    $json = json_decode((string)$raw, true);
+    if (!is_array($json)) {
+        return ['ok' => false, 'error' => 'Resposta invalida da Meta API.', 'status' => $status, 'raw' => $raw];
+    }
+    if ($status >= 400 || !empty($json['error'])) {
+        return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status)), 'status' => $status, 'json' => $json];
+    }
+
+    return ['ok' => true, 'status' => $status, 'json' => $json, 'raw' => $raw];
+}
+
+function studio_meta_ads_test_connection(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $accountId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+    if ($token === '') {
+        return ['ok' => false, 'error' => 'Access Token da Meta nao configurado.'];
+    }
+    if ($accountId === '') {
+        return ['ok' => false, 'error' => 'ID da conta de anuncio nao configurado.'];
+    }
+
+    $me = studio_meta_ads_request($version, '/me', $token, ['fields' => 'id,name']);
+    if (!$me['ok']) {
+        return $me;
+    }
+
+    $account = studio_meta_ads_request($version, '/act_' . $accountId, $token, [
+        'fields' => 'id,name,account_status,currency,timezone_name,amount_spent,balance',
+    ]);
+    if (!$account['ok']) {
+        return $account;
+    }
+
+    $campaigns = studio_meta_ads_request($version, '/act_' . $accountId . '/campaigns', $token, [
+        'fields' => 'id,name,status,objective,created_time,updated_time',
+        'limit' => 3,
+    ]);
+
+    return [
+        'ok' => true,
+        'version' => $version,
+        'account_id' => 'act_' . $accountId,
+        'me' => $me['json'] ?? [],
+        'account' => $account['json'] ?? [],
+        'campaigns' => $campaigns['json'] ?? [],
+        'campaigns_ok' => !empty($campaigns['ok']),
+    ];
+}
+
 function studio_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
     $settings = studio_settings($studio);

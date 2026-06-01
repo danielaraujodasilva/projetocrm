@@ -842,6 +842,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             flash_set('success', 'Configuracoes salvas.');
             redirect_to('studio_settings', ['tab' => (string)($_POST['settings_tab'] ?? 'studio')]);
         }
+
+        if ($action === 'test_meta_ads_connection') {
+            $studio = require_studio();
+            $_SESSION['meta_ads_test_result'] = studio_meta_ads_test_connection($studio);
+            flash_set('success', 'Teste da Meta Ads executado.');
+            redirect_to('studio_meta_ads');
+        }
     } catch (Throwable $e) {
         flash_set('error', $e->getMessage());
         redirect_to($page);
@@ -4308,6 +4315,11 @@ if ($page === 'studio_meta_ads') {
             return;
         }
         $settings = studio_settings($studio);
+        $testResult = null;
+        if (isset($_SESSION['meta_ads_test_result']) && is_array($_SESSION['meta_ads_test_result'])) {
+            $testResult = $_SESSION['meta_ads_test_result'];
+            unset($_SESSION['meta_ads_test_result']);
+        }
         $enabled = !empty($settings['meta_ads_enabled']);
         $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
         $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
@@ -4327,6 +4339,30 @@ if ($page === 'studio_meta_ads') {
         echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
         echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span></div>';
         echo '</div>';
+        if (is_array($testResult)) {
+            $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Resultado do teste</h3><p class="muted mb-0">Verificação ao vivo da API da Meta.</p></div><span class="badge ' . h($tone) . '">' . h(!empty($testResult['ok']) ? 'Conectado' : 'Erro') . '</span></div>';
+            if (!empty($testResult['ok'])) {
+                echo '<div class="grid cols-2" style="margin-top:12px">';
+                echo '<div class="field"><strong>Usuário/Aplicação</strong><p class="muted mb-0">' . h((string)($testResult['me']['name'] ?? '')) . ' · ' . h((string)($testResult['me']['id'] ?? '')) . '</p></div>';
+                echo '<div class="field"><strong>Conta</strong><p class="muted mb-0">' . h((string)($testResult['account']['name'] ?? '')) . ' · ' . h((string)($testResult['account']['id'] ?? '')) . '</p></div>';
+                echo '<div class="field"><strong>Status da conta</strong><p class="muted mb-0">' . h((string)($testResult['account']['account_status'] ?? '')) . '</p></div>';
+                echo '<div class="field"><strong>Moeda / fuso</strong><p class="muted mb-0">' . h((string)($testResult['account']['currency'] ?? '')) . ' · ' . h((string)($testResult['account']['timezone_name'] ?? '')) . '</p></div>';
+                echo '</div>';
+                if (!empty($testResult['campaigns_ok']) && !empty($testResult['campaigns']['data']) && is_array($testResult['campaigns']['data'])) {
+                    echo '<div class="panel" style="margin-top:12px"><h4 style="margin-top:0">Campanhas encontradas</h4><ul class="mb-0">';
+                    foreach (array_slice($testResult['campaigns']['data'], 0, 3) as $campaign) {
+                        echo '<li><strong>' . h((string)($campaign['name'] ?? 'Campanha')) . '</strong> · ' . h((string)($campaign['status'] ?? '')) . ' · ' . h((string)($campaign['objective'] ?? '')) . '</li>';
+                    }
+                    echo '</ul></div>';
+                } else {
+                    echo '<p class="muted mb-0" style="margin-top:12px">Conexão validada. Não trouxe campanhas nesse teste, mas a conta e o token responderam.</p>';
+                }
+            } else {
+                echo '<p class="mb-0" style="margin-top:12px"><strong>Erro:</strong> ' . h((string)($testResult['error'] ?? 'Erro desconhecido')) . '</p>';
+            }
+            echo '</div>';
+        }
         echo '<div class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Resumo rápido</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
@@ -4354,6 +4390,7 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Testar agora</h2><p class="muted mb-0">Esse botão valida token, conta e lista algumas campanhas reais.</p></div><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
     exit;
