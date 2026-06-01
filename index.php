@@ -4310,7 +4310,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>ID do Pixel</label><input name="meta_ads_pixel_id" value="' . h($settings['meta_ads_pixel_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Opcional, mas muito útil para eventos e acompanhamento de conversões.</small></div>';
-        echo '<div class="field"><label>ID do formulário de leads</label><input name="meta_ads_lead_form_id" value="' . h($settings['meta_ads_lead_form_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Se você for usar campanhas de lead ads, esse ID simplifica o consumo de formulários.</small></div>';
+        echo '<div class="field"><label>ID do formulário de leads</label><input name="meta_ads_lead_form_id" value="' . h($settings['meta_ads_lead_form_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Opcional. Use só se você for rodar campanhas de Lead Ads com formulário nativo da Meta. Para campanhas de WhatsApp, pode deixar vazio.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Versão da API</label><input name="meta_ads_api_version" value="' . h($settings['meta_ads_api_version'] ?? 'v22.0') . '" placeholder="v22.0"><small class="muted">Use a versão que seu app estiver homologado para usar.</small></div>';
@@ -4324,7 +4324,7 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-2">';
         echo '<div class="field"><strong>Campanhas</strong><p class="muted">Listagem, status, objetivo e orçamento das campanhas ativas.</p></div>';
         echo '<div class="field"><strong>Conjuntos e anúncios</strong><p class="muted">Visão por conjunto de anúncios, criativos e status de entrega.</p></div>';
-        echo '<div class="field"><strong>Leads e formulários</strong><p class="muted">Acesso aos leads de formulário e correlação com o CRM.</p></div>';
+        echo '<div class="field"><strong>Leads e formulários</strong><p class="muted">Opcional. Só entra em cena se você usar formulário nativo da Meta; para WhatsApp, pode ignorar.</p></div>';
         echo '<div class="field"><strong>Relatórios</strong><p class="muted">Métricas como impressões, cliques, CPC, CPM, CTR e gasto.</p></div>';
         echo '<div class="field"><strong>Públicos</strong><p class="muted">Reuso de públicos personalizados e lookalikes quando disponível.</p></div>';
         echo '<div class="field"><strong>Tokens e diagnóstico</strong><p class="muted">Checagem de token, permissões e ligação com a conta de anúncio.</p></div>';
