@@ -4418,6 +4418,22 @@ if ($page === 'studio_meta_ads') {
             echo '</div>';
         }
         echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
+        echo '<div class="panel soft" style="margin-bottom:16px"><h3 style="margin-top:0">Mapa do que a integração entrega</h3><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Item</th><th>Status</th><th>Observação</th></tr></thead><tbody>';
+        foreach ([
+            ['Conexão com a Meta', 'Já funciona', 'Valida token, conta de anúncio e resposta da API.'],
+            ['Campanhas ao vivo', 'Já funciona', 'Lista campanhas conectadas com status e objetivo.'],
+            ['Leads do formulário', 'Já funciona', 'Mostra os leads recentes quando o formulário está configurado.'],
+            ['Importação para o CRM', 'Já funciona', 'Cria ou atualiza clientes e leads internos.'],
+            ['Conjuntos de anúncios', 'Próxima etapa', 'Pode ser exibido para análise mais detalhada da conta.'],
+            ['Anúncios individuais', 'Próxima etapa', 'Ajuda a ligar criativo, status e performance.'],
+            ['Insights de mídia', 'Depende de configuração', 'Exige leitura de métricas como spend, CTR, CPC e CPM.'],
+            ['Públicos personalizados', 'Próxima etapa', 'Útil para remarketing e segmentações.'],
+            ['Sincronização automática', 'Próxima etapa', 'Pode rodar em agenda para trazer leads sem clique manual.'],
+            ['OAuth no CRM', 'Depende de configuração', 'Fica melhor com Redirect URI e fluxo de autenticação.'],
+        ] as $row) {
+            echo '<tr><td><strong>' . h($row[0]) . '</strong></td><td><span class="badge">' . h($row[1]) . '</span></td><td>' . h($row[2]) . '</td></tr>';
+        }
+        echo '</tbody></table></div></div>';
         echo '<div class="grid cols-2">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Resumo técnico</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
