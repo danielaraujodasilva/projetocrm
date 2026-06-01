@@ -3747,6 +3747,16 @@ function studio_meta_ads_request(string $version, string $path, string $accessTo
     return ['ok' => true, 'status' => $status, 'json' => $json, 'raw' => $raw];
 }
 
+function studio_meta_ads_mask_secret(string $value, int $keep = 6): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    $tail = mb_substr($value, max(0, mb_strlen($value) - $keep));
+    return str_repeat('•', max(0, mb_strlen($value) - mb_strlen($tail))) . $tail;
+}
+
 function studio_meta_ads_test_connection(array $studio): array
 {
     $settings = studio_settings($studio);
@@ -6185,9 +6195,9 @@ function studio_save_settings(array $studio, array $data): void
     $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
     $metaCampaignPhrases = trim((string)($data['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!"));
     $metaAdsEnabled = !empty($data['meta_ads_enabled']) ? 1 : 0;
-    $metaAdsAppId = trim((string)($data['meta_ads_app_id'] ?? ''));
-    $metaAdsAppSecret = trim((string)($data['meta_ads_app_secret'] ?? ''));
-    $metaAdsAccessToken = trim((string)($data['meta_ads_access_token'] ?? ''));
+    $metaAdsAppIdInput = trim((string)($data['meta_ads_app_id'] ?? ''));
+    $metaAdsAppSecretInput = trim((string)($data['meta_ads_app_secret'] ?? ''));
+    $metaAdsAccessTokenInput = trim((string)($data['meta_ads_access_token'] ?? ''));
     $metaAdsBusinessId = trim((string)($data['meta_ads_business_id'] ?? ''));
     $metaAdsAdAccountId = trim((string)($data['meta_ads_ad_account_id'] ?? ''));
     $metaAdsPixelId = trim((string)($data['meta_ads_pixel_id'] ?? ''));
@@ -6260,9 +6270,9 @@ function studio_save_settings(array $studio, array $data): void
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
         $metaAdsEnabled,
-        $metaAdsAppId,
-        $metaAdsAppSecret,
-        $metaAdsAccessToken,
+        $metaAdsAppIdInput !== '' ? $metaAdsAppIdInput : ($settings['meta_ads_app_id'] ?? ''),
+        $metaAdsAppSecretInput !== '' ? $metaAdsAppSecretInput : ($settings['meta_ads_app_secret'] ?? ''),
+        $metaAdsAccessTokenInput !== '' ? $metaAdsAccessTokenInput : ($settings['meta_ads_access_token'] ?? ''),
         $metaAdsBusinessId,
         $metaAdsAdAccountId,
         $metaAdsPixelId,

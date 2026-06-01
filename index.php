@@ -856,6 +856,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             flash_set('success', 'Sincronizacao da Meta Ads executada.');
             redirect_to('studio_meta_ads');
         }
+
+        if ($action === 'connect_meta_ads') {
+            $studio = require_studio();
+            $settings = studio_settings($studio);
+            $appId = trim((string)($settings['meta_ads_app_id'] ?? ''));
+            $redirectUri = trim((string)($settings['meta_ads_redirect_uri'] ?? (app_base_path() . '/meta_oauth_callback.php')));
+            if ($appId === '') {
+                flash_set('error', 'Configure o App ID antes de conectar com a Meta.');
+                redirect_to('studio_meta_ads');
+            }
+            $_SESSION['meta_ads_oauth_state'] = bin2hex(random_bytes(24));
+            $authUrl = 'https://www.facebook.com/v22.0/dialog/oauth?' . http_build_query([
+                'client_id' => $appId,
+                'redirect_uri' => $redirectUri,
+                'scope' => 'ads_read,business_management,pages_show_list,pages_read_engagement,leads_retrieval',
+                'response_type' => 'code',
+                'state' => $_SESSION['meta_ads_oauth_state'],
+            ]);
+            header('Location: ' . $authUrl);
+            exit;
+        }
+
+        if ($action === 'select_meta_ads_account') {
+            $studio = require_studio();
+            $accountId = preg_replace('/^act_/', '', trim((string)($_POST['meta_ads_selected_account'] ?? '')));
+            if ($accountId === '') {
+                flash_set('error', 'Selecione uma conta de anúncio.');
+                redirect_to('studio_meta_ads');
+            }
+            $settings = studio_settings($studio);
+            $payload = [];
+            foreach ($settings as $key => $value) {
+                $payload[$key] = $value;
+            }
+            $payload['meta_ads_ad_account_id'] = $accountId;
+            studio_save_settings($studio, $payload);
+            flash_set('success', 'Conta de anúncio salva.');
+            redirect_to('studio_meta_ads');
+        }
     } catch (Throwable $e) {
         flash_set('error', $e->getMessage());
         redirect_to($page);
@@ -4264,10 +4303,10 @@ if ($page === 'studio_settings') {
         echo '</div></div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>ID do App Meta</label><input name="meta_ads_app_id" value="' . h($settings['meta_ads_app_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Aparece no painel do app em developers.facebook.com.</small></div>';
-        echo '<div class="field"><label>Secret do App Meta</label><input name="meta_ads_app_secret" type="password" value="' . h($settings['meta_ads_app_secret'] ?? '') . '" placeholder="App Secret"><small class="muted">Guarde com cuidado. Use apenas em ambiente seguro.</small></div>';
+        echo '<div class="field"><label>Secret do App Meta</label><input name="meta_ads_app_secret" type="password" value="" placeholder="App Secret"><small class="muted">Guardado no banco, mas nunca exibido inteiro. Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['meta_ads_app_secret'] ?? ''))) . '</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Access Token</label><input name="meta_ads_access_token" type="password" value="' . h($settings['meta_ads_access_token'] ?? '') . '" placeholder="EAAB..."><small class="muted">Normalmente um token de System User com permissões de anúncios.</small></div>';
+        echo '<div class="field"><label>Access Token</label><input name="meta_ads_access_token" type="password" value="" placeholder="EAAB..."><small class="muted">Normalmente um token de System User com permissões de anúncios. Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['meta_ads_access_token'] ?? ''))) . '</small></div>';
         echo '<div class="field"><label>ID do Business Manager</label><input name="meta_ads_business_id" value="' . h($settings['meta_ads_business_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">Ajuda a conferir a origem dos ativos e as permissões corretas.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
@@ -4276,7 +4315,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Versão da API</label><input name="meta_ads_api_version" value="' . h($settings['meta_ads_api_version'] ?? 'v22.0') . '" placeholder="v22.0"><small class="muted">Use a versão que seu app estiver homologado para usar.</small></div>';
-        echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="' . h($settings['meta_ads_redirect_uri'] ?? '') . '" placeholder="https://seu-dominio.com/index.php?page=studio_meta_ads"><small class="muted">Necessária se você quiser fazer o fluxo de conexão OAuth pela tela.</small></div>';
+        echo '<div class="field"><label>URL de redirecionamento OAuth</label><input name="meta_ads_redirect_uri" value="' . h($settings['meta_ads_redirect_uri'] ?? 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php') . '" placeholder="https://danieltatuador.com/projetocrm/meta_oauth_callback.php"><small class="muted">Usada apenas no callback limpo da Meta.</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Observações operacionais</label><textarea name="meta_ads_notes" placeholder="Ex.: usamos essa conta para campanhas de fechamento, catálogo e remarketing. A conta fica em nome do business X.">' . h($settings['meta_ads_notes'] ?? '') . '</textarea><small class="muted">Isso não vai para a Meta. Fica só como documentação interna do estúdio.</small></div>';
         echo '<div class="actions" style="justify-content:flex-end;margin-top:12px"><button class="btn" type="button" data-settings-submit>Salvar configurações</button></div>';
@@ -4331,6 +4370,15 @@ if ($page === 'studio_meta_ads') {
         if (isset($_SESSION['meta_ads_sync_result']) && is_array($_SESSION['meta_ads_sync_result'])) {
             $syncResult = $_SESSION['meta_ads_sync_result'];
             unset($_SESSION['meta_ads_sync_result']);
+        }
+        $oauthResult = null;
+        if (isset($_SESSION['meta_ads_oauth_result']) && is_array($_SESSION['meta_ads_oauth_result'])) {
+            $oauthResult = $_SESSION['meta_ads_oauth_result'];
+            unset($_SESSION['meta_ads_oauth_result']);
+        }
+        $oauthAccounts = [];
+        if (isset($_SESSION['meta_ads_oauth_accounts']) && is_array($_SESSION['meta_ads_oauth_accounts'])) {
+            $oauthAccounts = $_SESSION['meta_ads_oauth_accounts'];
         }
         $enabled = !empty($settings['meta_ads_enabled']);
         $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
@@ -4449,6 +4497,23 @@ if ($page === 'studio_meta_ads') {
                 echo '<p class="mb-0" style="margin-top:12px"><strong>Erro:</strong> ' . h((string)($syncResult['error'] ?? 'Erro desconhecido')) . '</p>';
             }
             echo '</div>';
+        }
+        if (is_array($oauthResult)) {
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';
+            echo '<p class="mb-0 mt-2">Token salvo: ' . h((string)($oauthResult['access_token_tail'] ?? '')) . ' · Contas encontradas: ' . h((string)($oauthResult['accounts_count'] ?? 0)) . '</p>';
+            echo '</div>';
+        }
+        if ($oauthAccounts) {
+            $currentAccountSetting = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+            echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Escolha a conta de anúncio</h2><p class="muted mb-0">Selecione a conta correta retornada pela Meta e salve no CRM.</p></div><span class="badge">' . h((string)count($oauthAccounts)) . ' contas</span></div>';
+            echo '<form method="post" class="mt-3">' . csrf_field() . '<input type="hidden" name="action" value="select_meta_ads_account"><div class="grid cols-2"><div class="field"><label>Conta encontrada</label><select name="meta_ads_selected_account">';
+            foreach ($oauthAccounts as $account) {
+                $accountId = (string)($account['id'] ?? '');
+                $accountName = trim((string)($account['name'] ?? $accountId));
+                $selected = (preg_replace('/^act_/', '', $accountId) === '875946594343063' || preg_replace('/^act_/', '', $accountId) === $currentAccountSetting) ? ' selected' : '';
+                echo '<option value="' . h($accountId) . '"' . $selected . '>' . h($accountName . ' · ' . $accountId) . '</option>';
+            }
+            echo '</select><small class="muted">A conta correta já vem pré-selecionada quando existe na lista.</small></div><div class="field"><label>Ação</label><button class="btn" type="submit">Salvar conta selecionada</button></div></div></form></section>';
         }
         echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
         echo '<div class="grid cols-3" style="margin-bottom:16px">';
@@ -4606,7 +4671,7 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão ou puxe os leads do formulário para o CRM.</p></div><div class="d-flex gap-2 flex-wrap"><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit">Sincronizar leads agora</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão, conecte a Meta ou puxe os leads do formulário para o CRM.</p></div><div class="d-flex gap-2 flex-wrap"><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="connect_meta_ads"><button class="btn btn-secondary" type="submit">Conectar Meta Ads</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit">Sincronizar leads agora</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
     exit;
