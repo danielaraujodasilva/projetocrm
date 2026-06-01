@@ -1869,6 +1869,11 @@ if ($page === 'studio_home') {
             ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
         ];
         foreach ($homeCards as $card) {
+            $isMetaAds = (string)($card['focus'] ?? '') === 'meta_ads';
+            if ($isMetaAds) {
+                echo '<a class="panel dashboard-stat dashboard-stat-button home-action-card text-start" href="' . h(app_url('studio_meta_ads')) . '"><p class="metric h4 mb-1">' . h((string)$card['label']) . '</p><p class="muted mb-2">' . h((string)$card['summary']) . '</p><span class="muted small">Abrir página</span></a>';
+                continue;
+            }
             echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card text-start" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric h4 mb-1">' . h((string)$card['label']) . '</p><p class="muted mb-2">' . h((string)$card['summary']) . '</p><span class="muted small">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
