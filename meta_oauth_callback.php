@@ -50,6 +50,37 @@ function meta_oauth_get_json(string $url): array
     return ['ok' => true, 'status' => $status, 'json' => $json, 'raw' => $raw];
 }
 
+function meta_oauth_post_form(string $url, array $data): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/x-www-form-urlencoded',
+        ],
+        CURLOPT_POSTFIELDS => http_build_query($data),
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'status' => $status, 'error' => $error ?: 'Falha na chamada OAuth da Meta.', 'raw' => $raw];
+    }
+    $json = json_decode((string)$raw, true);
+    if (!is_array($json)) {
+        return ['ok' => false, 'status' => $status, 'error' => 'Resposta invalida da Meta.', 'raw' => $raw];
+    }
+    if ($status >= 400 || !empty($json['error'])) {
+        return ['ok' => false, 'status' => $status, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status)), 'json' => $json, 'raw' => $raw];
+    }
+    return ['ok' => true, 'status' => $status, 'json' => $json, 'raw' => $raw];
+}
+
 $studio = require_studio();
 $settings = studio_settings($studio);
 $incomingState = (string)($_GET['state'] ?? '');
@@ -66,19 +97,19 @@ if ($code === '') {
 
 $appId = trim((string)($settings['meta_ads_app_id'] ?? ''));
 $appSecret = trim((string)($settings['meta_ads_app_secret'] ?? ''));
-$redirectUri = trim((string)($settings['meta_ads_redirect_uri'] ?? (app_base_path() . '/meta_oauth_callback.php')));
+$redirectUri = 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php';
 $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
 if ($appId === '' || $appSecret === '') {
     meta_oauth_fail('Configure o App ID e o App Secret antes de conectar.', ['reason' => 'missing_app_credentials']);
 }
 
-$tokenUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion) . '/oauth/access_token?' . http_build_query([
+$tokenUrl = 'https://graph.facebook.com/oauth/access_token';
+$tokenResponse = meta_oauth_post_form($tokenUrl, [
     'client_id' => $appId,
     'redirect_uri' => $redirectUri,
     'client_secret' => $appSecret,
     'code' => $code,
 ]);
-$tokenResponse = meta_oauth_get_json($tokenUrl);
 if (!$tokenResponse['ok']) {
     meta_oauth_fail('Erro ao trocar o code por token curto.', ['reason' => 'short_token_exchange', 'error' => $tokenResponse['error'] ?? null, 'raw' => $tokenResponse['raw'] ?? null, 'json' => $tokenResponse['json'] ?? null]);
 }
@@ -88,13 +119,13 @@ if ($shortToken === '') {
     meta_oauth_fail('A Meta nao devolveu um token curto valido.', ['reason' => 'missing_short_token', 'response' => $tokenResponse['json'] ?? null]);
 }
 
-$longTokenUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion) . '/oauth/access_token?' . http_build_query([
+$longTokenUrl = 'https://graph.facebook.com/oauth/access_token';
+$longTokenResponse = meta_oauth_post_form($longTokenUrl, [
     'grant_type' => 'fb_exchange_token',
     'client_id' => $appId,
     'client_secret' => $appSecret,
     'fb_exchange_token' => $shortToken,
 ]);
-$longTokenResponse = meta_oauth_get_json($longTokenUrl);
 if (!$longTokenResponse['ok']) {
     meta_oauth_fail('Erro ao trocar o token curto por token longo.', ['reason' => 'long_token_exchange', 'error' => $longTokenResponse['error'] ?? null, 'raw' => $longTokenResponse['raw'] ?? null, 'json' => $longTokenResponse['json'] ?? null]);
 }
@@ -126,7 +157,7 @@ $stmt = $pdo->prepare('UPDATE studio_settings SET meta_ads_access_token = ?, met
 $stmt->execute([
     $accessToken,
     $apiVersion !== '' ? $apiVersion : 'v22.0',
-    $redirectUri !== '' ? $redirectUri : (app_base_path() . '/meta_oauth_callback.php'),
+    $redirectUri,
 ]);
 
 $targetAccountId = 'act_875946594343063';
