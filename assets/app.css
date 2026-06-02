@@ -318,6 +318,92 @@ div {
     box-shadow: 0 .5rem 1.5rem rgba(15, 23, 42, .06);
 }
 
+.meta-ads-page {
+    --meta-card: rgba(255, 255, 255, .92);
+    --meta-card-border: rgba(148, 163, 184, .18);
+    --meta-card-shadow: 0 16px 36px rgba(15, 23, 42, .06);
+}
+
+.meta-ads-page > .panel,
+.meta-ads-page .panel.soft,
+.meta-ads-page .meta-campaign-accordion,
+.meta-ads-page .meta-tree .panel.soft,
+.meta-ads-page .meta-tree .panel {
+    background: linear-gradient(180deg, var(--meta-card), rgba(245, 249, 251, .92));
+    border-color: var(--meta-card-border);
+    box-shadow: var(--meta-card-shadow);
+}
+
+.meta-ads-page .meta-tree > details {
+    overflow: hidden;
+}
+
+.meta-ads-page .meta-campaign-summary {
+    padding-right: 2px;
+}
+
+.meta-ads-page .meta-campaign-summary::-webkit-details-marker,
+.meta-ads-page .meta-tree summary::-webkit-details-marker,
+.meta-ads-page dialog summary::-webkit-details-marker {
+    display: none;
+}
+
+.meta-ads-page .meta-campaign-summary::before,
+.meta-ads-page .meta-tree summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 10px;
+    color: var(--brand);
+    font-weight: 900;
+    transition: transform .16s ease;
+}
+
+.meta-ads-page details[open] > summary::before {
+    transform: rotate(90deg);
+}
+
+.meta-ads-page .tree-branch {
+    border-left-color: rgba(31, 111, 120, .10) !important;
+}
+
+.meta-ads-page .field {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .97), rgba(247, 250, 252, .96));
+    border: 1px solid rgba(148, 163, 184, .16);
+    border-radius: 16px;
+    padding: 12px 12px 11px;
+    box-shadow: 0 1px 0 rgba(15, 23, 42, .03);
+}
+
+.meta-ads-page .field strong {
+    display: block;
+    margin-bottom: 2px;
+    color: #0f172a;
+    font-size: 13px;
+    letter-spacing: -.01em;
+}
+
+.meta-ads-page .field .muted {
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.meta-ads-page .panel.soft {
+    border-radius: 18px;
+}
+
+.meta-ads-page .badge {
+    box-shadow: none;
+}
+
+.meta-ads-page .btn {
+    border-radius: 12px;
+}
+
+.meta-ads-page dialog::backdrop {
+    background: rgba(15, 23, 42, .48);
+    backdrop-filter: blur(6px);
+}
+
 .panel h2 {
     margin: 0 0 12px;
     font-size: 18px;

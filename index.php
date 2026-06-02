@@ -4556,6 +4556,7 @@ if ($page === 'studio_meta_ads') {
             ['title' => 'Lead Ads', 'method' => 'GET', 'path' => '/{lead_form_id}/leads', 'description' => 'Consome leads captados por formulário.'],
             ['title' => 'Públicos', 'method' => 'GET', 'path' => '/act_' . ($accountId !== '' ? $accountId : '{ad_account_id}') . '/customaudiences', 'description' => 'Consulta públicos personalizados disponíveis.'],
         ];
+        echo '<div class="meta-ads-page">';
         echo '<section class="panel">';
         echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
         echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
@@ -4887,6 +4888,7 @@ if ($page === 'studio_meta_ads') {
         echo '</div>';
         echo '</form>';
         echo '</dialog>';
+        echo '</div>';
     }, $flash);
     exit;
 }
