@@ -4663,23 +4663,87 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Nenhum conjunto retornado ainda.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Anúncios</h2><p class="muted mb-0">Itens individuais da conta, ligados a campanha e conjunto.</p></div><span class="badge">' . h((string)count($adsData ?? [])) . ' anúncios</span></div>';
-        if ($adsError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar anúncios:</strong> ' . h($adsError) . '</p></div>';
-        } elseif ($adsData) {
-            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Anúncio</th><th>Status</th><th>Conjunto</th><th>Campanha</th><th>Atualizado</th></tr></thead><tbody>';
-            foreach ($adsData as $ad) {
-                echo '<tr>';
-                echo '<td><strong>' . h((string)($ad['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($ad['id'] ?? '')) . '</span></td>';
-                echo '<td><span class="badge ' . h(((string)($ad['effective_status'] ?? $ad['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($ad['effective_status'] ?? $ad['status'] ?? '')) . '</span></td>';
-                echo '<td>' . h((string)($ad['adset_id'] ?? '')) . '</td>';
-                echo '<td>' . h((string)($ad['campaign_id'] ?? '')) . '</td>';
-                echo '<td>' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</td>';
-                echo '</tr>';
+        $adsByAdset = [];
+        $adsByCampaign = [];
+        foreach (($adsData ?? []) as $ad) {
+            if (!is_array($ad)) {
+                continue;
             }
-            echo '</tbody></table></div>';
+            $adsetKey = (string)($ad['adset_id'] ?? 'sem-adset');
+            $campaignKey = (string)($ad['campaign_id'] ?? 'sem-campaign');
+            $adsByAdset[$adsetKey][] = $ad;
+            $adsByCampaign[$campaignKey][] = $ad;
+        }
+        $adsetsByCampaign = [];
+        foreach (($adsetsData ?? []) as $adset) {
+            if (!is_array($adset)) {
+                continue;
+            }
+            $campaignKey = (string)($adset['campaign_id'] ?? 'sem-campaign');
+            $adsetsByCampaign[$campaignKey][] = $adset;
+        }
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Árvore da conta</h2><p class="muted mb-0">Campanha > conjunto > anúncio, tudo em uma leitura só.</p></div><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div>';
+        if ($campaignsError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
+        } elseif ($campaignsData) {
+            echo '<div class="meta-tree mt-3">';
+            foreach ($campaignsData as $campaign) {
+                if (!is_array($campaign)) {
+                    continue;
+                }
+                $campaignId = (string)($campaign['id'] ?? '');
+                $campaignName = (string)($campaign['name'] ?? 'Campanha');
+                $campaignStatus = (string)($campaign['effective_status'] ?? $campaign['status'] ?? '');
+                $campaignSummaryParts = [];
+                $campaignSummaryParts[] = (string)(count($adsetsByCampaign[$campaignId] ?? [])) . ' conjuntos';
+                $campaignSummaryParts[] = (string)(count($adsByCampaign[$campaignId] ?? [])) . ' anúncios';
+                echo '<div class="panel soft" style="border-left:4px solid #2b6cb0;margin-bottom:14px">';
+                echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+                echo '<div><h3 class="mb-1">' . h($campaignName) . '</h3><p class="muted mb-0">' . h($campaignId) . '</p></div>';
+                echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($campaignStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span></div>';
+                echo '</div>';
+                echo '<div class="tree-branch" style="margin-top:12px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.08)">';
+                foreach (($adsetsByCampaign[$campaignId] ?? []) as $adset) {
+                    $adsetId = (string)($adset['id'] ?? '');
+                    $adsetName = (string)($adset['name'] ?? 'Conjunto');
+                    $adsetStatus = (string)($adset['effective_status'] ?? $adset['status'] ?? '');
+                    echo '<div class="panel" style="margin:0 0 12px 0">';
+                    echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+                    echo '<div><strong>' . h($adsetName) . '</strong><br><span class="muted">' . h($adsetId) . '</span></div>';
+                    echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h((string)count($adsByAdset[$adsetId] ?? [])) . ' anúncios</span></div>';
+                    echo '</div>';
+                    if (!empty($adsByAdset[$adsetId])) {
+                        echo '<div class="tree-branch" style="margin-top:10px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.06)">';
+                        foreach ($adsByAdset[$adsetId] as $ad) {
+                            $adName = (string)($ad['name'] ?? 'Anúncio');
+                            $adId = (string)($ad['id'] ?? '');
+                            $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
+                            echo '<div class="panel soft" style="margin-bottom:10px">';
+                            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
+                            echo '<div><strong>' . h($adName) . '</strong><br><span class="muted">' . h($adId) . '</span></div>';
+                            echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span><span class="badge">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div>';
+                            echo '</div>';
+                            echo '<div class="grid cols-4 mt-3">';
+                            echo '<div class="field"><strong>Atualizado</strong><p class="muted mb-0">' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</p></div>';
+                            echo '<div class="field"><strong>Conjunto</strong><p class="muted mb-0">' . h((string)($ad['adset_id'] ?? '')) . '</p></div>';
+                            echo '<div class="field"><strong>Campanha</strong><p class="muted mb-0">' . h((string)($ad['campaign_id'] ?? '')) . '</p></div>';
+                            echo '<div class="field"><strong>Estado</strong><p class="muted mb-0">' . h($adStatus) . '</p></div>';
+                            echo '</div>';
+                            echo '</div>';
+                        }
+                        echo '</div>';
+                    }
+                    echo '</div>';
+                }
+                if (empty($adsetsByCampaign[$campaignId]) && empty($adsByCampaign[$campaignId])) {
+                    echo '<p class="muted mb-0" style="margin-top:10px">Sem conjuntos ou anúncios retornados para esta campanha.</p>';
+                }
+                echo '</div>';
+                echo '</div>';
+            }
+            echo '</div>';
         } else {
-            echo '<p class="muted mb-0 mt-3">Nenhum anúncio retornado ainda.</p>';
+            echo '<p class="muted mb-0 mt-3">Nenhuma campanha retornada ainda.</p>';
         }
         echo '</section>';
         echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Públicos personalizados</h2><p class="muted mb-0">Listagem de públicos para remarketing e segmentação.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
