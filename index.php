@@ -4663,6 +4663,28 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div></div>';
+        echo '<div class="panel soft" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Públicos personalizados</h3><p class="muted mb-0">Listagem de públicos para remarketing e segmentação.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
+        if ($audiencesError) {
+            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
+        } elseif ($audiencesData) {
+            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Público</th><th>Tipo</th><th>Status</th><th>Quantidade</th><th>Descrição</th></tr></thead><tbody>';
+            foreach ($audiencesData as $audience) {
+                $delivery = is_array($audience['delivery_status'] ?? null) ? $audience['delivery_status'] : [];
+                $deliveryStatus = is_array($delivery) && isset($delivery['code']) ? (string)$delivery['code'] : (string)($audience['operation_status']['code'] ?? $audience['operation_status'] ?? '');
+                echo '<tr>';
+                echo '<td><strong>' . h((string)($audience['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($audience['id'] ?? '')) . '</span></td>';
+                echo '<td>' . h((string)($audience['subtype'] ?? '')) . '</td>';
+                echo '<td>' . h($deliveryStatus) . '</td>';
+                $approxCount = $audience['approximate_count'] ?? ($audience['approximate_count_lower_bound'] ?? '');
+                echo '<td>' . h((string)$approxCount) . '</td>';
+                echo '<td class="muted">' . h((string)($audience['description'] ?? '')) . '</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
+        }
+        echo '</div>';
         echo '</div>';
         echo '</section>';
         $adsByAdset = [];
@@ -4810,29 +4832,7 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Nenhuma campanha retornada ainda.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Públicos personalizados</h2><p class="muted mb-0">Listagem de públicos para remarketing e segmentação.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
-        if ($audiencesError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
-        } elseif ($audiencesData) {
-            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Público</th><th>Tipo</th><th>Status</th><th>Quantidade</th><th>Descrição</th></tr></thead><tbody>';
-            foreach ($audiencesData as $audience) {
-                $delivery = is_array($audience['delivery_status'] ?? null) ? $audience['delivery_status'] : [];
-                $deliveryStatus = is_array($delivery) && isset($delivery['code']) ? (string)$delivery['code'] : (string)($audience['operation_status']['code'] ?? $audience['operation_status'] ?? '');
-                echo '<tr>';
-                echo '<td><strong>' . h((string)($audience['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($audience['id'] ?? '')) . '</span></td>';
-                echo '<td>' . h((string)($audience['subtype'] ?? '')) . '</td>';
-                echo '<td>' . h($deliveryStatus) . '</td>';
-                $approxCount = $audience['approximate_count'] ?? ($audience['approximate_count_lower_bound'] ?? '');
-                echo '<td>' . h((string)$approxCount) . '</td>';
-                echo '<td class="muted">' . h((string)($audience['description'] ?? '')) . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table></div>';
-        } else {
-            echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
-        }
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
+        echo '<div class="panel soft" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Ir para as configurações</h3><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></div>';
         echo '<dialog id="metaAdsPerformanceDialog" style="max-width:980px;width:min(980px,96vw);border:none;border-radius:20px;padding:0;overflow:hidden">';
         echo '<form method="get" style="margin:0;background:#fff">';
         echo '<input type="hidden" name="page" value="studio_meta_ads">';
