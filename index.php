@@ -4391,6 +4391,13 @@ if ($page === 'studio_meta_ads') {
         if (isset($_SESSION['meta_ads_oauth_accounts']) && is_array($_SESSION['meta_ads_oauth_accounts'])) {
             $oauthAccounts = $_SESSION['meta_ads_oauth_accounts'];
         }
+        $enabled = !empty($settings['meta_ads_enabled']);
+        $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+        $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
+        $accountId = preg_replace('/^act_/', '', $accountId);
+        $leadFormId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_lead_form_id'] ?? '')));
+        $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
+        $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
         $performanceEnd = trim((string)($_GET['meta_ads_until'] ?? date('Y-m-d')));
         $performanceStart = trim((string)($_GET['meta_ads_since'] ?? date('Y-m-d', strtotime('-29 days'))));
         $performanceStartDate = DateTime::createFromFormat('Y-m-d', $performanceStart) ?: new DateTime('-29 days');
@@ -4433,13 +4440,6 @@ if ($page === 'studio_meta_ads') {
                 $performanceSummary = null;
             }
         }
-        $enabled = !empty($settings['meta_ads_enabled']);
-        $apiVersion = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
-        $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
-        $accountId = preg_replace('/^act_/', '', $accountId);
-        $leadFormId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_lead_form_id'] ?? '')));
-        $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
-        $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
         $campaignsData = null;
         $adsetsData = null;
         $adsData = null;
