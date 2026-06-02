@@ -4409,6 +4409,7 @@ if ($page === 'studio_meta_ads') {
         $campaignsData = null;
         $adsetsData = null;
         $adsData = null;
+        $adInsightsByAd = [];
         $audiencesData = null;
         $campaignMetrics = [];
         $leadsData = null;
@@ -4469,6 +4470,26 @@ if ($page === 'studio_meta_ads') {
             ]);
             if (!empty($adsResponse['ok'])) {
                 $adsData = is_array($adsResponse['json']['data'] ?? null) ? $adsResponse['json']['data'] : [];
+                foreach ($adsData as $adRow) {
+                    if (!is_array($adRow)) {
+                        continue;
+                    }
+                    $adId = trim((string)($adRow['id'] ?? ''));
+                    if ($adId === '') {
+                        continue;
+                    }
+                    $adInsightsResponse = studio_meta_ads_request($apiVersion, '/' . $adId . '/insights', trim((string)$settings['meta_ads_access_token']), [
+                        'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,outbound_clicks,unique_clicks,unique_inline_link_clicks,unique_outbound_clicks,actions',
+                        'date_preset' => 'last_30d',
+                        'limit' => 1,
+                    ]);
+                    if (!empty($adInsightsResponse['ok'])) {
+                        $adInsightRows = is_array($adInsightsResponse['json']['data'] ?? null) ? $adInsightsResponse['json']['data'] : [];
+                        if (!empty($adInsightRows[0]) && is_array($adInsightRows[0])) {
+                            $adInsightsByAd[$adId] = $adInsightRows[0];
+                        }
+                    }
+                }
             } else {
                 $adsError = (string)($adsResponse['error'] ?? 'Erro ao carregar anuncios.');
             }
@@ -4709,11 +4730,43 @@ if ($page === 'studio_meta_ads') {
                             echo '<div><strong>' . h($adName) . '</strong><br><span class="muted">' . h($adId) . '</span></div>';
                             echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span><span class="badge">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div>';
                             echo '</div>';
+                            $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
+                            $adActions = is_array($adInsights['actions'] ?? null) ? $adInsights['actions'] : [];
+                            $adActionSummary = [];
+                            foreach ($adActions as $action) {
+                                if (!is_array($action)) {
+                                    continue;
+                                }
+                                $actionType = trim((string)($action['action_type'] ?? ''));
+                                $actionValue = trim((string)($action['value'] ?? ''));
+                                if ($actionType !== '' && $actionValue !== '') {
+                                    $adActionSummary[] = $actionType . ': ' . $actionValue;
+                                }
+                                if (count($adActionSummary) >= 4) {
+                                    break;
+                                }
+                            }
                             echo '<div class="grid cols-4 mt-3">';
                             echo '<div class="field"><strong>Atualizado</strong><p class="muted mb-0">' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</p></div>';
                             echo '<div class="field"><strong>Conjunto</strong><p class="muted mb-0">' . h((string)($ad['adset_id'] ?? '')) . '</p></div>';
                             echo '<div class="field"><strong>Campanha</strong><p class="muted mb-0">' . h((string)($ad['campaign_id'] ?? '')) . '</p></div>';
                             echo '<div class="field"><strong>Estado</strong><p class="muted mb-0">' . h($adStatus) . '</p></div>';
+                            echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</p></div>';
+                            echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>CTR</strong><p class="muted mb-0">' . h(number_format((float)($adInsights['ctr'] ?? 0), 2, ',', '.')) . '%</p></div>';
+                            echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($adInsights['cpc'] ?? 0))) . '</p></div>';
+                            echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($adInsights['cpm'] ?? 0))) . '</p></div>';
+                            echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Frequência</strong><p class="muted mb-0">' . h(number_format((float)($adInsights['frequency'] ?? 0), 2, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques no link</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['inline_link_clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques externos</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['outbound_clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques únicos</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['unique_clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques únicos no link</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['unique_inline_link_clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            echo '<div class="field"><strong>Cliques únicos externos</strong><p class="muted mb-0">' . h(number_format((int)($adInsights['unique_outbound_clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+                            if ($adActionSummary) {
+                                echo '<div class="field" style="grid-column:1/-1"><strong>Ações registradas</strong><p class="muted mb-0">' . h(implode(' · ', $adActionSummary)) . '</p></div>';
+                            }
                             echo '</div>';
                             echo '</div>';
                         }
