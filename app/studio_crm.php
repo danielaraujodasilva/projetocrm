@@ -6351,6 +6351,22 @@ function studio_meta_campaign_phrases(array $studio): array
     return $phrases ?: ["Tenho interesse no fechamento!"];
 }
 
+function studio_meta_campaign_normalize_text(string $value): string
+{
+    $value = mb_strtolower(trim($value));
+    $value = preg_replace('/\s+/u', ' ', $value) ?: $value;
+    return trim($value);
+}
+
+function studio_meta_campaign_escape_like(string $value): string
+{
+    return strtr($value, [
+        '\\' => '\\\\',
+        '%' => '\\%',
+        '_' => '\\_',
+    ]);
+}
+
 function studio_meta_campaign_entries(array $studio, string $startAt, string $endAt): array
 {
     $phrases = studio_meta_campaign_phrases($studio);
@@ -6359,14 +6375,14 @@ function studio_meta_campaign_entries(array $studio, string $startAt, string $en
     }
 
     $normalizedPhrases = array_values(array_unique(array_map(static function (string $phrase): string {
-        return mb_strtolower(trim(preg_replace('/\s+/', ' ', $phrase)));
+        return studio_meta_campaign_normalize_text($phrase);
     }, $phrases)));
     $normalizedPhrases = array_values(array_filter($normalizedPhrases, static fn(string $phrase): bool => $phrase !== ''));
     if (!$normalizedPhrases) {
         return [];
     }
 
-    $placeholders = implode(',', array_fill(0, count($normalizedPhrases), '?'));
+    $conditions = implode(' OR ', array_fill(0, count($normalizedPhrases), 'LOWER(TRIM(first_msg.body)) LIKE ? ESCAPE \'\\\\\''));
     $sql = "
         SELECT
             wc.id,
@@ -6395,16 +6411,82 @@ function studio_meta_campaign_entries(array $studio, string $startAt, string $en
         LEFT JOIN leads l ON l.id = wc.lead_id
         LEFT JOIN customers c ON c.id = wc.customer_id
         WHERE first_msg.sent_at BETWEEN ? AND ?
-          AND LOWER(TRIM(first_msg.body)) IN ($placeholders)
+          AND ($conditions)
         ORDER BY first_msg.sent_at DESC, wc.id DESC
         LIMIT 120
     ";
 
-    $params = array_merge([$startAt, $endAt], $normalizedPhrases);
+    $params = [$startAt, $endAt];
+    foreach ($normalizedPhrases as $phrase) {
+        $params[] = '%' . studio_meta_campaign_escape_like($phrase) . '%';
+    }
     $stmt = studio_db($studio)->prepare($sql);
     $stmt->execute($params);
 
     return $stmt->fetchAll() ?: [];
+}
+
+function studio_meta_ads_messaging_conversations_summary(array $studio, int $days = 30): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $accountId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+    if ($token === '' || $accountId === '') {
+        return ['ok' => false, 'error' => 'Meta Ads sem token ou conta de anuncio configurados.'];
+    }
+    $days = max(1, min(365, $days));
+    $response = studio_meta_ads_request($version, '/act_' . $accountId . '/insights', $token, [
+        'fields' => 'actions,unique_actions',
+        'date_preset' => $days <= 7 ? 'last_7d' : ($days <= 30 ? 'last_30d' : 'last_90d'),
+        'level' => 'account',
+        'limit' => 1,
+    ]);
+    if (!$response['ok']) {
+        return $response;
+    }
+
+    $items = is_array($response['json']['data'] ?? null) ? $response['json']['data'] : [];
+    $row = $items[0] ?? [];
+    $actions = is_array($row['actions'] ?? null) ? $row['actions'] : [];
+    $uniqueActions = is_array($row['unique_actions'] ?? null) ? $row['unique_actions'] : [];
+    $matched = [];
+    $countFrom = static function (array $list, array $needles, array &$matched): int {
+        $total = 0;
+        foreach ($list as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $actionType = strtolower((string)($entry['action_type'] ?? ''));
+            if ($actionType === '') {
+                continue;
+            }
+            foreach ($needles as $needle) {
+                if (str_contains($actionType, $needle)) {
+                    $total += (int)round((float)($entry['value'] ?? 0));
+                    $matched[$actionType] = max($matched[$actionType] ?? 0, (int)round((float)($entry['value'] ?? 0)));
+                    break;
+                }
+            }
+        }
+        return $total;
+    };
+
+    $needles = ['messaging_conversation', 'conversation_started', 'messages_started', 'message', 'lead'];
+    $reported = $countFrom($actions, $needles, $matched);
+    $uniqueReported = $countFrom($uniqueActions, $needles, $matched);
+    if ($reported <= 0 && $uniqueReported > 0) {
+        $reported = $uniqueReported;
+    }
+
+    return [
+        'ok' => true,
+        'account_id' => 'act_' . $accountId,
+        'days' => $days,
+        'reported_conversations' => $reported,
+        'unique_reported_conversations' => $uniqueReported,
+        'matched_actions' => $matched,
+    ];
 }
 
 function format_money(float|int|string $value): string

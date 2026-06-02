@@ -356,6 +356,10 @@
     const allItems = Array.isArray(data.all_items) ? data.all_items : items;
     const defaultRange = data.default_range || 'today';
     const todayIso = data.today_iso || '';
+    const comparison = data.comparison || {};
+    const internalCount = Number(comparison.internal_count || items.length || 0);
+    const metaCount = Number(comparison.meta_count || 0);
+    const delta = Number(comparison.delta || 0);
 
     const applyDateRange = (rows, startDate, endDate) => {
       if (!startDate || !endDate) return rows;
@@ -387,6 +391,22 @@
         return card(href, heading, meta, detail, 'compact');
       }).join('');
 
+      const comparisonCard = (comparison.meta_ok && (metaCount > 0 || internalCount > 0))
+        ? `
+          <div class="drilldown-panel-grid" style="margin: 0 0 14px">
+            <div class="drilldown-kpi"><strong>${esc(String(internalCount))}</strong><span>Internos</span><small>Leads/conversas que bateram com a frase.</small></div>
+            <div class="drilldown-kpi"><strong>${esc(String(metaCount))}</strong><span>Meta reportou</span><small>Conversas atribuídas pela própria Meta.</small></div>
+            <div class="drilldown-kpi ${delta === 0 ? 'highlight' : ''}"><strong>${esc((delta > 0 ? '+' : '') + String(delta))}</strong><span>Diferença</span><small>Meta - CRM interno no período atual.</small></div>
+          </div>
+          <div class="drilldown-card compact" style="margin-bottom:14px">
+            <strong>Como ler essa comparação</strong>
+            <div class="muted" style="margin-top:8px">
+              O número interno depende da primeira mensagem bater com a frase configurada.
+              O número da Meta pode incluir conversas atribuídas, cliques de mensagem e pequenas diferenças de janela/atribuição.
+            </div>
+          </div>`
+        : '';
+
       body.innerHTML = `
         <div class="availability-toolbar">
           ${filterEntries.map(([key, label]) => `<button type="button" class="drilldown-chip ${key === defaultRange ? '' : 'secondary'}" data-meta-filter="${esc(key)}">${esc(label)}</button>`).join('')}
@@ -399,6 +419,7 @@
             <small>${esc(trackedPhrases ? `Frases rastreadas: ${trackedPhrases}` : 'Usando a primeira mensagem recebida da conversa.')}</small>
           </div>
         </div>
+        ${comparisonCard}
         <div class="drilldown-card-list stacked">${list || '<div class="drilldown-empty"><strong>Nenhuma entrada encontrada</strong><div class="muted">Nenhuma primeira mensagem bateu com as frases configuradas nesse período.</div></div>'}</div>`;
 
       setTimeout(() => {

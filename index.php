@@ -1508,11 +1508,14 @@ if ($page === 'studio_home') {
         $nextMonthEnd = new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
         $settings = studio_settings($studio);
         $metaInsights = null;
+        $metaMessagingInsights = null;
         if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
             try {
                 $metaInsights = studio_meta_ads_insights_summary($studio, 30);
+                $metaMessagingInsights = studio_meta_ads_messaging_conversations_summary($studio, 1);
             } catch (Throwable) {
                 $metaInsights = null;
+                $metaMessagingInsights = null;
             }
         }
         $allowedDays = studio_schedule_days($studio);
@@ -1645,7 +1648,16 @@ if ($page === 'studio_home') {
             );
         }
         $metaCampaignItems = $metaCampaignRangeMap['today'] ?? [];
-        $metaCampaignSummary = count($metaCampaignItems) . ' leads/conversas identificados pela frase inicial configurada hoje.';
+        $metaCampaignInternalCount = count($metaCampaignItems);
+        $metaCampaignMetaCount = (int)($metaMessagingInsights['reported_conversations'] ?? 0);
+        $metaCampaignDelta = $metaCampaignMetaCount - $metaCampaignInternalCount;
+        $metaCampaignSummary = $metaCampaignInternalCount . ' contatos internos pela frase inicial hoje';
+        if (($metaMessagingInsights['ok'] ?? false) && $metaCampaignMetaCount > 0) {
+            $metaCampaignSummary .= ' · Meta reportou ' . $metaCampaignMetaCount . ' conversas';
+        }
+        if (($metaMessagingInsights['ok'] ?? false) && $metaCampaignMetaCount !== $metaCampaignInternalCount) {
+            $metaCampaignSummary .= ' · diferença ' . ($metaCampaignDelta > 0 ? '+' : '') . $metaCampaignDelta;
+        }
         $metaSpendLabel = 'Meta Ads pronta';
         if (is_array($metaInsights) && !empty($metaInsights['ok'])) {
             $metaSpendLabel = format_money((float)($metaInsights['spend'] ?? 0)) . ' gasto · ' . (int)($metaInsights['clicks'] ?? 0) . ' cliques';
@@ -1803,6 +1815,13 @@ if ($page === 'studio_home') {
                 'filters' => array_map(static fn(array $range): string => (string)$range['label'], $metaCampaignRanges),
                 'rangeMap' => $metaCampaignRangeMap,
                 'all_items' => $metaCampaignAllItems,
+                'comparison' => [
+                    'internal_count' => $metaCampaignInternalCount,
+                    'meta_count' => $metaCampaignMetaCount,
+                    'delta' => $metaCampaignDelta,
+                    'days' => 1,
+                    'meta_ok' => (bool)($metaMessagingInsights['ok'] ?? false),
+                ],
                 'today_iso' => $current->format('Y-m-d'),
             ],
             'whatsapp_conversations' => [
