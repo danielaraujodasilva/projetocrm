@@ -4392,9 +4392,32 @@ if ($page === 'studio_meta_ads') {
             $oauthAccounts = $_SESSION['meta_ads_oauth_accounts'];
         }
         $performanceSummary = null;
+        $performancePeriod = trim((string)($_GET['meta_ads_period'] ?? 'last_30d'));
+        if (!in_array($performancePeriod, ['last_7d', 'last_30d', 'last_90d'], true)) {
+            $performancePeriod = 'last_30d';
+        }
         if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
             try {
-                $performanceSummary = studio_meta_ads_insights_summary($studio, 30);
+                $apiPerformanceResponse = studio_meta_ads_request($apiVersion, '/act_' . preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? ''))) . '/insights', trim((string)$settings['meta_ads_access_token']), [
+                    'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
+                    'date_preset' => $performancePeriod,
+                    'limit' => 1,
+                ]);
+                if (!empty($apiPerformanceResponse['ok'])) {
+                    $apiPerformanceRows = is_array($apiPerformanceResponse['json']['data'] ?? null) ? $apiPerformanceResponse['json']['data'] : [];
+                    $apiPerformanceRow = is_array($apiPerformanceRows[0] ?? null) ? $apiPerformanceRows[0] : [];
+                    $performanceSummary = [
+                        'ok' => true,
+                        'period' => $performancePeriod,
+                        'spend' => (float)($apiPerformanceRow['spend'] ?? 0),
+                        'impressions' => (int)($apiPerformanceRow['impressions'] ?? 0),
+                        'clicks' => (int)($apiPerformanceRow['clicks'] ?? 0),
+                        'ctr' => (float)($apiPerformanceRow['ctr'] ?? 0),
+                        'cpc' => (float)($apiPerformanceRow['cpc'] ?? 0),
+                        'cpm' => (float)($apiPerformanceRow['cpm'] ?? 0),
+                        'reach' => (int)($apiPerformanceRow['reach'] ?? 0),
+                    ];
+                }
             } catch (Throwable) {
                 $performanceSummary = null;
             }
@@ -4525,7 +4548,7 @@ if ($page === 'studio_meta_ads') {
         echo '<section class="panel">';
         echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
         echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
-        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">AVANÇADO</button></div>';
+        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">AVANÇADO</button><button type="button" class="btn" onclick="var d=document.getElementById(\'metaAdsPerformanceDialog\'); if(d && d.showModal) d.showModal();">Performance de mídia</button></div>';
         echo '</div>';
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
@@ -4566,36 +4589,6 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</div>';
         }
-        if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
-            echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Performance de mídia</h2><p class="muted mb-0">Resumo dos últimos 30 dias da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
-            echo '<div class="grid cols-4" style="margin-top:12px">';
-            echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
-            echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
-            echo '<div class="field"><strong>Cliques</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
-            echo '<div class="field"><strong>CTR</strong><p class="muted mb-0">' . h(number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.')) . '%</p></div>';
-            echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpc'] ?? 0))) . '</p></div>';
-            echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpm'] ?? 0))) . '</p></div>';
-            echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
-            echo '<div class="field"><strong>Conta</strong><p class="muted mb-0">' . h((string)($performanceSummary['account_id'] ?? '')) . '</p></div>';
-            echo '</div></section>';
-        }
-        if (is_array($oauthResult)) {
-            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';
-            echo '<p class="mb-0 mt-2">Token salvo: ' . h((string)($oauthResult['access_token_tail'] ?? '')) . ' · Contas encontradas: ' . h((string)($oauthResult['accounts_count'] ?? 0)) . '</p>';
-            echo '</div>';
-        }
-        if ($oauthAccounts) {
-            $currentAccountSetting = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
-            echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Escolha a conta de anúncio</h2><p class="muted mb-0">Selecione a conta correta retornada pela Meta e salve no CRM.</p></div><span class="badge">' . h((string)count($oauthAccounts)) . ' contas</span></div>';
-            echo '<form method="post" class="mt-3">' . csrf_field() . '<input type="hidden" name="action" value="select_meta_ads_account"><div class="grid cols-2"><div class="field"><label>Conta encontrada</label><select name="meta_ads_selected_account">';
-            foreach ($oauthAccounts as $account) {
-                $accountId = (string)($account['id'] ?? '');
-                $accountName = trim((string)($account['name'] ?? $accountId));
-                $selected = (preg_replace('/^act_/', '', $accountId) === '875946594343063' || preg_replace('/^act_/', '', $accountId) === $currentAccountSetting) ? ' selected' : '';
-                echo '<option value="' . h($accountId) . '"' . $selected . '>' . h($accountName . ' · ' . $accountId) . '</option>';
-            }
-            echo '</select><small class="muted">A conta correta já vem pré-selecionada quando existe na lista.</small></div><div class="field"><label>Ação</label><button class="btn" type="submit">Salvar conta selecionada</button></div></div></form></section>';
-        }
         echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
         echo '<div class="grid cols-3" style="margin-bottom:16px">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0">';
@@ -4615,6 +4608,23 @@ if ($page === 'studio_meta_ads') {
         echo '<li>Sincronização automática</li>';
         echo '</ul></div>';
         echo '</div>';
+        if (is_array($oauthResult)) {
+            echo '<div class="panel soft" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';
+            echo '<p class="mb-0 mt-2">Token salvo: ' . h((string)($oauthResult['access_token_tail'] ?? '')) . ' · Contas encontradas: ' . h((string)($oauthResult['accounts_count'] ?? 0)) . '</p>';
+            echo '</div>';
+        }
+        if ($oauthAccounts) {
+            $currentAccountSetting = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+            echo '<div class="panel soft" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Escolha a conta de anúncio</h3><p class="muted mb-0">Selecione a conta correta retornada pela Meta e salve no CRM.</p></div><span class="badge">' . h((string)count($oauthAccounts)) . ' contas</span></div>';
+            echo '<form method="post" class="mt-3">' . csrf_field() . '<input type="hidden" name="action" value="select_meta_ads_account"><div class="grid cols-2"><div class="field"><label>Conta encontrada</label><select name="meta_ads_selected_account">';
+            foreach ($oauthAccounts as $account) {
+                $accountId = (string)($account['id'] ?? '');
+                $accountName = trim((string)($account['name'] ?? $accountId));
+                $selected = (preg_replace('/^act_/', '', $accountId) === '875946594343063' || preg_replace('/^act_/', '', $accountId) === $currentAccountSetting) ? ' selected' : '';
+                echo '<option value="' . h($accountId) . '"' . $selected . '>' . h($accountName . ' · ' . $accountId) . '</option>';
+            }
+            echo '</select><small class="muted">A conta correta já vem pré-selecionada quando existe na lista.</small></div><div class="field"><label>Ação</label><button class="btn" type="submit">Salvar conta selecionada</button></div></div></form></div>';
+        }
         echo '<div class="grid cols-2">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Resumo técnico</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
@@ -4629,6 +4639,18 @@ if ($page === 'studio_meta_ads') {
         echo '<li>Validar a conta de anúncio e os ativos associados.</li>';
         echo '</ol></div>';
         echo '</div>';
+        if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Performance de mídia</h3><p class="muted mb-0">Resumo ' . h(($performanceSummary['period'] ?? 'last_30d') === 'last_7d' ? 'dos últimos 7 dias' : (($performanceSummary['period'] ?? 'last_30d') === 'last_90d' ? 'dos últimos 90 dias' : 'dos últimos 30 dias')) . ' da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
+            echo '<div class="grid cols-4" style="margin-top:12px">';
+            echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>Cliques</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>CTR</strong><p class="muted mb-0">' . h(number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.')) . '%</p></div>';
+            echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpc'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpm'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '</div></div>';
+        }
         echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Endpoints úteis</h3><div class="grid cols-2">';
         foreach ($examples as $example) {
             $fullUrl = $baseGraphUrl . (string)$example['path'];
@@ -4807,13 +4829,41 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão, conecte a Meta ou sincronize os dados com um clique.</p></div></div>';
-        echo '<div class="grid cols-3" style="margin-top:12px">';
-        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="connect_meta_ads"><button class="btn btn-secondary" type="submit" style="width:100%;min-height:56px">Conectar Meta Ads</button></form>';
-        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit" style="width:100%;min-height:56px">Sincronizar leads agora</button></form>';
-        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit" style="width:100%;min-height:56px">Testar conexão da Meta</button></form>';
-        echo '</div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
+        echo '<dialog id="metaAdsPerformanceDialog" style="max-width:980px;width:min(980px,96vw);border:none;border-radius:20px;padding:0;overflow:hidden">';
+        echo '<form method="get" style="margin:0;background:#fff">';
+        echo '<input type="hidden" name="page" value="studio_meta_ads">';
+        echo '<div style="padding:18px 20px;border-bottom:1px solid rgba(15,23,42,.08);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
+        echo '<div><h3 style="margin:0">Performance de mídia</h3><p class="muted mb-0">Escolha o período para ver gasto, cliques e alcance.</p></div>';
+        echo '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'metaAdsPerformanceDialog\').close();">Fechar</button>';
+        echo '</div>';
+        echo '<div style="padding:18px 20px">';
+        echo '<div class="grid cols-3" style="margin-bottom:16px">';
+        foreach ([ 'last_7d' => 'Últimos 7 dias', 'last_30d' => 'Últimos 30 dias', 'last_90d' => 'Últimos 90 dias' ] as $value => $label) {
+            $checked = $performancePeriod === $value ? 'checked' : '';
+            echo '<label class="panel soft" style="cursor:pointer;margin:0"><input type="radio" name="meta_ads_period" value="' . h($value) . '" ' . $checked . ' style="margin-right:8px">' . h($label) . '</label>';
+        }
+        echo '</div>';
+        echo '<div class="d-flex gap-2 flex-wrap">';
+        echo '<button class="btn" type="submit">Atualizar período</button>';
+        echo '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'metaAdsPerformanceDialog\').close();">Cancelar</button>';
+        echo '</div>';
+        if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
+            echo '<div class="grid cols-4" style="margin-top:16px">';
+            echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>Cliques</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['clicks'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '<div class="field"><strong>CTR</strong><p class="muted mb-0">' . h(number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.')) . '%</p></div>';
+            echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpc'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpm'] ?? 0))) . '</p></div>';
+            echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
+            echo '</div>';
+        } else {
+            echo '<p class="muted mb-0" style="margin-top:16px">Conecte a conta para ver as métricas aqui.</p>';
+        }
+        echo '</div>';
+        echo '</form>';
+        echo '</dialog>';
     }, $flash);
     exit;
 }
