@@ -4391,16 +4391,25 @@ if ($page === 'studio_meta_ads') {
         if (isset($_SESSION['meta_ads_oauth_accounts']) && is_array($_SESSION['meta_ads_oauth_accounts'])) {
             $oauthAccounts = $_SESSION['meta_ads_oauth_accounts'];
         }
-        $performanceSummary = null;
-        $performancePeriod = trim((string)($_GET['meta_ads_period'] ?? 'last_30d'));
-        if (!in_array($performancePeriod, ['last_7d', 'last_30d', 'last_90d'], true)) {
-            $performancePeriod = 'last_30d';
+        $performanceEnd = trim((string)($_GET['meta_ads_until'] ?? date('Y-m-d')));
+        $performanceStart = trim((string)($_GET['meta_ads_since'] ?? date('Y-m-d', strtotime('-29 days'))));
+        $performanceStartDate = DateTime::createFromFormat('Y-m-d', $performanceStart) ?: new DateTime('-29 days');
+        $performanceEndDate = DateTime::createFromFormat('Y-m-d', $performanceEnd) ?: new DateTime('today');
+        if ($performanceStartDate > $performanceEndDate) {
+            [$performanceStartDate, $performanceEndDate] = [$performanceEndDate, $performanceStartDate];
         }
+        $performanceStart = $performanceStartDate->format('Y-m-d');
+        $performanceEnd = $performanceEndDate->format('Y-m-d');
+        $performanceTimeRange = json_encode([
+            'since' => $performanceStart,
+            'until' => $performanceEnd,
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $performanceSummary = null;
         if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
             try {
                 $apiPerformanceResponse = studio_meta_ads_request($apiVersion, '/act_' . preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? ''))) . '/insights', trim((string)$settings['meta_ads_access_token']), [
                     'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
-                    'date_preset' => $performancePeriod,
+                    'time_range' => $performanceTimeRange,
                     'limit' => 1,
                 ]);
                 if (!empty($apiPerformanceResponse['ok'])) {
@@ -4408,7 +4417,9 @@ if ($page === 'studio_meta_ads') {
                     $apiPerformanceRow = is_array($apiPerformanceRows[0] ?? null) ? $apiPerformanceRows[0] : [];
                     $performanceSummary = [
                         'ok' => true,
-                        'period' => $performancePeriod,
+                        'period' => $performanceTimeRange,
+                        'since' => $performanceStart,
+                        'until' => $performanceEnd,
                         'spend' => (float)($apiPerformanceRow['spend'] ?? 0),
                         'impressions' => (int)($apiPerformanceRow['impressions'] ?? 0),
                         'clicks' => (int)($apiPerformanceRow['clicks'] ?? 0),
@@ -4458,7 +4469,7 @@ if ($page === 'studio_meta_ads') {
                     }
                     $campaignInsight = studio_meta_ads_request($apiVersion, '/' . $campaignId . '/insights', trim((string)$settings['meta_ads_access_token']), [
                         'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
-                        'date_preset' => $performancePeriod,
+                        'time_range' => $performanceTimeRange,
                         'limit' => 1,
                     ]);
                     if (!empty($campaignInsight['ok'])) {
@@ -4503,7 +4514,7 @@ if ($page === 'studio_meta_ads') {
                     }
                     $adInsightsResponse = studio_meta_ads_request($apiVersion, '/' . $adId . '/insights', trim((string)$settings['meta_ads_access_token']), [
                         'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,outbound_clicks,unique_clicks,unique_inline_link_clicks,unique_outbound_clicks,actions',
-                        'date_preset' => $performancePeriod,
+                        'time_range' => $performanceTimeRange,
                         'limit' => 1,
                     ]);
                     if (!empty($adInsightsResponse['ok'])) {
@@ -4640,7 +4651,7 @@ if ($page === 'studio_meta_ads') {
         echo '</ol></div>';
         echo '</div>';
         if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
-            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Performance de mídia</h3><p class="muted mb-0">Resumo ' . h(($performanceSummary['period'] ?? 'last_30d') === 'last_7d' ? 'dos últimos 7 dias' : (($performanceSummary['period'] ?? 'last_30d') === 'last_90d' ? 'dos últimos 90 dias' : 'dos últimos 30 dias')) . ' da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Performance de mídia</h3><p class="muted mb-0">Resumo de ' . h((string)($performanceSummary['since'] ?? $performanceStart)) . ' até ' . h((string)($performanceSummary['until'] ?? $performanceEnd)) . ' da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
             echo '<div class="grid cols-4" style="margin-top:12px">';
             echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
             echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
@@ -4718,7 +4729,7 @@ if ($page === 'studio_meta_ads') {
                 'reach' => (int)($performanceSummary['reach'] ?? 0),
             ];
         }
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Árvore da conta</h2><p class="muted mb-0">Campanha > conjunto > anúncio, tudo em uma leitura só.</p></div><div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">Período dos anúncios</label><select name="meta_ads_period" class="btn btn-secondary" style="height:40px"><option value="last_7d"' . ($performancePeriod === 'last_7d' ? ' selected' : '') . '>Últimos 7 dias</option><option value="last_30d"' . ($performancePeriod === 'last_30d' ? ' selected' : '') . '>Últimos 30 dias</option><option value="last_90d"' . ($performancePeriod === 'last_90d' ? ' selected' : '') . '>Últimos 90 dias</option></select><button class="btn" type="submit">Aplicar</button></form></div></div>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Árvore da conta</h2><p class="muted mb-0">Campanha > conjunto > anúncio, tudo em uma leitura só.</p></div><div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div></div>';
         if ($campaignsError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
         } elseif ($campaignsData) {
@@ -4837,15 +4848,13 @@ if ($page === 'studio_meta_ads') {
         echo '<form method="get" style="margin:0;background:#fff">';
         echo '<input type="hidden" name="page" value="studio_meta_ads">';
         echo '<div style="padding:18px 20px;border-bottom:1px solid rgba(15,23,42,.08);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
-        echo '<div><h3 style="margin:0">Performance de mídia</h3><p class="muted mb-0">Escolha o período para ver gasto, cliques e alcance.</p></div>';
+        echo '<div><h3 style="margin:0">Performance de mídia</h3><p class="muted mb-0">Escolha as datas para ver gasto, cliques e alcance.</p></div>';
         echo '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'metaAdsPerformanceDialog\').close();">Fechar</button>';
         echo '</div>';
         echo '<div style="padding:18px 20px">';
-        echo '<div class="grid cols-3" style="margin-bottom:16px">';
-        foreach ([ 'last_7d' => 'Últimos 7 dias', 'last_30d' => 'Últimos 30 dias', 'last_90d' => 'Últimos 90 dias' ] as $value => $label) {
-            $checked = $performancePeriod === $value ? 'checked' : '';
-            echo '<label class="panel soft" style="cursor:pointer;margin:0"><input type="radio" name="meta_ads_period" value="' . h($value) . '" ' . $checked . ' style="margin-right:8px">' . h($label) . '</label>';
-        }
+        echo '<div class="grid cols-2" style="margin-bottom:16px">';
+        echo '<div class="field"><label>De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '"></div>';
+        echo '<div class="field"><label>Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '"></div>';
         echo '</div>';
         echo '<div class="d-flex gap-2 flex-wrap">';
         echo '<button class="btn" type="submit">Atualizar período</button>';
