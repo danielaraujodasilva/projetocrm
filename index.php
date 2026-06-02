@@ -4410,6 +4410,7 @@ if ($page === 'studio_meta_ads') {
         $adsetsData = null;
         $adsData = null;
         $audiencesData = null;
+        $campaignMetrics = [];
         $leadsData = null;
         $campaignsError = null;
         $adsetsError = null;
@@ -4423,6 +4424,33 @@ if ($page === 'studio_meta_ads') {
             ]);
             if (!empty($campaignsResponse['ok'])) {
                 $campaignsData = is_array($campaignsResponse['json']['data'] ?? null) ? $campaignsResponse['json']['data'] : [];
+                foreach ($campaignsData as $campaignRow) {
+                    if (!is_array($campaignRow)) {
+                        continue;
+                    }
+                    $campaignId = trim((string)($campaignRow['id'] ?? ''));
+                    if ($campaignId === '') {
+                        continue;
+                    }
+                    $campaignInsight = studio_meta_ads_request($apiVersion, '/' . $campaignId . '/insights', trim((string)$settings['meta_ads_access_token']), [
+                        'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
+                        'date_preset' => 'last_30d',
+                        'limit' => 1,
+                    ]);
+                    if (!empty($campaignInsight['ok'])) {
+                        $items = is_array($campaignInsight['json']['data'] ?? null) ? $campaignInsight['json']['data'] : [];
+                        $row = $items[0] ?? [];
+                        $campaignMetrics[$campaignId] = [
+                            'spend' => (float)($row['spend'] ?? 0),
+                            'impressions' => (int)($row['impressions'] ?? 0),
+                            'clicks' => (int)($row['clicks'] ?? 0),
+                            'ctr' => (float)($row['ctr'] ?? 0),
+                            'cpc' => (float)($row['cpc'] ?? 0),
+                            'cpm' => (float)($row['cpm'] ?? 0),
+                            'reach' => (int)($row['reach'] ?? 0),
+                        ];
+                    }
+                }
             } else {
                 $campaignsError = (string)($campaignsResponse['error'] ?? 'Erro ao carregar campanhas.');
             }
@@ -4665,6 +4693,7 @@ if ($page === 'studio_meta_ads') {
         echo '</section>';
         $adsByAdset = [];
         $adsByCampaign = [];
+        $campaignMetrics = [];
         foreach (($adsData ?? []) as $ad) {
             if (!is_array($ad)) {
                 continue;
@@ -4682,6 +4711,17 @@ if ($page === 'studio_meta_ads') {
             $campaignKey = (string)($adset['campaign_id'] ?? 'sem-campaign');
             $adsetsByCampaign[$campaignKey][] = $adset;
         }
+        if (!empty($performanceSummary) && !empty($performanceSummary['ok'])) {
+            $campaignMetrics['__account__'] = [
+                'spend' => (float)($performanceSummary['spend'] ?? 0),
+                'impressions' => (int)($performanceSummary['impressions'] ?? 0),
+                'clicks' => (int)($performanceSummary['clicks'] ?? 0),
+                'ctr' => (float)($performanceSummary['ctr'] ?? 0),
+                'cpc' => (float)($performanceSummary['cpc'] ?? 0),
+                'cpm' => (float)($performanceSummary['cpm'] ?? 0),
+                'reach' => (int)($performanceSummary['reach'] ?? 0),
+            ];
+        }
         echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Árvore da conta</h2><p class="muted mb-0">Campanha > conjunto > anúncio, tudo em uma leitura só.</p></div><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div>';
         if ($campaignsError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
@@ -4694,20 +4734,32 @@ if ($page === 'studio_meta_ads') {
                 $campaignId = (string)($campaign['id'] ?? '');
                 $campaignName = (string)($campaign['name'] ?? 'Campanha');
                 $campaignStatus = (string)($campaign['effective_status'] ?? $campaign['status'] ?? '');
+                $campaignAdsets = $adsetsByCampaign[$campaignId] ?? [];
+                $campaignAds = $adsByCampaign[$campaignId] ?? [];
                 $campaignSummaryParts = [];
-                $campaignSummaryParts[] = (string)(count($adsetsByCampaign[$campaignId] ?? [])) . ' conjuntos';
-                $campaignSummaryParts[] = (string)(count($adsByCampaign[$campaignId] ?? [])) . ' anúncios';
-                echo '<div class="panel soft" style="border-left:4px solid #2b6cb0;margin-bottom:14px">';
+                $campaignSummaryParts[] = (string)count($campaignAdsets) . ' conjuntos';
+                $campaignSummaryParts[] = (string)count($campaignAds) . ' anúncios';
+                if (isset($campaignMetrics[$campaignId])) {
+                    $campaignSummaryParts[] = format_money((float)($campaignMetrics[$campaignId]['spend'] ?? 0)) . ' gasto';
+                    $campaignSummaryParts[] = (int)($campaignMetrics[$campaignId]['clicks'] ?? 0) . ' cliques';
+                    $campaignSummaryParts[] = number_format((float)($campaignMetrics[$campaignId]['ctr'] ?? 0), 2, ',', '.') . '% CTR';
+                } else {
+                    $campaignSummaryParts[] = 'Sem métrica';
+                }
+                $activeCampaign = $campaignStatus === 'ACTIVE';
+                echo '<details class="panel soft meta-campaign-accordion" style="border-left:4px solid ' . ($activeCampaign ? '#16a34a' : '#2b6cb0') . ';margin-bottom:14px" ' . ($activeCampaign ? 'open' : '') . '>';
+                echo '<summary class="meta-campaign-summary" style="cursor:pointer;list-style:none">';
                 echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                 echo '<div><h3 class="mb-1">' . h($campaignName) . '</h3><p class="muted mb-0">' . h($campaignId) . '</p></div>';
-                echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($campaignStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span></div>';
+                echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span><span class="badge">Clique para ' . ($activeCampaign ? 'recolher' : 'abrir') . '</span></div>';
                 echo '</div>';
+                echo '</summary>';
                 echo '<div class="tree-branch" style="margin-top:12px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.08)">';
-                foreach (($adsetsByCampaign[$campaignId] ?? []) as $adset) {
+                foreach ($campaignAdsets as $adset) {
                     $adsetId = (string)($adset['id'] ?? '');
                     $adsetName = (string)($adset['name'] ?? 'Conjunto');
                     $adsetStatus = (string)($adset['effective_status'] ?? $adset['status'] ?? '');
-                    echo '<div class="panel" style="margin:0 0 12px 0">';
+                    echo '<div class="panel" style="margin:0 0 12px 0;border-left:3px solid ' . h($adsetStatus === 'ACTIVE' ? '#0ea5e9' : '#f59e0b') . '">';
                     echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                     echo '<div><strong>' . h($adsetName) . '</strong><br><span class="muted">' . h($adsetId) . '</span></div>';
                     echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h((string)count($adsByAdset[$adsetId] ?? [])) . ' anúncios</span></div>';
@@ -4718,7 +4770,7 @@ if ($page === 'studio_meta_ads') {
                             $adName = (string)($ad['name'] ?? 'Anúncio');
                             $adId = (string)($ad['id'] ?? '');
                             $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
-                            echo '<div class="panel soft" style="margin-bottom:10px">';
+                            echo '<div class="panel soft" style="margin-bottom:10px;border-left:3px solid ' . h($adStatus === 'ACTIVE' ? '#16a34a' : '#cbd5e1') . '">';
                             echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                             echo '<div><strong>' . h($adName) . '</strong><br><span class="muted">' . h($adId) . '</span></div>';
                             echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span><span class="badge">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div>';
@@ -4739,7 +4791,7 @@ if ($page === 'studio_meta_ads') {
                     echo '<p class="muted mb-0" style="margin-top:10px">Sem conjuntos ou anúncios retornados para esta campanha.</p>';
                 }
                 echo '</div>';
-                echo '</div>';
+                echo '</details>';
             }
             echo '</div>';
         } else {
