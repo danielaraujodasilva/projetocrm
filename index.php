@@ -4473,7 +4473,7 @@ if ($page === 'studio_meta_ads') {
                 $adsError = (string)($adsResponse['error'] ?? 'Erro ao carregar anuncios.');
             }
             $audiencesResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/customaudiences', trim((string)$settings['meta_ads_access_token']), [
-                'fields' => 'id,name,description,approximate_count,operation_status,subtype,delivery_status,lookalike_spec',
+                'fields' => 'id,name,description,operation_status,subtype,delivery_status,lookalike_spec',
                 'limit' => 12,
             ]);
             if (!empty($audiencesResponse['ok'])) {
@@ -4495,7 +4495,7 @@ if ($page === 'studio_meta_ads') {
         }
         $examples = [
             ['title' => 'Campanhas', 'method' => 'GET', 'path' => '/' . $accountRef . '/campaigns', 'description' => 'Lista campanhas, status e objetivo.'],
-            ['title' => 'Conjuntos de anúncios', 'method' => 'GET', 'path' => '/' . $accountRef . '/adsets', 'description' => 'Mostra os conjuntos vinculados à conta.'],
+            ['title' => 'Estrutura da conta', 'method' => 'GET', 'path' => '/' . $accountRef . '/adsets', 'description' => 'Mostra a estrutura vinculada à conta.'],
             ['title' => 'Anúncios', 'method' => 'GET', 'path' => '/' . $accountRef . '/ads', 'description' => 'Lista anúncios, criativos e status de entrega.'],
             ['title' => 'Insights', 'method' => 'GET', 'path' => '/' . $accountRef . '/insights?fields=impressions,clicks,spend,cpm,cpc,ctr,reach', 'description' => 'Retorna métricas para relatório e BI.'],
             ['title' => 'Lead Ads', 'method' => 'GET', 'path' => '/{lead_form_id}/leads', 'description' => 'Consome leads captados por formulário.'],
@@ -4579,8 +4579,7 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="grid cols-3" style="margin-bottom:16px">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0">';
         echo '<li>Conexão com a Meta</li>';
-        echo '<li>Campanhas ao vivo</li>';
-        echo '<li>Leads do formulário</li>';
+        echo '<li>Visão da conta e das campanhas</li>';
         echo '<li>Importação para o CRM</li>';
         echo '</ul></div>';
         echo '<div class="panel soft"><h3 style="margin-top:0">Depende de configurar</h3><ul class="mb-0">';
@@ -4590,7 +4589,6 @@ if ($page === 'studio_meta_ads') {
         echo '<li>Formulário de leads certo</li>';
         echo '</ul></div>';
         echo '<div class="panel soft"><h3 style="margin-top:0">Próxima etapa</h3><ul class="mb-0">';
-        echo '<li>Conjuntos de anúncios</li>';
         echo '<li>Anúncios individuais</li>';
         echo '<li>Públicos personalizados</li>';
         echo '<li>Sincronização automática</li>';
@@ -4623,73 +4621,6 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div></div>';
         echo '</div>';
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Campanhas ao vivo</h2><p class="muted mb-0">Dados reais da conta conectada, para leitura rápida.</p></div><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div>';
-        if ($campaignsError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar campanhas:</strong> ' . h($campaignsError) . '</p></div>';
-        } elseif ($campaignsData) {
-            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Campanha</th><th>Status</th><th>Objetivo</th><th>Tipo</th><th>Criada</th></tr></thead><tbody>';
-            foreach ($campaignsData as $campaign) {
-                echo '<tr>';
-                echo '<td><strong>' . h((string)($campaign['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($campaign['id'] ?? '')) . '</span></td>';
-                echo '<td><span class="badge ' . h(((string)($campaign['effective_status'] ?? $campaign['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($campaign['effective_status'] ?? $campaign['status'] ?? '')) . '</span></td>';
-                echo '<td>' . h((string)($campaign['objective'] ?? '')) . '</td>';
-                echo '<td>' . h((string)($campaign['buying_type'] ?? '')) . '</td>';
-                echo '<td>' . h(format_date_pt((string)($campaign['created_time'] ?? ''))) . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table></div>';
-        } else {
-            echo '<p class="muted mb-0 mt-3">Nenhuma campanha retornada até agora. Isso pode significar conta vazia ou falta de permissão de leitura.</p>';
-        }
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Leads do formulário</h2><p class="muted mb-0">Se o formulário estiver preenchido, trazemos os leads mais recentes aqui.</p></div><span class="badge">' . h($leadFormId !== '' ? 'Formulário ' . $leadFormId : 'Sem formulário') . '</span></div>';
-        if ($leadFormId === '') {
-            echo '<div class="panel soft mt-3"><p class="mb-0">Preencha o <strong>ID do formulário de leads</strong> nas configurações para ver os leads aqui.</p></div>';
-        } elseif ($leadsError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar leads:</strong> ' . h($leadsError) . '</p></div>';
-        } elseif ($leadsData) {
-            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Lead</th><th>Captado em</th><th>Campos</th><th>Anúncio</th><th>Campanha</th></tr></thead><tbody>';
-            foreach ($leadsData as $lead) {
-                $fieldData = [];
-                if (!empty($lead['field_data']) && is_array($lead['field_data'])) {
-                    foreach ($lead['field_data'] as $field) {
-                        $label = (string)($field['name'] ?? '');
-                        $values = is_array($field['values'] ?? null) ? $field['values'] : [];
-                        $fieldData[] = $label !== '' ? $label . ': ' . implode(', ', array_map('strval', $values)) : implode(', ', array_map('strval', $values));
-                    }
-                }
-                echo '<tr>';
-                echo '<td><strong>' . h((string)($lead['id'] ?? '')) . '</strong></td>';
-                echo '<td>' . h(format_date_pt((string)($lead['created_time'] ?? ''))) . '</td>';
-                echo '<td class="muted">' . h($fieldData ? implode(' · ', $fieldData) : 'Sem campos') . '</td>';
-                echo '<td>' . h((string)($lead['ad_name'] ?? $lead['ad_id'] ?? '')) . '</td>';
-                echo '<td>' . h((string)($lead['campaign_name'] ?? $lead['campaign_id'] ?? '')) . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table></div>';
-        } else {
-            echo '<p class="muted mb-0 mt-3">Sem leads retornados ainda. Se o formulário existir e houver permissões, eles aparecem aqui.</p>';
-        }
-        echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Conjuntos de anúncios</h2><p class="muted mb-0">Agrupamento de anúncios por público, objetivo e entrega.</p></div><span class="badge">' . h((string)count($adsetsData ?? [])) . ' conjuntos</span></div>';
-        if ($adsetsError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar conjuntos de anúncios:</strong> ' . h($adsetsError) . '</p></div>';
-        } elseif ($adsetsData) {
-            echo '<div class="table-responsive mt-3"><table class="table align-middle"><thead><tr><th>Conjunto</th><th>Status</th><th>Campanha</th><th>Objetivo</th><th>Atualizado</th></tr></thead><tbody>';
-            foreach ($adsetsData as $adset) {
-                echo '<tr>';
-                echo '<td><strong>' . h((string)($adset['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($adset['id'] ?? '')) . '</span></td>';
-                echo '<td><span class="badge ' . h(((string)($adset['effective_status'] ?? $adset['status'] ?? '')) === 'ACTIVE' ? 'ok' : 'warn') . '">' . h((string)($adset['effective_status'] ?? $adset['status'] ?? '')) . '</span></td>';
-                echo '<td>' . h((string)($adset['campaign_id'] ?? '')) . '</td>';
-                echo '<td>' . h((string)($adset['optimization_goal'] ?? '')) . '</td>';
-                echo '<td>' . h(format_date_pt((string)($adset['updated_time'] ?? $adset['created_time'] ?? ''))) . '</td>';
-                echo '</tr>';
-            }
-            echo '</tbody></table></div>';
-        } else {
-            echo '<p class="muted mb-0 mt-3">Nenhum conjunto retornado ainda.</p>';
-        }
         echo '</section>';
         $adsByAdset = [];
         $adsByCampaign = [];
@@ -4747,11 +4678,12 @@ if ($page === 'studio_meta_ads') {
                     $campaignSummaryParts[] = 'Sem métrica';
                 }
                 $activeCampaign = $campaignStatus === 'ACTIVE';
-                echo '<details class="panel soft meta-campaign-accordion" style="border-left:4px solid ' . ($activeCampaign ? '#16a34a' : '#2b6cb0') . ';margin-bottom:14px" ' . ($activeCampaign ? 'open' : '') . '>';
-                echo '<summary class="meta-campaign-summary" style="cursor:pointer;list-style:none">';
+                $campaignTone = $activeCampaign ? 'linear-gradient(135deg, rgba(22,163,74,0.12), rgba(14,165,233,0.08))' : 'linear-gradient(135deg, rgba(43,108,176,0.10), rgba(148,163,184,0.08))';
+                echo '<details class="panel soft meta-campaign-accordion" style="border-left:4px solid ' . ($activeCampaign ? '#16a34a' : '#2b6cb0') . ';margin-bottom:14px;background:' . $campaignTone . '">';
+                echo '<summary class="meta-campaign-summary" style="cursor:pointer;list-style:none;padding:4px 0">';
                 echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                 echo '<div><h3 class="mb-1">' . h($campaignName) . '</h3><p class="muted mb-0">' . h($campaignId) . '</p></div>';
-                echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span><span class="badge">Clique para ' . ($activeCampaign ? 'recolher' : 'abrir') . '</span></div>';
+                echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span><span class="badge">Clique para abrir</span></div>';
                 echo '</div>';
                 echo '</summary>';
                 echo '<div class="tree-branch" style="margin-top:12px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.08)">';
@@ -4759,7 +4691,8 @@ if ($page === 'studio_meta_ads') {
                     $adsetId = (string)($adset['id'] ?? '');
                     $adsetName = (string)($adset['name'] ?? 'Conjunto');
                     $adsetStatus = (string)($adset['effective_status'] ?? $adset['status'] ?? '');
-                    echo '<div class="panel" style="margin:0 0 12px 0;border-left:3px solid ' . h($adsetStatus === 'ACTIVE' ? '#0ea5e9' : '#f59e0b') . '">';
+                    $adsetTone = $adsetStatus === 'ACTIVE' ? 'linear-gradient(135deg, rgba(14,165,233,0.12), rgba(96,165,250,0.06))' : 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(251,191,36,0.06))';
+                    echo '<div class="panel" style="margin:0 0 12px 0;border-left:3px solid ' . h($adsetStatus === 'ACTIVE' ? '#0ea5e9' : '#f59e0b') . ';background:' . $adsetTone . '">';
                     echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                     echo '<div><strong>' . h($adsetName) . '</strong><br><span class="muted">' . h($adsetId) . '</span></div>';
                     echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h((string)count($adsByAdset[$adsetId] ?? [])) . ' anúncios</span></div>';
@@ -4770,7 +4703,8 @@ if ($page === 'studio_meta_ads') {
                             $adName = (string)($ad['name'] ?? 'Anúncio');
                             $adId = (string)($ad['id'] ?? '');
                             $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
-                            echo '<div class="panel soft" style="margin-bottom:10px;border-left:3px solid ' . h($adStatus === 'ACTIVE' ? '#16a34a' : '#cbd5e1') . '">';
+                            $adTone = $adStatus === 'ACTIVE' ? 'linear-gradient(135deg, rgba(22,163,74,0.10), rgba(34,197,94,0.04))' : 'linear-gradient(135deg, rgba(203,213,225,0.12), rgba(241,245,249,0.06))';
+                            echo '<div class="panel soft" style="margin-bottom:10px;border-left:3px solid ' . h($adStatus === 'ACTIVE' ? '#16a34a' : '#cbd5e1') . ';background:' . $adTone . '">';
                             echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
                             echo '<div><strong>' . h($adName) . '</strong><br><span class="muted">' . h($adId) . '</span></div>';
                             echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span><span class="badge">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div>';
@@ -4810,7 +4744,8 @@ if ($page === 'studio_meta_ads') {
                 echo '<td><strong>' . h((string)($audience['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($audience['id'] ?? '')) . '</span></td>';
                 echo '<td>' . h((string)($audience['subtype'] ?? '')) . '</td>';
                 echo '<td>' . h($deliveryStatus) . '</td>';
-                echo '<td>' . h((string)($audience['approximate_count'] ?? '')) . '</td>';
+                $approxCount = $audience['approximate_count'] ?? ($audience['approximate_count_lower_bound'] ?? '');
+                echo '<td>' . h((string)$approxCount) . '</td>';
                 echo '<td class="muted">' . h((string)($audience['description'] ?? '')) . '</td>';
                 echo '</tr>';
             }
@@ -4819,7 +4754,12 @@ if ($page === 'studio_meta_ads') {
             echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
         }
         echo '</section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão, conecte a Meta ou puxe os leads do formulário para o CRM.</p></div><div class="d-flex gap-2 flex-wrap"><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="connect_meta_ads"><button class="btn btn-secondary" type="submit">Conectar Meta Ads</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit">Sincronizar leads agora</button></form><form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit">Testar conexão da Meta</button></form></div></div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Ações rápidas</h2><p class="muted mb-0">Teste a conexão, conecte a Meta ou sincronize os dados com um clique.</p></div></div>';
+        echo '<div class="grid cols-3" style="margin-top:12px">';
+        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="connect_meta_ads"><button class="btn btn-secondary" type="submit" style="width:100%;min-height:56px">Conectar Meta Ads</button></form>';
+        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="sync_meta_ads_leads"><button class="btn btn-secondary" type="submit" style="width:100%;min-height:56px">Sincronizar leads agora</button></form>';
+        echo '<form method="post" class="m-0">' . csrf_field() . '<input type="hidden" name="action" value="test_meta_ads_connection"><button class="btn" type="submit" style="width:100%;min-height:56px">Testar conexão da Meta</button></form>';
+        echo '</div></section>';
         echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 class="mb-1">Ir para as configurações</h2><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></section>';
     }, $flash);
     exit;
