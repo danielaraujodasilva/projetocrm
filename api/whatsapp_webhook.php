@@ -4,63 +4,118 @@ declare(strict_types=1);
 
 require __DIR__ . '/../app/bootstrap.php';
 
-header('Content-Type: application/json; charset=utf-8');
-
-function api_json(array $payload, int $status = 200): never
+function webhook_text(string $text, int $status = 200): never
 {
     http_response_code($status);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $text;
     exit;
 }
 
-$payload = json_decode((string)file_get_contents('php://input'), true);
+function webhook_json(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?array
+{
+    foreach (list_studios() as $studio) {
+        if (!is_array($studio)) {
+            continue;
+        }
+        try {
+            $settings = studio_settings($studio);
+        } catch (Throwable) {
+            continue;
+        }
+        if (trim((string)($settings['whatsapp_official_verify_token'] ?? '')) === $verifyToken) {
+            return $studio;
+        }
+    }
+
+    return null;
+}
+
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+
+if ($method === 'GET') {
+    $mode = trim((string)($_GET['hub_mode'] ?? $_GET['hub.mode'] ?? ''));
+    $challenge = trim((string)($_GET['hub_challenge'] ?? $_GET['hub.challenge'] ?? ''));
+    $verifyToken = trim((string)($_GET['hub_verify_token'] ?? $_GET['hub.verify_token'] ?? ''));
+
+    if ($mode === '' || $challenge === '' || $verifyToken === '') {
+        webhook_text('Missing verification parameters', 400);
+    }
+
+    if (!in_array($mode, ['subscribe', 'webhook'], true)) {
+        webhook_text('Unsupported mode', 400);
+    }
+
+    $studio = find_official_whatsapp_studio_by_verify_token($verifyToken);
+    if (!$studio) {
+        webhook_text('Verification token mismatch', 403);
+    }
+
+    studio_event((int)$studio['id'], 'whatsapp_official_webhook_verified', 'Webhook oficial validado com sucesso pela Meta.');
+    webhook_text($challenge, 200);
+}
+
+if ($method !== 'POST') {
+    webhook_text('Method not allowed', 405);
+}
+
+$raw = file_get_contents('php://input');
+$payload = json_decode((string)$raw, true);
 if (!is_array($payload)) {
-    $payload = $_POST;
+    $payload = [];
 }
 
-$sessionKey = trim((string)($payload['studioSessionKey'] ?? $payload['sessionKey'] ?? ''));
-$studio = null;
-if ($sessionKey !== '') {
-    $studio = get_studio_by_session_key($sessionKey);
-}
+$entries = is_array($payload['entry'] ?? null) ? $payload['entry'] : [];
+foreach ($entries as $entry) {
+    if (!is_array($entry)) {
+        continue;
+    }
+    $changes = is_array($entry['changes'] ?? null) ? $entry['changes'] : [];
+    foreach ($changes as $change) {
+        if (!is_array($change)) {
+            continue;
+        }
+        $value = is_array($change['value'] ?? null) ? $change['value'] : [];
+        $metadata = is_array($value['metadata'] ?? null) ? $value['metadata'] : [];
+        $phoneNumberId = trim((string)($metadata['phone_number_id'] ?? ''));
+        $verifyToken = trim((string)($value['verify_token'] ?? ''));
 
-if (!$studio && !empty($payload['studioId'])) {
-    $studio = get_studio((int)$payload['studioId']);
-}
+        $studio = null;
+        foreach (list_studios() as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+            try {
+                $settings = studio_settings($candidate);
+            } catch (Throwable) {
+                continue;
+            }
+            $configuredPhoneId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+            $configuredToken = trim((string)($settings['whatsapp_official_verify_token'] ?? ''));
+            if ($phoneNumberId !== '' && $configuredPhoneId === $phoneNumberId) {
+                $studio = $candidate;
+                break;
+            }
+            if ($verifyToken !== '' && $configuredToken === $verifyToken) {
+                $studio = $candidate;
+                break;
+            }
+        }
 
-if (!$studio) {
-    api_json(['ok' => false, 'error' => 'Estudio nao encontrado para esta sessao WhatsApp.'], 404);
-}
+        if (!$studio) {
+            continue;
+        }
 
-$expectedToken = studio_whatsapp_webhook_token($studio);
-$receivedToken = trim((string)($payload['webhookToken'] ?? $payload['token'] ?? ''));
-if ($receivedToken === '' || !hash_equals($expectedToken, $receivedToken)) {
-    if (empty($payload['studioSessionKey'])) {
-        studio_event((int)$studio['id'], 'whatsapp_webhook_rejected', 'Token invalido ou ausente no webhook.');
-        api_json(['ok' => false, 'error' => 'Token do webhook invalido.'], 403);
+        studio_event((int)$studio['id'], 'whatsapp_official_webhook_event', 'Evento recebido da API oficial do WhatsApp.');
     }
 }
 
-if (!empty($payload['statusEvent'])) {
-    $status = (string)($payload['status'] ?? 'error');
-    $platformStatus = match ($status) {
-        'connected' => 'connected',
-        'waiting_qr' => 'waiting_qr',
-        'starting', 'disconnected' => 'disconnected',
-        default => 'error',
-    };
-    studio_update_whatsapp_platform_status($studio, $platformStatus);
-    studio_event((int)$studio['id'], 'whatsapp_status_' . $platformStatus, (string)($payload['message'] ?? 'Status WhatsApp atualizado.'));
-    api_json(['ok' => true, 'status' => $platformStatus]);
-}
-
-try {
-    if (empty($payload['numero']) && empty($payload['phone']) && empty($payload['remoteJid']) && empty($payload['jidCompleto'])) {
-        studio_event((int)$studio['id'], 'whatsapp_webhook_warning', 'Webhook recebeu payload sem identificador de contato.');
-    }
-    $result = studio_record_whatsapp_message($studio, $payload);
-    api_json($result + ['ok' => true]);
-} catch (Throwable $e) {
-    studio_event((int)$studio['id'], 'whatsapp_webhook_error', $e->getMessage());
-    api_json(['ok' => false, 'error' => $e->getMessage()], 500);
-}
+webhook_json(['ok' => true]);
