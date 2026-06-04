@@ -337,6 +337,22 @@ function studio_whatsapp_service_url(array $studio): string
     return rtrim($url !== '' ? $url : 'http://localhost:3010', '/');
 }
 
+function studio_whatsapp_provider(array $studio): string
+{
+    $settings = studio_settings($studio);
+    $provider = strtolower(trim((string)($settings['whatsapp_provider'] ?? 'baileys')));
+    return in_array($provider, ['baileys', 'official'], true) ? $provider : 'baileys';
+}
+
+function studio_whatsapp_official_configured(array $studio): bool
+{
+    $settings = studio_settings($studio);
+    return trim((string)($settings['whatsapp_official_app_id'] ?? '')) !== ''
+        && trim((string)($settings['whatsapp_official_phone_number_id'] ?? '')) !== ''
+        && trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== ''
+        && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
+}
+
 function studio_whatsapp_webhook_token(array $studio): string
 {
     $settings = studio_settings($studio);
@@ -6209,8 +6225,22 @@ function studio_save_settings(array $studio, array $data): void
     $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
     $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
+    $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'baileys')));
+    if (!in_array($whatsappProvider, ['baileys', 'official'], true)) {
+        $whatsappProvider = 'baileys';
+    }
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
+    $whatsappOfficialAppId = trim((string)($data['whatsapp_official_app_id'] ?? ''));
+    $whatsappOfficialAppSecret = trim((string)($data['whatsapp_official_app_secret'] ?? ''));
+    $whatsappOfficialBusinessAccountId = trim((string)($data['whatsapp_official_business_account_id'] ?? ''));
+    $whatsappOfficialPhoneNumberId = trim((string)($data['whatsapp_official_phone_number_id'] ?? ''));
+    $whatsappOfficialAccessToken = trim((string)($data['whatsapp_official_access_token'] ?? ''));
+    $whatsappOfficialVerifyToken = trim((string)($data['whatsapp_official_verify_token'] ?? ''));
+    $whatsappOfficialCallbackUrl = trim((string)($data['whatsapp_official_callback_url'] ?? ''));
+    $whatsappOfficialApiVersion = trim((string)($data['whatsapp_official_api_version'] ?? 'v22.0'));
+    $whatsappOfficialWebhookSecret = trim((string)($data['whatsapp_official_webhook_secret'] ?? ''));
+    $whatsappOfficialNotes = trim((string)($data['whatsapp_official_notes'] ?? ''));
     $appointmentWorkDaysRaw = $data['appointment_work_days'] ?? '1,2,3,4,5';
     $appointmentWorkDays = is_array($appointmentWorkDaysRaw)
         ? implode(',', array_values(array_filter(array_map('trim', $appointmentWorkDaysRaw), static fn($value) => $value !== '')))
@@ -6259,6 +6289,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
+        'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "baileys"',
         'meta_ads_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'meta_ads_app_id' => 'VARCHAR(40) NULL',
         'meta_ads_app_secret' => 'TEXT NULL',
@@ -6270,6 +6301,16 @@ function studio_save_settings(array $studio, array $data): void
         'meta_ads_api_version' => 'VARCHAR(20) NOT NULL DEFAULT "v22.0"',
         'meta_ads_redirect_uri' => 'VARCHAR(255) NULL',
         'meta_ads_notes' => 'TEXT NULL',
+        'whatsapp_official_app_id' => 'VARCHAR(40) NULL',
+        'whatsapp_official_app_secret' => 'TEXT NULL',
+        'whatsapp_official_business_account_id' => 'VARCHAR(40) NULL',
+        'whatsapp_official_phone_number_id' => 'VARCHAR(40) NULL',
+        'whatsapp_official_access_token' => 'TEXT NULL',
+        'whatsapp_official_verify_token' => 'VARCHAR(120) NULL',
+        'whatsapp_official_callback_url' => 'VARCHAR(255) NULL',
+        'whatsapp_official_api_version' => 'VARCHAR(20) NOT NULL DEFAULT "v22.0"',
+        'whatsapp_official_webhook_secret' => 'VARCHAR(120) NULL',
+        'whatsapp_official_notes' => 'TEXT NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -6280,7 +6321,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -6304,6 +6345,7 @@ function studio_save_settings(array $studio, array $data): void
         $aiWhatsAppPrompt,
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
+        $whatsappProvider,
         $metaAdsEnabled,
         $metaAdsAppIdInput !== '' ? $metaAdsAppIdInput : ($settings['meta_ads_app_id'] ?? ''),
         $metaAdsAppSecretInput !== '' ? $metaAdsAppSecretInput : ($settings['meta_ads_app_secret'] ?? ''),
@@ -6315,6 +6357,16 @@ function studio_save_settings(array $studio, array $data): void
         $metaAdsApiVersion !== '' ? $metaAdsApiVersion : 'v22.0',
         $metaAdsRedirectUri,
         $metaAdsNotes,
+        $whatsappOfficialAppId !== '' ? $whatsappOfficialAppId : ($settings['whatsapp_official_app_id'] ?? ''),
+        $whatsappOfficialAppSecret !== '' ? $whatsappOfficialAppSecret : ($settings['whatsapp_official_app_secret'] ?? ''),
+        $whatsappOfficialBusinessAccountId !== '' ? $whatsappOfficialBusinessAccountId : ($settings['whatsapp_official_business_account_id'] ?? ''),
+        $whatsappOfficialPhoneNumberId !== '' ? $whatsappOfficialPhoneNumberId : ($settings['whatsapp_official_phone_number_id'] ?? ''),
+        $whatsappOfficialAccessToken !== '' ? $whatsappOfficialAccessToken : ($settings['whatsapp_official_access_token'] ?? ''),
+        $whatsappOfficialVerifyToken !== '' ? $whatsappOfficialVerifyToken : ($settings['whatsapp_official_verify_token'] ?? ''),
+        $whatsappOfficialCallbackUrl !== '' ? $whatsappOfficialCallbackUrl : ($settings['whatsapp_official_callback_url'] ?? ''),
+        $whatsappOfficialApiVersion !== '' ? $whatsappOfficialApiVersion : 'v22.0',
+        $whatsappOfficialWebhookSecret !== '' ? $whatsappOfficialWebhookSecret : ($settings['whatsapp_official_webhook_secret'] ?? ''),
+        $whatsappOfficialNotes !== '' ? $whatsappOfficialNotes : ($settings['whatsapp_official_notes'] ?? ''),
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
