@@ -498,15 +498,19 @@ function login_admin(string $email, string $password): bool
     return true;
 }
 
-function logout_admin(): void
+function find_admin_by_email(string $email): ?array
 {
-    unset($_SESSION['admin_id']);
+    $stmt = db()->prepare('SELECT * FROM platform_admins WHERE email = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([strtolower(trim($email))]);
+    $admin = $stmt->fetch();
+
+    return is_array($admin) ? $admin : null;
 }
 
-function login_studio_user(string $email, string $password): bool
+function find_studio_user_by_email(string $email): ?array
 {
     $stmt = db()->prepare(
-        'SELECT su.*, s.status AS studio_status
+        'SELECT su.*, s.name AS studio_name, s.slug AS studio_slug, s.status AS studio_status
          FROM studio_users su
          INNER JOIN studios s ON s.id = su.studio_id
          WHERE su.email = ? AND su.is_active = 1
@@ -514,6 +518,33 @@ function login_studio_user(string $email, string $password): bool
     );
     $stmt->execute([strtolower(trim($email))]);
     $user = $stmt->fetch();
+
+    return is_array($user) ? $user : null;
+}
+
+function auth_identity_by_email(string $email): array
+{
+    $admin = find_admin_by_email($email);
+    if ($admin) {
+        return ['type' => 'admin', 'record' => $admin];
+    }
+
+    $studioUser = find_studio_user_by_email($email);
+    if ($studioUser) {
+        return ['type' => 'studio', 'record' => $studioUser];
+    }
+
+    return ['type' => 'none', 'record' => null];
+}
+
+function logout_admin(): void
+{
+    unset($_SESSION['admin_id']);
+}
+
+function login_studio_user(string $email, string $password): bool
+{
+    $user = find_studio_user_by_email($email);
 
     if (!is_array($user) || !password_verify($password, (string)$user['password_hash'])) {
         return false;

@@ -356,11 +356,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
         }
 
         if ($action === 'login') {
-            if (login_admin((string)$_POST['email'], (string)$_POST['password'])) {
-                flash_set('success', 'Login realizado.');
+            $email = (string)$_POST['email'];
+            $password = (string)$_POST['password'];
+            $identity = auth_identity_by_email($email);
+            if ($identity['type'] === 'admin') {
+                if (login_admin($email, $password)) {
+                    flash_set('success', 'Login administrativo realizado.');
+                    redirect_to('dashboard');
+                }
+                flash_set('error', 'Email ou senha invalidos para o painel administrativo.');
+                redirect_to('login');
+            }
+            if ($identity['type'] === 'studio') {
+                if (login_studio_user($email, $password)) {
+                    $user = current_studio_user();
+                    $studioId = (int)($user['studio_id'] ?? 0);
+                    if ($studioId > 0) {
+                        flash_set('success', 'Login do estudio realizado.');
+                        redirect_to('studio_home');
+                    }
+                }
+                flash_set('error', 'Email ou senha invalidos para o estudio.');
+                redirect_to('login');
+            }
+            if (login_admin($email, $password)) {
+                flash_set('success', 'Login administrativo realizado.');
                 redirect_to('dashboard');
             }
-            flash_set('error', 'Email ou senha invalidos.');
+            if (login_studio_user($email, $password)) {
+                flash_set('success', 'Login do estudio realizado.');
+                redirect_to('studio_home');
+            }
+            flash_set('error', 'Email ou senha invalidos ou sem acesso cadastrado.');
             redirect_to('login');
         }
 
@@ -1450,13 +1477,20 @@ if (admin_count() === 0) {
 }
 
 if ($page === 'login') {
-    render_auth_page('Entrar como gerente', 'Acesso administrativo da plataforma.', function () {
+    render_auth_page('Entrar na plataforma', 'O sistema identifica se o acesso é administrativo ou de estúdio e direciona para o local certo.', function () {
+        $emailHint = auth_identity_by_email((string)($_POST['email'] ?? ''));
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="login">';
-        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="admin@... ou acesso do estúdio"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
-        echo '<button class="btn" type="submit">Entrar no painel</button>';
+        echo '<div class="actions" style="justify-content:space-between;gap:10px;align-items:center">';
+        echo '<button class="btn" type="submit">Entrar e direcionar</button>';
+        echo '<span class="badge ' . h(($emailHint['type'] ?? 'none') === 'admin' ? 'ok' : ((($emailHint['type'] ?? 'none') === 'studio') ? 'warn' : 'neutral')) . '">';
+        echo h(($emailHint['type'] ?? 'none') === 'admin' ? 'Administrador' : ((($emailHint['type'] ?? 'none') === 'studio') ? 'Estúdio' : 'Sem identificação'));
+        echo '</span>';
+        echo '</div>';
+        echo '<p class="muted" style="margin-top:10px">Se o email também existir como admin, o acesso administrativo tem prioridade.</p>';
         echo '</form>';
     }, $flash);
     exit;
