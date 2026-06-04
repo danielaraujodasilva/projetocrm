@@ -4360,7 +4360,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Access Token</label><input name="whatsapp_official_access_token" type="password" value="" placeholder="EAAB..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_access_token'] ?? ''))) . '</small></div>';
-        echo '<div class="field"><label>Webhook Verify Token</label><input name="whatsapp_official_verify_token" value="' . h($settings['whatsapp_official_verify_token'] ?? '') . '" placeholder="token-privado-de-verificacao"><small class="muted">Usado para validar o webhook com a Meta.</small></div>';
+        echo '<div class="field"><label>Webhook Verify Token</label><input name="whatsapp_official_verify_token" value="' . h($settings['whatsapp_official_verify_token'] ?? 'Luna*123') . '" placeholder="token-privado-de-verificacao"><small class="muted">Usado para validar o webhook com a Meta. Se estiver vazio, o sistema já sugere um padrão para você salvar mais rápido.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Callback URL</label><input name="whatsapp_official_callback_url" value="' . h($settings['whatsapp_official_callback_url'] ?? (app_url('') . 'api/whatsapp_webhook.php')) . '" placeholder="' . h(app_url('') . 'api/whatsapp_webhook.php') . '"><small class="muted">URL pública do webhook. Depois vamos ligar isso no endpoint oficial.</small></div>';
