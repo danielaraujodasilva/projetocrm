@@ -3872,6 +3872,74 @@ function studio_meta_ads_test_connection(array $studio): array
     ];
 }
 
+function studio_whatsapp_official_test_connection(array $studio): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
+    }
+
+    $appId = trim((string)($settings['whatsapp_official_app_id'] ?? ''));
+    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+    $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $verifyToken = trim((string)($settings['whatsapp_official_verify_token'] ?? ''));
+    $callbackUrl = trim((string)($settings['whatsapp_official_callback_url'] ?? ''));
+    $wabaId = trim((string)($settings['whatsapp_official_business_account_id'] ?? ''));
+    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
+
+    foreach ([
+        'App ID' => $appId,
+        'Phone Number ID' => $phoneNumberId,
+        'Access Token' => $accessToken,
+        'Webhook Verify Token' => $verifyToken,
+        'Callback URL' => $callbackUrl,
+        'WABA ID' => $wabaId,
+    ] as $label => $value) {
+        if (trim($value) === '') {
+            return ['ok' => false, 'error' => 'Faltou preencher: ' . $label . '.'];
+        }
+    }
+
+    $app = studio_meta_ads_request($version, '/app', $accessToken, ['fields' => 'id,name']);
+    $phone = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId), $accessToken, ['fields' => 'id,display_phone_number,verified_name,quality_rating,code_verification_status']);
+    $waba = studio_meta_ads_request($version, '/' . rawurlencode($wabaId), $accessToken, ['fields' => 'id,name,currency,timezone_id']);
+
+    $ok = !empty($app['ok']) && !empty($phone['ok']) && !empty($waba['ok']);
+    return [
+        'ok' => $ok,
+        'version' => $version,
+        'app' => $app,
+        'phone_number' => $phone,
+        'waba' => $waba,
+        'summary' => $ok ? 'Configuração oficial validada.' : 'Um ou mais checks da API oficial falharam.',
+    ];
+}
+
+function studio_whatsapp_official_send_text(array $studio, string $toPhone, string $message): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
+    }
+
+    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+    $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
+    $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $message = trim($message);
+
+    if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $message === '') {
+        return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.'];
+    }
+
+    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', [
+        'messaging_product' => 'whatsapp',
+        'to' => $toPhone,
+        'type' => 'text',
+        'text' => ['body' => $message],
+    ]);
+}
+
 function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
 {
     $settings = studio_settings($studio);

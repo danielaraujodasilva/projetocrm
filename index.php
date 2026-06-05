@@ -870,6 +870,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             redirect_to('studio_settings', ['tab' => (string)($_POST['settings_tab'] ?? 'studio')]);
         }
 
+        if ($action === 'test_whatsapp_official') {
+            $studio = require_studio();
+            $_SESSION['studio_whatsapp_official_test_result'] = studio_whatsapp_official_test_connection($studio);
+            flash_set('success', 'Teste do WhatsApp oficial executado.');
+            redirect_to('studio_settings', ['tab' => 'whatsapp']);
+        }
+
+        if ($action === 'send_whatsapp_official_test_message') {
+            $studio = require_studio();
+            $_SESSION['studio_whatsapp_official_send_result'] = studio_whatsapp_official_send_text(
+                $studio,
+                (string)($_POST['to_phone'] ?? ''),
+                (string)($_POST['message'] ?? '')
+            );
+            flash_set('success', 'Tentativa de envio registrada.');
+            redirect_to('studio_settings', ['tab' => 'whatsapp']);
+        }
+
         if ($action === 'test_meta_ads_connection') {
             $studio = require_studio();
             $_SESSION['meta_ads_test_result'] = studio_meta_ads_test_connection($studio);
@@ -4252,6 +4270,16 @@ if ($page === 'studio_settings') {
             return;
         }
         $settings = studio_settings($studio);
+        $officialTestResult = null;
+        $officialSendResult = null;
+        if (isset($_SESSION['studio_whatsapp_official_test_result']) && is_array($_SESSION['studio_whatsapp_official_test_result'])) {
+            $officialTestResult = $_SESSION['studio_whatsapp_official_test_result'];
+            unset($_SESSION['studio_whatsapp_official_test_result']);
+        }
+        if (isset($_SESSION['studio_whatsapp_official_send_result']) && is_array($_SESSION['studio_whatsapp_official_send_result'])) {
+            $officialSendResult = $_SESSION['studio_whatsapp_official_send_result'];
+            unset($_SESSION['studio_whatsapp_official_send_result']);
+        }
         $whatsappOfficialStatus = studio_whatsapp_official_status($studio);
         $artists = studio_list_artists($studio);
         $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
@@ -4380,6 +4408,31 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Webhook Secret</label><input name="whatsapp_official_webhook_secret" type="password" value="" placeholder="Opcional, se usar assinatura de eventos"><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_webhook_secret'] ?? ''))) . '</small></div>';
         echo '<div class="field"><label>Observações do WhatsApp oficial</label><textarea name="whatsapp_official_notes" placeholder="Ex.: número principal, horário de atendimento, observações do webhook, etc.">' . h($settings['whatsapp_official_notes'] ?? '') . '</textarea></div>';
         echo '<p class="muted">Quando o modo oficial estiver ativo, vamos conectar o webhook, o envio de mensagens e a leitura de eventos usando esse bloco. Até lá, o Baileys segue operando normalmente.</p>';
+        echo '<div class="panel soft" style="margin-top:16px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Teste e envio</h3><span class="badge">API oficial</span></div>';
+        echo '<div class="actions" style="justify-content:flex-start;gap:10px;flex-wrap:wrap;margin-top:10px">';
+        echo '<form method="post" class="inline-form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="test_whatsapp_official">';
+        echo '<input type="hidden" name="settings_tab" value="whatsapp">';
+        echo '<button class="btn" type="submit">Testar configuração oficial</button>';
+        echo '</form>';
+        echo '<form method="post" class="inline-form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="send_whatsapp_official_test_message">';
+        echo '<input type="hidden" name="settings_tab" value="whatsapp">';
+        echo '<input type="text" name="to_phone" placeholder="5511999999999" style="min-width:180px">';
+        echo '<input type="text" name="message" placeholder="Mensagem de teste" style="min-width:220px">';
+        echo '<button class="btn secondary" type="submit">Enviar teste</button>';
+        echo '</form>';
+        echo '</div>';
+        if ($officialTestResult) {
+            echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do teste</strong><div class="muted" style="margin-top:8px">' . h((string)($officialTestResult['summary'] ?? ($officialTestResult['error'] ?? ''))) . '</div></div>';
+        }
+        if ($officialSendResult) {
+            echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do envio</strong><div class="muted" style="margin-top:8px">' . h((string)($officialSendResult['ok'] ? 'Mensagem enviada com sucesso.' : ($officialSendResult['error'] ?? 'Falha no envio.'))) . '</div></div>';
+        }
+        echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">Como testar agora</h3>';
         echo '<ol class="muted" style="margin:0;padding-left:20px">';
