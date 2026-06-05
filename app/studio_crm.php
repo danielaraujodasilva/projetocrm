@@ -347,8 +347,12 @@ function studio_whatsapp_provider(array $studio): string
 function studio_whatsapp_official_configured(array $studio): bool
 {
     $settings = studio_settings($studio);
+    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
+    if (!in_array($mode, ['production', 'sandbox'], true)) {
+        $mode = 'production';
+    }
     return trim((string)($settings['whatsapp_official_app_id'] ?? '')) !== ''
-        && trim((string)($settings['whatsapp_official_phone_number_id'] ?? '')) !== ''
+        && trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))) !== ''
         && trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== ''
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
 }
@@ -357,11 +361,20 @@ function studio_whatsapp_official_status(array $studio): array
 {
     $settings = studio_settings($studio);
     $provider = studio_whatsapp_provider($studio);
+    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
+    if (!in_array($mode, ['production', 'sandbox'], true)) {
+        $mode = 'production';
+    }
     $checks = [
         'provider' => [
             'label' => 'Provedor selecionado',
             'ok' => $provider === 'official',
             'value' => $provider === 'official' ? 'API oficial' : 'Baileys',
+        ],
+        'mode' => [
+            'label' => 'Ambiente',
+            'ok' => true,
+            'value' => $mode === 'sandbox' ? 'Sandbox / teste' : 'Produção',
         ],
         'app_id' => [
             'label' => 'App ID',
@@ -370,8 +383,8 @@ function studio_whatsapp_official_status(array $studio): array
         ],
         'phone_number_id' => [
             'label' => 'Phone Number ID',
-            'ok' => trim((string)($settings['whatsapp_official_phone_number_id'] ?? '')) !== '',
-            'value' => studio_meta_ads_mask_secret((string)($settings['whatsapp_official_phone_number_id'] ?? '')),
+            'ok' => trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))) !== '',
+            'value' => studio_meta_ads_mask_secret((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))),
         ],
         'access_token' => [
             'label' => 'Access Token',
@@ -390,8 +403,8 @@ function studio_whatsapp_official_status(array $studio): array
         ],
         'waba_id' => [
             'label' => 'WABA ID',
-            'ok' => trim((string)($settings['whatsapp_official_business_account_id'] ?? '')) !== '',
-            'value' => trim((string)($settings['whatsapp_official_business_account_id'] ?? '')),
+            'ok' => trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_business_account_id'] ?? '') : ($settings['whatsapp_official_business_account_id'] ?? ''))) !== '',
+            'value' => trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_business_account_id'] ?? '') : ($settings['whatsapp_official_business_account_id'] ?? ''))),
         ],
     ];
 
@@ -3880,12 +3893,16 @@ function studio_whatsapp_official_test_connection(array $studio): array
     }
 
     $appId = trim((string)($settings['whatsapp_official_app_id'] ?? ''));
-    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
     $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
     $verifyToken = trim((string)($settings['whatsapp_official_verify_token'] ?? ''));
     $callbackUrl = trim((string)($settings['whatsapp_official_callback_url'] ?? ''));
-    $wabaId = trim((string)($settings['whatsapp_official_business_account_id'] ?? ''));
     $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
+    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
+    if (!in_array($mode, ['production', 'sandbox'], true)) {
+        $mode = 'production';
+    }
+    $phoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
+    $wabaId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_business_account_id'] ?? '') : ($settings['whatsapp_official_business_account_id'] ?? '')));
 
     foreach ([
         'App ID' => $appId,
@@ -3908,6 +3925,7 @@ function studio_whatsapp_official_test_connection(array $studio): array
     return [
         'ok' => $ok,
         'version' => $version,
+        'mode' => $mode,
         'app' => $app,
         'phone_number' => $phone,
         'waba' => $waba,
@@ -3922,9 +3940,16 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
     }
 
-    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
     $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
     $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
+    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
+    if (!in_array($mode, ['production', 'sandbox'], true)) {
+        $mode = 'production';
+    }
+    $phoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
+    if ($mode === 'sandbox' && preg_match('/^https?:\\/\\//', $toPhone)) {
+        $toPhone = preg_replace('/\\D+/', '', parse_url($toPhone, PHP_URL_HOST) ?: '') ?: '';
+    }
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
     $message = trim($message);
 
@@ -3932,12 +3957,17 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.'];
     }
 
-    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', [
+    $payload = [
         'messaging_product' => 'whatsapp',
         'to' => $toPhone,
         'type' => 'text',
         'text' => ['body' => $message],
-    ]);
+    ];
+    if ($mode === 'sandbox') {
+        $payload['preview_url'] = false;
+    }
+
+    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
 }
 
 function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
@@ -6355,12 +6385,18 @@ function studio_save_settings(array $studio, array $data): void
     if (!in_array($whatsappProvider, ['baileys', 'official'], true)) {
         $whatsappProvider = 'baileys';
     }
+    $whatsappOfficialMode = strtolower(trim((string)($data['whatsapp_official_mode'] ?? 'production')));
+    if (!in_array($whatsappOfficialMode, ['production', 'sandbox'], true)) {
+        $whatsappOfficialMode = 'production';
+    }
     $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
     $whatsappOfficialAppId = trim((string)($data['whatsapp_official_app_id'] ?? ''));
     $whatsappOfficialAppSecret = trim((string)($data['whatsapp_official_app_secret'] ?? ''));
     $whatsappOfficialBusinessAccountId = trim((string)($data['whatsapp_official_business_account_id'] ?? ''));
     $whatsappOfficialPhoneNumberId = trim((string)($data['whatsapp_official_phone_number_id'] ?? ''));
+    $whatsappOfficialTestBusinessAccountId = trim((string)($data['whatsapp_official_test_business_account_id'] ?? ''));
+    $whatsappOfficialTestPhoneNumberId = trim((string)($data['whatsapp_official_test_phone_number_id'] ?? ''));
     $whatsappOfficialAccessToken = trim((string)($data['whatsapp_official_access_token'] ?? ''));
     $whatsappOfficialVerifyToken = trim((string)($data['whatsapp_official_verify_token'] ?? ''));
     $whatsappOfficialCallbackUrl = trim((string)($data['whatsapp_official_callback_url'] ?? ''));
@@ -6416,6 +6452,7 @@ function studio_save_settings(array $studio, array $data): void
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
         'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "baileys"',
+        'whatsapp_official_mode' => 'VARCHAR(16) NOT NULL DEFAULT "production"',
         'meta_ads_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'meta_ads_app_id' => 'VARCHAR(40) NULL',
         'meta_ads_app_secret' => 'TEXT NULL',
@@ -6431,6 +6468,8 @@ function studio_save_settings(array $studio, array $data): void
         'whatsapp_official_app_secret' => 'TEXT NULL',
         'whatsapp_official_business_account_id' => 'VARCHAR(40) NULL',
         'whatsapp_official_phone_number_id' => 'VARCHAR(40) NULL',
+        'whatsapp_official_test_business_account_id' => 'VARCHAR(40) NULL',
+        'whatsapp_official_test_phone_number_id' => 'VARCHAR(40) NULL',
         'whatsapp_official_access_token' => 'TEXT NULL',
         'whatsapp_official_verify_token' => 'VARCHAR(120) NULL',
         'whatsapp_official_callback_url' => 'VARCHAR(255) NULL',
@@ -6447,7 +6486,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -6472,6 +6511,7 @@ function studio_save_settings(array $studio, array $data): void
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
         $whatsappProvider,
+        $whatsappOfficialMode,
         $metaAdsEnabled,
         $metaAdsAppIdInput !== '' ? $metaAdsAppIdInput : ($settings['meta_ads_app_id'] ?? ''),
         $metaAdsAppSecretInput !== '' ? $metaAdsAppSecretInput : ($settings['meta_ads_app_secret'] ?? ''),
@@ -6487,6 +6527,8 @@ function studio_save_settings(array $studio, array $data): void
         $whatsappOfficialAppSecret !== '' ? $whatsappOfficialAppSecret : ($settings['whatsapp_official_app_secret'] ?? ''),
         $whatsappOfficialBusinessAccountId !== '' ? $whatsappOfficialBusinessAccountId : ($settings['whatsapp_official_business_account_id'] ?? ''),
         $whatsappOfficialPhoneNumberId !== '' ? $whatsappOfficialPhoneNumberId : ($settings['whatsapp_official_phone_number_id'] ?? ''),
+        $whatsappOfficialTestBusinessAccountId !== '' ? $whatsappOfficialTestBusinessAccountId : ($settings['whatsapp_official_test_business_account_id'] ?? ''),
+        $whatsappOfficialTestPhoneNumberId !== '' ? $whatsappOfficialTestPhoneNumberId : ($settings['whatsapp_official_test_phone_number_id'] ?? ''),
         $whatsappOfficialAccessToken !== '' ? $whatsappOfficialAccessToken : ($settings['whatsapp_official_access_token'] ?? ''),
         $whatsappOfficialVerifyToken !== '' ? $whatsappOfficialVerifyToken : ($settings['whatsapp_official_verify_token'] ?? ''),
         $whatsappOfficialCallbackUrl !== '' ? $whatsappOfficialCallbackUrl : ($settings['whatsapp_official_callback_url'] ?? ''),

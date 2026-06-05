@@ -4365,6 +4365,7 @@ if ($page === 'studio_settings') {
         echo '<h3 style="margin-top:0">Provedor de WhatsApp</h3>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modo atual</label><select name="whatsapp_provider"><option value="baileys"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'baileys') ? ' selected' : '') . '>Baileys</option><option value="official"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'official') ? ' selected' : '') . '>API oficial da Meta</option></select><small class="muted">Você escolhe aqui qual motor o sistema vai considerar como ativo.</small></div>';
+        echo '<div class="field"><label>Ambiente oficial</label><select name="whatsapp_official_mode"><option value="production"' . (((string)($settings['whatsapp_official_mode'] ?? 'production') === 'production') ? ' selected' : '') . '>Produção</option><option value="sandbox"' . (((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox') ? ' selected' : '') . '>Sandbox / teste</option></select><small class="muted">Sandbox usa os dados de teste; produção usa seu número real.</small></div>';
         echo '<div class="field"><label>Resumo do estado</label><div class="drilldown-card compact"><strong>' . h(studio_whatsapp_provider($studio) === 'official' ? 'API oficial da Meta' : 'Baileys') . '</strong><div class="muted" style="margin-top:6px">' . h(studio_whatsapp_provider($studio) === 'official' ? (studio_whatsapp_official_configured($studio) ? 'Configuração oficial pronta para ser ativada.' : 'Ainda faltam campos obrigatórios da API oficial.') : 'O fluxo atual continua usando o Baileys.') . '</div></div></div>';
         echo '</div>';
         echo '</div>';
@@ -4398,6 +4399,10 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Phone Number ID</label><input name="whatsapp_official_phone_number_id" value="' . h($settings['whatsapp_official_phone_number_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">ID do número que vai enviar e receber mensagens.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>WABA ID de teste</label><input name="whatsapp_official_test_business_account_id" value="' . h($settings['whatsapp_official_test_business_account_id'] ?? '120771777788528') . '" placeholder="120771777788528"><small class="muted">Sua conta de teste pode viver separada da produção.</small></div>';
+        echo '<div class="field"><label>Phone Number ID de teste</label><input name="whatsapp_official_test_phone_number_id" value="' . h($settings['whatsapp_official_test_phone_number_id'] ?? '126382657222367') . '" placeholder="126382657222367"><small class="muted">Número sandbox que já está respondendo.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Access Token</label><input name="whatsapp_official_access_token" type="password" value="" placeholder="EAAB..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_access_token'] ?? ''))) . '</small></div>';
         echo '<div class="field"><label>Webhook Verify Token</label><input name="whatsapp_official_verify_token" value="' . h($settings['whatsapp_official_verify_token'] ?? 'Luna*123') . '" placeholder="token-privado-de-verificacao"><small class="muted">Usado para validar o webhook com a Meta. Se estiver vazio, o sistema já sugere um padrão para você salvar mais rápido.</small></div>';
         echo '</div>';
@@ -4421,7 +4426,7 @@ if ($page === 'studio_settings') {
         echo csrf_field();
         echo '<input type="hidden" name="action" value="send_whatsapp_official_test_message">';
         echo '<input type="hidden" name="settings_tab" value="whatsapp">';
-        echo '<input type="text" name="to_phone" placeholder="5511999999999" style="min-width:180px">';
+        echo '<input type="text" name="to_phone" placeholder="' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? '15551015039' : '5511999999999') . '" style="min-width:180px">';
         echo '<input type="text" name="message" placeholder="Mensagem de teste" style="min-width:220px">';
         echo '<button class="btn secondary" type="submit">Enviar teste</button>';
         echo '</form>';
