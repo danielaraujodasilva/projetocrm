@@ -353,6 +353,64 @@ function studio_whatsapp_official_configured(array $studio): bool
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
 }
 
+function studio_whatsapp_official_status(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $provider = studio_whatsapp_provider($studio);
+    $checks = [
+        'provider' => [
+            'label' => 'Provedor selecionado',
+            'ok' => $provider === 'official',
+            'value' => $provider === 'official' ? 'API oficial' : 'Baileys',
+        ],
+        'app_id' => [
+            'label' => 'App ID',
+            'ok' => trim((string)($settings['whatsapp_official_app_id'] ?? '')) !== '',
+            'value' => studio_meta_ads_mask_secret((string)($settings['whatsapp_official_app_id'] ?? '')),
+        ],
+        'phone_number_id' => [
+            'label' => 'Phone Number ID',
+            'ok' => trim((string)($settings['whatsapp_official_phone_number_id'] ?? '')) !== '',
+            'value' => studio_meta_ads_mask_secret((string)($settings['whatsapp_official_phone_number_id'] ?? '')),
+        ],
+        'access_token' => [
+            'label' => 'Access Token',
+            'ok' => trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== '',
+            'value' => trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== '' ? '••••••' . mb_substr(trim((string)($settings['whatsapp_official_access_token'] ?? '')), -6) : '',
+        ],
+        'verify_token' => [
+            'label' => 'Webhook Verify Token',
+            'ok' => trim((string)($settings['whatsapp_official_verify_token'] ?? '')) !== '',
+            'value' => trim((string)($settings['whatsapp_official_verify_token'] ?? '')),
+        ],
+        'callback_url' => [
+            'label' => 'Callback URL',
+            'ok' => trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '',
+            'value' => trim((string)($settings['whatsapp_official_callback_url'] ?? '')),
+        ],
+        'waba_id' => [
+            'label' => 'WABA ID',
+            'ok' => trim((string)($settings['whatsapp_official_business_account_id'] ?? '')) !== '',
+            'value' => trim((string)($settings['whatsapp_official_business_account_id'] ?? '')),
+        ],
+    ];
+
+    $score = 0;
+    foreach ($checks as $check) {
+        if (!empty($check['ok'])) {
+            $score++;
+        }
+    }
+
+    return [
+        'provider' => $provider,
+        'ready' => $score >= count($checks),
+        'score' => $score,
+        'total' => count($checks),
+        'checks' => $checks,
+    ];
+}
+
 function studio_whatsapp_webhook_token(array $studio): string
 {
     $settings = studio_settings($studio);

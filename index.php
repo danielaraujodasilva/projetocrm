@@ -4252,6 +4252,7 @@ if ($page === 'studio_settings') {
             return;
         }
         $settings = studio_settings($studio);
+        $whatsappOfficialStatus = studio_whatsapp_official_status($studio);
         $artists = studio_list_artists($studio);
         $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
         $dayOptions = [
@@ -4350,6 +4351,16 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">WhatsApp oficial da Meta</h3>';
         echo '<p class="muted">Preencha quando você quiser trocar do Baileys para a API oficial. Deixe em branco até ter as credenciais prontas.</p>';
+        echo '<div class="drilldown-card compact" style="margin-bottom:14px">';
+        echo '<strong>Status de preparação: ' . h((string)$whatsappOfficialStatus['score']) . '/' . h((string)$whatsappOfficialStatus['total']) . '</strong>';
+        echo '<div class="muted" style="margin-top:6px">' . h($whatsappOfficialStatus['ready'] ? 'Tudo pronto para a próxima etapa de testes.' : 'Ainda faltam campos obrigatórios para concluir a ativação.') . '</div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        foreach ($whatsappOfficialStatus['checks'] as $check) {
+            $tone = !empty($check['ok']) ? 'ok' : 'warn';
+            echo '<div class="field"><div class="drilldown-card compact"><span class="badge ' . h($tone) . '">' . h(!empty($check['ok']) ? 'OK' : 'Pendente') . '</span><strong style="display:block;margin-top:6px">' . h((string)$check['label']) . '</strong><div class="muted" style="margin-top:6px">' . h((string)($check['value'] !== '' ? $check['value'] : 'Não preenchido')) . '</div></div></div>';
+        }
+        echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>App ID</label><input name="whatsapp_official_app_id" value="' . h($settings['whatsapp_official_app_id'] ?? '') . '" placeholder="123456789012345"><small class="muted">ID do app no Meta Developers.</small></div>';
         echo '<div class="field"><label>App Secret</label><input name="whatsapp_official_app_secret" type="password" value="" placeholder="App Secret"><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_app_secret'] ?? ''))) . '</small></div>';
@@ -4369,6 +4380,15 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Webhook Secret</label><input name="whatsapp_official_webhook_secret" type="password" value="" placeholder="Opcional, se usar assinatura de eventos"><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_webhook_secret'] ?? ''))) . '</small></div>';
         echo '<div class="field"><label>Observações do WhatsApp oficial</label><textarea name="whatsapp_official_notes" placeholder="Ex.: número principal, horário de atendimento, observações do webhook, etc.">' . h($settings['whatsapp_official_notes'] ?? '') . '</textarea></div>';
         echo '<p class="muted">Quando o modo oficial estiver ativo, vamos conectar o webhook, o envio de mensagens e a leitura de eventos usando esse bloco. Até lá, o Baileys segue operando normalmente.</p>';
+        echo '<div class="panel soft" style="margin-top:16px">';
+        echo '<h3 style="margin-top:0">Como testar agora</h3>';
+        echo '<ol class="muted" style="margin:0;padding-left:20px">';
+        echo '<li>Salve as configurações do bloco WhatsApp oficial.</li>';
+        echo '<li>Na Meta, valide o webhook com o callback URL e o verify token.</li>';
+        echo '<li>Depois, confira se o número aparece em <strong>Contas do WhatsApp Business</strong> com a conta escolhida.</li>';
+        echo '<li>Se o status acima estiver 6/6, seguimos para envio e recebimento via API oficial.</li>';
+        echo '</ol>';
+        echo '</div>';
         echo '</div>';
         echo '</div></div>';
         echo '<div id="settingsSourceIa" hidden><div class="settings-panel" id="settings-ia" data-settings-panel="ia">';
