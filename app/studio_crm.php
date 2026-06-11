@@ -5718,26 +5718,26 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
 
 function studio_parse_calendar_event_for_crm(array $event): array
 {
-    $rawTitle = normalize_spaces((string)($event['summary'] ?? ''));
-    $description = normalize_spaces((string)($event['description'] ?? ''));
-    $start = studio_ics_datetime_to_local((string)($event['dtstart'] ?? ''));
-    $end = studio_ics_datetime_to_local((string)($event['dtend'] ?? ''));
+    $rawTitle = normalize_spaces((string)($event['SUMMARY'] ?? ($event['summary'] ?? '')));
+    $description = normalize_spaces((string)($event['DESCRIPTION'] ?? ($event['description'] ?? '')));
+    $start = studio_ics_datetime_to_local((string)($event['DTSTART'] ?? ($event['dtstart'] ?? '')));
+    $end = studio_ics_datetime_to_local((string)($event['DTEND'] ?? ($event['dtend'] ?? '')));
     $base = [
         'include' => false,
         'reason' => '',
         'raw_title' => $rawTitle,
-        'uid' => import_uid((string)($event['uid'] ?? '')),
-        'google_uid' => (string)($event['uid'] ?? ''),
+        'uid' => import_uid((string)($event['UID'] ?? ($event['uid'] ?? ''))),
+        'google_uid' => (string)($event['UID'] ?? ($event['uid'] ?? '')),
         'description_original' => $description,
         'date' => $start ? $start->format('Y-m-d') : null,
         'start_time' => $start ? $start->format('H:i:s') : null,
         'end_time' => $end ? $end->format('H:i:s') : null,
     ];
 
-    if (strtoupper((string)($event['status'] ?? 'CONFIRMED')) === 'CANCELLED') {
+    if (strtoupper((string)($event['STATUS'] ?? ($event['status'] ?? 'CONFIRMED'))) === 'CANCELLED') {
         return array_merge($base, ['reason' => 'cancelado']);
     }
-    if (!empty($event['all_day']) || !$start) {
+    if (!empty($event['ALL_DAY']) || !empty($event['all_day']) || !$start) {
         return array_merge($base, ['reason' => 'sem horario util']);
     }
     if ($rawTitle === '') {
@@ -5803,7 +5803,7 @@ function studio_parse_calendar_event_for_crm(array $event): array
         'status' => $leadStatus,
         'pipeline_stage' => $stage,
         'lead_score' => $isPast ? 5 : ($value > 0 ? 8 : 6),
-        'recurrence_id' => trim((string)($event['recurrence-id'] ?? ($event['RECURRENCE-ID'] ?? ''))),
+        'recurrence_id' => trim((string)($event['RECURRENCE-ID'] ?? ($event['recurrence-id'] ?? ''))),
     ]);
 }
 
