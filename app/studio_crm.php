@@ -5512,6 +5512,7 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
 
     foreach ($events as $event) {
         $uid = trim((string)($event['UID'] ?? $event['uid'] ?? ''));
+        $recurrenceId = trim((string)($event['RECURRENCE-ID'] ?? $event['recurrence-id'] ?? ''));
         $start = (string)($event['DTSTART'] ?? $event['dtstart'] ?? '');
         $end = (string)($event['DTEND'] ?? $event['dtend'] ?? '');
         $summary = trim((string)($event['SUMMARY'] ?? $event['summary'] ?? ''));
@@ -5532,10 +5533,12 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
         $date = $startDt->format('Y-m-d');
         $startTime = $startDt->format('H:i:s');
         $endTime = $endDt ? $endDt->format('H:i:s') : null;
-        $importUid = $uid !== '' ? $uid : sha1($title . '|' . $date . '|' . $startTime . '|' . $endTime);
+        $importUid = $uid !== ''
+            ? sha1($uid . '|' . $recurrenceId)
+            : sha1($title . '|' . $date . '|' . $startTime . '|' . $endTime);
 
-        $stmt = $pdo->prepare('SELECT id FROM appointments WHERE import_source = ? AND import_uid = ? LIMIT 1');
-        $stmt->execute(['google_ics', $importUid]);
+        $stmt = $pdo->prepare('SELECT id FROM appointments WHERE import_source IN (?, ?) AND import_uid = ? LIMIT 1');
+        $stmt->execute(['google_calendar', 'google_ics', $importUid]);
         $existingId = (int)($stmt->fetchColumn() ?: 0);
 
         $payload = [
@@ -5555,7 +5558,7 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
         if ($existingId > 0) {
             $stmt = $pdo->prepare(
                 'UPDATE appointments
-                 SET title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, updated_at = NOW()
+                SET title = ?, description = ?, appointment_date = ?, start_time = ?, end_time = ?, status = ?, import_source = ?, import_uid = ?, raw_title = ?, updated_at = NOW()
                  WHERE id = ?'
             );
             $stmt->execute([
@@ -5565,6 +5568,9 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
                 $payload['start_time'],
                 $payload['end_time'] ?: null,
                 $payload['status'],
+                'google_calendar',
+                $importUid,
+                $summary,
                 $existingId,
             ]);
             $updated++;
@@ -5588,7 +5594,7 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
             $payload['status'],
             0,
             0,
-            'google_ics',
+            'google_calendar',
             $importUid,
             $summary,
         ]);
@@ -5744,6 +5750,7 @@ function studio_parse_calendar_event_for_crm(array $event): array
         'status' => $leadStatus,
         'pipeline_stage' => $stage,
         'lead_score' => $isPast ? 5 : ($value > 0 ? 8 : 6),
+        'recurrence_id' => trim((string)($event['recurrence-id'] ?? ($event['RECURRENCE-ID'] ?? ''))),
     ]);
 }
 
@@ -5837,7 +5844,7 @@ function studio_count_existing_imported_appointments(array $studio, array $items
 
 function studio_imported_appointment_exists(array $studio, string $uid): bool
 {
-    $stmt = studio_db($studio)->prepare('SELECT id FROM appointments WHERE import_source = "google_calendar" AND import_uid = ? LIMIT 1');
+    $stmt = studio_db($studio)->prepare('SELECT id FROM appointments WHERE import_source IN ("google_calendar", "google_ics") AND import_uid = ? LIMIT 1');
     $stmt->execute([$uid]);
 
     return (bool)$stmt->fetchColumn();
@@ -5915,12 +5922,12 @@ function studio_revert_import_calendar_events(array $studio, array $uids): array
         $placeholders = implode(',', array_fill(0, count($uids), '?'));
         $deletedLeads = 0;
 
-        $stmt = $pdo->prepare('DELETE FROM appointments WHERE import_source = "google_calendar" AND import_uid IN (' . $placeholders . ')');
+        $stmt = $pdo->prepare('DELETE FROM appointments WHERE import_source IN ("google_calendar", "google_ics") AND import_uid IN (' . $placeholders . ')');
         $stmt->execute($uids);
         $deletedAppointments = $stmt->rowCount();
 
         try {
-            $stmt = $pdo->prepare('DELETE FROM leads WHERE import_source = "google_calendar" AND import_uid IN (' . $placeholders . ')');
+            $stmt = $pdo->prepare('DELETE FROM leads WHERE import_source IN ("google_calendar", "google_ics") AND import_uid IN (' . $placeholders . ')');
             $stmt->execute($uids);
             $deletedLeads = $stmt->rowCount();
         } catch (Throwable) {
