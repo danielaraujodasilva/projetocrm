@@ -78,28 +78,46 @@ if (!$studio) {
 }
 
 $summary = studio_finance_summary($studio);
-$from = (string)($_GET['from'] ?? date('Y-m-01'));
-$to = (string)($_GET['to'] ?? date('Y-m-t'));
-$appointments = array_values(array_filter(
-    studio_list_appointments($studio),
-    static function (array $row) use ($from, $to): bool {
-        $date = (string)($row['appointment_date'] ?? '');
-        return $date !== '' && $date >= $from && $date <= $to;
-    }
-));
+$from = trim((string)($_GET['from'] ?? ''));
+$to = trim((string)($_GET['to'] ?? ''));
+$appointments = studio_list_appointments($studio);
+if ($from !== '' || $to !== '') {
+    $appointments = array_values(array_filter(
+        $appointments,
+        static function (array $row) use ($from, $to): bool {
+            $date = (string)($row['appointment_date'] ?? '');
+            if ($date === '') {
+                return false;
+            }
+            if ($from !== '' && $date < $from) {
+                return false;
+            }
+            if ($to !== '' && $date > $to) {
+                return false;
+            }
+            return true;
+        }
+    ));
+}
 
 $mappedAppointments = array_map(static function (array $row): array {
+    $expectedAmount = (float)($row['expected_amount'] ?? $row['value'] ?? 0);
+    $signalAmount = (float)($row['signal_amount'] ?? $row['deposit_value'] ?? 0);
+    $remainingAmount = (float)($row['remaining_amount'] ?? max(0, $expectedAmount - $signalAmount));
     return [
         'external_appointment_id' => 'crm:' . (string)($row['id'] ?? ''),
         'appointment_date' => (string)($row['appointment_date'] ?? ''),
         'client_name' => (string)($row['client_name'] ?? $row['name'] ?? 'Cliente'),
         'client_phone' => (string)($row['client_phone'] ?? $row['phone'] ?? ''),
         'service_name' => (string)($row['service_name'] ?? $row['interest'] ?? 'Agenda'),
-        'expected_amount' => (float)($row['expected_amount'] ?? $row['value'] ?? 0),
+        'expected_amount' => $expectedAmount,
+        'signal_amount' => $signalAmount,
+        'remaining_amount' => $remainingAmount,
         'lead_status' => (string)($row['status'] ?? ''),
         'etapa_funil' => (string)($row['pipeline_stage'] ?? ''),
         'data_ultimo_contato' => (string)($row['appointment_date'] ?? $row['created_at'] ?? ''),
         'created_at' => (string)($row['created_at'] ?? ''),
+        'notes' => trim((string)($row['description'] ?? '')),
         'source' => 'crm',
     ];
 }, $appointments);
