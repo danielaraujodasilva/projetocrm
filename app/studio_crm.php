@@ -5537,9 +5537,7 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
             ? sha1($uid . '|' . $recurrenceId)
             : sha1($title . '|' . $date . '|' . $startTime . '|' . $endTime);
 
-        $stmt = $pdo->prepare('SELECT id FROM appointments WHERE import_source IN (?, ?) AND import_uid = ? LIMIT 1');
-        $stmt->execute(['google_calendar', 'google_ics', $importUid]);
-        $existingId = (int)($stmt->fetchColumn() ?: 0);
+        $existingId = studio_find_imported_calendar_appointment_id($studio, $importUid, $title, $date, $startTime, $endTime ?: '');
 
         $payload = [
             'title' => $title,
@@ -5608,6 +5606,61 @@ function studio_import_calendar_ics(array $studio, string $icsPath): array
         'skipped' => $skipped,
         'total' => count($events),
     ];
+}
+
+function studio_find_imported_calendar_appointment_id(array $studio, string $importUid, string $title, string $date, string $startTime, string $endTime = ''): int
+{
+    $pdo = studio_db($studio);
+
+    $stmt = $pdo->prepare('SELECT id FROM appointments WHERE import_source IN ("google_calendar", "google_ics") AND import_uid = ? LIMIT 1');
+    $stmt->execute([$importUid]);
+    $existingId = (int)($stmt->fetchColumn() ?: 0);
+    if ($existingId > 0) {
+        return $existingId;
+    }
+
+    $normalizedTitle = normalize_spaces(remove_accents(mb_strtolower($title)));
+    $stmt = $pdo->prepare(
+        'SELECT id, title, raw_title
+         FROM appointments
+         WHERE import_source IN ("google_calendar", "google_ics")
+           AND appointment_date = ?
+           AND start_time = ?
+         ORDER BY id DESC
+         LIMIT 12'
+    );
+    $stmt->execute([$date, $startTime]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $existingTitle = normalize_spaces(remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
+        if ($existingTitle !== '' && $normalizedTitle !== '') {
+            if ($existingTitle === $normalizedTitle || str_contains($existingTitle, $normalizedTitle) || str_contains($normalizedTitle, $existingTitle)) {
+                return (int)($row['id'] ?? 0);
+            }
+        }
+    }
+
+    if ($endTime !== '') {
+        $stmt = $pdo->prepare(
+            'SELECT id, title, raw_title
+             FROM appointments
+             WHERE import_source IN ("google_calendar", "google_ics")
+               AND appointment_date = ?
+               AND end_time = ?
+             ORDER BY id DESC
+             LIMIT 12'
+        );
+        $stmt->execute([$date, $endTime]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $existingTitle = normalize_spaces(remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
+            if ($existingTitle !== '' && $normalizedTitle !== '') {
+                if ($existingTitle === $normalizedTitle || str_contains($existingTitle, $normalizedTitle) || str_contains($normalizedTitle, $existingTitle)) {
+                    return (int)($row['id'] ?? 0);
+                }
+            }
+        }
+    }
+
+    return 0;
 }
 
 function studio_analyze_calendar_ics(array $studio, string $icsPath): array
