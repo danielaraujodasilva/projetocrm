@@ -1159,6 +1159,80 @@ textarea {
     display: none;
 }
 
+.settings-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.settings-panel-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.settings-summary-card,
+.settings-check-card {
+    padding: 16px 18px;
+    display: grid;
+    gap: 8px;
+}
+
+.settings-summary-card strong,
+.settings-check-card strong {
+    font-size: 16px;
+    line-height: 1.25;
+}
+
+.settings-two-column {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.settings-group {
+    display: grid;
+    gap: 14px;
+}
+
+.settings-status-box {
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, .24);
+    background: var(--surface-soft);
+}
+
+.settings-check-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.settings-test-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+.settings-inline-form {
+    display: grid;
+    gap: 10px;
+}
+
+.settings-inline-form input[type="text"] {
+    min-width: 0;
+}
+
+.settings-howto {
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, .22);
+    background: rgba(248, 250, 252, .85);
+}
+
 .settings-panel[data-settings-panel="whatsapp"] {
     display: grid;
     gap: 16px;
@@ -4501,6 +4575,18 @@ textarea {
     .filter-pill,
     .settings-tab {
         width: auto;
+    }
+
+    .settings-panel-head,
+    .settings-panel-summary-grid,
+    .settings-two-column,
+    .settings-check-grid,
+    .settings-test-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settings-panel-head {
+        flex-direction: column;
     }
 
     .actions,
