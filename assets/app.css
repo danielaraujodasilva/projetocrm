@@ -1139,9 +1139,6 @@ textarea {
 }
 
 .settings-tab {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     appearance: none;
     border: 1px solid var(--line-strong);
     background: #fff;
@@ -1156,29 +1153,6 @@ textarea {
     background: var(--brand);
     color: #fff;
     border-color: var(--brand);
-    text-decoration: none;
-}
-
-.settings-hero {
-    margin-bottom: 14px;
-    background:
-        linear-gradient(135deg, rgba(31, 111, 120, .08), rgba(211, 76, 65, .05)),
-        var(--surface);
-}
-
-.settings-kicker {
-    margin: 0;
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--brand);
-}
-
-.settings-form-shell {
-    margin-top: 14px;
-    padding: 20px;
-    gap: 18px;
 }
 
 .settings-panel.hidden {
