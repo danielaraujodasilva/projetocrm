@@ -4299,6 +4299,25 @@ if ($page === 'studio_settings') {
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
         }
+        echo '<section class="panel settings-hero">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start">';
+        echo '<div><p class="settings-kicker">Configurações do estúdio</p><h2 style="margin:4px 0 8px">Organize regras, integrações e respostas do atendimento em um só lugar.</h2><p class="muted" style="margin:0">Use as abas para navegar entre as áreas e os cards para abrir cada conjunto em overlay quando quiser editar sem perder o contexto.</p></div>';
+        echo '<span class="badge ok">Layout revisado</span>';
+        echo '</div>';
+        echo '<div class="settings-tabs" role="tablist" aria-label="Seções de configurações">';
+        $settingsTabs = [
+            'studio' => 'Estúdio',
+            'agenda' => 'Agenda',
+            'whatsapp' => 'WhatsApp',
+            'ia' => 'IA',
+            'quick_replies' => 'Respostas rápidas',
+            'rules' => 'Regras',
+        ];
+        foreach ($settingsTabs as $key => $label) {
+            echo '<a class="settings-tab" data-settings-tab="' . h($key) . '" href="#settings-' . h($key === 'quick_replies' ? 'quick-replies' : $key) . '">' . h($label) . '</a>';
+        }
+        echo '</div>';
+        echo '</section>';
         echo '<div class="settings-overview-grid">';
         $settingsCards = [
             'studio' => ['Estúdio', 'Dados base e integração'],
@@ -4314,7 +4333,7 @@ if ($page === 'studio_settings') {
         }
         echo '</div>';
         echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
-        echo '<form class="form panel" method="post" id="studioSettingsForm">';
+        echo '<form class="form panel settings-form-shell" method="post" id="studioSettingsForm">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_studio_settings">';
         echo '<input type="hidden" name="settings_tab" value="' . h($activeTab) . '">';
