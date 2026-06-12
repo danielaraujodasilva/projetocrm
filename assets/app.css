@@ -1159,6 +1159,36 @@ textarea {
     display: none;
 }
 
+.settings-panel[data-settings-panel="whatsapp"] {
+    display: grid;
+    gap: 16px;
+}
+
+.settings-panel[data-settings-panel="whatsapp"] > .panel.soft {
+    padding: 18px;
+}
+
+.settings-panel[data-settings-panel="whatsapp"] > .panel.soft:first-of-type .grid.cols-2 {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+}
+
+.settings-panel[data-settings-panel="whatsapp"] .drilldown-card.compact {
+    height: 100%;
+}
+
+.settings-panel[data-settings-panel="whatsapp"] > .panel.soft:nth-of-type(2) {
+    display: grid;
+    gap: 14px;
+}
+
+.settings-panel[data-settings-panel="whatsapp"] > .panel.soft:nth-of-type(2) .actions:last-of-type {
+    align-items: stretch;
+}
+
+.settings-panel[data-settings-panel="whatsapp"] > .panel.soft:nth-of-type(2) .actions:last-of-type form {
+    flex: 1 1 260px;
+}
+
 .dashboard-stat {
     display: grid;
     gap: 8px;
