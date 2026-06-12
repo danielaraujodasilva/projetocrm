@@ -1233,6 +1233,14 @@ textarea {
     background: rgba(248, 250, 252, .85);
 }
 
+.settings-save-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding-top: 6px;
+}
+
 .settings-panel[data-settings-panel="whatsapp"] {
     display: grid;
     gap: 16px;
@@ -4587,6 +4595,11 @@ textarea {
 
     .settings-panel-head {
         flex-direction: column;
+    }
+
+    .settings-save-row {
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .actions,

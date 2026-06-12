@@ -4373,6 +4373,7 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft settings-group">';
         echo '<h3 style="margin-top:0">Entrada do WhatsApp</h3>';
         echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Motor principal</label><select name="whatsapp_provider"><option value="baileys"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'baileys') ? ' selected' : '') . '>Baileys</option><option value="official"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'official') ? ' selected' : '') . '>API oficial da Meta</option></select><small class="muted">Escolha aqui qual conexão fica como principal neste estúdio.</small></div>';
         echo '<div class="field"><label>Padrão das novas conversas</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select><small class="muted">Define quem assume as conversas que entram agora.</small></div>';
@@ -4418,6 +4419,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Webhook Secret</label><input name="whatsapp_official_webhook_secret" type="password" value="" placeholder="Opcional, se usar assinatura de eventos"><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_webhook_secret'] ?? ''))) . '</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Observações do WhatsApp oficial</label><textarea name="whatsapp_official_notes" placeholder="Ex.: número principal, horário de atendimento, observações do webhook, etc.">' . h($settings['whatsapp_official_notes'] ?? '') . '</textarea><small class="muted">Anotações importantes para a futura ativação da API oficial.</small></div>';
+        echo '<div class="settings-save-row"><div class="muted">Os campos acima são salvos junto com o botão do bloco e com o botão final da página.</div><button class="btn" type="submit" data-settings-submit="whatsapp">Salvar ajustes do WhatsApp</button></div>';
         echo '</div>';
         echo '</div>';
         echo '<div class="panel soft settings-group">';
