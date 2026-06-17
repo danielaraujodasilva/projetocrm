@@ -2896,10 +2896,21 @@ if ($page === 'studio_whatsapp') {
         $conversationsPage = min($conversationsPage, $conversationsTotalPages);
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
-        echo '<section class="quick-actions-grid whatsapp-quick-links row row-cols-1 row-cols-md-2 row-cols-xl-5 g-3">';
+        echo '<section class="panel whatsapp-hero">';
+        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estúdio</div><h2>Central de conversas, conexão e resposta operacional</h2><p class="muted">Acompanhe a sessão Baileys, abra o workspace da conversa e atue sobre os contatos sem sair do CRM.</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
+        echo '<div class="whatsapp-hero-sidebar">';
+        echo '<div class="whatsapp-session-summary-card"><span class="badge ' . h($serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger')) . '">' . h($serviceStateLabel) . '</span><strong>' . h($serviceState === 'connected' ? ('Conectado no numero ' . preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''))) : ($serviceState === 'waiting_qr' ? 'Codigo pronto para parear' : ($serviceState === 'starting' ? 'Solicitando o codigo de pareamento' : ($serviceState === 'disconnected' ? 'Sessao desconectada' : 'Nao conectado')))) . '</strong><span class="muted">' . h(!empty($serviceStatus['pairingCode']) ? 'Use o código abaixo para parear o WhatsApp.' : ($serviceState === 'connected' ? 'A sessão está pronta para receber e responder mensagens.' : 'Use as ações abaixo para iniciar ou recuperar a sessão.')) . '</span></div>';
+        if (!empty($serviceStatus['pairingCode'])) {
+            echo '<div class="wa-pairing-code-inline">' . h((string)$serviceStatus['pairingCode']) . '</div>';
+        }
+        if (!empty($serviceStatus['lastError'])) {
+            echo '<div class="whatsapp-hero-error"><strong>Último erro</strong><span class="muted">' . h((string)$serviceStatus['lastError']) . '</span></div>';
+        }
+        echo '<div class="whatsapp-hero-stats"><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['total']) . '</strong><span>Total de conversas</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['human']) . '</strong><span>Em humano</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['analyzed']) . '</strong><span>Com IA</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)($summary['avg_score'] ?: '-')) . '</strong><span>Nota média</span></div></div>';
+        echo '</div></section>';
+        echo '<section class="quick-actions-grid whatsapp-quick-links row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
         echo '<a class="panel quick-action-card h-100 text-start" href="' . h(app_url('studio_whatsapp_workspace', !empty($conversations[0]['id']) ? ['id' => (int)$conversations[0]['id']] : [])) . '"><strong>Abrir workspace</strong><span>' . h((string)$summary['human']) . ' em humano</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status e pareamento</span><small>Ver conexão, pareamento e ações</small></button>';
-        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openManualMessageOverlay"><strong>Mensagem manual</strong><span>' . h((string)$summary['total']) . ' conversas</span><small>Abrir envio em overlay</small></button>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
         echo '</section>';
