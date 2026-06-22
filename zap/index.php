@@ -24,6 +24,41 @@ function zap_api_url(string $version, string $phoneNumberId): string
     return 'https://graph.facebook.com/' . rawurlencode($version) . '/' . rawurlencode($phoneNumberId) . '/messages';
 }
 
+function zap_token_preview(string $token): string
+{
+    $token = trim($token);
+    if ($token === '') {
+        return 'vazio';
+    }
+
+    $length = strlen($token);
+    $start = substr($token, 0, 8);
+    $end = $length > 14 ? substr($token, -6) : '';
+
+    return $end !== '' ? "{$start}...{$end} ({$length} caracteres)" : "{$start}... ({$length} caracteres)";
+}
+
+function zap_required_report(array $fields): string
+{
+    $missing = [];
+    $lines = [];
+
+    foreach ($fields as $field) {
+        $ok = trim((string)$field['value']) !== '';
+        if (!$ok) {
+            $missing[] = $field['label'];
+        }
+        $lines[] = sprintf(
+            '%s %s: %s',
+            $ok ? '✅' : '❌',
+            $field['label'],
+            $field['preview'] !== '' ? $field['preview'] : 'vazio'
+        );
+    }
+
+    return "Campos faltando exatamente:\n- " . implode("\n- ", $missing) . "\n\nRaio-x do que chegou no servidor:\n" . implode("\n", $lines) . "\n\nSe o campo parecia preenchido na tela mas chegou vazio aqui, o navegador/autocomplete ou o reload do formulário te pregou uma peça. Tecnologia: a arte de perder a paciência com eletricidade organizada.";
+}
+
 function zap_test_webhook(string $webhookUrl, string $verifyToken): array
 {
     $challenge = 'zap-test-' . date('YmdHis');
@@ -94,7 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $apiVersion = zap_post('api_version', $defaults['api_version']);
     $phoneNumberId = zap_post('phone_number_id', $defaults['phone_number_id']);
     $accessToken = zap_post('access_token');
-    $recipientNumber = zap_only_digits(zap_post('recipient_number', $defaults['recipient_number']));
+    $recipientRaw = zap_post('recipient_number', $defaults['recipient_number']);
+    $recipientNumber = zap_only_digits($recipientRaw);
     $messageText = zap_post('message_text', $defaults['message_text']);
     $verifyToken = zap_post('verify_token', $defaults['verify_token']);
     $webhookUrl = zap_post('webhook_url', $defaults['webhook_url']);
@@ -106,7 +142,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = [
                 'ok' => false,
                 'title' => 'Campos obrigatórios faltando',
-                'detail' => 'Preencha Phone Number ID, Access Token e número de destino. A Meta já complica bastante, não vamos ajudar ela.',
+                'detail' => zap_required_report([
+                    [
+                        'label' => 'Phone Number ID',
+                        'value' => $phoneNumberId,
+                        'preview' => $phoneNumberId,
+                    ],
+                    [
+                        'label' => 'Access Token',
+                        'value' => $accessToken,
+                        'preview' => zap_token_preview($accessToken),
+                    ],
+                    [
+                        'label' => 'Número de destino',
+                        'value' => $recipientNumber,
+                        'preview' => $recipientRaw !== $recipientNumber ? "{$recipientRaw} → {$recipientNumber}" : $recipientNumber,
+                    ],
+                ]),
             ];
         } else {
             $payload = [
@@ -151,10 +203,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'test_webhook') {
         if ($webhookUrl === '' || $verifyToken === '') {
+            $missing = [];
+            if ($webhookUrl === '') {
+                $missing[] = 'Webhook URL';
+            }
+            if ($verifyToken === '') {
+                $missing[] = 'Verify Token';
+            }
             $result = [
                 'ok' => false,
                 'title' => 'Webhook incompleto',
-                'detail' => 'Preencha a Webhook URL e o Verify Token.',
+                'detail' => "Campo faltando exatamente:\n- " . implode("\n- ", $missing),
             ];
         } else {
             $result = zap_test_webhook($webhookUrl, $verifyToken);
@@ -181,6 +240,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ],
                 'send_message_endpoint' => zap_api_url($apiVersion, $phoneNumberId),
                 'recipient_number' => $recipientNumber,
+                'diagnostico_envio' => [
+                    'phone_number_id' => $phoneNumberId !== '' ? 'OK' : 'FALTANDO',
+                    'access_token' => $accessToken !== '' ? zap_token_preview($accessToken) : 'FALTANDO',
+                    'recipient_number' => $recipientNumber !== '' ? 'OK: ' . $recipientNumber : 'FALTANDO',
+                ],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
         ];
     }
@@ -232,6 +296,7 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
         pre.result{white-space:pre-wrap;margin:0;max-height:420px;overflow:auto}
         code.block{display:block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:12px;word-break:break-all;color:#0f172a}
         .danger-note{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px}
+        .token-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px 12px;font-size:.9rem}
     </style>
 </head>
 <body>
@@ -322,9 +387,14 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                         <div class="col-12">
                             <label class="form-label fw-semibold">Access Token</label>
                             <div class="input-group">
-                                <input class="form-control mono" id="accessToken" name="access_token" type="password" value="<?= zap_h($defaults['access_token']) ?>" placeholder="Cole aqui o token novo da Meta">
+                                <input class="form-control mono" id="accessToken" name="access_token" type="password" value="<?= zap_h($defaults['access_token']) ?>" placeholder="Cole aqui o token novo da Meta" autocomplete="off" spellcheck="false">
                                 <button class="copy-btn" type="button" id="toggleToken">mostrar</button>
                             </div>
+                            <?php if ($defaults['access_token'] === ''): ?>
+                                <div class="token-warning mt-2">Access Token está vazio nesta tela. Cole o token novo antes de enviar mensagem. Sim, era esse o suspeito principal, o pequeno canalha invisível.</div>
+                            <?php else: ?>
+                                <div class="small-help mt-1">Token recebido nesta rodada: <?= zap_h(zap_token_preview($defaults['access_token'])) ?></div>
+                            <?php endif; ?>
                             <div class="small-help mt-1">Não deixei token salvo no código. Token antigo é igual leite aberto fora da geladeira: joga fora e gera outro.</div>
                         </div>
                     </div>
