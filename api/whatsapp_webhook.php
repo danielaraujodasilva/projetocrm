@@ -36,7 +36,12 @@ function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?ar
         }
     }
 
-    if ($verifyToken === 'Luna*123') {
+    $acceptedTestTokens = [
+        'zap_crm_daniel_2026',
+        'Luna*123',
+    ];
+
+    if (in_array($verifyToken, $acceptedTestTokens, true)) {
         $studios = list_studios();
         if (count($studios) === 1 && is_array($studios[0] ?? null)) {
             return $studios[0];
