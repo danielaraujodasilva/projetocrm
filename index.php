@@ -896,21 +896,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             $_SESSION['studio_whatsapp_official_send_result'] = $result;
 
             if (empty($result['ok'])) {
-                $error = (string)($result['error'] ?? 'Falha ao enviar pela API oficial.');
+                $errorLines = [];
+                $errorLines[] = (string)($result['error'] ?? 'Falha ao enviar pela API oficial.');
 
                 if (!empty($result['status'])) {
-                    $error .= ' | HTTP ' . (string)$result['status'];
+                    $errorLines[] = 'HTTP ' . (string)$result['status'];
                 }
 
                 if (!empty($result['json']['error']['message'])) {
-                    $error .= ' | ' . (string)$result['json']['error']['message'];
+                    $errorLines[] = (string)$result['json']['error']['message'];
                 }
 
                 if (!empty($result['json']['error']['error_data']['details'])) {
-                    $error .= ' | ' . (string)$result['json']['error']['error_data']['details'];
+                    $errorLines[] = (string)$result['json']['error']['error_data']['details'];
                 }
 
-                flash_set('error', $error);
+                $diagnostic = (array)($result['diagnostic'] ?? []);
+                $crmDiag = (array)($diagnostic['crm'] ?? []);
+                $zapDiag = (array)($diagnostic['zap_local_config'] ?? []);
+                $sendDiag = (array)($diagnostic['send'] ?? []);
+                $errorLines[] = 'api_version: ' . (string)($crmDiag['api_version'] ?? '');
+                $errorLines[] = 'phone_number_id: ' . (string)($crmDiag['phone_number_id'] ?? '');
+                $errorLines[] = 'token_preview: ' . (string)($crmDiag['token_preview'] ?? '');
+                $errorLines[] = 'token_length: ' . (string)($crmDiag['token_length'] ?? '');
+                $errorLines[] = 'zap_local_config_exists: ' . (!empty($zapDiag) && !empty($zapDiag['exists']) ? 'SIM' : 'NAO');
+                $errorLines[] = 'zap_token_preview: ' . (string)($zapDiag['token_preview'] ?? 'vazio');
+                $errorLines[] = 'zap_token_length: ' . (string)($zapDiag['token_length'] ?? '0');
+                $errorLines[] = 'same_token_as_crm: ' . (!empty($zapDiag) && !empty($zapDiag['same_token_as_crm']) ? 'SIM' : 'NAO');
+                $errorLines[] = 'same_phone_number_id_as_crm: ' . (!empty($zapDiag) && !empty($zapDiag['same_phone_number_id_as_crm']) ? 'SIM' : 'NAO');
+                $errorLines[] = 'same_api_version_as_crm: ' . (!empty($zapDiag) && !empty($zapDiag['same_api_version_as_crm']) ? 'SIM' : 'NAO');
+                if (isset($sendDiag['to_phone'])) {
+                    $errorLines[] = 'to_phone: ' . (string)$sendDiag['to_phone'];
+                }
+                if (isset($sendDiag['message_length'])) {
+                    $errorLines[] = 'message_length: ' . (string)$sendDiag['message_length'];
+                }
+
+                flash_set('error', implode(' | ', $errorLines));
             } else {
                 $messageId = (string)($result['json']['messages'][0]['id'] ?? '');
                 flash_set('success', 'Mensagem enviada pela API oficial.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
@@ -4486,7 +4508,30 @@ if ($page === 'studio_settings') {
             echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do teste</strong><div class="muted" style="margin-top:8px">' . h((string)($officialTestResult['summary'] ?? ($officialTestResult['error'] ?? ''))) . '</div></div>';
         }
         if ($officialSendResult) {
-            echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do envio</strong><div class="muted" style="margin-top:8px">' . h((string)($officialSendResult['ok'] ? 'Mensagem enviada com sucesso.' : ($officialSendResult['error'] ?? 'Falha no envio.'))) . '</div></div>';
+            $renderWhatsappDiag = static function ($value) use (&$renderWhatsappDiag): string {
+                if (is_array($value)) {
+                    $parts = [];
+                    foreach ($value as $key => $child) {
+                        $parts[] = h((string)$key) . ': ' . $renderWhatsappDiag($child);
+                    }
+                    return implode('<br>', $parts);
+                }
+                if (is_bool($value)) {
+                    return $value ? 'SIM' : 'NAO';
+                }
+                if ($value === null) {
+                    return 'vazio';
+                }
+                return h((string)$value);
+            };
+            echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do envio</strong><div class="muted" style="margin-top:8px">' . h((string)($officialSendResult['ok'] ? 'Mensagem enviada com sucesso.' : ($officialSendResult['error'] ?? 'Falha no envio.'))) . '</div>';
+            if (!empty($officialSendResult['diagnostic']) && is_array($officialSendResult['diagnostic'])) {
+                echo '<div class="muted" style="margin-top:10px"><strong>Diagnostico seguro</strong><div style="margin-top:6px;line-height:1.6">' . $renderWhatsappDiag($officialSendResult['diagnostic']) . '</div></div>';
+            }
+            if (!empty($officialSendResult['json']) && is_array($officialSendResult['json'])) {
+                echo '<div class="muted" style="margin-top:10px"><strong>Resposta da Meta</strong><pre style="white-space:pre-wrap;margin:6px 0 0">' . h(json_encode($officialSendResult['json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) . '</pre></div>';
+            }
+            echo '</div>';
         }
         echo '<div class="settings-howto">';
         echo '<h3 style="margin-top:0">Como testar agora</h3>';

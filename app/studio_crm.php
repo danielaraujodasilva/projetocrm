@@ -357,6 +357,36 @@ function studio_whatsapp_official_configured(array $studio): bool
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
 }
 
+function studio_mask_token_preview(string $token): string
+{
+    $token = trim($token);
+    if ($token === '') {
+        return 'vazio';
+    }
+
+    $length = strlen($token);
+    $start = substr($token, 0, 8);
+    $end = $length > 14 ? substr($token, -6) : '';
+
+    return $end !== '' ? $start . '...' . $end . ' (' . $length . ' caracteres)' : $start . '... (' . $length . ' caracteres)';
+}
+
+function studio_whatsapp_zap_local_config(): array
+{
+    $path = APP_BASE_PATH . '/storage/zap_api_config.local.json';
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $raw = file_get_contents($path);
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
 function crm_whatsapp_official_apply_defaults(array $studio): void
 {
     $settings = studio_settings($studio);
@@ -3975,9 +4005,32 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
     $message = trim($message);
+    $zapConfig = studio_whatsapp_zap_local_config();
+    $diagnostic = [
+        'crm' => [
+            'api_version' => $version,
+            'phone_number_id' => $phoneNumberId,
+            'token_preview' => studio_mask_token_preview($accessToken),
+            'token_length' => strlen($accessToken),
+        ],
+        'zap_local_config' => [
+            'exists' => !empty($zapConfig),
+            'api_version' => (string)($zapConfig['api_version'] ?? ''),
+            'phone_number_id' => (string)($zapConfig['phone_number_id'] ?? ''),
+            'token_preview' => studio_mask_token_preview((string)($zapConfig['access_token'] ?? '')),
+            'token_length' => strlen((string)($zapConfig['access_token'] ?? '')),
+            'same_token_as_crm' => hash_equals($accessToken, (string)($zapConfig['access_token'] ?? '')),
+            'same_phone_number_id_as_crm' => $phoneNumberId === (string)($zapConfig['phone_number_id'] ?? ''),
+            'same_api_version_as_crm' => $version === (string)($zapConfig['api_version'] ?? ''),
+        ],
+        'send' => [
+            'to_phone' => $toPhone,
+            'message_length' => strlen($message),
+        ],
+    ];
 
     if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $message === '') {
-        return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.'];
+        return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.', 'diagnostic' => $diagnostic];
     }
 
     $payload = [
@@ -3987,7 +4040,13 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         'text' => ['body' => $message],
     ];
 
-    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
+    $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
+    $result['diagnostic'] = $diagnostic;
+    if (empty($result['ok'])) {
+        return $result;
+    }
+
+    return $result;
 }
 
 function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
