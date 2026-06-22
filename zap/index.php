@@ -24,6 +24,60 @@ function zap_api_url(string $version, string $phoneNumberId): string
     return 'https://graph.facebook.com/' . rawurlencode($version) . '/' . rawurlencode($phoneNumberId) . '/messages';
 }
 
+function zap_config_path(): string
+{
+    return APP_BASE_PATH . '/storage/zap_api_config.local.json';
+}
+
+function zap_load_saved_config(): array
+{
+    $path = zap_config_path();
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $content = file_get_contents($path);
+    if (!is_string($content) || trim($content) === '') {
+        return [];
+    }
+
+    $data = json_decode($content, true);
+    return is_array($data) ? $data : [];
+}
+
+function zap_save_config(array $config): bool
+{
+    $dir = dirname(zap_config_path());
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return false;
+    }
+
+    $safeConfig = [
+        'api_version' => trim((string)($config['api_version'] ?? '')),
+        'app_id' => trim((string)($config['app_id'] ?? '')),
+        'waba_id' => trim((string)($config['waba_id'] ?? '')),
+        'phone_number_id' => trim((string)($config['phone_number_id'] ?? '')),
+        'access_token' => trim((string)($config['access_token'] ?? '')),
+        'recipient_number' => zap_only_digits((string)($config['recipient_number'] ?? '')),
+        'verify_token' => trim((string)($config['verify_token'] ?? '')),
+        'webhook_url' => trim((string)($config['webhook_url'] ?? '')),
+        'updated_at' => date('c'),
+    ];
+
+    $saved = file_put_contents(
+        zap_config_path(),
+        json_encode($safeConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        LOCK_EX
+    );
+
+    if ($saved === false) {
+        return false;
+    }
+
+    @chmod(zap_config_path(), 0600);
+    return true;
+}
+
 function zap_token_preview(string $token): string
 {
     $token = trim($token);
@@ -93,6 +147,28 @@ function zap_test_webhook(string $webhookUrl, string $verifyToken): array
     ];
 }
 
+function zap_api_error_hint(array $decoded, string $recipientNumber, string $officialNumber): string
+{
+    $hint = [];
+    $hint[] = 'Diagnóstico provável:';
+
+    if ($recipientNumber === zap_only_digits($officialNumber)) {
+        $hint[] = '- O número de destino era o próprio número oficial da API. Isso costuma dar ruim. Troquei o padrão para seu particular: 5511947573311.';
+    }
+
+    $hint[] = '- Confira se o número de destino está com DDI + DDD + número, só dígitos. Agora ficou 5511947573311.';
+    $hint[] = '- Se for primeiro contato fora da janela de 24h, a Meta pode exigir template aprovado em vez de texto livre.';
+    $hint[] = '- Se o token estiver certo e o Phone Number ID estiver certo, esse #100 geralmente aponta para algum parâmetro do payload, quase sempre o campo to ou tipo de mensagem permitido.';
+
+    if (isset($decoded['error'])) {
+        $hint[] = '';
+        $hint[] = 'Resposta bruta da Meta:';
+        $hint[] = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    }
+
+    return implode("\n", $hint);
+}
+
 $known = [
     'app_name' => 'mkt_danieltatuador',
     'app_id' => '2034781270582768',
@@ -110,25 +186,42 @@ $legacy = [
     'display_number' => '+1 555-101-5039',
 ];
 
-$defaults = [
+$savedConfig = zap_load_saved_config();
+$defaults = array_merge([
     'api_version' => $known['api_version'],
     'app_id' => $known['app_id'],
     'waba_id' => $known['waba_id'],
     'phone_number_id' => $known['phone_number_id'],
     'access_token' => '',
-    'recipient_number' => zap_only_digits($known['display_number']),
+    'recipient_number' => '5511947573311',
     'verify_token' => $known['verify_token'],
     'message_text' => 'Teste da API oficial do WhatsApp pelo painel Zap do Projetocrm.',
     'webhook_url' => $known['webhook_url'],
-];
+], array_intersect_key($savedConfig, array_flip([
+    'api_version',
+    'app_id',
+    'waba_id',
+    'phone_number_id',
+    'access_token',
+    'recipient_number',
+    'verify_token',
+    'message_text',
+    'webhook_url',
+])));
+
+if (($defaults['recipient_number'] ?? '') === zap_only_digits($known['display_number'])) {
+    $defaults['recipient_number'] = '5511947573311';
+}
 
 $result = null;
+$configSaved = is_file(zap_config_path());
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = zap_post('action');
     $apiVersion = zap_post('api_version', $defaults['api_version']);
     $phoneNumberId = zap_post('phone_number_id', $defaults['phone_number_id']);
-    $accessToken = zap_post('access_token');
+    $postedAccessToken = zap_post('access_token');
+    $accessToken = $postedAccessToken !== '' ? $postedAccessToken : (string)($defaults['access_token'] ?? '');
     $recipientRaw = zap_post('recipient_number', $defaults['recipient_number']);
     $recipientNumber = zap_only_digits($recipientRaw);
     $messageText = zap_post('message_text', $defaults['message_text']);
@@ -137,7 +230,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $wabaId = zap_post('waba_id', $defaults['waba_id']);
     $appId = zap_post('app_id', $defaults['app_id']);
 
-    if ($action === 'send_test') {
+    if (in_array($action, ['send_test', 'test_webhook', 'preview_payload', 'save_config'], true)) {
+        $configSaved = zap_save_config([
+            'api_version' => $apiVersion,
+            'app_id' => $appId,
+            'waba_id' => $wabaId,
+            'phone_number_id' => $phoneNumberId,
+            'access_token' => $accessToken,
+            'recipient_number' => $recipientNumber,
+            'verify_token' => $verifyToken,
+            'webhook_url' => $webhookUrl,
+        ]);
+    }
+
+    if ($action === 'save_config') {
+        $result = [
+            'ok' => $configSaved,
+            'title' => $configSaved ? 'Configuração salva' : 'Não consegui salvar a configuração',
+            'detail' => $configSaved
+                ? 'Token e dados salvos em storage/zap_api_config.local.json no servidor. Esse arquivo é local e não entra no GitHub.'
+                : 'Falha ao gravar em storage/zap_api_config.local.json. Confira permissão da pasta storage.',
+        ];
+    } elseif ($action === 'send_test') {
         if ($phoneNumberId === '' || $accessToken === '' || $recipientNumber === '') {
             $result = [
                 'ok' => false,
@@ -193,10 +307,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
             } else {
                 $decoded = json_decode($responseBody, true);
+                $ok = $httpCode >= 200 && $httpCode < 300;
                 $result = [
-                    'ok' => $httpCode >= 200 && $httpCode < 300,
-                    'title' => $httpCode >= 200 && $httpCode < 300 ? 'Mensagem enviada' : 'Erro na API',
-                    'detail' => is_array($decoded) ? json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) : $responseBody,
+                    'ok' => $ok,
+                    'title' => $ok ? 'Mensagem enviada' : 'Erro na API',
+                    'detail' => is_array($decoded)
+                        ? ($ok ? json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) : zap_api_error_hint($decoded, $recipientNumber, $known['display_number']))
+                        : $responseBody,
                     'http_code' => $httpCode,
                 ];
             }
@@ -244,6 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'phone_number_id' => $phoneNumberId !== '' ? 'OK' : 'FALTANDO',
                     'access_token' => $accessToken !== '' ? zap_token_preview($accessToken) : 'FALTANDO',
                     'recipient_number' => $recipientNumber !== '' ? 'OK: ' . $recipientNumber : 'FALTANDO',
+                    'config_saved' => $configSaved ? 'SIM' : 'NAO',
                 ],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
         ];
@@ -297,6 +415,7 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
         code.block{display:block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:12px;word-break:break-all;color:#0f172a}
         .danger-note{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px}
         .token-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px 12px;font-size:.9rem}
+        .token-ok{background:#ecfdf5;border:1px solid #bbf7d0;color:#14532d;border-radius:14px;padding:10px 12px;font-size:.9rem}
     </style>
 </head>
 <body>
@@ -319,9 +438,9 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                     </div>
                     <div class="col-6">
                         <div class="mini-card bg-transparent border-light text-white">
-                            <div class="small text-white-50">Número provável</div>
-                            <strong><?= zap_h($known['display_number']) ?></strong>
-                            <div class="mono text-white-50 mt-1"><?= zap_h($defaults['phone_number_id']) ?></div>
+                            <div class="small text-white-50">Destino teste</div>
+                            <strong>+55 11 94757-3311</strong>
+                            <div class="mono text-white-50 mt-1"><?= zap_h($defaults['recipient_number']) ?></div>
                         </div>
                     </div>
                 </div>
@@ -350,7 +469,7 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                             <h2 class="h4 mb-1">Dados principais</h2>
                             <p class="small-help mb-0">Já deixei preenchido com o conjunto mais provável. Todos os campos continuam editáveis porque a Meta adora fazer a gente duvidar da realidade.</p>
                         </div>
-                        <span class="badge rounded-pill text-bg-success"><span class="status-dot"></span>Pré-configurado</span>
+                        <span class="badge rounded-pill <?= $configSaved ? 'text-bg-success' : 'text-bg-warning' ?>"><span class="status-dot"></span><?= $configSaved ? 'Config salva' : 'Ainda não salvo' ?></span>
                     </div>
 
                     <div class="row g-3">
@@ -391,11 +510,11 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                                 <button class="copy-btn" type="button" id="toggleToken">mostrar</button>
                             </div>
                             <?php if ($defaults['access_token'] === ''): ?>
-                                <div class="token-warning mt-2">Access Token está vazio nesta tela. Cole o token novo antes de enviar mensagem. Sim, era esse o suspeito principal, o pequeno canalha invisível.</div>
+                                <div class="token-warning mt-2">Access Token está vazio nesta tela. Cole o token novo uma vez e clique em salvar ou enviar. Depois ele fica salvo localmente no servidor.</div>
                             <?php else: ?>
-                                <div class="small-help mt-1">Token recebido nesta rodada: <?= zap_h(zap_token_preview($defaults['access_token'])) ?></div>
+                                <div class="token-ok mt-2">Token salvo/carregado: <?= zap_h(zap_token_preview($defaults['access_token'])) ?></div>
                             <?php endif; ?>
-                            <div class="small-help mt-1">Não deixei token salvo no código. Token antigo é igual leite aberto fora da geladeira: joga fora e gera outro.</div>
+                            <div class="small-help mt-1">O token é salvo em <span class="mono">storage/zap_api_config.local.json</span>, fora do GitHub.</div>
                         </div>
                     </div>
                 </div>
@@ -408,7 +527,7 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                         <div class="col-md-5">
                             <label class="form-label fw-semibold">Número de destino</label>
                             <input class="form-control mono" name="recipient_number" value="<?= zap_h($defaults['recipient_number']) ?>" placeholder="5511999999999">
-                            <div class="small-help mt-1">Use DDI + DDD + número. Ex: 5511957867798.</div>
+                            <div class="small-help mt-1">Use DDI + DDD + número. Seu particular ficou: <span class="mono">5511947573311</span>.</div>
                         </div>
                         <div class="col-md-7">
                             <label class="form-label fw-semibold">Endpoint gerado</label>
@@ -422,9 +541,10 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                             <textarea class="form-control" name="message_text" rows="4"><?= zap_h($defaults['message_text']) ?></textarea>
                         </div>
                         <div class="col-12 d-flex flex-wrap gap-2">
-                            <button class="btn btn-zap" type="submit" name="action" value="send_test">Enviar mensagem de teste</button>
-                            <button class="btn btn-outline-success" type="submit" name="action" value="test_webhook">Testar webhook agora</button>
-                            <button class="btn btn-outline-secondary" type="submit" name="action" value="preview_payload">Ver dados prontos</button>
+                            <button class="btn btn-zap" type="submit" name="action" value="send_test">Salvar e enviar mensagem de teste</button>
+                            <button class="btn btn-outline-success" type="submit" name="action" value="test_webhook">Salvar e testar webhook</button>
+                            <button class="btn btn-outline-secondary" type="submit" name="action" value="preview_payload">Salvar e ver dados prontos</button>
+                            <button class="btn btn-outline-dark" type="submit" name="action" value="save_config">Só salvar dados</button>
                         </div>
                     </div>
                 </div>
@@ -437,7 +557,7 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                     <h2 class="h5 mb-3">Ordem certa da bagunça</h2>
                     <div class="step">
                         <div class="step-num">1</div>
-                        <div><strong>Gerar token novo</strong><div class="small-help">Permissões: <span class="mono">whatsapp_business_messaging</span> e <span class="mono">whatsapp_business_management</span>.</div></div>
+                        <div><strong>Gerar token novo</strong><div class="small-help">Cole aqui uma vez. A página salva localmente no servidor.</div></div>
                     </div>
                     <div class="step">
                         <div class="step-num">2</div>
@@ -445,11 +565,11 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                     </div>
                     <div class="step">
                         <div class="step-num">3</div>
-                        <div><strong>Testar webhook</strong><div class="small-help">Tem que responder exatamente o challenge. Sem HTML, sem drama, sem poesia.</div></div>
+                        <div><strong>Testar webhook</strong><div class="small-help">Tem que responder exatamente o challenge. Essa parte já funcionou.</div></div>
                     </div>
                     <div class="step">
                         <div class="step-num">4</div>
-                        <div><strong>Enviar mensagem</strong><div class="small-help">Se falhar, olhe HTTP e JSON da Meta. Ela costuma confessar o crime ali.</div></div>
+                        <div><strong>Enviar mensagem</strong><div class="small-help">Agora usando seu particular como destino padrão.</div></div>
                     </div>
                 </div>
             </div>
@@ -466,6 +586,11 @@ $sendEndpoint = zap_api_url($defaults['api_version'], $defaults['phone_number_id
                     <div class="small-help">Número oficial provável</div>
                     <code class="block mono"><?= zap_h($known['display_number']) ?></code>
                 </div>
+            </div>
+
+            <div class="danger-note mb-4">
+                <strong>Erro #100 que apareceu</strong>
+                <div class="mt-2 small">O dado mais suspeito era o destino: estava usando o próprio número oficial. Agora o padrão é seu particular. Se ainda der #100, provavelmente será janela de 24h/template ou Phone Number ID/token incompatível.</div>
             </div>
 
             <div class="danger-note mb-4">
