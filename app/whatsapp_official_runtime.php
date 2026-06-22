@@ -71,25 +71,6 @@ function crm_whatsapp_official_ensure_schema(array $studio): void
     }
 }
 
-function crm_whatsapp_official_apply_defaults(array $studio): void
-{
-    crm_whatsapp_official_ensure_schema($studio);
-    try {
-        $pdo = studio_db($studio);
-        $defaults = crm_whatsapp_official_defaults();
-        $sets = [];
-        $params = [];
-        foreach ($defaults as $column => $value) {
-            $sets[] = '`' . str_replace('`', '', $column) . '` = ?';
-            $params[] = $value;
-        }
-        $sets[] = '`updated_at` = NOW()';
-        $sql = 'UPDATE `studio_settings` SET ' . implode(', ', $sets) . ' WHERE `id` = 1';
-        $pdo->prepare($sql)->execute($params);
-    } catch (Throwable) {
-    }
-}
-
 function crm_whatsapp_official_prepare_post_settings(): void
 {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
