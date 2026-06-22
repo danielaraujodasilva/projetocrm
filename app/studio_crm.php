@@ -4000,18 +4000,29 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
     }
 
-    $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
-    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
-    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $crmVersion = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $crmPhoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $zapConfig = studio_whatsapp_zap_local_config();
+
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+
+    $source = $useZapLocalConfig ? 'zap_local_config' : 'crm_settings';
+    $accessToken = $useZapLocalConfig ? trim((string)$zapConfig['access_token']) : $crmAccessToken;
+    $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
+    $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
     $message = trim($message);
-    $zapConfig = studio_whatsapp_zap_local_config();
     $diagnostic = [
+        'source' => $source,
         'crm' => [
-            'api_version' => $version,
-            'phone_number_id' => $phoneNumberId,
-            'token_preview' => studio_mask_token_preview($accessToken),
-            'token_length' => strlen($accessToken),
+            'api_version' => $crmVersion,
+            'phone_number_id' => $crmPhoneNumberId,
+            'token_preview' => studio_mask_token_preview($crmAccessToken),
+            'token_length' => strlen($crmAccessToken),
         ],
         'zap_local_config' => [
             'exists' => !empty($zapConfig),
@@ -4019,9 +4030,9 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
             'phone_number_id' => (string)($zapConfig['phone_number_id'] ?? ''),
             'token_preview' => studio_mask_token_preview((string)($zapConfig['access_token'] ?? '')),
             'token_length' => strlen((string)($zapConfig['access_token'] ?? '')),
-            'same_token_as_crm' => hash_equals($accessToken, (string)($zapConfig['access_token'] ?? '')),
-            'same_phone_number_id_as_crm' => $phoneNumberId === (string)($zapConfig['phone_number_id'] ?? ''),
-            'same_api_version_as_crm' => $version === (string)($zapConfig['api_version'] ?? ''),
+            'same_token_as_crm' => hash_equals($crmAccessToken, (string)($zapConfig['access_token'] ?? '')),
+            'same_phone_number_id_as_crm' => $crmPhoneNumberId === (string)($zapConfig['phone_number_id'] ?? ''),
+            'same_api_version_as_crm' => $crmVersion === (string)($zapConfig['api_version'] ?? ''),
         ],
         'send' => [
             'to_phone' => $toPhone,
