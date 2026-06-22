@@ -40,3 +40,4 @@ $GLOBALS['app_config'] = [
 
 require APP_BASE_PATH . '/app/functions.php';
 require APP_BASE_PATH . '/app/studio_crm.php';
+require_once __DIR__ . '/whatsapp_official_runtime.php';
