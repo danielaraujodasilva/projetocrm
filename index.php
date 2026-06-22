@@ -879,12 +879,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
 
         if ($action === 'send_whatsapp_official_test_message') {
             $studio = require_studio();
-            $_SESSION['studio_whatsapp_official_send_result'] = studio_whatsapp_official_send_text(
+
+            if (function_exists('crm_whatsapp_official_apply_defaults')) {
+                crm_whatsapp_official_apply_defaults($studio);
+            }
+
+            $toPhone = (string)($_POST['to_phone'] ?? $_POST['phone'] ?? $_POST['numero'] ?? '');
+            $message = (string)($_POST['message'] ?? $_POST['mensagem'] ?? '');
+
+            $result = studio_whatsapp_official_send_text(
                 $studio,
-                (string)($_POST['to_phone'] ?? ''),
-                (string)($_POST['message'] ?? '')
+                $toPhone,
+                $message
             );
-            flash_set('success', 'Tentativa de envio registrada.');
+
+            $_SESSION['studio_whatsapp_official_send_result'] = $result;
+
+            if (empty($result['ok'])) {
+                $error = (string)($result['error'] ?? 'Falha ao enviar pela API oficial.');
+
+                if (!empty($result['status'])) {
+                    $error .= ' | HTTP ' . (string)$result['status'];
+                }
+
+                if (!empty($result['json']['error']['message'])) {
+                    $error .= ' | ' . (string)$result['json']['error']['message'];
+                }
+
+                if (!empty($result['json']['error']['error_data']['details'])) {
+                    $error .= ' | ' . (string)$result['json']['error']['error_data']['details'];
+                }
+
+                flash_set('error', $error);
+            } else {
+                $messageId = (string)($result['json']['messages'][0]['id'] ?? '');
+                flash_set('success', 'Mensagem enviada pela API oficial.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
+            }
+
             redirect_to('studio_settings', ['tab' => 'whatsapp']);
         }
 

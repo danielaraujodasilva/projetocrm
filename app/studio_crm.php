@@ -357,6 +357,36 @@ function studio_whatsapp_official_configured(array $studio): bool
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
 }
 
+function crm_whatsapp_official_apply_defaults(array $studio): void
+{
+    $settings = studio_settings($studio);
+    $updates = [];
+
+    foreach ([
+        'whatsapp_official_mode' => 'production',
+        'whatsapp_official_api_version' => 'v23.0',
+        'whatsapp_official_phone_number_id' => '1186818641175044',
+    ] as $key => $default) {
+        if (trim((string)($settings[$key] ?? '')) === '' && $default !== '') {
+            $updates[$key] = $default;
+        }
+    }
+
+    if (!$updates) {
+        return;
+    }
+
+    $assignments = [];
+    $params = [];
+    foreach ($updates as $key => $value) {
+        $assignments[] = $key . ' = ?';
+        $params[] = $value;
+    }
+    $params[] = (int)$studio['id'];
+
+    studio_db($studio)->prepare('UPDATE studio_settings SET ' . implode(', ', $assignments) . ', updated_at = NOW() WHERE id = ?')->execute($params);
+}
+
 function studio_whatsapp_official_status(array $studio): array
 {
     $settings = studio_settings($studio);
@@ -3941,15 +3971,8 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     }
 
     $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
-    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
-    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
-    if (!in_array($mode, ['production', 'sandbox'], true)) {
-        $mode = 'production';
-    }
-    $phoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
-    if ($mode === 'sandbox' && preg_match('/^https?:\\/\\//', $toPhone)) {
-        $toPhone = preg_replace('/\\D+/', '', parse_url($toPhone, PHP_URL_HOST) ?: '') ?: '';
-    }
+    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $phoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
     $message = trim($message);
 
@@ -3963,9 +3986,6 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         'type' => 'text',
         'text' => ['body' => $message],
     ];
-    if ($mode === 'sandbox') {
-        $payload['preview_url'] = false;
-    }
 
     return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
 }
