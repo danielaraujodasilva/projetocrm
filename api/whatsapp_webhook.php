@@ -81,6 +81,96 @@ function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?ar
     return null;
 }
 
+function find_official_whatsapp_studio_by_phone_id(string $phoneNumberId): ?array
+{
+    if ($phoneNumberId === '') {
+        return null;
+    }
+    foreach (list_studios() as $studio) {
+        if (!is_array($studio)) {
+            continue;
+        }
+        try {
+            if (function_exists('crm_whatsapp_official_apply_defaults')) {
+                crm_whatsapp_official_apply_defaults($studio);
+            }
+            $settings = studio_settings($studio);
+        } catch (Throwable) {
+            continue;
+        }
+        $configuredPhoneId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+        $configuredTestPhoneId = trim((string)($settings['whatsapp_official_test_phone_number_id'] ?? ''));
+        if ($phoneNumberId === $configuredPhoneId || $phoneNumberId === $configuredTestPhoneId) {
+            return $studio;
+        }
+    }
+    return null;
+}
+
+function whatsapp_official_record_status(array $studio, array $status): void
+{
+    $messageId = (string)($status['id'] ?? '');
+    $recipientId = (string)($status['recipient_id'] ?? '');
+    $state = (string)($status['status'] ?? '');
+    if ($messageId === '' || $state === '') {
+        return;
+    }
+    try {
+        studio_record_whatsapp_message($studio, [
+            'statusUpdate' => true,
+            'messageId' => $messageId,
+            'remoteJid' => $recipientId,
+            'status' => $state,
+        ]);
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'crm_record_status_error', 'error' => $e->getMessage(), 'message_id' => $messageId]);
+    }
+}
+
+function whatsapp_official_record_message(array $studio, array $message, array $contacts = []): void
+{
+    $from = preg_replace('/\D+/', '', (string)($message['from'] ?? '')) ?: '';
+    if ($from === '') {
+        return;
+    }
+
+    $name = '';
+    foreach ($contacts as $contact) {
+        if (!is_array($contact)) {
+            continue;
+        }
+        if ((string)($contact['wa_id'] ?? '') === $from) {
+            $profile = is_array($contact['profile'] ?? null) ? $contact['profile'] : [];
+            $name = trim((string)($profile['name'] ?? ''));
+            break;
+        }
+    }
+
+    $type = (string)($message['type'] ?? 'text');
+    $body = '';
+    if ($type === 'text' && is_array($message['text'] ?? null)) {
+        $body = (string)($message['text']['body'] ?? '');
+    } elseif (is_array($message[$type] ?? null)) {
+        $body = trim((string)($message[$type]['caption'] ?? ''));
+    }
+
+    try {
+        studio_record_whatsapp_message($studio, [
+            'numero' => $from,
+            'name' => $name,
+            'mensagem' => $body !== '' ? $body : '[' . $type . ']',
+            'fromMe' => false,
+            'senderType' => 'customer',
+            'messageId' => (string)($message['id'] ?? ''),
+            'remoteJid' => $from,
+            'timestamp' => (int)($message['timestamp'] ?? time()),
+            'tipoMensagem' => $type !== '' ? $type : 'texto',
+        ]);
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'crm_record_message_error', 'error' => $e->getMessage(), 'from' => $from]);
+    }
+}
+
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 
 if ($method === 'GET') {
@@ -142,26 +232,9 @@ foreach ($entries as $entry) {
         $phoneNumberId = trim((string)($metadata['phone_number_id'] ?? ''));
         $verifyToken = trim((string)($value['verify_token'] ?? ''));
 
-        $studio = null;
-        foreach (list_studios() as $candidate) {
-            if (!is_array($candidate)) {
-                continue;
-            }
-            try {
-                $settings = studio_settings($candidate);
-            } catch (Throwable) {
-                continue;
-            }
-            $configuredPhoneId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
-            $configuredToken = trim((string)($settings['whatsapp_official_verify_token'] ?? ''));
-            if ($phoneNumberId !== '' && $configuredPhoneId === $phoneNumberId) {
-                $studio = $candidate;
-                break;
-            }
-            if ($verifyToken !== '' && $configuredToken === $verifyToken) {
-                $studio = $candidate;
-                break;
-            }
+        $studio = find_official_whatsapp_studio_by_phone_id($phoneNumberId);
+        if (!$studio && $verifyToken !== '') {
+            $studio = find_official_whatsapp_studio_by_verify_token($verifyToken);
         }
 
         $statuses = is_array($value['statuses'] ?? null) ? $value['statuses'] : [];
@@ -180,8 +253,12 @@ foreach ($entries as $entry) {
                 'pricing' => $status['pricing'] ?? [],
                 'studio_id' => is_array($studio) ? (int)$studio['id'] : null,
             ]);
+            if ($studio) {
+                whatsapp_official_record_status($studio, $status);
+            }
         }
 
+        $contacts = is_array($value['contacts'] ?? null) ? $value['contacts'] : [];
         $messages = is_array($value['messages'] ?? null) ? $value['messages'] : [];
         foreach ($messages as $message) {
             if (!is_array($message)) {
@@ -196,6 +273,9 @@ foreach ($entries as $entry) {
                 'text' => is_array($message['text'] ?? null) ? (string)($message['text']['body'] ?? '') : '',
                 'studio_id' => is_array($studio) ? (int)$studio['id'] : null,
             ]);
+            if ($studio) {
+                whatsapp_official_record_message($studio, $message, $contacts);
+            }
         }
 
         if (!$studio) {
