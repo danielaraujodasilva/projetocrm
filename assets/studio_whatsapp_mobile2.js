@@ -469,6 +469,18 @@
     return '<div class="m2-audio-widget" data-audio-src="' + src + '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' + src + '" preload="metadata"></audio></div>';
   }
 
+  function upgradeNativeAudioPlayers(root) {
+    (root || document).querySelectorAll('.m2-bubble audio[controls]:not(.m2-audio-native)').forEach(function (audio) {
+      var src = audio.getAttribute('src') || audio.currentSrc || '';
+      if (!src || audio.closest('.m2-audio-widget')) return;
+      var wrapper = document.createElement('div');
+      wrapper.innerHTML = renderAudioWidget(src);
+      var widget = wrapper.firstElementChild;
+      if (!widget) return;
+      audio.replaceWith(widget);
+    });
+  }
+
   function renderMessage(message) {
     var direction = String(message?.direction || 'in') === 'out' ? 'out' : 'in';
     var body = String(message?.body || '');
@@ -537,6 +549,7 @@
       if (!force && latest && latest === messages.dataset.latestKey) return;
       messages.innerHTML = data.messages.map(renderMessage).join('');
       messages.dataset.latestKey = latest;
+      upgradeNativeAudioPlayers(messages);
       initAudioWidgets(messages);
       autoTranscribePending(messages);
       if (nearBottom || force) {
@@ -636,8 +649,17 @@
     });
   }
 
+  upgradeNativeAudioPlayers(messages || document);
   initAudioWidgets(messages || document);
   autoTranscribePending(messages || document);
+  if (messages && window.MutationObserver) {
+    var audioUpgradeObserver = new MutationObserver(function () {
+      upgradeNativeAudioPlayers(messages);
+      initAudioWidgets(messages);
+      autoTranscribePending(messages);
+    });
+    audioUpgradeObserver.observe(messages, { childList: true, subtree: true });
+  }
   scheduleScroll();
   window.setTimeout(function () {
     refreshMessages(true);
