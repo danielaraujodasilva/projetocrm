@@ -459,6 +459,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             redirect_to('studio', ['id' => (int)$studio['id']]);
         }
 
+        if ($action === 'save_studio_attendant') {
+            $studio = require_studio();
+            $currentAdmin = current_admin();
+            $currentStudioUser = current_studio_user();
+            $canManage = $currentAdmin || (
+                is_array($currentStudioUser)
+                && (string)($currentStudioUser['role'] ?? '') === 'owner'
+                && (int)($currentStudioUser['studio_id'] ?? 0) === (int)$studio['id']
+            );
+            if (!$canManage) {
+                throw new RuntimeException('Acesso negado.');
+            }
+            $savedId = studio_save_attendant_user($studio, $_POST);
+            flash_set('success', $savedId > 0 ? 'Atendente salvo.' : 'Atendente atualizado.');
+            redirect_to('studio_attendants', ['studio_id' => (int)$studio['id']]);
+        }
+
+        if ($action === 'delete_studio_attendant') {
+            $studio = require_studio();
+            $currentAdmin = current_admin();
+            $currentStudioUser = current_studio_user();
+            $canManage = $currentAdmin || (
+                is_array($currentStudioUser)
+                && (string)($currentStudioUser['role'] ?? '') === 'owner'
+                && (int)($currentStudioUser['studio_id'] ?? 0) === (int)$studio['id']
+            );
+            if (!$canManage) {
+                throw new RuntimeException('Acesso negado.');
+            }
+            $userId = (int)($_POST['id'] ?? 0);
+            if ($currentAdmin && (int)($currentAdmin['id'] ?? 0) === $userId) {
+                throw new RuntimeException('Nao e permitido excluir seu proprio acesso.');
+            }
+            if ($currentStudioUser && (int)($currentStudioUser['id'] ?? 0) === $userId) {
+                throw new RuntimeException('Nao e permitido excluir seu proprio acesso.');
+            }
+            studio_delete_attendant_user($studio, $userId);
+            flash_set('success', 'Atendente excluido.');
+            redirect_to('studio_attendants', ['studio_id' => (int)$studio['id']]);
+        }
+
         if ($action === 'install_studio_database') {
             require_admin();
             $studio = get_studio((int)($_POST['studio_id'] ?? 0));
@@ -5670,6 +5711,14 @@ if ($page === 'studio_attendants') {
         flash_set('error', 'Estudio nao encontrado.');
         redirect_to('studios');
     }
+    $editingUser = null;
+    $editUserId = (int)($_GET['user_id'] ?? 0);
+    if ($editUserId > 0) {
+        $candidate = studio_find_user($editUserId);
+        if (is_array($candidate) && (int)($candidate['studio_id'] ?? 0) === (int)$studio['id']) {
+            $editingUser = $candidate;
+        }
+    }
     $canManageAttendants = $admin || (
         is_array($studioUser)
         && (string)($studioUser['role'] ?? '') === 'owner'
@@ -5708,12 +5757,23 @@ if ($page === 'studio_attendants') {
         echo '</form>';
         echo '</section>';
 
-        echo '<section class="panel" style="margin-top:16px"><h2>Acessos cadastrados</h2>';
         $users = studio_users((int)$studio['id']);
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><h2 style="margin:0">Acessos cadastrados</h2><span class="badge">' . h((string)count($users)) . ' usuários</span></div>';
         if ($users) {
-            echo '<table class="table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Ativo</th><th>Último login</th></tr></thead><tbody>';
+            echo '<table class="table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Ativo</th><th>Último login</th><th></th></tr></thead><tbody>';
             foreach ($users as $user) {
-                echo '<tr><td>' . h($user['name']) . '</td><td>' . h($user['email']) . '</td><td>' . h($user['role']) . '</td><td>' . h(!empty($user['is_active']) ? 'sim' : 'nao') . '</td><td>' . h($user['last_login_at'] ?? '-') . '</td></tr>';
+                echo '<tr>';
+                echo '<td>' . h($user['name']) . '</td><td>' . h($user['email']) . '</td><td>' . h($user['role']) . '</td><td>' . h(!empty($user['is_active']) ? 'sim' : 'nao') . '</td><td>' . h($user['last_login_at'] ?? '-') . '</td>';
+                echo '<td><div class="actions" style="justify-content:flex-end">';
+                echo '<a class="btn tiny secondary" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id'], 'user_id' => (int)$user['id']])) . '">Editar</a>';
+                echo '<form method="post" onsubmit="return confirm(\'Excluir este atendente?\');" style="margin:0">';
+                echo csrf_field();
+                echo '<input type="hidden" name="action" value="delete_studio_attendant">';
+                echo '<input type="hidden" name="id" value="' . h((string)$user['id']) . '">';
+                echo '<button class="btn tiny secondary" type="submit">Excluir</button>';
+                echo '</form>';
+                echo '</div></td>';
+                echo '</tr>';
             }
             echo '</tbody></table>';
         } else {
@@ -5722,17 +5782,30 @@ if ($page === 'studio_attendants') {
         echo '</section>';
 
         if ($canManageAttendants) {
-            echo '<section class="panel" style="margin-top:16px"><h2>Criar ou atualizar acesso principal</h2>';
-            echo '<p class="muted">Use para criar o primeiro acesso do estúdio ou redefinir o dono principal.</p>';
+            echo '<section class="panel" style="margin-top:16px"><h2>' . h($editingUser ? 'Editar atendente' : 'Adicionar atendente') . '</h2>';
+            echo '<p class="muted">Use para criar, editar ou desativar acessos do estúdio.</p>';
             echo '<form class="form" method="post">';
             echo csrf_field();
-            echo '<input type="hidden" name="action" value="save_studio_access">';
+            echo '<input type="hidden" name="action" value="save_studio_attendant">';
             echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
+            if ($editingUser) {
+                echo '<input type="hidden" name="id" value="' . h((string)$editingUser['id']) . '">';
+            }
             echo '<div class="grid cols-3">';
-            echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
-            echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
-            echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
+            echo '<div class="field"><label>Nome</label><input name="name" value="' . h($editingUser['name'] ?? ($studio['owner_name'] ?? '')) . '" required></div>';
+            echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="email" value="' . h($editingUser['email'] ?? ($studio['owner_email'] ?? '')) . '" required></div>';
+            echo '<div class="field"><label>Senha ' . h($editingUser ? '(opcional para manter)' : '(obrigatória)') . '</label><input type="password" name="password" minlength="8" ' . ($editingUser ? '' : 'required') . '></div>';
             echo '</div><button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
+            echo '<div class="grid cols-3" style="margin-top:12px">';
+            echo '<div class="field"><label>Papel</label><select name="role">';
+            foreach (['attendant' => 'Atendente', 'admin' => 'Administrador do estúdio', 'owner' => 'Dono'] as $value => $label) {
+                $selected = (string)($editingUser['role'] ?? 'attendant') === $value ? ' selected' : '';
+                echo '<option value="' . h($value) . '"' . $selected . '>' . h($label) . '</option>';
+            }
+            echo '</select></div>';
+            echo '<div class="field"><label>Status</label><select name="is_active"><option value="1"' . (!isset($editingUser['is_active']) || !empty($editingUser['is_active']) ? ' selected' : '') . '>Ativo</option><option value="0"' . (isset($editingUser['is_active']) && empty($editingUser['is_active']) ? ' selected' : '') . '>Inativo</option></select></div>';
+            echo '<div class="field"><label>Dica</label><div class="muted">Salvar sem senha mantém a senha atual do atendente editado.</div></div>';
+            echo '</div>';
             echo '</section>';
         }
     }, $flash);
