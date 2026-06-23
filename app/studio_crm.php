@@ -4245,7 +4245,10 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         $target = preg_replace('/\.[^.\\\\\/]+$/', '', $source) . '_opus.ogg';
         $command = escapeshellarg($ffmpeg)
             . ' -y -i ' . escapeshellarg($source)
-            . ' -vn -ac 1 -ar 48000 -c:a libopus -b:a 32k -application voip ' . escapeshellarg($target) . ' 2>&1';
+            . ' -vn -map_metadata -1 -avoid_negative_ts make_zero'
+            . ' -af ' . escapeshellarg('aresample=async=1:first_pts=0')
+            . ' -ac 1 -ar 48000 -c:a libopus -b:a 64k -application voip'
+            . ' -fflags +bitexact -flags:a +bitexact ' . escapeshellarg($target) . ' 2>&1';
         $output = [];
         $exitCode = 1;
         @exec($command, $output, $exitCode);
