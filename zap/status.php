@@ -129,6 +129,20 @@ foreach ($rawPosts as $event) {
         $lastMessagesEvent = $event;
     }
 }
+$verdictState = 'sem_chamada_externa';
+$verdictTitle = 'Sem chamada externa detectada';
+$verdictMessage = 'A Meta ainda nao chamou este webhook neste ciclo de teste.';
+if ($externalRawCount > 0) {
+    if ($lastMessagesEvent) {
+        $verdictState = 'meta_com_messages';
+        $verdictTitle = 'Meta chamou com messages';
+        $verdictMessage = 'O webhook recebeu um evento externo com messages e gravacao local.';
+    } else {
+        $verdictState = 'meta_sem_messages';
+        $verdictTitle = 'Meta chamou sem messages';
+        $verdictMessage = 'Chegou evento externo, mas sem messages detectadas no payload.';
+    }
+}
 ?>
 <!doctype html>
 <html lang="pt-br">
@@ -155,6 +169,13 @@ foreach ($rawPosts as $event) {
                 <button class="btn btn-outline-danger rounded-pill" name="action" value="clear_log">limpar webhook</button>
                 <button class="btn btn-outline-warning rounded-pill" name="action" value="clear_all_logs">limpar tudo</button>
             </form>
+        </div>
+    </div>
+    <div class="card card-soft mb-4 border-0">
+        <div class="card-body p-4">
+            <span class="badge text-bg-dark rounded-pill mb-2"><?= status_h($verdictState) ?></span>
+            <h2 class="h4 mb-2"><?= status_h($verdictTitle) ?></h2>
+            <p class="mb-0"><?= status_h($verdictMessage) ?></p>
         </div>
     </div>
     <div class="row g-3 mb-4">
