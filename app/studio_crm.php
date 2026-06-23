@@ -165,6 +165,20 @@ function studio_db_status_for(array $studio): array
     }
 }
 
+function studio_table_exists(array $studio, string $table): bool
+{
+    try {
+        $config = studio_db_config($studio);
+        $stmt = studio_db($studio)->prepare(
+            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+        );
+        $stmt->execute([$config['database'], $table]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable) {
+        return false;
+    }
+}
+
 function studio_schema_ready(array $studio): bool
 {
     try {
@@ -2115,8 +2129,11 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         $params[] = min(10, $minScore);
     }
 
+    $assignedJoin = studio_table_exists($studio, 'studio_users') ? '         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
+' : '';
+    $assignedSelect = studio_table_exists($studio, 'studio_users') ? ', au.name AS assigned_user_name' : ', NULL AS assigned_user_name';
     $sql =
-        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, au.name AS assigned_user_name, COUNT(wm.id) AS message_count,
+        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name" . $assignedSelect . ", COUNT(wm.id) AS message_count,
                 COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at)) AS message_last_at,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
@@ -2127,8 +2144,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
-         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
+" . $assignedJoin . "         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
          LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
              FROM whatsapp_messages wm2
@@ -2193,8 +2209,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
 
     $stmt = studio_db($studio)->prepare(
         "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
-                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value,
-                au.name AS assigned_user_name,
+                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value" . (studio_table_exists($studio, 'studio_users') ? ', au.name AS assigned_user_name' : ', NULL AS assigned_user_name') . ",
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
                 COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
@@ -2203,8 +2218,8 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
-         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
+" . (studio_table_exists($studio, 'studio_users') ? "         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
+" : "") . "         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
              FROM whatsapp_messages wm2
              WHERE wm2.conversation_id = wc.id
