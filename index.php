@@ -4621,7 +4621,7 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft" style="margin-bottom:16px">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px">';
         echo '<div><strong>Atendentes e acessos do estúdio</strong><div class="muted">Gerencie os usuários do estúdio em uma tela separada, fora do workspace.</div></div>';
-        echo '<a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '#acessos-estudio">Abrir atendentes do estúdio</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id']])) . '">Abrir atendentes do estúdio</a>';
         echo '</div></div>';
         echo '<div class="settings-overview-grid">';
         $settingsCards = [
@@ -4805,7 +4805,7 @@ if ($page === 'studio_settings') {
         echo '<div class="settings-howto" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">Atendentes e acessos</h3>';
         echo '<p class="muted" style="margin-top:0">O gerenciamento de usuários do estúdio fica na tela administrativa do estúdio, não no workspace. Use este atalho para abrir direto a seção de acessos.</p>';
-        echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '#acessos-estudio">Abrir atendentes do estúdio</a></div>';
+        echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id']])) . '">Abrir atendentes do estúdio</a></div>';
         echo '</div>';
         echo '</div>';
         echo '</div></div>';
@@ -5639,6 +5639,64 @@ if ($page === 'edit_studio') {
     }
     render_app_shell('Editar estudio', 'Atualize configuracoes da instancia.', 'studios', function () use ($studio) {
         render_studio_form($studio);
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_attendants') {
+    require_admin();
+    $studios = list_studios();
+    $studioId = (int)($_GET['studio_id'] ?? ($_POST['studio_id'] ?? 0));
+    if ($studioId <= 0 && $studios) {
+        $studioId = (int)$studios[0]['id'];
+    }
+    $studio = $studioId > 0 ? get_studio($studioId) : null;
+    if (!$studio) {
+        flash_set('error', 'Estudio nao encontrado.');
+        redirect_to('studios');
+    }
+    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios) {
+        echo '<section class="panel">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
+        echo '<div><h2 style="margin-bottom:6px">Estúdio: ' . h($studio['name']) . '</h2><p class="muted" style="margin:0">Página direta para criar e atualizar acessos do estúdio.</p></div>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '">Abrir painel do estúdio</a>';
+        echo '</div>';
+        echo '<form method="get" class="actions" style="margin-top:14px;gap:10px;flex-wrap:wrap">';
+        echo '<input type="hidden" name="page" value="studio_attendants">';
+        echo '<div class="field" style="min-width:280px;flex:1"><label>Selecionar estúdio</label><select name="studio_id">';
+        foreach ($studios as $item) {
+            echo '<option value="' . h((string)$item['id']) . '"' . ((int)$item['id'] === (int)$studio['id'] ? ' selected' : '') . '>' . h($item['name']) . '</option>';
+        }
+        echo '</select></div>';
+        echo '<div style="align-self:end"><button class="btn secondary" type="submit">Trocar estúdio</button></div>';
+        echo '</form>';
+        echo '</section>';
+
+        echo '<section class="panel" style="margin-top:16px"><h2>Acessos cadastrados</h2>';
+        $users = studio_users((int)$studio['id']);
+        if ($users) {
+            echo '<table class="table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Ativo</th><th>Último login</th></tr></thead><tbody>';
+            foreach ($users as $user) {
+                echo '<tr><td>' . h($user['name']) . '</td><td>' . h($user['email']) . '</td><td>' . h($user['role']) . '</td><td>' . h(!empty($user['is_active']) ? 'sim' : 'nao') . '</td><td>' . h($user['last_login_at'] ?? '-') . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        } else {
+            echo '<p class="muted">Nenhum usuario operacional criado ainda.</p>';
+        }
+        echo '</section>';
+
+        echo '<section class="panel" style="margin-top:16px"><h2>Criar ou atualizar acesso principal</h2>';
+        echo '<p class="muted">Use para criar o primeiro acesso do estúdio ou redefinir o dono principal.</p>';
+        echo '<form class="form" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_studio_access">';
+        echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
+        echo '<div class="grid cols-3">';
+        echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
+        echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
+        echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
+        echo '</div><button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
+        echo '</section>';
     }, $flash);
     exit;
 }
