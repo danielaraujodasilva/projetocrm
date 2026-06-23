@@ -2117,8 +2117,8 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     $currentUser = studio_current_user();
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $isAdmin = studio_current_user_is_admin();
-    $viewFilter = trim((string)($filters['visibility'] ?? 'mine'));
-    $dateFilter = trim((string)($filters['date_filter'] ?? 'all'));
+    $viewFilter = trim((string)($filters['visibility'] ?? ''));
+    $dateFilter = trim((string)($filters['date_filter'] ?? ''));
     $dateFrom = trim((string)($filters['date_from'] ?? ''));
     $dateTo = trim((string)($filters['date_to'] ?? ''));
     if ($viewFilter === 'mine') {
@@ -2128,7 +2128,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         // admin pode listar tudo, inclusive sem atribuição
     } elseif ($viewFilter === 'free') {
         $where[] = 'wc.assigned_user_id IS NULL';
-    } else {
+    } elseif ($viewFilter !== '') {
         $where[] = 'wc.assigned_user_id = ?';
         $params[] = $currentUserId;
     }

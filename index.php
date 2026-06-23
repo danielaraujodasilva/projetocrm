@@ -3076,9 +3076,9 @@ if ($page === 'studio_whatsapp') {
             'mode' => (string)($_GET['mode'] ?? ''),
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
-            'filter' => (string)($_GET['filter'] ?? 'all'),
-            'visibility' => (string)($_GET['visibility'] ?? 'mine'),
-            'date_filter' => (string)($_GET['date_filter'] ?? 'all'),
+            'filter' => (string)($_GET['filter'] ?? ''),
+            'visibility' => (string)($_GET['visibility'] ?? ''),
+            'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
@@ -3280,9 +3280,9 @@ if ($page === 'studio_whatsapp_workspace') {
             'mode' => (string)($_GET['mode'] ?? ''),
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
-            'filter' => (string)($_GET['filter'] ?? 'all'),
-            'visibility' => (string)($_GET['visibility'] ?? 'mine'),
-            'date_filter' => (string)($_GET['date_filter'] ?? 'all'),
+            'filter' => (string)($_GET['filter'] ?? ''),
+            'visibility' => (string)($_GET['visibility'] ?? ''),
+            'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
@@ -3364,9 +3364,9 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '</div>';
         echo '<form class="wa-web-search" method="get" id="waWorkspaceSearchForm" autocomplete="off">';
         echo '<input type="hidden" name="page" value="studio_whatsapp_workspace">';
-        echo '<input type="hidden" name="filter" value="' . h($filters['filter'] ?: 'all') . '">';
-        echo '<input type="hidden" name="visibility" value="' . h($filters['visibility'] ?: 'mine') . '">';
-        echo '<input type="hidden" name="date_filter" value="' . h($filters['date_filter'] ?: 'all') . '">';
+        echo '<input type="hidden" name="filter" value="' . h($filters['filter']) . '">';
+        echo '<input type="hidden" name="visibility" value="' . h($filters['visibility']) . '">';
+        echo '<input type="hidden" name="date_filter" value="' . h($filters['date_filter']) . '">';
         echo '<input type="hidden" name="date_from" value="' . h($filters['date_from']) . '">';
         echo '<input type="hidden" name="date_to" value="' . h($filters['date_to']) . '">';
         echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar texto, áudio transcrito ou contato" value="' . h($filters['q']) . '">';
@@ -3375,35 +3375,41 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<div class="wa-web-filter-row">';
         $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
         foreach ($visibilityPills as $visibilityKey => $label) {
+            $nextVisibility = ($filters['visibility'] === $visibilityKey) ? '' : $visibilityKey;
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
-                'visibility' => $visibilityKey !== 'mine' ? $visibilityKey : null,
-                'date_filter' => $filters['date_filter'] !== 'all' ? $filters['date_filter'] : null,
+                'visibility' => $nextVisibility !== '' ? $nextVisibility : null,
+                'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
                 'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
                 'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
-                'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
+                'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
                 'conv_offset' => null,
             ], static fn($value) => $value !== null && $value !== ''));
-            $active = ($filters['visibility'] ?: 'mine') === $visibilityKey ? ' active' : '';
+            $active = $filters['visibility'] === $visibilityKey ? ' active' : '';
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
         foreach (['all' => 'Tudo', 'unreplied' => 'Não lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
+            $nextFilter = ($filters['filter'] === $filterKey) ? '' : $filterKey;
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
-                'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null,
-                'date_filter' => $filters['date_filter'] !== 'all' ? $filters['date_filter'] : null,
+                'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
+                'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
                 'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
                 'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
-                'filter' => $filterKey !== 'all' ? $filterKey : null,
+                'filter' => $nextFilter !== '' ? $nextFilter : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
                 'conv_offset' => null,
             ], static fn($value) => $value !== null && $value !== ''));
-            $active = ($filters['filter'] ?: 'all') === $filterKey ? ' active' : '';
+            $active = $filters['filter'] === $filterKey ? ' active' : '';
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
-        echo '<a class="wa-web-filter-pill' . (($filters['date_filter'] ?? 'all') === 'today' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null, 'date_filter' => 'today', 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''))) . '">Hoje</a>';
-        echo '<a class="wa-web-filter-pill' . (($filters['date_filter'] ?? 'all') === 'range' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null, 'date_filter' => 'range', 'date_from' => date('Y-m-01'), 'date_to' => date('Y-m-d'), 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''))) . '">Período</a>';
+        $todayActive = $filters['date_filter'] === 'today';
+        $todayHref = app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null, 'date_filter' => $todayActive ? null : 'today', 'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null, 'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null, 'filter' => $filters['filter'] !== '' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''));
+        $rangeActive = $filters['date_filter'] === 'range';
+        $rangeHref = app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null, 'date_filter' => $rangeActive ? null : 'range', 'date_from' => $rangeActive ? null : date('Y-m-01'), 'date_to' => $rangeActive ? null : date('Y-m-d'), 'filter' => $filters['filter'] !== '' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''));
+        echo '<a class="wa-web-filter-pill' . ($todayActive ? ' active' : '') . '" href="' . h($todayHref) . '">Hoje</a>';
+        echo '<a class="wa-web-filter-pill' . ($rangeActive ? ' active' : '') . '" href="' . h($rangeHref) . '">Período</a>';
         echo '</div>';
         echo '<div class="wa-web-archive-row"><span class="wa-web-archive-icon"><i class="fa-solid fa-box-archive"></i></span><strong>Arquivadas</strong><span class="wa-web-archive-count">2</span></div>';
         echo '<div class="wa-web-chat-list">';
