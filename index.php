@@ -3563,7 +3563,7 @@ if ($page === 'studio_whatsapp_workspace') {
             if ($publicUpdateUrl !== '') {
                 echo '<a class="wa-web-action-pill" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i><span>Cadastro</span></a>';
             }
-            echo '<a class="wa-web-action-pill" href="' . h(app_url('studio_whatsapp_mobile', ['id' => (int)$conversationId])) . '" target="_blank" rel="noopener" aria-label="Abrir no celular"><i class="fa-solid fa-mobile-screen-button"></i><span>Celular</span></a>';
+            echo '<a class="wa-web-action-pill" href="' . h(app_url('studio_whatsapp_mobile')) . '" target="_blank" rel="noopener" aria-label="Abrir no celular"><i class="fa-solid fa-mobile-screen-button"></i><span>Celular</span></a>';
             echo '<button class="wa-web-tools-toggle" type="button" id="openWorkspaceToolsButton" aria-label="Ferramentas"><i class="fa-solid fa-sliders"></i><span>Painel</span></button></div></div>';
             render_chat_messages($messages);
             echo '<form class="form wa-web-composer" method="post" enctype="multipart/form-data" id="chatComposer">';
@@ -3831,9 +3831,6 @@ if ($page === 'studio_whatsapp_mobile') {
     $conversationPageSize = 25;
     $conversations = studio_list_whatsapp_conversations($studio, $filters, $conversationPageSize);
     $conversationId = (int)($_GET['id'] ?? 0);
-    if ($conversationId <= 0 && !empty($conversations[0]['id'])) {
-        $conversationId = (int)$conversations[0]['id'];
-    }
     $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
     $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 80, $conversation) : [];
     $currentUserId = (int)($currentUser['id'] ?? 0);
@@ -3865,7 +3862,7 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '</aside>';
     echo '<section class="mobile-wa-chat">';
     if (!$conversation) {
-        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Selecione uma conversa</strong><span class="mobile-wa-muted">Pronto para responder no celular</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">Escolha uma conversa ao lado para responder.</div></div></div>';
+        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Escolha uma conversa para responder</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">Faça login, escolha uma conversa na lista e comece a responder. Esta tela foi deixada intencionalmente sem conversa pré-aberta.</div></div></div>';
     } else {
         echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
         echo '<div class="mobile-wa-chat-body">';
