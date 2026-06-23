@@ -413,6 +413,18 @@ function current_admin(): ?array
     return is_array($admin) ? $admin : null;
 }
 
+function studio_list_users(array $studio): array
+{
+    if (!table_exists('studio_users')) {
+        return [];
+    }
+
+    $studioId = (int)($studio['id'] ?? 0);
+    $stmt = db()->prepare('SELECT id, name, email, role, is_active FROM studio_users WHERE studio_id = ? AND is_active = 1 ORDER BY name ASC, id ASC');
+    $stmt->execute([$studioId]);
+    return $stmt->fetchAll() ?: [];
+}
+
 function current_studio_user(): ?array
 {
     $id = (int)($_SESSION['studio_user_id'] ?? 0);

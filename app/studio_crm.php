@@ -61,6 +61,11 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `remote_jid` VARCHAR(180) NULL,
             `attendance_mode` ENUM("human", "bot") NOT NULL DEFAULT "human",
             `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
+            `assigned_user_id` BIGINT UNSIGNED NULL,
+            `assigned_at` DATETIME NULL,
+            `assigned_by_user_id` BIGINT UNSIGNED NULL,
+            `released_at` DATETIME NULL,
+            `locked_at` DATETIME NULL,
             `lead_score` TINYINT UNSIGNED NULL,
             `ai_last_status` VARCHAR(80) NULL,
             `ai_last_message` TEXT NULL,
@@ -79,6 +84,11 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
     foreach ([
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `name`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `needs_human` TINYINT(1) NOT NULL DEFAULT 0 AFTER `attendance_mode`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_user_id` BIGINT UNSIGNED NULL AFTER `needs_human`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_at` DATETIME NULL AFTER `assigned_user_id`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_by_user_id` BIGINT UNSIGNED NULL AFTER `assigned_at`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `released_at` DATETIME NULL AFTER `assigned_by_user_id`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `locked_at` DATETIME NULL AFTER `released_at`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_status` VARCHAR(80) NULL AFTER `lead_score`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_message` TEXT NULL AFTER `ai_last_status`',
@@ -385,6 +395,77 @@ function studio_whatsapp_zap_local_config(): array
 
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function studio_ensure_whatsapp_assignment_schema(array $studio): void
+{
+    try {
+        $pdo = studio_db($studio);
+        foreach ([
+            'assigned_user_id' => 'BIGINT UNSIGNED NULL',
+            'assigned_at' => 'DATETIME NULL',
+            'assigned_by_user_id' => 'BIGINT UNSIGNED NULL',
+            'released_at' => 'DATETIME NULL',
+            'locked_at' => 'DATETIME NULL',
+        ] as $column => $definition) {
+            try {
+                $pdo->exec('ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
+            } catch (Throwable) {
+                try {
+                    $pdo->exec('ALTER TABLE whatsapp_conversations ADD COLUMN ' . $column . ' ' . $definition);
+                } catch (Throwable) {
+                }
+            }
+        }
+    } catch (Throwable) {
+    }
+}
+
+function studio_current_user(): ?array
+{
+    $user = current_studio_user();
+    return is_array($user) ? $user : null;
+}
+
+function studio_current_user_is_admin(): bool
+{
+    return current_admin() !== null;
+}
+
+function studio_can_view_whatsapp_conversation(array $studio, array $conversation, array $user): bool
+{
+    if (empty($conversation)) {
+        return false;
+    }
+    if (studio_current_user_is_admin()) {
+        return true;
+    }
+    $userId = (int)($user['id'] ?? 0);
+    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+    return $assignedUserId <= 0 || $assignedUserId === $userId;
+}
+
+function studio_can_send_whatsapp_conversation(array $studio, array $conversation, array $user): bool
+{
+    return studio_can_view_whatsapp_conversation($studio, $conversation, $user);
+}
+
+function studio_assign_whatsapp_conversation(array $studio, int $conversationId, int $userId, int $assignedByUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = ?, assigned_at = NOW(), assigned_by_user_id = ?, released_at = NULL, locked_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([$userId, $assignedByUserId, $conversationId]);
+}
+
+function studio_release_whatsapp_conversation(array $studio, int $conversationId, int $releasedByUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = NULL, released_at = NOW(), assigned_by_user_id = ?, locked_at = NULL, updated_at = NOW() WHERE id = ?')->execute([$releasedByUserId, $conversationId]);
+}
+
+function studio_transfer_whatsapp_conversation(array $studio, int $conversationId, int $toUserId, int $byUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = ?, assigned_at = NOW(), assigned_by_user_id = ?, released_at = NULL, locked_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([$toUserId, $byUserId, $conversationId]);
 }
 
 function crm_whatsapp_official_apply_defaults(array $studio): void
@@ -1998,8 +2079,22 @@ function studio_whatsapp_summary(array $studio): array
 
 function studio_list_whatsapp_conversations(array $studio, array $filters = [], int $limit = 160): array
 {
+    studio_ensure_whatsapp_assignment_schema($studio);
     $where = [];
     $params = [];
+    $currentUser = studio_current_user();
+    $currentUserId = (int)($currentUser['id'] ?? 0);
+    $isAdmin = studio_current_user_is_admin();
+    $viewFilter = trim((string)($filters['visibility'] ?? ''));
+    if (!$isAdmin) {
+        $where[] = '(wc.assigned_user_id IS NULL OR wc.assigned_user_id = ?)' ;
+        $params[] = $currentUserId;
+    } elseif ($viewFilter === 'mine') {
+        $where[] = 'wc.assigned_user_id = ?';
+        $params[] = $currentUserId;
+    } elseif ($viewFilter === 'free') {
+        $where[] = 'wc.assigned_user_id IS NULL';
+    }
     $q = trim((string)($filters['q'] ?? ''));
     if ($q !== '') {
         $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ?)';
@@ -2021,7 +2116,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     }
 
     $sql =
-        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count,
+        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, au.name AS assigned_user_name, COUNT(wm.id) AS message_count,
                 COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at)) AS message_last_at,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
@@ -2032,6 +2127,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
+         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
          LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
          LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
@@ -2098,6 +2194,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
     $stmt = studio_db($studio)->prepare(
         "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
                 l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value,
+                au.name AS assigned_user_name,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
                 COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
@@ -2106,6 +2203,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
+         LEFT JOIN studio_users au ON au.id = wc.assigned_user_id
          LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
              FROM whatsapp_messages wm2
@@ -3316,6 +3414,7 @@ function studio_whatsapp_update_message_status(array $studio, array $payload): a
 
 function studio_record_whatsapp_message(array $studio, array $payload): array
 {
+    studio_ensure_whatsapp_assignment_schema($studio);
     if (!empty($payload['statusUpdate'])) {
         return studio_whatsapp_update_message_status($studio, $payload);
     }
