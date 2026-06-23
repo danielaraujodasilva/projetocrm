@@ -128,11 +128,14 @@ function crm_whatsapp_official_send_from_crm(array $studio, array $data): array
     }
 
     $message = trim((string)($data['message'] ?? $data['mensagem'] ?? ''));
-    if ($phone === '' || $message === '') {
-        return ['ok' => false, 'error' => 'Informe telefone e mensagem. A API oficial ainda não envia anexos por esta tela.'];
+    $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
+    if ($phone === '' || ($message === '' && empty($upload['base64']))) {
+        return ['ok' => false, 'error' => 'Informe telefone, mensagem ou anexo.'];
     }
 
-    $result = studio_whatsapp_official_send_text($studio, $phone, $message);
+    $result = !empty($upload['base64'])
+        ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
+        : studio_whatsapp_official_send_text($studio, $phone, $message);
     if (empty($result['ok'])) {
         return $result;
     }
@@ -147,7 +150,10 @@ function crm_whatsapp_official_send_from_crm(array $studio, array $data): array
         'messageId' => $messageId,
         'remoteJid' => $phone,
         'timestamp' => time(),
-        'tipoMensagem' => 'texto',
+        'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
+        'mediaUrl' => $upload['relativePath'] ?? '',
+        'mediaMime' => $upload['mime'] ?? '',
+        'mediaFileName' => $upload['fileName'] ?? '',
     ]);
 
     return $result + ['messageId' => $messageId];
@@ -170,12 +176,29 @@ function crm_whatsapp_official_intercept_send(): void
         return;
     }
 
+    $wantsWhatsappJson = !empty($_POST['return_to_mobile'])
+        || !empty($_POST['return_to_mobile2'])
+        || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+
     $result = crm_whatsapp_official_send_from_crm($studio, $_POST);
     if (empty($result['ok'])) {
+        if ($wantsWhatsappJson) {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'error' => (string)($result['error'] ?? 'Nao foi possivel enviar pela API oficial.')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
         throw new RuntimeException((string)($result['error'] ?? 'Não foi possível enviar pela API oficial.'));
     }
 
     flash_set('success', 'Mensagem enviada pela API oficial do WhatsApp.');
+    if ($wantsWhatsappJson) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => true, 'message_id' => (string)($result['messageId'] ?? '')], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    if (!empty($_POST['return_to_mobile']) || !empty($_POST['return_to_mobile2'])) {
+        redirect_to('studio_whatsapp_mobile', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
+    }
     if (!empty($_POST['return_to_workspace'])) {
         redirect_to('studio_whatsapp_workspace', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
     }
@@ -262,14 +285,32 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?
 
         $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
         $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+        $wantsWhatsappJson = !empty($_POST['return_to_mobile'])
+            || !empty($_POST['return_to_mobile2'])
+            || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+        $returnRoute = (!empty($_POST['return_to_mobile']) || !empty($_POST['return_to_mobile2']))
+            ? 'studio_whatsapp_mobile'
+            : (!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : ($conversationId > 0 ? 'studio_whatsapp_conversation' : 'studio_whatsapp'));
+        $returnParams = $conversationId > 0 ? ['id' => $conversationId] : [];
+        $respondWhatsappSend = static function (bool $ok, string $text, array $payload = []) use ($wantsWhatsappJson, $returnRoute, $returnParams): void {
+            flash_set($ok ? 'success' : 'error', $text);
+            if ($wantsWhatsappJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                $response = array_merge(['ok' => $ok], $payload);
+                if ($text !== '') {
+                    $response[$ok ? 'message' : 'error'] = $text;
+                }
+                echo json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            redirect_to($returnRoute, $returnParams);
+        };
         $user = studio_current_user();
         if (!$user) {
-            flash_set('error', 'Voce precisa estar autenticado para enviar mensagem.');
-            redirect_to('studio_whatsapp');
+            $respondWhatsappSend(false, 'Voce precisa estar autenticado para enviar mensagem.');
         }
         if (!$conversation || !studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
-            flash_set('error', 'Esta conversa esta atribuida a outro atendente.');
-            redirect_to('studio_whatsapp_workspace', ['id' => $conversationId]);
+            $respondWhatsappSend(false, 'Esta conversa esta atribuida a outro atendente.');
         }
 
         $phone = normalize_phone((string)(
@@ -290,12 +331,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?
             ?? $_POST['message_text']
             ?? ''
         ));
-        if ($phone === '' || $message === '') {
-            flash_set('error', 'Faltou telefone ou mensagem para enviar pela API oficial.');
-            redirect_to($conversationId > 0 ? 'studio_whatsapp_workspace' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
+        $upload = studio_prepare_whatsapp_attachment($studio, $_POST, $_FILES ?? [], $conversationId);
+        if ($phone === '' || ($message === '' && empty($upload['base64']))) {
+            $respondWhatsappSend(false, 'Faltou telefone, mensagem ou anexo para enviar pela API oficial.');
         }
 
-        $result = studio_whatsapp_official_send_text($studio, $phone, $message);
+        $result = !empty($upload['base64'])
+            ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
+            : studio_whatsapp_official_send_text($studio, $phone, $message);
         if (empty($result['ok'])) {
             $error = (string)($result['error'] ?? 'Nao foi possível enviar pela API oficial.');
             if (!empty($result['status'])) {
@@ -310,10 +353,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?
             if (!empty($result['diagnostic']) && is_array($result['diagnostic'])) {
                 $diag = $result['diagnostic'];
                 $error .= ' | source: ' . (string)($diag['source'] ?? '');
-                $error .= ' | phone_number_id: ' . (string)($diag['zap_local_config']['phone_number_id'] ?? $diag['crm']['phone_number_id'] ?? '');
+                $error .= ' | phone_number_id: ' . (string)($diag['zap_local_config']['phone_number_id'] ?? $diag['crm']['phone_number_id'] ?? $diag['phone_number_id'] ?? '');
             }
-            flash_set('error', $error);
-            redirect_to($conversationId > 0 ? 'studio_whatsapp_workspace' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
+            $respondWhatsappSend(false, $error);
         }
 
         $json = is_array($result['json'] ?? null) ? $result['json'] : [];
@@ -326,10 +368,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?
             'messageId' => $messageId,
             'remoteJid' => $phone,
             'timestamp' => time(),
-            'tipoMensagem' => 'texto',
+            'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
+            'mediaUrl' => $upload['relativePath'] ?? '',
+            'mediaMime' => $upload['mime'] ?? '',
+            'mediaFileName' => $upload['fileName'] ?? '',
         ]);
-        flash_set('success', 'Mensagem enviada pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
-        redirect_to($conversationId > 0 ? 'studio_whatsapp_workspace' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
+        $respondWhatsappSend(true, 'Mensagem enviada pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''), ['message_id' => $messageId]);
     }
     crm_whatsapp_official_intercept_send();
 }

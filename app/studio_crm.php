@@ -466,6 +466,10 @@ function studio_can_send_whatsapp_conversation(array $studio, array $conversatio
         return false;
     }
 
+    if (studio_current_user_is_admin()) {
+        return true;
+    }
+
     $userId = (int)($user['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
 
