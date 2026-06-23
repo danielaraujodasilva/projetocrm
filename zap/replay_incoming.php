@@ -59,7 +59,9 @@ function replay_last_events(array $types = [], int $limit = 20): array
 
 replay_require_access();
 
-$serviceWebhookUrl = app_base_path() . '/api/whatsapp_webhook.php';
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = (string)($_SERVER['HTTP_HOST'] ?? 'danieltatuador.com');
+$serviceWebhookUrl = $scheme . '://' . $host . app_base_path() . '/api/whatsapp_webhook.php';
 $studio = null;
 $payload = [
     'entry' => [[
