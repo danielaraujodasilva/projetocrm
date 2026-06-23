@@ -451,17 +451,35 @@ function studio_can_view_whatsapp_conversation(array $studio, array $conversatio
     if (empty($conversation)) {
         return false;
     }
+
     if (studio_current_user_is_admin()) {
         return true;
     }
+
     $userId = (int)($user['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
-    return $assignedUserId <= 0 || $assignedUserId === $userId;
+
+    if ($assignedUserId <= 0) {
+        return false;
+    }
+
+    return $assignedUserId === $userId;
 }
 
 function studio_can_send_whatsapp_conversation(array $studio, array $conversation, array $user): bool
 {
-    return studio_can_view_whatsapp_conversation($studio, $conversation, $user);
+    if (empty($conversation)) {
+        return false;
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+
+    if ($assignedUserId <= 0) {
+        return false;
+    }
+
+    return $assignedUserId === $userId;
 }
 
 function studio_assign_whatsapp_conversation(array $studio, int $conversationId, int $userId, int $assignedByUserId): void
@@ -2099,21 +2117,33 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     $currentUser = studio_current_user();
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $isAdmin = studio_current_user_is_admin();
-    $viewFilter = trim((string)($filters['visibility'] ?? ''));
-    if (!$isAdmin) {
-        $where[] = '(wc.assigned_user_id IS NULL OR wc.assigned_user_id = ?)' ;
-        $params[] = $currentUserId;
-    } elseif ($viewFilter === 'mine') {
+    $viewFilter = trim((string)($filters['visibility'] ?? 'mine'));
+    $dateFilter = trim((string)($filters['date_filter'] ?? 'all'));
+    $dateFrom = trim((string)($filters['date_from'] ?? ''));
+    $dateTo = trim((string)($filters['date_to'] ?? ''));
+    if ($viewFilter === 'mine') {
         $where[] = 'wc.assigned_user_id = ?';
         $params[] = $currentUserId;
+    } elseif ($viewFilter === 'all' && $isAdmin) {
+        // admin pode listar tudo, inclusive sem atribuição
     } elseif ($viewFilter === 'free') {
         $where[] = 'wc.assigned_user_id IS NULL';
+    } else {
+        $where[] = 'wc.assigned_user_id = ?';
+        $params[] = $currentUserId;
+    }
+    if ($dateFilter === 'today') {
+        $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) = CURDATE()';
+    } elseif ($dateFilter === 'range' && $dateFrom !== '' && $dateTo !== '') {
+        $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) BETWEEN ? AND ?';
+        $params[] = $dateFrom;
+        $params[] = $dateTo;
     }
     $q = trim((string)($filters['q'] ?? ''));
     if ($q !== '') {
-        $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ?)';
+        $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ? OR EXISTS (SELECT 1 FROM whatsapp_messages wm_search WHERE wm_search.conversation_id = wc.id AND (wm_search.body LIKE ? OR wm_search.transcricao LIKE ? OR wm_search.transcript LIKE ?)))';
         $like = '%' . $q . '%';
-        array_push($params, $like, $like, $like, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
     $mode = trim((string)($filters['mode'] ?? ''));
     if (in_array($mode, ['human', 'bot'], true)) {
@@ -2124,7 +2154,6 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         $where[] = 'wc.needs_human = 1';
     }
     $minScore = (int)($filters['min_score'] ?? 0);
-    $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) = CURDATE()';
     if ($minScore > 0) {
         $where[] = 'COALESCE(wc.lead_score, 0) >= ?';
         $params[] = min(10, $minScore);

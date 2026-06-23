@@ -3077,7 +3077,10 @@ if ($page === 'studio_whatsapp') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
-            'visibility' => (string)($_GET['visibility'] ?? 'all'),
+            'visibility' => (string)($_GET['visibility'] ?? 'mine'),
+            'date_filter' => (string)($_GET['date_filter'] ?? 'all'),
+            'date_from' => (string)($_GET['date_from'] ?? ''),
+            'date_to' => (string)($_GET['date_to'] ?? ''),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         $conversationPageSize = 30;
@@ -3278,7 +3281,10 @@ if ($page === 'studio_whatsapp_workspace') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
-            'visibility' => (string)($_GET['visibility'] ?? 'all'),
+            'visibility' => (string)($_GET['visibility'] ?? 'mine'),
+            'date_filter' => (string)($_GET['date_filter'] ?? 'all'),
+            'date_from' => (string)($_GET['date_from'] ?? ''),
+            'date_to' => (string)($_GET['date_to'] ?? ''),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         $conversationPageSize = 30;
@@ -3293,8 +3299,9 @@ if ($page === 'studio_whatsapp_workspace') {
         $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
         $currentUser = current_studio_user();
         $isAdmin = current_admin() !== null;
-        if ($conversation && $currentUser && !$isAdmin && !studio_can_view_whatsapp_conversation($studio, $conversation, $currentUser)) {
-            flash_set('error', 'Conversa atribuida a outro atendente.');
+        $canOpenConversation = $conversation && $currentUser && studio_can_view_whatsapp_conversation($studio, $conversation, $currentUser);
+        if ($conversation && !$canOpenConversation) {
+            flash_set('error', $isAdmin ? 'Conversa livre ou atribuida a outro atendente.' : 'Conversa atribuida a outro atendente.');
             redirect_to('studio_whatsapp');
         }
         $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 80, $conversation) : [];
@@ -3310,8 +3317,9 @@ if ($page === 'studio_whatsapp_workspace') {
         $assistantAutofillEnabled = !empty(studio_settings($studio)['assistant_autofill_enabled']);
         $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
         $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
-        $canSendHere = !$conversation || !$currentUser || $isAdmin || $assignedUserId === 0 || $assignedUserId === (int)($currentUser['id'] ?? 0);
+        $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
         $assignedUserName = (string)($conversation['assigned_user_name'] ?? '');
+        $isConversationVisibleToUser = $conversation && $currentUser && studio_can_view_whatsapp_conversation($studio, $conversation, $currentUser);
         if ($assistantAutofillEnabled && $assistantConfidence === 0 && count($messages) > 0) {
             $assistantConfidence = 35;
         }
@@ -3357,25 +3365,36 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<form class="wa-web-search" method="get" id="waWorkspaceSearchForm" autocomplete="off">';
         echo '<input type="hidden" name="page" value="studio_whatsapp_workspace">';
         echo '<input type="hidden" name="filter" value="' . h($filters['filter'] ?: 'all') . '">';
-        echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar ou começar uma nova conversa" value="' . h($filters['q']) . '">';
+        echo '<input type="hidden" name="visibility" value="' . h($filters['visibility'] ?: 'mine') . '">';
+        echo '<input type="hidden" name="date_filter" value="' . h($filters['date_filter'] ?: 'all') . '">';
+        echo '<input type="hidden" name="date_from" value="' . h($filters['date_from']) . '">';
+        echo '<input type="hidden" name="date_to" value="' . h($filters['date_to']) . '">';
+        echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar texto, áudio transcrito ou contato" value="' . h($filters['q']) . '">';
         echo '<div class="wa-web-search-suggestions hidden" id="waWorkspaceSearchSuggestions"></div>';
         echo '</form>';
         echo '<div class="wa-web-filter-row">';
-        $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas', 'free' => 'Livres'];
+        $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
         foreach ($visibilityPills as $visibilityKey => $label) {
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
-                'visibility' => $visibilityKey !== 'all' ? $visibilityKey : null,
+                'visibility' => $visibilityKey !== 'mine' ? $visibilityKey : null,
+                'date_filter' => $filters['date_filter'] !== 'all' ? $filters['date_filter'] : null,
+                'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
+                'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
                 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
                 'conv_offset' => null,
             ], static fn($value) => $value !== null && $value !== ''));
-            $active = ($filters['visibility'] ?: ($isAdmin ? 'all' : 'mine')) === $visibilityKey ? ' active' : '';
+            $active = ($filters['visibility'] ?: 'mine') === $visibilityKey ? ' active' : '';
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
         foreach (['all' => 'Tudo', 'unreplied' => 'Não lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
+                'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null,
+                'date_filter' => $filters['date_filter'] !== 'all' ? $filters['date_filter'] : null,
+                'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
+                'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
                 'filter' => $filterKey !== 'all' ? $filterKey : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
                 'conv_offset' => null,
@@ -3383,6 +3402,8 @@ if ($page === 'studio_whatsapp_workspace') {
             $active = ($filters['filter'] ?: 'all') === $filterKey ? ' active' : '';
             echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
         }
+        echo '<a class="wa-web-filter-pill' . (($filters['date_filter'] ?? 'all') === 'today' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null, 'date_filter' => 'today', 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''))) . '">Hoje</a>';
+        echo '<a class="wa-web-filter-pill' . (($filters['date_filter'] ?? 'all') === 'range' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_workspace', array_filter(['id' => $conversationId > 0 ? $conversationId : null, 'visibility' => $filters['visibility'] !== 'mine' ? $filters['visibility'] : null, 'date_filter' => 'range', 'date_from' => date('Y-m-01'), 'date_to' => date('Y-m-d'), 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null, 'q' => $filters['q'] !== '' ? $filters['q'] : null], static fn($value) => $value !== null && $value !== ''))) . '">Período</a>';
         echo '</div>';
         echo '<div class="wa-web-archive-row"><span class="wa-web-archive-icon"><i class="fa-solid fa-box-archive"></i></span><strong>Arquivadas</strong><span class="wa-web-archive-count">2</span></div>';
         echo '<div class="wa-web-chat-list">';
@@ -3473,7 +3494,8 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<span id="chatRecordingState" class="muted wa-web-recording-state"></span>';
             echo '<button class="wa-web-composer-action" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i><span>Audio</span></button>';
             echo '<button class="wa-web-send-btn" type="submit" aria-label="Enviar" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
-            if (!$canSendHere && $conversation) { echo '<div class="muted" style="margin-top:8px">Esta conversa esta atribuida a outro atendente.</div>'; }
+            if ($conversation && !$isConversationVisibleToUser) { echo '<div class="muted" style="margin-top:8px">Conversa livre ou atribuida a outro atendente.</div>'; }
+            if ($conversation && $isConversationVisibleToUser && !$canSendHere) { echo '<div class="muted" style="margin-top:8px">Voce pode visualizar, mas nao interagir com esta conversa.</div>'; }
             if (!$canSendHere && $conversation) { echo '<div class="muted" style="margin-top:8px">Esta conversa esta atribuida a outro atendente.</div>'; }
             echo '</div>';
             echo '<div class="wa-web-emoji-panel hidden" id="chatEmojiPanel">';
