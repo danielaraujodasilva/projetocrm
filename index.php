@@ -3900,9 +3900,10 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
         .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
         .mobile-wa-action.ghost{background:transparent;color:#e9edef}
-        .mobile-wa-icon-btn{width:42px;height:42px;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:#202c33;color:#e9edef;display:inline-flex;align-items:center;justify-content:center;padding:0}
-        .mobile-wa-icon-btn i{font-size:1rem;line-height:1}
+        .mobile-wa-icon-btn{min-width:58px;height:46px;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:#202c33;color:#e9edef;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 8px;gap:2px;font-size:.62rem;font-weight:700}
+        .mobile-wa-icon-btn i{font-size:.95rem;line-height:1}
         .mobile-wa-icon-btn.recording{background:#fb7185;color:#fff;border-color:#fb7185}
+        .mobile-wa-icon-btn span{display:block;line-height:1}
         .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
         .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px}
         .mobile-wa-btn{border:0;border-radius:14px;padding:12px 14px;background:#25d366;color:#0b141a;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:44px}
@@ -3910,12 +3911,15 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-muted{color:#8696a0;font-size:.88rem}
         .mobile-wa-mini-topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
         .mobile-wa-mini-topbar .btn, .mobile-wa-mini-topbar .mobile-wa-action{padding:8px 10px;font-size:.85rem}
+        .mobile-wa-mini-topbar .mobile-wa-action{min-width:46px;justify-content:center}
+        .mobile-wa-mini-topbar .mobile-wa-action span{display:none}
         .mobile-wa-context{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
         .mobile-wa-context a{font-size:.85rem}
         .mobile-wa-bottom-nav{position:sticky;bottom:0;z-index:25;display:flex;gap:8px;justify-content:space-between;align-items:center;padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08)}
         .mobile-wa-bottom-nav .nav-chip{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border-radius:16px;text-decoration:none;color:#e9edef;background:#202c33;border:1px solid rgba(255,255,255,.08);font-size:.76rem}
         .mobile-wa-bottom-nav .nav-chip.active{background:#25d366;color:#0b141a;border-color:#25d366;font-weight:700}
         .mobile-wa-bottom-nav .nav-chip i{font-size:1rem}
+        .mobile-wa-bottom-nav .nav-chip span{font-size:.7rem;line-height:1.05}
         .chat-day-separator{display:flex;justify-content:center;margin:10px 0}
         .chat-day-separator span{background:rgba(32,44,51,.92);color:#c9d3d8;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 12px;font-size:.76rem}
         .mobile-wa-view{display:none;min-height:0;height:100%;overflow:hidden;flex:1}
@@ -3939,7 +3943,7 @@ if ($page === 'studio_whatsapp_mobile') {
     </style>';
     echo '<div class="mobile-wa-shell">';
     $mobileView = (string)($_GET['view'] ?? ((int)($_GET['id'] ?? 0) > 0 ? 'chat' : 'list'));
-    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Conversas</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><button type="button" class="mobile-wa-action" id="mobileRefreshButton" aria-label="Atualizar"><i class="fa-solid fa-rotate"></i></button><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton" aria-label="Mais opções"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
+    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Conversas</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><button type="button" class="mobile-wa-action" id="mobileRefreshButton" aria-label="Atualizar"><i class="fa-solid fa-rotate"></i><span>Atualizar</span></button><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton" aria-label="Mais opções"><i class="fa-solid fa-ellipsis-vertical"></i><span>Menu</span></button></div></div>';
     if (!$currentUser) {
         echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
         echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
@@ -4145,9 +4149,9 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
         echo '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji"><i class="fa-solid fa-face-smile"></i></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji"><i class="fa-solid fa-face-smile"></i><span>Emoji</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i><span>Anexar</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i><span>Áudio</span></button>';
         echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . '></textarea>';
         echo '<button class="mobile-wa-btn" type="submit" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
         echo '</form>';
