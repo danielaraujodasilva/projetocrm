@@ -59,6 +59,12 @@ $command = 'cd ' . escapeshellarg($realDeployPath)
 $output = shell_exec($command) ?: '';
 file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $output . "\n", FILE_APPEND);
 
+$ffmpegOutput = projetocrm_ensure_ffmpeg($deployConfig['ffmpeg'] ?? []);
+if ($ffmpegOutput !== '') {
+    file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $ffmpegOutput . "\n", FILE_APPEND);
+    $output .= "\n" . $ffmpegOutput;
+}
+
 $whatsappConfig = $deployConfig['whatsapp_service'] ?? [];
 if (!is_array($whatsappConfig)) {
     $whatsappConfig = [];
@@ -136,6 +142,46 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
         }
     }
 
+    return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
+}
+
+function projetocrm_command_exists(string $command): bool
+{
+    $probe = PHP_OS_FAMILY === 'Windows'
+        ? 'where ' . escapeshellarg($command) . ' 2>NUL'
+        : 'command -v ' . escapeshellarg($command) . ' 2>/dev/null';
+
+    return trim((string)shell_exec($probe)) !== '';
+}
+
+function projetocrm_ensure_ffmpeg(mixed $config): string
+{
+    $config = is_array($config) ? $config : [];
+    $enabled = array_key_exists('enabled', $config) ? (bool)$config['enabled'] : true;
+    if (!$enabled) {
+        return '';
+    }
+
+    $lines = ['FFmpeg:'];
+    $binary = trim((string)(getenv('FFMPEG_BINARY') ?: ($config['binary'] ?? 'ffmpeg')));
+    if ($binary !== '' && (is_file($binary) || projetocrm_command_exists($binary))) {
+        $lines[] = 'Disponivel: ' . $binary;
+        return implode("\n", $lines) . "\n";
+    }
+
+    $installCommand = trim((string)($config['install_command'] ?? ''));
+    if ($installCommand === '' && PHP_OS_FAMILY !== 'Windows' && projetocrm_command_exists('apt-get')) {
+        $installCommand = 'sudo -n apt-get update && sudo -n apt-get install -y ffmpeg';
+    }
+
+    if ($installCommand === '') {
+        $lines[] = 'Nao encontrado. Instale ffmpeg no servidor ou configure ffmpeg.install_command em deploy.local.php.';
+        return implode("\n", $lines) . "\n";
+    }
+
+    $lines[] = '$ ' . $installCommand;
+    $lines[] = trim((string)shell_exec($installCommand . ' 2>&1'));
+    $lines[] = projetocrm_command_exists('ffmpeg') ? 'Instalado.' : 'Ainda nao encontrei ffmpeg apos a tentativa de instalacao.';
     return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
 }
 

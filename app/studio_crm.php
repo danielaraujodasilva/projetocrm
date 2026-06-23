@@ -4231,6 +4231,11 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         return $upload;
     }
 
+    if (!studio_shell_exec_available()) {
+        $upload['audioConversionError'] = 'O servidor precisa do ffmpeg habilitado para enviar audio gravado como audio do WhatsApp.';
+        return $upload;
+    }
+
     $ffmpeg = trim((string)(getenv('FFMPEG_BINARY') ?: ''));
     if ($ffmpeg === '' && function_exists('shell_exec')) {
         $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffmpeg 2>NUL' : 'command -v ffmpeg 2>/dev/null';
@@ -4240,11 +4245,12 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         }
     }
 
-    if ($ffmpeg !== '' && is_executable($ffmpeg)) {
+    $ffmpegRunnable = $ffmpeg !== '' && (is_executable($ffmpeg) || !str_contains($ffmpeg, DIRECTORY_SEPARATOR));
+    if ($ffmpegRunnable) {
         $target = preg_replace('/\.[^.\\\\\/]+$/', '', $source) . '_opus.ogg';
         $command = escapeshellarg($ffmpeg)
             . ' -y -i ' . escapeshellarg($source)
-            . ' -vn -ac 1 -c:a libopus -b:a 32k ' . escapeshellarg($target) . ' 2>&1';
+            . ' -vn -ac 1 -ar 48000 -c:a libopus -b:a 32k -application voip ' . escapeshellarg($target) . ' 2>&1';
         $output = [];
         $exitCode = 1;
         @exec($command, $output, $exitCode);
@@ -4256,11 +4262,11 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
             $upload['convertedFromMime'] = $mime;
             return $upload;
         }
+        $upload['audioConversionError'] = 'Nao foi possivel converter o audio para OGG/Opus. Saida ffmpeg: ' . mb_substr(trim(implode("\n", $output)), -600);
+        return $upload;
     }
 
-    $upload['kind'] = 'document';
-    $upload['mime'] = (string)($upload['mime'] ?? 'application/octet-stream');
-    $upload['audioFallbackDocument'] = true;
+    $upload['audioConversionError'] = 'ffmpeg nao encontrado no servidor. Instale ffmpeg ou configure FFMPEG_BINARY para enviar audio gravado.';
     return $upload;
 }
 
@@ -4301,8 +4307,12 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
         'file_name' => $fileName,
         'has_file' => $path !== '' && is_file($path),
         'converted_from_mime' => (string)($upload['convertedFromMime'] ?? ''),
-        'audio_fallback_document' => !empty($upload['audioFallbackDocument']),
+        'audio_conversion_error' => (string)($upload['audioConversionError'] ?? ''),
     ];
+
+    if (!empty($upload['audioConversionError'])) {
+        return ['ok' => false, 'error' => (string)$upload['audioConversionError'], 'diagnostic' => $diagnostic];
+    }
 
     if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $path === '' || !is_file($path)) {
         return ['ok' => false, 'error' => 'Faltam dados para enviar a midia.', 'diagnostic' => $diagnostic];
