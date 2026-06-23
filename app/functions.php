@@ -148,6 +148,19 @@ function redirect_to(string $page = 'dashboard', array $params = []): never
     exit;
 }
 
+function redirect_to_url(string $url): never
+{
+    $url = trim($url);
+    if ($url === '') {
+        redirect_to('dashboard');
+    }
+    if (!preg_match('#^/[A-Za-z0-9._~/?=&%+\-#]*$#', $url)) {
+        redirect_to('dashboard');
+    }
+    header('Location: ' . $url);
+    exit;
+}
+
 function flash_set(string $type, string $message): void
 {
     $_SESSION['flash'] = ['type' => $type, 'message' => $message];
@@ -413,6 +426,18 @@ function current_admin(): ?array
     return is_array($admin) ? $admin : null;
 }
 
+function studio_list_users(array $studio): array
+{
+    if (!table_exists('studio_users')) {
+        return [];
+    }
+
+    $studioId = (int)($studio['id'] ?? 0);
+    $stmt = db()->prepare('SELECT id, name, email, role, is_active FROM studio_users WHERE studio_id = ? AND is_active = 1 ORDER BY name ASC, id ASC');
+    $stmt->execute([$studioId]);
+    return $stmt->fetchAll() ?: [];
+}
+
 function current_studio_user(): ?array
 {
     $id = (int)($_SESSION['studio_user_id'] ?? 0);
@@ -439,6 +464,7 @@ function require_admin(): array
 {
     $admin = current_admin();
     if (!$admin) {
+        $_SESSION['admin_return_to'] = (string)($_SERVER['REQUEST_URI'] ?? app_url('dashboard'));
         redirect_to('login');
     }
 
@@ -1385,6 +1411,44 @@ function studio_users(int $studioId): array
     return $stmt->fetchAll() ?: [];
 }
 
+function studio_find_user(int $studioUserId): ?array
+{
+    if (!table_exists('studio_users')) {
+        return null;
+    }
+
+    $stmt = db()->prepare('SELECT id, studio_id, name, email, role, is_active, last_login_at, created_at, updated_at FROM studio_users WHERE id = ? LIMIT 1');
+    $stmt->execute([$studioUserId]);
+    $user = $stmt->fetch();
+
+    return is_array($user) ? $user : null;
+}
+
+function studio_user_name_by_id(int $studioUserId): string
+{
+    $user = studio_find_user($studioUserId);
+    return is_array($user) ? trim((string)($user['name'] ?? '')) : '';
+}
+
+function studio_user_label_by_id(int $studioUserId): string
+{
+    $user = studio_find_user($studioUserId);
+    if (!is_array($user)) {
+        return $studioUserId > 0 ? 'Atendente #' . $studioUserId : '';
+    }
+    $name = trim((string)($user['name'] ?? ''));
+    $role = trim((string)($user['role'] ?? ''));
+    if ($name === '') {
+        $name = 'Atendente #' . $studioUserId;
+    }
+    if ($role !== '' && $role !== 'attendant') {
+        $suffixMap = ['admin' => 'Admin', 'owner' => 'Dono'];
+        $suffix = $suffixMap[$role] ?? $role;
+        return $name . ' [' . $suffix . ']';
+    }
+    return $name;
+}
+
 function create_or_update_studio_owner_user(array $studio, string $name, string $email, string $password): void
 {
     $name = trim($name);
@@ -1429,6 +1493,95 @@ function create_or_update_studio_owner_user(array $studio, string $name, string 
     );
     $stmt->execute([(int)$studio['id'], $name, $email, password_hash($password, PASSWORD_DEFAULT)]);
     studio_event((int)$studio['id'], 'studio_user_created', 'Acesso principal do estudio criado.');
+}
+
+function studio_save_attendant_user(array $studio, array $data): int
+{
+    if (!table_exists('studio_users')) {
+        throw new RuntimeException('Tabela de usuarios do estudio nao encontrada.');
+    }
+
+    $userId = (int)($data['id'] ?? 0);
+    $name = trim((string)($data['name'] ?? ''));
+    $email = strtolower(trim((string)($data['email'] ?? '')));
+    $role = trim((string)($data['role'] ?? 'attendant'));
+    $isActive = !empty($data['is_active']) ? 1 : 0;
+    $password = (string)($data['password'] ?? '');
+    $studioId = (int)$studio['id'];
+
+    if ($name === '' || $email === '') {
+        throw new RuntimeException('Informe nome e email do atendente.');
+    }
+    if (!in_array($role, ['owner', 'admin', 'attendant'], true)) {
+        $role = 'attendant';
+    }
+
+    $existingStmt = db()->prepare('SELECT id, studio_id FROM studio_users WHERE email = ? LIMIT 1');
+    $existingStmt->execute([$email]);
+    $existing = $existingStmt->fetch();
+    $existingId = (int)($existing['id'] ?? 0);
+    $existingStudioId = (int)($existing['studio_id'] ?? 0);
+    $targetId = $userId > 0 ? $userId : $existingId;
+    $passwordProvided = trim($password) !== '';
+
+    if ($targetId > 0) {
+        $currentStmt = db()->prepare('SELECT id, studio_id, role FROM studio_users WHERE id = ? LIMIT 1');
+        $currentStmt->execute([$targetId]);
+        $current = $currentStmt->fetch();
+        if (!is_array($current)) {
+            throw new RuntimeException('Atendente nao encontrado.');
+        }
+        if ((int)$current['studio_id'] !== $studioId) {
+            throw new RuntimeException('Nao e permitido mover atendente entre estudios aqui.');
+        }
+        $sql = 'UPDATE studio_users SET name = ?, email = ?, role = ?, is_active = ?, updated_at = NOW()';
+        $params = [$name, $email, $role, $isActive];
+        if ($passwordProvided) {
+            $sql .= ', password_hash = ?';
+            $params[] = password_hash($password, PASSWORD_DEFAULT);
+        }
+        $sql .= ' WHERE id = ?';
+        $params[] = $targetId;
+        $stmt = db()->prepare($sql);
+        $stmt->execute($params);
+        studio_event($studioId, 'studio_user_updated', 'Atendente atualizado.');
+        return $targetId;
+    }
+
+    $userLimit = plan_limit('max_users');
+    if ($userLimit > 0 && studio_user_count($studioId) >= $userLimit) {
+        throw new RuntimeException('Limite de usuarios do plano atingido.');
+    }
+    if (!$passwordProvided) {
+        throw new RuntimeException('Informe uma senha inicial para o novo atendente.');
+    }
+
+    $stmt = db()->prepare(
+        'INSERT INTO studio_users (studio_id, name, email, password_hash, role, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())'
+    );
+    $stmt->execute([$studioId, $name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $isActive]);
+    $newId = (int)db()->lastInsertId();
+    studio_event($studioId, 'studio_user_created', 'Atendente criado.');
+    return $newId;
+}
+
+function studio_delete_attendant_user(array $studio, int $userId): void
+{
+    if ($userId <= 0) {
+        throw new RuntimeException('Atendente invalido.');
+    }
+    $stmt = db()->prepare('SELECT id, studio_id FROM studio_users WHERE id = ? LIMIT 1');
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch();
+    if (!is_array($user)) {
+        throw new RuntimeException('Atendente nao encontrado.');
+    }
+    if ((int)$user['studio_id'] !== (int)$studio['id']) {
+        throw new RuntimeException('Nao e permitido excluir atendente de outro estudio.');
+    }
+    db()->prepare('DELETE FROM studio_users WHERE id = ?')->execute([$userId]);
+    studio_event((int)$studio['id'], 'studio_user_deleted', 'Atendente removido.');
 }
 
 function studio_database_exists(array $studio): bool

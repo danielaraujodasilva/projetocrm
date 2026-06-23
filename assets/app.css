@@ -1727,6 +1727,115 @@ textarea {
     font-weight: 800;
 }
 
+.whatsapp-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(320px, .9fr);
+    gap: 18px;
+    align-items: start;
+    margin-bottom: 18px;
+}
+
+.whatsapp-hero h2 {
+    margin: 0 0 10px;
+    font-size: clamp(28px, 3vw, 38px);
+    line-height: 1.05;
+    letter-spacing: -.03em;
+}
+
+.whatsapp-hero-copy {
+    display: grid;
+    gap: 12px;
+}
+
+.whatsapp-hero-actions {
+    margin-top: 6px;
+}
+
+.whatsapp-hero-sidebar {
+    display: grid;
+    gap: 12px;
+}
+
+.whatsapp-session-summary-card,
+.whatsapp-hero-error {
+    display: grid;
+    gap: 6px;
+    padding: 14px 15px;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, .18);
+    background: linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(247, 250, 252, .96));
+    box-shadow: 0 .5rem 1.1rem rgba(15, 23, 42, .04);
+}
+
+.whatsapp-session-summary-card strong,
+.whatsapp-hero-error strong {
+    font-size: 15px;
+}
+
+.whatsapp-hero-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.whatsapp-hero-stat {
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: rgba(31, 111, 120, .06);
+    border: 1px solid rgba(31, 111, 120, .12);
+}
+
+.whatsapp-hero-stat strong {
+    display: block;
+    font-size: 24px;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.whatsapp-hero-stat span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.whatsapp-layout-grid {
+    display: grid;
+    gap: 16px;
+}
+
+.whatsapp-session-panel {
+    border-radius: 24px;
+}
+
+.whatsapp-session-panel-head {
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 12px;
+}
+
+.whatsapp-session-summary {
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface-soft);
+    margin-top: 10px;
+}
+
+.wa-pairing-code-inline {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 1px dashed var(--line);
+    border-radius: 16px;
+    background: #fff;
+    font-size: 28px;
+    letter-spacing: 2px;
+    font-weight: 900;
+    text-align: center;
+}
+
 .whatsapp-overview {
     align-items: start;
 }

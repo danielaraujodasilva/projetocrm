@@ -7,10 +7,10 @@ function studio_db_config(array $studio): array
     $platform = app_config('database');
 
     return [
-        'host' => $studio['database_host'] ?: ($platform['host'] ?? 'localhost'),
+        'host' => !empty($studio['database_host']) ? (string)$studio['database_host'] : (string)($platform['host'] ?? 'localhost'),
         'port' => (int)($platform['port'] ?? 3306),
-        'database' => (string)$studio['database_name'],
-        'username' => $studio['database_user'] ?: ($platform['username'] ?? 'root'),
+        'database' => (string)($studio['database_name'] ?? ''),
+        'username' => !empty($studio['database_user']) ? (string)$studio['database_user'] : (string)($platform['username'] ?? 'root'),
         'password' => (string)($studio['database_password'] ?? ($platform['password'] ?? '')),
         'charset' => (string)($platform['charset'] ?? 'utf8mb4'),
     ];
@@ -61,6 +61,11 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `remote_jid` VARCHAR(180) NULL,
             `attendance_mode` ENUM("human", "bot") NOT NULL DEFAULT "human",
             `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
+            `assigned_user_id` BIGINT UNSIGNED NULL,
+            `assigned_at` DATETIME NULL,
+            `assigned_by_user_id` BIGINT UNSIGNED NULL,
+            `released_at` DATETIME NULL,
+            `locked_at` DATETIME NULL,
             `lead_score` TINYINT UNSIGNED NULL,
             `ai_last_status` VARCHAR(80) NULL,
             `ai_last_message` TEXT NULL,
@@ -79,6 +84,11 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
     foreach ([
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `name`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `needs_human` TINYINT(1) NOT NULL DEFAULT 0 AFTER `attendance_mode`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_user_id` BIGINT UNSIGNED NULL AFTER `needs_human`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_at` DATETIME NULL AFTER `assigned_user_id`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_by_user_id` BIGINT UNSIGNED NULL AFTER `assigned_at`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `released_at` DATETIME NULL AFTER `assigned_by_user_id`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `locked_at` DATETIME NULL AFTER `released_at`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_status` VARCHAR(80) NULL AFTER `lead_score`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_message` TEXT NULL AFTER `ai_last_status`',
@@ -152,6 +162,20 @@ function studio_db_status_for(array $studio): array
         return ['ok' => true, 'error' => ''];
     } catch (Throwable $e) {
         return ['ok' => false, 'error' => $e->getMessage()];
+    }
+}
+
+function studio_table_exists(array $studio, string $table): bool
+{
+    try {
+        $config = studio_db_config($studio);
+        $stmt = studio_db($studio)->prepare(
+            'SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?'
+        );
+        $stmt->execute([$config['database'], $table]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable) {
+        return false;
     }
 }
 
@@ -355,6 +379,149 @@ function studio_whatsapp_official_configured(array $studio): bool
         && trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))) !== ''
         && trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== ''
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
+}
+
+function studio_mask_token_preview(string $token): string
+{
+    $token = trim($token);
+    if ($token === '') {
+        return 'vazio';
+    }
+
+    $length = strlen($token);
+    $start = substr($token, 0, 8);
+    $end = $length > 14 ? substr($token, -6) : '';
+
+    return $end !== '' ? $start . '...' . $end . ' (' . $length . ' caracteres)' : $start . '... (' . $length . ' caracteres)';
+}
+
+function studio_whatsapp_zap_local_config(): array
+{
+    $path = APP_BASE_PATH . '/storage/zap_api_config.local.json';
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $raw = file_get_contents($path);
+    if (!is_string($raw) || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function studio_ensure_whatsapp_assignment_schema(array $studio): void
+{
+    try {
+        $pdo = studio_db($studio);
+        foreach ([
+            'assigned_user_id' => 'BIGINT UNSIGNED NULL',
+            'assigned_at' => 'DATETIME NULL',
+            'assigned_by_user_id' => 'BIGINT UNSIGNED NULL',
+            'released_at' => 'DATETIME NULL',
+            'locked_at' => 'DATETIME NULL',
+        ] as $column => $definition) {
+            try {
+                $pdo->exec('ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
+            } catch (Throwable) {
+                try {
+                    $pdo->exec('ALTER TABLE whatsapp_conversations ADD COLUMN ' . $column . ' ' . $definition);
+                } catch (Throwable) {
+                }
+            }
+        }
+    } catch (Throwable) {
+    }
+}
+
+function studio_current_user(): ?array
+{
+    $user = current_studio_user();
+    return is_array($user) ? $user : null;
+}
+
+function studio_current_user_is_admin(): bool
+{
+    if (current_admin() !== null) {
+        return true;
+    }
+
+    $user = current_studio_user();
+    if (!is_array($user)) {
+        return false;
+    }
+
+    return in_array((string)($user['role'] ?? ''), ['admin', 'owner'], true);
+}
+
+function studio_can_view_whatsapp_conversation(array $studio, array $conversation, array $user): bool
+{
+    return !empty($conversation);
+}
+
+function studio_can_send_whatsapp_conversation(array $studio, array $conversation, array $user): bool
+{
+    if (empty($conversation)) {
+        return false;
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+
+    if ($assignedUserId <= 0) {
+        return false;
+    }
+
+    return $assignedUserId === $userId;
+}
+
+function studio_assign_whatsapp_conversation(array $studio, int $conversationId, int $userId, int $assignedByUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = ?, assigned_at = NOW(), assigned_by_user_id = ?, released_at = NULL, locked_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([$userId, $assignedByUserId, $conversationId]);
+}
+
+function studio_release_whatsapp_conversation(array $studio, int $conversationId, int $releasedByUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = NULL, released_at = NOW(), assigned_by_user_id = ?, locked_at = NULL, updated_at = NOW() WHERE id = ?')->execute([$releasedByUserId, $conversationId]);
+}
+
+function studio_transfer_whatsapp_conversation(array $studio, int $conversationId, int $toUserId, int $byUserId): void
+{
+    studio_ensure_whatsapp_assignment_schema($studio);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = ?, assigned_at = NOW(), assigned_by_user_id = ?, released_at = NULL, locked_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([$toUserId, $byUserId, $conversationId]);
+}
+
+function crm_whatsapp_official_apply_defaults(array $studio): void
+{
+    $settings = studio_settings($studio);
+    $updates = [];
+
+    foreach ([
+        'whatsapp_official_mode' => 'production',
+        'whatsapp_official_api_version' => 'v23.0',
+        'whatsapp_official_phone_number_id' => '1186818641175044',
+    ] as $key => $default) {
+        if (trim((string)($settings[$key] ?? '')) === '' && $default !== '') {
+            $updates[$key] = $default;
+        }
+    }
+
+    if (!$updates) {
+        return;
+    }
+
+    $assignments = [];
+    $params = [];
+    foreach ($updates as $key => $value) {
+        $assignments[] = $key . ' = ?';
+        $params[] = $value;
+    }
+    $params[] = (int)$studio['id'];
+
+    studio_db($studio)->prepare('UPDATE studio_settings SET ' . implode(', ', $assignments) . ', updated_at = NOW() WHERE id = ?')->execute($params);
 }
 
 function studio_whatsapp_official_status(array $studio): array
@@ -1938,13 +2105,39 @@ function studio_whatsapp_summary(array $studio): array
 
 function studio_list_whatsapp_conversations(array $studio, array $filters = [], int $limit = 160): array
 {
+    studio_ensure_whatsapp_assignment_schema($studio);
     $where = [];
     $params = [];
+    $currentUser = studio_current_user();
+    $currentUserId = (int)($currentUser['id'] ?? 0);
+    $isAdmin = studio_current_user_is_admin();
+    $viewFilter = trim((string)($filters['visibility'] ?? ''));
+    $dateFilter = trim((string)($filters['date_filter'] ?? ''));
+    $dateFrom = trim((string)($filters['date_from'] ?? ''));
+    $dateTo = trim((string)($filters['date_to'] ?? ''));
+    if ($viewFilter === 'mine') {
+        $where[] = 'wc.assigned_user_id = ?';
+        $params[] = $currentUserId;
+    } elseif ($viewFilter === 'free') {
+        $where[] = 'wc.assigned_user_id IS NULL';
+    } elseif ($viewFilter === 'all') {
+        // todos veem tudo; admin ainda pode usar mine/free explicitamente
+    } elseif ($viewFilter !== '') {
+        $where[] = 'wc.assigned_user_id = ?';
+        $params[] = $currentUserId;
+    }
+    if ($dateFilter === 'today') {
+        $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) = CURDATE()';
+    } elseif ($dateFilter === 'range' && $dateFrom !== '' && $dateTo !== '') {
+        $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) BETWEEN ? AND ?';
+        $params[] = $dateFrom;
+        $params[] = $dateTo;
+    }
     $q = trim((string)($filters['q'] ?? ''));
     if ($q !== '') {
-        $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ?)';
+        $where[] = '(wc.phone LIKE ? OR wc.name LIKE ? OR wc.last_message_preview LIKE ? OR c.name LIKE ? OR l.name LIKE ? OR l.interest LIKE ? OR EXISTS (SELECT 1 FROM whatsapp_messages wm_search WHERE wm_search.conversation_id = wc.id AND (wm_search.body LIKE ? OR wm_search.transcricao LIKE ? OR wm_search.transcript LIKE ?)))';
         $like = '%' . $q . '%';
-        array_push($params, $like, $like, $like, $like, $like, $like);
+        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
     $mode = trim((string)($filters['mode'] ?? ''));
     if (in_array($mode, ['human', 'bot'], true)) {
@@ -1960,8 +2153,10 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         $params[] = min(10, $minScore);
     }
 
+    $assignedJoin = '';
+    $assignedSelect = ', NULL AS assigned_user_name';
     $sql =
-        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name, COUNT(wm.id) AS message_count,
+        "SELECT wc.*, c.name AS customer_name, l.name AS lead_name" . $assignedSelect . ", COUNT(wm.id) AS message_count,
                 COALESCE(wc.last_message_at, wm_last.sent_at, MAX(wm.sent_at)) AS message_last_at,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
@@ -1972,7 +2167,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
+" . $assignedJoin . "         LEFT JOIN whatsapp_messages wm ON wm.conversation_id = wc.id
          LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
              FROM whatsapp_messages wm2
@@ -2026,6 +2221,14 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         $rows = array_slice($rows, $offset, $limit > 0 ? $limit : null);
     }
 
+    foreach ($rows as &$row) {
+        $assignedUserId = (int)($row['assigned_user_id'] ?? 0);
+        if ($assignedUserId > 0) {
+            $row['assigned_user_name'] = studio_user_name_by_id($assignedUserId);
+        }
+    }
+    unset($row);
+
     return $rows;
 }
 
@@ -2037,7 +2240,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
 
     $stmt = studio_db($studio)->prepare(
         "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
-                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value,
+                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value, NULL AS assigned_user_name,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
                 COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
@@ -2046,7 +2249,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
          FROM whatsapp_conversations wc
          LEFT JOIN customers c ON c.id = wc.customer_id
          LEFT JOIN leads l ON l.id = wc.lead_id
-         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
+" . "         LEFT JOIN whatsapp_messages wm_last ON wm_last.id = (
              SELECT wm2.id
              FROM whatsapp_messages wm2
              WHERE wm2.conversation_id = wc.id
@@ -2058,6 +2261,9 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
     );
     $stmt->execute([$id]);
     $conversation = $stmt->fetch();
+    if (is_array($conversation) && !empty($conversation['assigned_user_id'])) {
+        $conversation['assigned_user_name'] = studio_user_name_by_id((int)$conversation['assigned_user_id']);
+    }
 
     return is_array($conversation) ? $conversation : null;
 }
@@ -3256,6 +3462,7 @@ function studio_whatsapp_update_message_status(array $studio, array $payload): a
 
 function studio_record_whatsapp_message(array $studio, array $payload): array
 {
+    studio_ensure_whatsapp_assignment_schema($studio);
     if (!empty($payload['statusUpdate'])) {
         return studio_whatsapp_update_message_status($studio, $payload);
     }
@@ -3940,21 +4147,48 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
     }
 
-    $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
-    $version = trim((string)($settings['whatsapp_official_api_version'] ?? 'v25.0'));
-    $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
-    if (!in_array($mode, ['production', 'sandbox'], true)) {
-        $mode = 'production';
-    }
-    $phoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
-    if ($mode === 'sandbox' && preg_match('/^https?:\\/\\//', $toPhone)) {
-        $toPhone = preg_replace('/\\D+/', '', parse_url($toPhone, PHP_URL_HOST) ?: '') ?: '';
-    }
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $crmVersion = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $crmPhoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $zapConfig = studio_whatsapp_zap_local_config();
+
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+
+    $source = $useZapLocalConfig ? 'zap_local_config' : 'crm_settings';
+    $accessToken = $useZapLocalConfig ? trim((string)$zapConfig['access_token']) : $crmAccessToken;
+    $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
+    $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
     $message = trim($message);
+    $diagnostic = [
+        'source' => $source,
+        'crm' => [
+            'api_version' => $crmVersion,
+            'phone_number_id' => $crmPhoneNumberId,
+            'token_preview' => studio_mask_token_preview($crmAccessToken),
+            'token_length' => strlen($crmAccessToken),
+        ],
+        'zap_local_config' => [
+            'exists' => !empty($zapConfig),
+            'api_version' => (string)($zapConfig['api_version'] ?? ''),
+            'phone_number_id' => (string)($zapConfig['phone_number_id'] ?? ''),
+            'token_preview' => studio_mask_token_preview((string)($zapConfig['access_token'] ?? '')),
+            'token_length' => strlen((string)($zapConfig['access_token'] ?? '')),
+            'same_token_as_crm' => hash_equals($crmAccessToken, (string)($zapConfig['access_token'] ?? '')),
+            'same_phone_number_id_as_crm' => $crmPhoneNumberId === (string)($zapConfig['phone_number_id'] ?? ''),
+            'same_api_version_as_crm' => $crmVersion === (string)($zapConfig['api_version'] ?? ''),
+        ],
+        'send' => [
+            'to_phone' => $toPhone,
+            'message_length' => strlen($message),
+        ],
+    ];
 
     if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $message === '') {
-        return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.'];
+        return ['ok' => false, 'error' => 'Faltam dados para enviar a mensagem.', 'diagnostic' => $diagnostic];
     }
 
     $payload = [
@@ -3963,11 +4197,106 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         'type' => 'text',
         'text' => ['body' => $message],
     ];
-    if ($mode === 'sandbox') {
-        $payload['preview_url'] = false;
+
+    $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
+    $result['diagnostic'] = $diagnostic;
+    if (empty($result['ok'])) {
+        return $result;
     }
 
-    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
+    return $result;
+}
+
+function studio_whatsapp_official_send_media(array $studio, string $toPhone, array $upload, string $caption = ''): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
+    }
+
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $crmVersion = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $crmPhoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $zapConfig = studio_whatsapp_zap_local_config();
+
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+
+    $accessToken = $useZapLocalConfig ? trim((string)$zapConfig['access_token']) : $crmAccessToken;
+    $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
+    $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
+    $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $path = (string)($upload['path'] ?? '');
+    $mime = (string)($upload['mime'] ?? 'application/octet-stream');
+    $kind = (string)($upload['kind'] ?? 'document');
+    $fileName = (string)($upload['fileName'] ?? 'arquivo');
+    $caption = trim($caption);
+
+    $diagnostic = [
+        'source' => $useZapLocalConfig ? 'zap_local_config' : 'crm_settings',
+        'phone_number_id' => $phoneNumberId,
+        'to_phone' => $toPhone,
+        'kind' => $kind,
+        'mime' => $mime,
+        'file_name' => $fileName,
+        'has_file' => $path !== '' && is_file($path),
+    ];
+
+    if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $path === '' || !is_file($path)) {
+        return ['ok' => false, 'error' => 'Faltam dados para enviar a midia.', 'diagnostic' => $diagnostic];
+    }
+
+    $uploadUrl = 'https://graph.facebook.com/' . rawurlencode($version) . '/' . rawurlencode($phoneNumberId) . '/media';
+    $ch = curl_init($uploadUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $accessToken],
+        CURLOPT_POSTFIELDS => [
+            'messaging_product' => 'whatsapp',
+            'type' => $mime,
+            'file' => new CURLFile($path, $mime, $fileName),
+        ],
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $rawUpload = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $uploadStatus = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $rawUpload === false) {
+        return ['ok' => false, 'error' => $error ?: 'Falha ao subir midia para a Meta.', 'status' => $uploadStatus, 'diagnostic' => $diagnostic];
+    }
+
+    $uploadJson = json_decode((string)$rawUpload, true);
+    if (!is_array($uploadJson) || $uploadStatus >= 400 || !empty($uploadJson['error']) || empty($uploadJson['id'])) {
+        return ['ok' => false, 'error' => (string)($uploadJson['error']['message'] ?? 'Falha ao subir midia para a Meta.'), 'status' => $uploadStatus, 'json' => $uploadJson, 'diagnostic' => $diagnostic];
+    }
+
+    $mediaId = (string)$uploadJson['id'];
+    $messageType = in_array($kind, ['image', 'video', 'audio', 'document'], true) ? $kind : 'document';
+    $mediaPayload = ['id' => $mediaId];
+    if ($caption !== '' && in_array($messageType, ['image', 'video', 'document'], true)) {
+        $mediaPayload['caption'] = $caption;
+    }
+    if ($messageType === 'document' && $fileName !== '') {
+        $mediaPayload['filename'] = $fileName;
+    }
+
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'to' => $toPhone,
+        'type' => $messageType,
+        $messageType => $mediaPayload,
+    ];
+
+    $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload, 60);
+    $result['diagnostic'] = $diagnostic + ['media_id' => $mediaId, 'upload_status' => $uploadStatus];
+    $result['upload_json'] = $uploadJson;
+    return $result;
 }
 
 function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
@@ -4254,6 +4583,7 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
         'fileName' => $fileName,
         'kind' => $kind,
         'relativePath' => $relativePath,
+        'path' => $dest,
     ];
 }
 
