@@ -37,8 +37,52 @@ function whatsapp_webhook_log(array $event): void
     @file_put_contents(whatsapp_webhook_log_path(), $line, FILE_APPEND | LOCK_EX);
 }
 
+function whatsapp_official_known_config(): array
+{
+    $config = [
+        'phone_number_id' => '1186818641175044',
+        'verify_token' => 'zap_crm_daniel_2026',
+        'waba_id' => '1908414750031996',
+    ];
+
+    $path = APP_BASE_PATH . '/storage/zap_api_config.local.json';
+    if (is_file($path)) {
+        $raw = file_get_contents($path);
+        $decoded = is_string($raw) ? json_decode($raw, true) : null;
+        if (is_array($decoded)) {
+            foreach (['phone_number_id', 'verify_token', 'waba_id'] as $key) {
+                $value = trim((string)($decoded[$key] ?? ''));
+                if ($value !== '') {
+                    $config[$key] = $value;
+                }
+            }
+        }
+    }
+
+    return $config;
+}
+
+function whatsapp_first_studio(): ?array
+{
+    $studios = list_studios();
+    foreach ($studios as $studio) {
+        if (is_array($studio)) {
+            return $studio;
+        }
+    }
+    return null;
+}
+
 function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?array
 {
+    $known = whatsapp_official_known_config();
+    if ($verifyToken !== '' && hash_equals((string)$known['verify_token'], $verifyToken)) {
+        $studio = whatsapp_first_studio();
+        if ($studio) {
+            return $studio;
+        }
+    }
+
     foreach (list_studios() as $studio) {
         if (!is_array($studio)) {
             continue;
@@ -59,22 +103,9 @@ function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?ar
     ];
 
     if (in_array($verifyToken, $acceptedTestTokens, true)) {
-        $studios = list_studios();
-        if (count($studios) === 1 && is_array($studios[0] ?? null)) {
-            return $studios[0];
-        }
-        foreach ($studios as $studio) {
-            if (!is_array($studio)) {
-                continue;
-            }
-            try {
-                $settings = studio_settings($studio);
-            } catch (Throwable) {
-                continue;
-            }
-            if ((string)($settings['whatsapp_provider'] ?? 'baileys') === 'official') {
-                return $studio;
-            }
+        $studio = whatsapp_first_studio();
+        if ($studio) {
+            return $studio;
         }
     }
 
@@ -86,6 +117,21 @@ function find_official_whatsapp_studio_by_phone_id(string $phoneNumberId): ?arra
     if ($phoneNumberId === '') {
         return null;
     }
+
+    $known = whatsapp_official_known_config();
+    if ($phoneNumberId === (string)$known['phone_number_id']) {
+        $studio = whatsapp_first_studio();
+        if ($studio) {
+            whatsapp_webhook_log([
+                'type' => 'studio_lookup_fallback_known_phone_id',
+                'phone_number_id' => $phoneNumberId,
+                'studio_id' => (int)($studio['id'] ?? 0),
+                'studio_slug' => (string)($studio['slug'] ?? ''),
+            ]);
+            return $studio;
+        }
+    }
+
     foreach (list_studios() as $studio) {
         if (!is_array($studio)) {
             continue;
@@ -95,7 +141,13 @@ function find_official_whatsapp_studio_by_phone_id(string $phoneNumberId): ?arra
                 crm_whatsapp_official_apply_defaults($studio);
             }
             $settings = studio_settings($studio);
-        } catch (Throwable) {
+        } catch (Throwable $e) {
+            whatsapp_webhook_log([
+                'type' => 'studio_lookup_settings_error',
+                'phone_number_id' => $phoneNumberId,
+                'studio_id' => (int)($studio['id'] ?? 0),
+                'error' => $e->getMessage(),
+            ]);
             continue;
         }
         $configuredPhoneId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
@@ -104,6 +156,14 @@ function find_official_whatsapp_studio_by_phone_id(string $phoneNumberId): ?arra
             return $studio;
         }
     }
+
+    whatsapp_webhook_log([
+        'type' => 'studio_lookup_failed',
+        'phone_number_id' => $phoneNumberId,
+        'known_phone_number_id' => (string)$known['phone_number_id'],
+        'studios_count' => count(list_studios()),
+    ]);
+
     return null;
 }
 
@@ -116,11 +176,18 @@ function whatsapp_official_record_status(array $studio, array $status): void
         return;
     }
     try {
-        studio_record_whatsapp_message($studio, [
+        $result = studio_record_whatsapp_message($studio, [
             'statusUpdate' => true,
             'messageId' => $messageId,
             'remoteJid' => $recipientId,
             'status' => $state,
+        ]);
+        whatsapp_webhook_log([
+            'type' => 'crm_record_status_ok',
+            'message_id' => $messageId,
+            'status' => $state,
+            'result' => $result,
+            'studio_id' => (int)($studio['id'] ?? 0),
         ]);
     } catch (Throwable $e) {
         whatsapp_webhook_log(['type' => 'crm_record_status_error', 'error' => $e->getMessage(), 'message_id' => $messageId]);
@@ -131,6 +198,7 @@ function whatsapp_official_record_message(array $studio, array $message, array $
 {
     $from = preg_replace('/\D+/', '', (string)($message['from'] ?? '')) ?: '';
     if ($from === '') {
+        whatsapp_webhook_log(['type' => 'incoming_message_without_from', 'message' => $message]);
         return;
     }
 
@@ -155,19 +223,37 @@ function whatsapp_official_record_message(array $studio, array $message, array $
     }
 
     try {
-        studio_record_whatsapp_message($studio, [
+        $result = studio_record_whatsapp_message($studio, [
             'numero' => $from,
+            'phone' => $from,
             'name' => $name,
             'mensagem' => $body !== '' ? $body : '[' . $type . ']',
+            'body' => $body !== '' ? $body : '[' . $type . ']',
             'fromMe' => false,
             'senderType' => 'customer',
             'messageId' => (string)($message['id'] ?? ''),
             'remoteJid' => $from,
             'timestamp' => (int)($message['timestamp'] ?? time()),
             'tipoMensagem' => $type !== '' ? $type : 'texto',
+            'messageType' => $type !== '' ? $type : 'texto',
+        ]);
+        whatsapp_webhook_log([
+            'type' => 'crm_record_message_ok',
+            'from' => $from,
+            'message_id' => (string)($message['id'] ?? ''),
+            'conversation_id' => (int)($result['conversation_id'] ?? 0),
+            'duplicate' => !empty($result['duplicate']),
+            'studio_id' => (int)($studio['id'] ?? 0),
         ]);
     } catch (Throwable $e) {
-        whatsapp_webhook_log(['type' => 'crm_record_message_error', 'error' => $e->getMessage(), 'from' => $from]);
+        whatsapp_webhook_log([
+            'type' => 'crm_record_message_error',
+            'error' => $e->getMessage(),
+            'from' => $from,
+            'message_id' => (string)($message['id'] ?? ''),
+            'message_type' => $type,
+            'studio_id' => (int)($studio['id'] ?? 0),
+        ]);
     }
 }
 
@@ -275,6 +361,13 @@ foreach ($entries as $entry) {
             ]);
             if ($studio) {
                 whatsapp_official_record_message($studio, $message, $contacts);
+            } else {
+                whatsapp_webhook_log([
+                    'type' => 'incoming_message_without_studio',
+                    'phone_number_id' => $phoneNumberId,
+                    'from' => (string)($message['from'] ?? ''),
+                    'message_id' => (string)($message['id'] ?? ''),
+                ]);
             }
         }
 
