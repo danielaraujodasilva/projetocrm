@@ -1135,6 +1135,11 @@ if ($action === 'studio_login') {
                     'visibility' => 'all',
                 ], static fn($value) => $value !== null && $value !== ''));
             }
+            if (!empty($_POST['return_to_mobile2'])) {
+                redirect_to('studio_whatsapp_mobile2', array_filter([
+                    'id' => $conversationId > 0 ? $conversationId : null,
+                ], static fn($value) => $value !== null && $value !== ''));
+            }
             redirect_to('studio_whatsapp_workspace');
         }
 
@@ -1318,13 +1323,18 @@ $flash = flash_get();
 function render_head(string $title): void
 {
     echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
-    $viewport = $title === 'Atendimento Mobile'
+    $viewport = in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)
         ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
         : 'width=device-width, initial-scale=1';
     echo '<meta name="viewport" content="' . h($viewport) . '">';
     echo '<title>' . h($title) . '</title>';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
-    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '"></head><body>';
+    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
+    if ($title === 'WhatsApp Mobile 2') {
+        echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
+        echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
+    }
+    echo '</head><body>';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-metaads-v2') . '" value="' . h(app_build_version() . '-metaads-v2') . '" title="Clique para selecionar a versao">';
 }
 
@@ -1873,6 +1883,133 @@ if ($page === 'public_agent') {
 $studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
+}
+
+if ($page === 'studio_whatsapp_mobile2') {
+    $currentUser = current_studio_user();
+    render_head('WhatsApp Mobile 2');
+
+    if (!$currentUser) {
+        echo '<main class="m2-login"><section class="m2-login-card"><h1>Entrar no atendimento</h1><form method="post" class="form" action="' . h(app_url('studio_whatsapp_mobile2')) . '">' . csrf_field() . '<input type="hidden" name="action" value="studio_login"><input type="hidden" name="return_to" value="' . h(app_url('studio_whatsapp_mobile2')) . '"><div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div><div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div><button class="m2-send" type="submit">Entrar</button></form></section></main></body></html>';
+        exit;
+    }
+
+    $studio = get_studio((int)($currentUser['studio_id'] ?? 0));
+    if (!$studio) {
+        echo '<main class="m2-login"><section class="m2-login-card"><h1>Estudio nao encontrado</h1><a class="m2-send" href="' . h(app_url('studio_login')) . '">Recarregar login</a></section></main></body></html>';
+        exit;
+    }
+
+    $filters = [
+        'q' => (string)($_GET['q'] ?? ''),
+        'filter' => (string)($_GET['filter'] ?? 'all'),
+        'visibility' => (string)($_GET['visibility'] ?? 'all'),
+        'offset' => 0,
+    ];
+    $conversations = studio_list_whatsapp_conversations($studio, $filters, 80);
+    $conversationId = (int)($_GET['id'] ?? 0);
+    $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+    $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 100, $conversation) : [];
+    $isAdmin = studio_current_user_is_admin();
+    $currentUserId = (int)($currentUser['id'] ?? 0);
+    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+    $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
+    $canSend = $conversation && ($isAdmin || $assignedUserId === $currentUserId);
+
+    $labelForConversation = static function (array $row): string {
+        $name = trim((string)($row['customer_name'] ?? ''));
+        if ($name === '') $name = trim((string)($row['lead_name'] ?? ''));
+        if ($name === '') $name = trim((string)($row['name'] ?? ''));
+        $phone = trim((string)($row['phone'] ?? ''));
+        if ($name === '' || in_array($name, ['Cliente WhatsApp', 'Contato WhatsApp'], true)) {
+            return $phone !== '' ? $phone : 'Contato WhatsApp';
+        }
+        return $name;
+    };
+    $inferMediaType = static function (string $mime, string $mediaUrl, string $type): string {
+        $mime = strtolower(trim($mime));
+        $ext = strtolower(pathinfo((string)(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl), PATHINFO_EXTENSION));
+        if (str_starts_with($mime, 'image/')) return 'image';
+        if (str_starts_with($mime, 'video/')) return 'video';
+        if (str_starts_with($mime, 'audio/')) return 'audio';
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true) || $type === 'image') return 'image';
+        if (in_array($ext, ['mp4', 'webm', 'mov'], true) || $type === 'video') return 'video';
+        if (in_array($ext, ['mp3', 'wav', 'ogg', 'opus', 'webm', 'm4a'], true) || $type === 'audio') return 'audio';
+        return 'file';
+    };
+
+    echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '">';
+    echo '<aside class="m2-list" id="m2ListPanel">';
+    echo '<header class="m2-top"><strong>WhatsApp</strong><span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button><a class="m2-icon" href="' . h(app_url('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : [])) . '" aria-label="Workspace" title="Abrir desktop"><i class="fa-solid fa-display"></i></a></span></header>';
+    echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
+    echo '<nav class="m2-items" id="m2Items">';
+    foreach ($conversations as $row) {
+        $rowId = (int)($row['id'] ?? 0);
+        $rowName = $labelForConversation($row);
+        $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
+        $rowPreview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? ''));
+        $href = app_url('studio_whatsapp_mobile2', ['id' => $rowId]);
+        $active = $rowId === $conversationId ? ' active' : '';
+        $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
+        echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h(strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview)) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
+    }
+    echo '</nav></aside>';
+
+    echo '<section class="m2-chat' . (!$conversation ? ' empty' : '') . '" id="m2ChatPanel">';
+    if (!$conversation) {
+        echo '<div class="m2-empty"><i class="fa-solid fa-comments"></i><strong>Escolha uma conversa</strong></div>';
+    } else {
+        $displayName = $labelForConversation($conversation);
+        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url('studio_whatsapp_mobile2')) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        echo '<div class="m2-menu hidden" id="m2Menu">';
+        if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-hand-pointer"></i>Assumir</button></form>';
+        }
+        if (($assignedUserId === $currentUserId || $isAdmin) && $assignedUserId > 0) {
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-lock-open"></i>Liberar</button></form>';
+        }
+        if ($isAdmin) {
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><select name="target_user_id" required><option value="">Transferir para...</option>';
+            foreach (studio_list_users($studio) as $studioUser) echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
+            echo '</select><button type="submit"><i class="fa-solid fa-right-left"></i>Transferir</button></form>';
+        }
+        echo '</div>';
+        echo '<div class="m2-messages" id="m2Messages">';
+        foreach ($messages as $message) {
+            $direction = (string)($message['direction'] ?? 'in');
+            $class = $direction === 'out' ? ' out' : ' in';
+            $body = (string)($message['body'] ?? '');
+            $type = (string)($message['message_type'] ?? 'texto');
+            $mime = (string)($message['media_mime'] ?? '');
+            $mediaUrl = (string)($message['media_url'] ?? '');
+            $mediaName = (string)($message['media_file_name'] ?? '');
+            $kind = $inferMediaType($mime, $mediaUrl, $type);
+            if ($mediaName === '' && $mediaUrl !== '') $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl);
+            echo '<article class="m2-msg' . h($class) . '"><div class="m2-bubble">';
+            if ($mediaUrl !== '') {
+                if ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
+                elseif ($kind === 'video') echo '<video class="m2-media" src="' . h($mediaUrl) . '" controls></video>';
+                elseif ($kind === 'audio') {
+                    echo '<audio src="' . h($mediaUrl) . '" controls></audio>';
+                    if (empty($message['transcricao']) && empty($message['transcript'])) echo '<button class="m2-transcribe" type="button" data-transcribe-audio="' . h($message['message_id'] ?? '') . '" data-media-url="' . h($mediaUrl) . '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
+                } else echo '<a class="m2-file" href="' . h($mediaUrl) . '" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i>' . h($mediaName !== '' ? $mediaName : 'Abrir anexo') . '</a>';
+            }
+            if ($body !== '') echo '<p>' . nl2br(h($body)) . '</p>';
+            $transcribedText = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
+            if ($transcribedText !== '') echo '<div class="m2-transcript">' . h($transcribedText) . '</div>';
+            echo '<time>' . h(format_datetime_pt((string)($message['sent_at'] ?? ''), false)) . '</time></div></article>';
+        }
+        echo '</div>';
+        echo '<div class="m2-emoji hidden" id="m2EmojiPanel" aria-label="Emojis">';
+        foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) echo '<button type="button" data-emoji="' . h($emoji) . '">' . h($emoji) . '</button>';
+        echo '</div>';
+        echo '<div class="m2-attachment hidden" id="m2AttachmentPreview"></div>';
+        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input id="m2AttachmentInput" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+    }
+    echo '</section></main>';
+    echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';
+    echo '</body></html>';
+    exit;
 }
 
 if ($page === 'studio_home') {
