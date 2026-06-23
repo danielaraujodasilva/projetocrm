@@ -563,7 +563,7 @@ if ($action === 'studio_login') {
             studio_save_appointment($studio, $_POST);
             flash_set('success', 'Agenda salva.');
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile2', array_filter([
+                redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0) ?: null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
@@ -1059,7 +1059,7 @@ if ($action === 'studio_login') {
                 flash_set('success', 'Conversa marcada como nao lida.');
             }
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile2', array_filter([
+                redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => $conversationId > 0 ? $conversationId : null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
@@ -1086,7 +1086,7 @@ if ($action === 'studio_login') {
             studio_update_whatsapp_profile($studio, $_POST);
             flash_set('success', 'Cadastro, lead e conversa atualizados.');
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile2', array_filter([
+                redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
@@ -1154,7 +1154,7 @@ if ($action === 'studio_login') {
                 ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile2', array_filter([
+                redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => $conversationId > 0 ? $conversationId : null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
@@ -1348,7 +1348,7 @@ function render_head(string $title): void
     echo '<title>' . h($title) . '</title>';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
-    if ($title === 'WhatsApp Mobile 2') {
+    if (in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)) {
         echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
         echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
     }
@@ -1903,12 +1903,13 @@ if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
 
-if ($page === 'studio_whatsapp_mobile2') {
+if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
+    $mobileRoute = 'studio_whatsapp_mobile';
     $currentUser = current_studio_user();
-    render_head('WhatsApp Mobile 2');
+    render_head('Atendimento Mobile');
 
     if (!$currentUser) {
-        echo '<main class="m2-login"><section class="m2-login-card"><h1>Entrar no atendimento</h1><form method="post" class="form" action="' . h(app_url('studio_whatsapp_mobile2')) . '">' . csrf_field() . '<input type="hidden" name="action" value="studio_login"><input type="hidden" name="return_to" value="' . h(app_url('studio_whatsapp_mobile2')) . '"><div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div><div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div><button class="m2-send" type="submit">Entrar</button></form></section></main></body></html>';
+        echo '<main class="m2-login"><section class="m2-login-card"><h1>Entrar no atendimento</h1><form method="post" class="form" action="' . h(app_url($mobileRoute)) . '">' . csrf_field() . '<input type="hidden" name="action" value="studio_login"><input type="hidden" name="return_to" value="' . h(app_url($mobileRoute)) . '"><div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div><div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div><button class="m2-send" type="submit">Entrar</button></form></section></main></body></html>';
         exit;
     }
 
@@ -2015,7 +2016,7 @@ if ($page === 'studio_whatsapp_mobile2') {
     echo '<div class="m2-filter-strip">';
     $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
     foreach ($visibilityPills as $visibilityKey => $label) {
-        $href = app_url('studio_whatsapp_mobile2', array_filter([
+        $href = app_url($mobileRoute, array_filter([
             'visibility' => $filters['visibility'] === $visibilityKey ? null : $visibilityKey,
             'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
             'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
@@ -2026,7 +2027,7 @@ if ($page === 'studio_whatsapp_mobile2') {
         echo '<a class="' . h($filters['visibility'] === $visibilityKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
     }
     foreach (['all' => 'Tudo', 'unreplied' => 'Nao lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
-        $href = app_url('studio_whatsapp_mobile2', array_filter([
+        $href = app_url($mobileRoute, array_filter([
             'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
             'filter' => $filters['filter'] === $filterKey ? null : $filterKey,
             'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
@@ -2037,7 +2038,7 @@ if ($page === 'studio_whatsapp_mobile2') {
         echo '<a class="' . h($filters['filter'] === $filterKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
     }
     $todayActive = $filters['date_filter'] === 'today';
-    $todayHref = app_url('studio_whatsapp_mobile2', array_filter([
+    $todayHref = app_url($mobileRoute, array_filter([
         'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
         'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
         'date_filter' => $todayActive ? null : 'today',
@@ -2053,7 +2054,7 @@ if ($page === 'studio_whatsapp_mobile2') {
         $rowName = $labelForConversation($row);
         $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
         $rowPreview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? ''));
-        $href = app_url('studio_whatsapp_mobile2', ['id' => $rowId]);
+        $href = app_url($mobileRoute, ['id' => $rowId]);
         $active = $rowId === $conversationId ? ' active' : '';
         $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
         $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
@@ -2067,7 +2068,7 @@ if ($page === 'studio_whatsapp_mobile2') {
         echo '<div class="m2-empty"><i class="fa-solid fa-comments"></i><strong>Escolha uma conversa</strong></div>';
     } else {
         $displayName = $labelForConversation($conversation);
-        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url('studio_whatsapp_mobile2')) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
         echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">WhatsApp</a><i class="fa-solid fa-angle-right"></i><span>Mobile</span></div>';
         echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button>';
         echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
@@ -4158,400 +4159,6 @@ echo 'scrollChatToLatest(true);';
         echo '})();';
         echo '</script>';
     }, $flash);
-    exit;
-}
-
-if ($page === 'studio_whatsapp_mobile') {
-    $currentUser = current_studio_user();
-    render_head('Atendimento Mobile');
-    echo '<style>body{margin:0!important;padding:0!important;background:#0b141a!important} html,body{width:100%;height:100%} .app-build-badge-input{display:none!important}</style>';
-    echo '<meta name="mobile-web-app-capable" content="yes">';
-    echo '<meta name="apple-mobile-web-app-capable" content="yes">';
-    echo '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
-    echo '<meta name="theme-color" content="#075e54">';
-    echo '<link rel="manifest" href="' . h(app_url('studio_whatsapp_manifest')) . '">';
-    echo '<style>
-        html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b141a;color:#e9edef}
-        body.mobile-wa{background:#0b141a;color:#e9edef}
-        body.mobile-wa::before{content:"";position:fixed;inset:0;background:
-            radial-gradient(circle at top left, rgba(37,211,102,.16), transparent 30%),
-            radial-gradient(circle at top right, rgba(17,27,33,.95), transparent 22%),
-            linear-gradient(180deg, rgba(11,20,26,.96), rgba(11,20,26,.99));pointer-events:none;z-index:-1}
-        .mobile-wa-shell{position:fixed;inset:0;min-height:100dvh;width:100vw;display:flex;flex-direction:column;overflow:hidden;background:#0b141a}
-        .mobile-wa-top{position:sticky;top:0;z-index:20;background:rgba(17,27,33,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.08);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px}
-        .mobile-wa-title{display:flex;flex-direction:column}
-        .mobile-wa-title strong{font-size:1rem}
-        .mobile-wa-title span{font-size:.82rem;color:#8696a0}
-        .mobile-wa-body{display:flex;flex-direction:column;padding:0;flex:1;min-height:0;overflow:hidden}
-        .mobile-wa-list,.mobile-wa-chat{background:rgba(17,27,33,.96);border:0;border-radius:0;overflow:hidden;box-shadow:none;min-height:0}
-        .mobile-wa-list{display:flex;flex-direction:column;flex:1;min-height:0;height:100%}
-        .mobile-wa-chat{display:flex;flex-direction:column;flex:1;min-height:0;height:100%}
-        .mobile-wa-list-head,.mobile-wa-chat-head{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px}
-        .mobile-wa-search{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
-        .mobile-wa-search input{width:100%;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:10px 14px}
-        .mobile-wa-items{overflow-y:auto;flex:1;max-height:none;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-behavior:smooth}
-        .mobile-wa-item{display:block;position:relative;padding:12px 14px 28px;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:inherit}
-        .mobile-wa-item.active{background:linear-gradient(90deg, rgba(37,211,102,.22), rgba(37,211,102,.08));box-shadow:inset 0 0 0 1px rgba(37,211,102,.12)}
-        .mobile-wa-item.is-free{background:rgba(32,44,51,.72);opacity:1;filter:saturate(.92)}
-        .mobile-wa-item.is-free .mobile-wa-preview,.mobile-wa-item.is-free .mobile-wa-item-time{color:#b3bcc2}
-        .mobile-wa-item.is-assigned{background:rgba(20,29,35,.86);box-shadow:inset 3px 0 0 rgba(37,211,102,.78)}
-        .mobile-wa-item.is-assigned .mobile-wa-preview,.mobile-wa-item.is-assigned .mobile-wa-item-time{color:#91a3ac}
-        .mobile-wa-item.is-mine{background:linear-gradient(90deg, rgba(37,211,102,.30), rgba(37,211,102,.12));opacity:1;filter:saturate(1.04)}
-        .mobile-wa-item.is-mine .mobile-wa-preview,.mobile-wa-item.is-mine .mobile-wa-item-time{color:#eefcf4}
-        .mobile-wa-name{display:flex;justify-content:space-between;gap:10px;align-items:center}
-        .mobile-wa-name strong{font-size:.98rem}
-        .mobile-wa-name span{font-size:.78rem;color:#8696a0}
-        .mobile-wa-preview{font-size:.86rem;color:#8696a0;margin-top:4px;line-height:1.35}
-        .mobile-wa-item-footer{position:absolute;left:14px;bottom:9px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:calc(100% - 28px)}
-        .mobile-wa-item-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font-size:.62rem;line-height:1;color:#c9d3d8;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.06);text-transform:uppercase;letter-spacing:.04em}
-        .mobile-wa-item-chip.mine{background:rgba(37,211,102,.18);border-color:rgba(37,211,102,.22);color:#dffbe8}
-        .mobile-wa-item-chip.free{background:rgba(255,255,255,.04);color:#b8c3c9}
-        .mobile-wa-item-chip.assigned{background:rgba(255,255,255,.05);color:#98a7ae}
-        .mobile-wa-item-chip.small-action{font-size:.58rem;padding:2px 6px}
-        .mobile-wa-item-body{display:flex;gap:12px;align-items:flex-start}
-        .mobile-wa-avatar{width:48px;height:48px;border-radius:999px;background:linear-gradient(135deg,#25d366,#075e54);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto;box-shadow:0 8px 18px rgba(0,0,0,.18)}
-        .mobile-wa-item-content{min-width:0;flex:1}
-        .mobile-wa-item-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-        .mobile-wa-item-top strong{font-size:1rem;line-height:1.2}
-        .mobile-wa-item-time{font-size:.75rem;color:#8696a0;white-space:nowrap}
-        .mobile-wa-chat-body{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
-        .mobile-wa-messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:
-            radial-gradient(circle at top left, rgba(255,255,255,.03), transparent 26%),
-            radial-gradient(circle at top right, rgba(255,255,255,.02), transparent 24%)}
-        .mobile-wa-message{max-width:88%;padding:10px 12px;border-radius:16px;background:#202c33;color:#e9edef;align-self:flex-start;box-shadow:0 6px 16px rgba(0,0,0,.12);position:relative}
-        .mobile-wa-message.out{background:#005c4b;align-self:flex-end}
-        .mobile-wa-message .meta{display:block;font-size:.72rem;color:#aebac1;margin-top:6px;text-align:right}
-        .mobile-wa-message.in .meta{text-align:left}
-        .mobile-wa-message p{margin:0;word-break:break-word;overflow-wrap:anywhere}
-        .mobile-wa-assignment{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-        .mobile-wa-actions{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
-        .mobile-wa-action{border:1px solid rgba(255,255,255,.10);background:#202c33;color:#f2f5f7 !important;border-radius:999px;padding:10px 12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;line-height:1.1;box-shadow:0 2px 0 rgba(0,0,0,.12)}
-        .mobile-wa-action.primary{background:#25d366;color:#0b141a;border-color:#25d366}
-        .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
-        .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
-        .mobile-wa-action.ghost{background:transparent;color:#e9edef}
-        .mobile-wa-icon-btn{min-width:58px;height:46px;flex:0 0 auto;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:#202c33;color:#f2f5f7 !important;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 8px;gap:2px;font-size:.62rem;font-weight:700;box-shadow:0 2px 0 rgba(0,0,0,.12)}
-        .mobile-wa-icon-btn i{font-size:1rem;line-height:1;color:inherit !important}
-        .mobile-wa-icon-btn span{display:block;line-height:1;color:inherit !important}
-        .mobile-wa-icon-btn.recording{background:#fb7185;color:#fff !important;border-color:#fb7185}
-        .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
-        .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px;font-size:16px !important;line-height:1.35;touch-action:manipulation;-webkit-text-size-adjust:100%;-webkit-user-select:text;user-select:text}
-        .mobile-wa-shell input,.mobile-wa-shell textarea,.mobile-wa-shell select{font-size:16px !important;-webkit-text-size-adjust:100%}
-        .mobile-wa-btn{border:0;border-radius:14px;padding:12px 14px;background:#25d366;color:#0b141a;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:44px}
-        .mobile-wa-btn.secondary{background:#202c33;color:#e9edef;border:1px solid rgba(255,255,255,.08)}
-        .mobile-wa-muted{color:#8696a0;font-size:.88rem}
-        .mobile-wa-mini-topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-        .mobile-wa-mini-topbar .btn, .mobile-wa-mini-topbar .mobile-wa-action{padding:8px 10px;font-size:.85rem}
-        .mobile-wa-mini-topbar .mobile-wa-action{min-width:46px;justify-content:center}
-        .mobile-wa-mini-topbar .mobile-wa-action span{display:none}
-        .mobile-wa-context{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
-        .mobile-wa-context a{font-size:.85rem}
-        .mobile-wa-bottom-nav{position:sticky;bottom:0;z-index:25;display:flex;gap:8px;justify-content:space-between;align-items:center;padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08)}
-        .mobile-wa-bottom-nav .nav-chip{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border-radius:16px;text-decoration:none;color:#e9edef;background:#202c33;border:1px solid rgba(255,255,255,.08);font-size:.76rem}
-        .mobile-wa-bottom-nav .nav-chip.active{background:#25d366;color:#0b141a;border-color:#25d366;font-weight:700}
-        .mobile-wa-bottom-nav .nav-chip i{font-size:1rem}
-        .mobile-wa-bottom-nav .nav-chip span{font-size:.7rem;line-height:1.05}
-        .chat-day-separator{display:flex;justify-content:center;margin:10px 0}
-        .chat-day-separator span{background:rgba(32,44,51,.92);color:#c9d3d8;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 12px;font-size:.76rem}
-        .mobile-wa-view{display:none;min-height:0;height:100%;overflow:hidden;flex:1}
-        .mobile-wa-view.active{display:flex;height:100%;flex:1}
-        .mobile-wa-backbar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(17,27,33,.98);position:sticky;top:0;z-index:12}
-        .mobile-wa-backbtn{width:40px;height:40px;border:0;border-radius:999px;background:#202c33;color:#e9edef;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;flex:0 0 auto}
-        .mobile-wa-chat-head{padding:12px 14px}
-        .mobile-wa-chat-head strong{font-size:1rem}
-        .mobile-wa-chat-head .mobile-wa-muted{font-size:.82rem}
-        .wa-chat-avatar{width:40px;height:40px;border-radius:999px;background:#25d366;color:#0b141a;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}
-        .mobile-wa-menu-panel,.mobile-wa-emoji-panel,.mobile-wa-schedule-panel,.mobile-wa-global-panel{position:fixed;left:12px;right:12px;bottom:84px;z-index:60;background:rgba(17,27,33,.98);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.36);max-height:42vh;overflow:auto}
-        .mobile-wa-menu-panel.hidden,.mobile-wa-emoji-panel.hidden,.mobile-wa-schedule-panel.hidden,.mobile-wa-global-panel.hidden{display:none}
-        .mobile-wa-menu-panel .mobile-wa-action,.mobile-wa-schedule-panel .mobile-wa-action{width:100%;justify-content:center}
-        .mobile-wa-global-panel{display:grid;gap:8px}
-        .mobile-wa-global-panel .mobile-wa-action{width:100%;justify-content:center}
-        .mobile-wa-emoji-panel{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
-        .mobile-wa-panel-close{grid-column:1/-1;border:0;border-radius:12px;padding:10px 12px;background:#202c33;color:#e9edef;font-weight:700;text-align:center}
-        .mobile-wa-panel-close i{margin-right:6px}
-        .mobile-wa-emoji-panel button{border:0;border-radius:14px;padding:10px 0;background:#202c33;color:#e9edef;font-size:1.05rem}
-        .mobile-wa-emoji-panel .quick-reply-copy{min-height:42px;font-size:1.15rem;font-weight:700}
-        .mobile-wa-schedule-panel{max-width:720px}
-        .mobile-wa-schedule-panel .panel{margin:0}
-        @media (min-width: 980px){ .mobile-wa-shell{position:fixed;inset:0} .mobile-wa-body{display:flex} .mobile-wa-list{min-height:100%;height:100%} .mobile-wa-chat{min-height:100%;height:100%} .mobile-wa-items{max-height:none} }
-    </style>';
-    echo '<div class="mobile-wa-shell">';
-    $mobileView = (string)($_GET['view'] ?? ((int)($_GET['id'] ?? 0) > 0 ? 'chat' : 'list'));
-    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Conversas</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><button type="button" class="mobile-wa-action" id="mobileRefreshButton" aria-label="Atualizar" title="Atualizar lista" onclick="window.mobileReloadMobile && window.mobileReloadMobile(event)"><i class="fa-solid fa-rotate"></i></button><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton" aria-label="Mais opções" title="Mais opções" onclick="window.mobileOpenGlobalActions && window.mobileOpenGlobalActions(event)"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
-    if (!$currentUser) {
-        echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
-        echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
-        echo '<h2 style="color:#fff">Entrar para atendimento</h2>';
-        echo '<p class="muted">Use o email e a senha do atendente para acessar o atendimento no celular.</p>';
-        echo '<form class="form" method="post" action="' . h(app_url('index.php')) . '">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="studio_mobile_login">';
-        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
-        echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
-        echo '<button class="mobile-wa-btn" type="submit">Entrar e abrir atendimento</button>';
-        echo '</form>';
-        echo '<div class="mobile-wa-muted">Se você já tem acesso ao CRM do estúdio, use o mesmo email cadastrado no atendente.</div>';
-        echo '</section>';
-        echo '</div>';
-        echo '</div>';
-        echo '</body></html>';
-        exit;
-    }
-    $studio = get_studio((int)($currentUser['studio_id'] ?? 0));
-    if (!$studio) {
-        echo '<div style="padding:14px"><section class="panel"><h2>Estúdio não encontrado</h2><p class="muted">Seu login foi reconhecido, mas o estúdio vinculado não existe ou está inacessível.</p><a class="btn" href="' . h(app_url('studio_login')) . '">Recarregar login</a></section></div>';
-        echo '</div>';
-        echo '</body></html>';
-        exit;
-    }
-    echo '<div class="mobile-wa-body">';
-    $filters = [
-        'q' => (string)($_GET['q'] ?? ''),
-        'mode' => (string)($_GET['mode'] ?? ''),
-        'needs_human' => !empty($_GET['needs_human']),
-        'min_score' => (int)($_GET['min_score'] ?? 0),
-        'filter' => (string)($_GET['filter'] ?? ''),
-        'visibility' => (string)($_GET['visibility'] ?? 'all'),
-        'date_filter' => (string)($_GET['date_filter'] ?? ''),
-        'date_from' => (string)($_GET['date_from'] ?? ''),
-        'date_to' => (string)($_GET['date_to'] ?? ''),
-        'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
-    ];
-    $conversationPageSize = 25;
-    $conversations = studio_list_whatsapp_conversations($studio, $filters, $conversationPageSize);
-    $conversationId = (int)($_GET['id'] ?? 0);
-    $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
-    $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 80, $conversation) : [];
-    $currentUserId = (int)($currentUser['id'] ?? 0);
-    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
-    $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
-    $isAdmin = studio_current_user_is_admin();
-    $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
-    $canAssumeHere = $conversation && $currentUser && ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId);
-    $listHref = app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => $filters['visibility']]);
-    $mobileConversationLabel = static function (array $row): string {
-        $name = trim((string)($row['customer_name'] ?? ''));
-        if ($name === '') { $name = trim((string)($row['lead_name'] ?? '')); }
-        if ($name === '') { $name = trim((string)($row['name'] ?? '')); }
-        $phone = trim((string)($row['phone'] ?? ''));
-        if ($name !== '' && $name !== 'Cliente WhatsApp' && $name !== 'Contato WhatsApp') {
-            return $name;
-        }
-        if ($phone !== '') {
-            return $phone;
-        }
-        return $name !== '' ? $name : 'Contato WhatsApp';
-    };
-    echo '<aside class="mobile-wa-list mobile-wa-view' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" id="mobileWaListPanel">';
-    echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
-    echo '<div class="mobile-wa-search"><input type="search" id="mobileWaSearch" placeholder="Buscar conversa, telefone ou mensagem"></div>';
-    echo '<div class="mobile-wa-items" id="mobileWaItems">';
-    foreach ($conversations as $row) {
-        $rowId = (int)($row['id'] ?? 0);
-        $rowName = $mobileConversationLabel($row);
-        $rowPreview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? ''));
-        $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
-        $rowAssignedUserName = $rowAssignedUserId > 0 ? studio_user_label_by_id($rowAssignedUserId) : '';
-        $href = app_url('studio_whatsapp_mobile', array_filter([
-            'id' => $rowId,
-            'q' => $filters['q'] !== '' ? $filters['q'] : null,
-            'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
-        ], static fn($value) => $value !== null && $value !== ''));
-        $rowClasses = ['mobile-wa-item'];
-        if ($rowId === $conversationId) { $rowClasses[] = 'active'; }
-        if ($rowAssignedUserId <= 0) { $rowClasses[] = 'is-free'; } else { $rowClasses[] = 'is-assigned'; if ($rowAssignedUserId === $currentUserId) { $rowClasses[] = 'is-mine'; } }
-        $rowInitial = strtoupper(substr(trim($rowName !== '' ? $rowName : 'W'), 0, 1));
-        echo '<a class="' . h(implode(' ', $rowClasses)) . '" href="' . h($href) . '">';
-        echo '<div class="mobile-wa-item-body">';
-        echo '<div class="mobile-wa-avatar">' . h($rowInitial) . '</div>';
-        echo '<div class="mobile-wa-item-content">';
-        echo '<div class="mobile-wa-item-top"><strong>' . h($rowName) . '</strong><span class="mobile-wa-item-time">' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</span></div>';
-        echo '<div class="mobile-wa-preview">' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</div>';
-        if (!empty($row['needs_human'])) {
-            echo '<span class="badge danger">Pediu humano</span>';
-        }
-        echo '</div></div>';
-        echo '<div class="mobile-wa-item-footer">';
-        if ($rowAssignedUserId <= 0) {
-            echo '<span class="mobile-wa-item-chip free">Livre</span>';
-        } elseif ($currentUserId === $rowAssignedUserId) {
-            echo '<span class="mobile-wa-item-chip mine">Assumida por você</span>';
-        } else {
-            echo '<span class="mobile-wa-item-chip assigned">Com ' . h($rowAssignedUserName !== '' ? $rowAssignedUserName : ('Atendente #' . $rowAssignedUserId)) . '</span>';
-        }
-        if ($currentUser && ($rowAssignedUserId <= 0 || $isAdmin || $rowAssignedUserId === $currentUserId)) {
-            echo '<span class="mobile-wa-item-chip small-action">toque para assumir</span>';
-        }
-        echo '</div>';
-        echo '</a>';
-    }
-    echo '</div>';
-    echo '</aside>';
-    echo '<section class="mobile-wa-chat mobile-wa-view' . ($conversation ? ' active' : '') . '" id="mobileWaChatPanel" data-conversation-id="' . h((string)$conversationId) . '">';
-    if (!$conversation) {
-        $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
-        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Toque em uma conversa para abrir.' : 'Toque em uma conversa livre ou atribuída a você para abrir.') . '</div></div></div>';
-    } else {
-        $chatInitial = strtoupper(substr(trim((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'W')))), 0, 1));
-        echo '<div class="mobile-wa-backbar"><a class="mobile-wa-backbtn" href="' . h($listHref) . '" aria-label="Voltar" title="Voltar para conversas"><i class="fa-solid fa-arrow-left"></i></a><div class="wa-chat-avatar">' . h($chatInitial) . '</div><div style="min-width:0;flex:1"><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div><div class="mobile-wa-muted">' . h($assignedUserId <= 0 ? 'Livre' : ($assignedUserId === $currentUserId ? 'Assumida por você' : 'Assumida por ' . $assignedUserName)) . '</div></div><button type="button" class="mobile-wa-backbtn" id="mobileConversationMenuButton" aria-label="Mais opções" title="Mais opções" onclick="window.mobileOpenConversationMenu && window.mobileOpenConversationMenu(event)"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
-        echo '<div class="mobile-wa-chat-body">';
-        echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
-        echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
-        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule" onclick="window.mobileOpenSchedulePanel && window.mobileOpenSchedulePanel(event)"><i class="fa-solid fa-calendar-days"></i><span>Agendar</span></button>';
-        if (!empty($conversation['customer_id'])) {
-            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-user"></i><span>Cliente</span></a>';
-        }
-        if (!empty($conversation['lead_id'])) {
-            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-seedling"></i><span>Lead</span></a>';
-        }
-        if ($assignedUserId <= 0 || $isAdmin || $currentUserId === $assignedUserId) {
-            $assumeLabel = ($assignedUserId > 0 && $currentUserId !== $assignedUserId) ? 'Assumir para mim' : 'Assumir';
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>' . h($assumeLabel) . '</span></button></form>';
-        }
-        if ($currentUserId === $assignedUserId && $assignedUserId > 0) {
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar</span></button></form>';
-        }
-        echo '</div>';
-        echo '<div id="mobileConversationMenu" class="mobile-wa-menu-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileConversationMenu\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar</button>';
-        if ($canAssumeHere) {
-            $assumeMenuLabel = ($assignedUserId > 0 && $currentUserId !== $assignedUserId) ? 'Assumir conversa para mim' : 'Assumir conversa';
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>' . h($assumeMenuLabel) . '</span></button></form>';
-        }
-        if ($currentUserId === $assignedUserId && $assignedUserId > 0) {
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar conversa</span></button></form>';
-        }
-        if ($isAdmin && $assignedUserId > 0) {
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action"><i class="fa-solid fa-user-minus"></i><span>Desatribuir</span></button></form>';
-        }
-        if ($isAdmin && $assignedUserId > 0) {
-            echo '<form method="post" class="inline-form" style="margin:0;width:100%">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><select name="target_user_id" style="width:100%"><option value="">Transferir para...</option>';
-            foreach (studio_list_users($studio) as $studioUser) {
-                echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
-            }
-            echo '</select><button class="mobile-wa-action" type="submit"><i class="fa-solid fa-right-left"></i><span>Transferir</span></button></form>';
-        }
-        if (!empty($conversation['customer_id'])) {
-            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-user"></i><span>Ver cliente</span></a>';
-        }
-        if (!empty($conversation['lead_id'])) {
-            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-seedling"></i><span>Ver lead</span></a>';
-        }
-        echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i><span>Abrir workspace</span></a>';
-        echo '</div>';
-        echo '<div class="wa-web-assignment-bar" style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">';
-        if ($assignedUserId > 0) {
-            echo '<span class="badge warn">Conversa assumida por: ' . h($assignedUserName !== '' ? $assignedUserName : ('Atendente #' . $assignedUserId)) . '</span>';
-        } else {
-            echo '<span class="badge">Conversa livre</span>';
-        }
-        echo '<span class="mobile-wa-read-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-left:auto">';
-        echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Marcar lida</button></form>';
-        echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Marcar não lida</button></form>';
-        echo '</span>';
-        echo '</div>';
-        if ($isAdmin && $assignedUserId > 0) {
-            echo '<div class="mobile-wa-actions">';
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Desatribuir</button></form>';
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><select name="target_user_id"><option value="">Transferir para...</option>';
-            foreach (studio_list_users($studio) as $studioUser) {
-                echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
-            }
-            echo '</select><button class="btn tiny secondary" type="submit">Transferir</button></form>';
-            echo '</div>';
-        }
-        echo '<div class="mobile-wa-messages chat-thread" id="mobileWaMessages">';
-        render_chat_messages($messages);
-        echo '</div>';
-        echo '<div id="mobileEmojiPanel" class="mobile-wa-emoji-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileEmojiPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar emojis</button>';
-        foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) {
-            echo '<button type="button" class="quick-reply-copy" data-reply="' . h($emoji) . '">' . h($emoji) . '</button>';
-        }
-        echo '</div>';
-        echo '<div id="mobileAttachmentPanel" class="mobile-wa-menu-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileAttachmentPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar anexos</button>';
-        echo '<button type="button" id="mobileAttachmentPickAction">Escolher arquivo</button>';
-        echo '<span class="mobile-wa-muted" id="mobileAttachmentName">Nenhum arquivo selecionado</span>';
-        echo '</div>';
-        echo '<form class="mobile-wa-composer" method="post" enctype="multipart/form-data" id="mobileChatComposer">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="send_whatsapp_message">';
-        echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
-        echo '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">';
-        echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<input type="file" id="mobileAttachmentInput" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji" title="Emoji" onclick="window.mobileOpenEmojiPanel && window.mobileOpenEmojiPanel(event)"><i class="fa-regular fa-face-smile"></i></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar" title="Anexar" onclick="window.mobileOpenAttachmentPicker && window.mobileOpenAttachmentPicker(event)"><i class="fa-solid fa-paperclip"></i></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio" title="Áudio" onclick="window.mobileToggleRecording && window.mobileToggleRecording(event)"><i class="fa-solid fa-microphone"></i></button>';
-        echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . ' autocomplete="off" autocapitalize="sentences" autocorrect="on" spellcheck="true" inputmode="text"></textarea>';
-        echo '<button class="mobile-wa-btn" type="submit" onclick="this.blur()" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
-        echo '</form>';
-        if ($assignedUserId <= 0 && !$isAdmin) {
-            echo '<div class="mobile-wa-assignment"><form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir conversa para responder</span></button></form></div>';
-        }
-        if (!$canSendHere) {
-            echo '<div class="mobile-wa-assignment"><span class="mobile-wa-muted">Você pode visualizar, mas não interagir com esta conversa.</span></div>';
-        }
-        echo '<div id="mobileSchedulePanel" class="mobile-wa-schedule-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileSchedulePanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar agenda</button>';
-        echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08);border-radius:18px">';
-        echo '<h3 style="margin-top:0;color:#fff">Agendar atendimento</h3>';
-        echo '<p class="muted">Atalho rápido para organizar a próxima visita sem sair do atendimento.</p>';
-        echo '<form method="post" action="' . h(app_url('index.php')) . '" class="form">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_appointment">';
-        echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
-        echo '<input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '">';
-        echo '<input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '">';
-        echo '<input type="hidden" name="import_source" value="whatsapp">';
-        echo '<input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
-        echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<div class="grid-2">';
-        echo '<div class="field"><label>Título</label><input name="title" required value="' . h((string)($conversation['lead_interest'] ?: 'Atendimento')) . '"></div>';
-        echo '<div class="field"><label>Tatuador</label><select name="artist_id">';
-        render_artist_options($artists, default_artist_id($studio) ?? 0);
-        echo '</select></div>';
-        echo '<div class="field"><label>Data</label><input type="date" name="appointment_date" value="' . h((string)($scheduleSuggestion['date'] ?? date('Y-m-d'))) . '" required></div>';
-        echo '<div class="field"><label>Início</label><input type="time" name="start_time" value="' . h((string)($scheduleSuggestion['time'] ?? '09:00')) . '" required></div>';
-        echo '<div class="field"><label>Fim</label><input type="time" name="end_time" value="' . h((string)($scheduleSuggestion['end_time'] ?? '10:00')) . '" required></div>';
-        echo '<div class="field"><label>Status</label><select name="status">';
-        render_options(appointment_status_options(), 'pre_agendado');
-        echo '</select></div>';
-        echo '</div>';
-        echo '<div class="grid-2">';
-        echo '<div class="field"><label>Valor</label><input name="price" placeholder="0,00"></div>';
-        echo '<div class="field"><label>Sinal</label><input name="deposit_amount" placeholder="0,00"></div>';
-        echo '</div>';
-        echo '<div class="field"><label>Descrição</label><textarea name="description" rows="3" placeholder="Ex.: cliente quer avaliar desenho maior"></textarea></div>';
-        echo '<button class="mobile-wa-btn" type="submit"><i class="fa-solid fa-calendar-check"></i><span>Salvar agendamento</span></button>';
-        echo '</form>';
-        echo '</section>';
-        echo '</div>';
-        echo '</div>';
-    }
-    echo '</section>';
-    echo '</div>';
-    echo '<div class="mobile-wa-bottom-nav">';
-    echo '<a class="nav-chip' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" href="' . h($listHref) . '"><i class="fa-solid fa-comments"></i><span>Conversas</span></a>';
-    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
-    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
-    echo '<button type="button" class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" id="mobileBottomActionsButton" onclick="window.mobileOpenGlobalActions && window.mobileOpenGlobalActions(event)"><i class="fa-solid fa-bolt"></i><span>Ações</span></button>';
-    echo '</div>';
-    echo '<div id="mobileGlobalActionsPanel" class="mobile-wa-global-panel hidden">';
-    echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileGlobalActionsPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar ações</button>';
-    echo '<a class="mobile-wa-action primary" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'all'])) . '"><i class="fa-solid fa-comments"></i><span>Todas as conversas</span></a>';
-    echo '<a class="mobile-wa-action" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Somente livres</span></a>';
-    echo '<a class="mobile-wa-action" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas conversas</span></a>';
-    echo '<button type="button" class="mobile-wa-action" id="mobileGlobalRefreshAction" onclick="window.mobileReloadMobile && window.mobileReloadMobile(event)"><i class="fa-solid fa-rotate"></i><span>Atualizar lista</span></button>';
-    if ($conversationId > 0) {
-        echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '"><i class="fa-solid fa-comment-dots"></i><span>Voltar ao chat aberto</span></a>';
-    }
-    echo '</div>';
-    echo '</div>';
-    echo '<script>(function(){const messages=document.getElementById("mobileWaMessages"); if(messages){ const scrollNow=()=>{ messages.scrollTop=messages.scrollHeight; if(messages.lastElementChild && messages.lastElementChild.scrollIntoView){ messages.lastElementChild.scrollIntoView({block:"end",inline:"nearest"}); } }; scrollNow(); setTimeout(scrollNow,120); setTimeout(scrollNow,360); setTimeout(scrollNow,900); window.addEventListener("load", scrollNow, { once:true }); }})();</script>';
-    echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile.js')) . '?v=' . h(app_build_version()) . '"></script>';
-    echo '</body></html>';
     exit;
 }
 
