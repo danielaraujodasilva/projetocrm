@@ -5562,6 +5562,7 @@ if ($page === 'studio') {
     render_app_shell((string)$studio['name'], 'Instancia alpha do CRM deste estudio.', 'studios', function () use ($studio) {
         $dbOk = studio_database_exists($studio);
         $plan = resolve_studio_plan($studio);
+        $attendantsUrl = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
         echo '<section class="grid cols-3">';
         echo '<div class="panel"><h2>Status</h2><span class="badge ' . ($studio['status'] === 'active' ? 'ok' : 'warn') . '">' . h($studio['status']) . '</span></div>';
         echo '<div class="panel"><h2>Banco</h2><p>' . h($studio['database_name']) . '</p><span class="badge ' . ($dbOk ? 'ok' : 'warn') . '">' . ($dbOk ? 'encontrado' : 'pendente') . '</span></div>';
@@ -5614,6 +5615,7 @@ if ($page === 'studio') {
             echo '<div class="module"><strong>' . h($module[0]) . '</strong><span class="muted">' . h($module[1]) . '</span></div>';
         }
         echo '</div></section>';
+        echo '<script>(function(){if(window.location.hash==="#acessos-estudio"){window.location.replace(' . json_encode($attendantsUrl) . ');}})();</script>';
         echo '<section class="panel" style="margin-top:16px"><h2>Eventos recentes</h2>';
         $events = studio_events((int)$studio['id']);
         if (!$events) {
