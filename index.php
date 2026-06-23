@@ -4069,7 +4069,7 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<div class="mobile-wa-chat-body">';
         echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
-        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-solid fa-calendar-days"></i><span>Agendar</span></button>';
+        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule" onclick="document.getElementById(\'mobileSchedulePanel\')?.classList.toggle(\'hidden\')"><i class="fa-solid fa-calendar-days"></i><span>Agendar</span></button>';
         if (!empty($conversation['customer_id'])) {
             echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-user"></i><span>Cliente</span></a>';
         }
@@ -4147,11 +4147,11 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
         echo '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji"><i class="fa-solid fa-face-smile"></i><span>Emoji</span></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i><span>Anexar</span></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i><span>Áudio</span></button>';
-        echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . '></textarea>';
-        echo '<button class="mobile-wa-btn" type="submit" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji" onclick="document.getElementById(\'mobileEmojiPanel\')?.classList.toggle(\'hidden\')"><i class="fa-solid fa-face-smile"></i><span>Emoji</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar" onclick="document.getElementById(\'mobileAttachmentPickAction\')?.click()"><i class="fa-solid fa-paperclip"></i><span>Anexar</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio" onclick="this.dataset.bound=\'1\'"> <i class="fa-solid fa-microphone"></i><span>Áudio</span></button>';
+        echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . ' onfocus="this.style.fontSize=\'16px\'; this.scrollIntoView({block:\'center\'});" autocomplete="off" autocapitalize="sentences" autocorrect="on" spellcheck="true"></textarea>';
+        echo '<button class="mobile-wa-btn" type="submit" onclick="this.blur()" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
         echo '</form>';
         if ($assignedUserId <= 0 && !$isAdmin) {
             echo '<div class="mobile-wa-assignment"><form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir conversa para responder</span></button></form></div>';
@@ -4201,7 +4201,7 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '<a class="nav-chip' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" href="' . h($listHref) . '"><i class="fa-solid fa-comments"></i><span>Conversas</span></a>';
     echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
     echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
-    echo '<button type="button" class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" id="mobileBottomActionsButton"><i class="fa-solid fa-bolt"></i><span>Ações</span></button>';
+    echo '<button type="button" class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" id="mobileBottomActionsButton" onclick="document.getElementById(\'mobileGlobalActionsPanel\')?.classList.toggle(\'hidden\')"><i class="fa-solid fa-bolt"></i><span>Ações</span></button>';
     echo '</div>';
     echo '<div id="mobileGlobalActionsPanel" class="mobile-wa-global-panel hidden">';
     echo '<a class="mobile-wa-action primary" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'all'])) . '"><i class="fa-solid fa-comments"></i><span>Todas as conversas</span></a>';
