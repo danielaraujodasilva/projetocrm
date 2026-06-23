@@ -448,22 +448,7 @@ function studio_current_user_is_admin(): bool
 
 function studio_can_view_whatsapp_conversation(array $studio, array $conversation, array $user): bool
 {
-    if (empty($conversation)) {
-        return false;
-    }
-
-    if (studio_current_user_is_admin()) {
-        return true;
-    }
-
-    $userId = (int)($user['id'] ?? 0);
-    $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
-
-    if ($assignedUserId <= 0) {
-        return false;
-    }
-
-    return $assignedUserId === $userId;
+    return !empty($conversation);
 }
 
 function studio_can_send_whatsapp_conversation(array $studio, array $conversation, array $user): bool
