@@ -3842,6 +3842,10 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-items{overflow:auto;max-height:42vh}
         .mobile-wa-item{display:block;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:inherit}
         .mobile-wa-item.active{background:linear-gradient(90deg, rgba(37,211,102,.14), rgba(37,211,102,.04))}
+        .mobile-wa-item.is-free{opacity:.74;filter:saturate(.78)}
+        .mobile-wa-item.is-free .mobile-wa-preview,.mobile-wa-item.is-free .mobile-wa-name span{color:#6f8088}
+        .mobile-wa-item.is-assigned{box-shadow:inset 3px 0 0 rgba(37,211,102,.85)}
+        .mobile-wa-item.is-mine{opacity:1}
         .mobile-wa-name{display:flex;justify-content:space-between;gap:10px;align-items:center}
         .mobile-wa-name strong{font-size:.98rem}
         .mobile-wa-name span{font-size:.78rem;color:#8696a0}
@@ -3859,6 +3863,7 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-action.primary{background:#25d366;color:#0b141a;border-color:#25d366}
         .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
         .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
+        .mobile-wa-action.ghost{background:transparent;color:#e9edef}
         .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;display:flex;gap:8px;align-items:flex-end}
         .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px}
         .mobile-wa-btn{border:0;border-radius:14px;padding:12px 14px;background:#25d366;color:#0b141a;font-weight:700}
@@ -3866,6 +3871,8 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-muted{color:#8696a0;font-size:.88rem}
         .mobile-wa-mini-topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
         .mobile-wa-mini-topbar .btn, .mobile-wa-mini-topbar .mobile-wa-action{padding:8px 10px;font-size:.85rem}
+        .mobile-wa-context{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
+        .mobile-wa-context a{font-size:.85rem}
         @media (min-width: 980px){ .mobile-wa-body{grid-template-columns:360px minmax(0,1fr);align-items:start} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
@@ -3934,7 +3941,10 @@ if ($page === 'studio_whatsapp_mobile') {
             'q' => $filters['q'] !== '' ? $filters['q'] : null,
             'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
         ], static fn($value) => $value !== null && $value !== ''));
-        echo '<a class="mobile-wa-item' . ($rowId === $conversationId ? ' active' : '') . '" href="' . h($href) . '">';
+        $rowClasses = ['mobile-wa-item'];
+        if ($rowId === $conversationId) { $rowClasses[] = 'active'; }
+        if ($rowAssignedUserId <= 0) { $rowClasses[] = 'is-free'; } else { $rowClasses[] = 'is-assigned'; if ($rowAssignedUserId === $currentUserId) { $rowClasses[] = 'is-mine'; } }
+        echo '<a class="' . h(implode(' ', $rowClasses)) . '" href="' . h($href) . '">';
         echo '<div class="mobile-wa-name"><strong>' . h($rowName) . '</strong><span>' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</span></div>';
         echo '<div class="mobile-wa-preview">' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</div>';
         if (!empty($row['needs_human'])) {
@@ -3976,10 +3986,24 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<div class="mobile-wa-actions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
         echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
+        if (!empty($conversation['customer_id'])) {
+            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-regular fa-user"></i><span>Cliente</span></a>';
+        }
+        if (!empty($conversation['lead_id'])) {
+            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-seedling"></i><span>Lead</span></a>';
+        }
         if ($assignedUserId <= 0) {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir</span></button></form>';
         } elseif ($currentUserId === $assignedUserId) {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar</span></button></form>';
+        }
+        echo '</div>';
+        echo '<div class="mobile-wa-context">';
+        echo '<a class="badge" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'all'])) . '">Todas</a>';
+        echo '<a class="badge" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'free'])) . '">Livres</a>';
+        echo '<a class="badge" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'mine'])) . '">Minhas</a>';
+        if ($isAdmin) {
+            echo '<a class="badge warn" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'all', 'filter' => 'needs_human'])) . '">Pediram humano</a>';
         }
         echo '</div>';
         echo '<div class="wa-web-assignment-bar" style="padding:10px 14px">';
