@@ -7,10 +7,10 @@ function studio_db_config(array $studio): array
     $platform = app_config('database');
 
     return [
-        'host' => $studio['database_host'] ?: ($platform['host'] ?? 'localhost'),
+        'host' => (string)($studio['database_host'] ?? ($platform['host'] ?? 'localhost')),
         'port' => (int)($platform['port'] ?? 3306),
-        'database' => (string)$studio['database_name'],
-        'username' => $studio['database_user'] ?: ($platform['username'] ?? 'root'),
+        'database' => (string)($studio['database_name'] ?? ''),
+        'username' => (string)($studio['database_user'] ?? ($platform['username'] ?? 'root')),
         'password' => (string)($studio['database_password'] ?? ($platform['password'] ?? '')),
         'charset' => (string)($platform['charset'] ?? 'utf8mb4'),
     ];
@@ -2109,10 +2109,10 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     if ($viewFilter === 'mine') {
         $where[] = 'wc.assigned_user_id = ?';
         $params[] = $currentUserId;
-    } elseif ($viewFilter === 'all' && $isAdmin) {
-        // admin pode listar tudo, inclusive sem atribuição
     } elseif ($viewFilter === 'free') {
         $where[] = 'wc.assigned_user_id IS NULL';
+    } elseif ($viewFilter === 'all') {
+        // todos veem tudo; admin ainda pode usar mine/free explicitamente
     } elseif ($viewFilter !== '') {
         $where[] = 'wc.assigned_user_id = ?';
         $params[] = $currentUserId;

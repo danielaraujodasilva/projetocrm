@@ -3077,12 +3077,18 @@ if ($page === 'studio_whatsapp') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? ''),
-            'visibility' => (string)($_GET['visibility'] ?? ''),
+            'visibility' => (string)($_GET['visibility'] ?? 'all'),
             'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
+        if ($filters['visibility'] === '') {
+            $filters['visibility'] = 'all';
+        }
+        if ($filters['visibility'] === '') {
+            $filters['visibility'] = 'all';
+        }
         $conversationPageSize = 30;
         $conversations = studio_list_whatsapp_conversations($studio, $filters, $conversationPageSize);
         $nextConversationOffset = (int)$filters['offset'] + $conversationPageSize;
@@ -3281,7 +3287,7 @@ if ($page === 'studio_whatsapp_workspace') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? ''),
-            'visibility' => (string)($_GET['visibility'] ?? ''),
+            'visibility' => (string)($_GET['visibility'] ?? 'all'),
             'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
