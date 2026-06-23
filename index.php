@@ -3860,7 +3860,7 @@ if ($page === 'studio_whatsapp_mobile') {
         'needs_human' => !empty($_GET['needs_human']),
         'min_score' => (int)($_GET['min_score'] ?? 0),
         'filter' => (string)($_GET['filter'] ?? ''),
-        'visibility' => (string)($_GET['visibility'] ?? 'mine'),
+        'visibility' => (string)($_GET['visibility'] ?? 'all'),
         'date_filter' => (string)($_GET['date_filter'] ?? ''),
         'date_from' => (string)($_GET['date_from'] ?? ''),
         'date_to' => (string)($_GET['date_to'] ?? ''),
@@ -3875,6 +3875,7 @@ if ($page === 'studio_whatsapp_mobile') {
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
     $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
+    $isAdmin = studio_current_user_is_admin();
     echo '<aside class="mobile-wa-list">';
     echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
     echo '<div class="mobile-wa-search"><input type="search" id="mobileWaSearch" placeholder="Buscar conversa, telefone ou mensagem"></div>';
@@ -3901,7 +3902,7 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '<section class="mobile-wa-chat">';
     if (!$conversation) {
         $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
-        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">Escolha uma conversa na lista para visualizar e responder. Esta tela fica sem conversa pré-aberta de propósito.</div></div></div>';
+        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Escolha uma conversa na lista para visualizar, assumir ou responder.' : 'Escolha uma conversa na lista para visualizar as livres e responder as que estiverem atribuídas a você.') . '</div></div></div>';
     } else {
         echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
         echo '<div class="mobile-wa-chat-body">';
