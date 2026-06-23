@@ -74,6 +74,49 @@ $events = status_read_events($filters);
 $known = function_exists('studio_whatsapp_zap_local_config') ? studio_whatsapp_zap_local_config() : [];
 $knownPhone = trim((string)($known['phone_number_id'] ?? '1186818641175044'));
 $knownVerify = trim((string)($known['verify_token'] ?? 'zap_crm_daniel_2026'));
+$allEvents = status_read_events(['type' => 'all'], 500);
+$rawPosts = array_values(array_filter($allEvents, static fn(array $event): bool => (string)($event['type'] ?? '') === 'raw_post'));
+$localRawCount = 0;
+$externalRawCount = 0;
+$lastRemoteAddr = '';
+$lastUserAgent = '';
+$lastMessagesEvent = null;
+foreach ($rawPosts as $event) {
+    $remoteAddr = trim((string)($event['remote_addr'] ?? ''));
+    if ($remoteAddr === '127.0.0.1' || $remoteAddr === '::1') {
+        $localRawCount++;
+    } elseif ($remoteAddr !== '') {
+        $externalRawCount++;
+    }
+    if ($remoteAddr !== '') {
+        $lastRemoteAddr = $remoteAddr;
+    }
+    if (trim((string)($event['user_agent'] ?? '')) !== '') {
+        $lastUserAgent = (string)$event['user_agent'];
+    }
+    $payload = is_array($event['payload'] ?? null) ? $event['payload'] : [];
+    $hasMessages = false;
+    if (is_array($payload['entry'] ?? null)) {
+        foreach ($payload['entry'] as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            foreach ((array)($entry['changes'] ?? []) as $change) {
+                if (!is_array($change)) {
+                    continue;
+                }
+                $value = is_array($change['value'] ?? null) ? $change['value'] : [];
+                if (!empty($value['messages']) && is_array($value['messages'])) {
+                    $hasMessages = true;
+                    break 3;
+                }
+            }
+        }
+    }
+    if ($hasMessages) {
+        $lastMessagesEvent = $event;
+    }
+}
 ?>
 <!doctype html>
 <html lang="pt-br">
@@ -102,6 +145,14 @@ $knownVerify = trim((string)($known['verify_token'] ?? 'zap_crm_daniel_2026'));
             </form>
         </div>
     </div>
+    <div class="row g-3 mb-4">
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Total raw_post local</strong><div class="h3 mt-2 mb-0"><?= status_h((string)$localRawCount) ?></div></div></div></div>
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Total raw_post externo</strong><div class="h3 mt-2 mb-0"><?= status_h((string)$externalRawCount) ?></div></div></div></div>
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Último remote_addr</strong><div class="mono small mt-2"><?= status_h($lastRemoteAddr !== '' ? $lastRemoteAddr : '-') ?></div><div class="small mt-2"><?= status_h(($lastRemoteAddr === '127.0.0.1' || $lastRemoteAddr === '::1') ? 'Evento local/replay' : ($lastRemoteAddr !== '' ? 'Evento externo/Meta provável' : 'Sem evento')) ?></div></div></div></div>
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Último user_agent</strong><div class="mono small mt-2"><?= status_h($lastUserAgent !== '' ? $lastUserAgent : '-') ?></div></div></div></div>
+    </div>
+
+    <div class="card card-soft mb-4"><div class="card-body p-4"><strong>Último evento com messages</strong><div class="small mt-2"><?= $lastMessagesEvent ? status_h((string)($lastMessagesEvent['logged_at'] ?? '')) : 'Nenhum ainda' ?></div><?php if ($lastMessagesEvent): ?><pre class="mono mt-3"><?= status_h(json_encode($lastMessagesEvent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></pre><?php endif; ?></div></div>
 
     <div class="row g-3 mb-4">
         <div class="col-lg-4">
@@ -124,6 +175,19 @@ $knownVerify = trim((string)($known['verify_token'] ?? 'zap_crm_daniel_2026'));
                 <li>Se aparecer <strong>incoming_message_seen</strong> e <strong>crm_record_message_ok</strong>: o recebimento está funcionando e o problema passa a ser listagem/workspace.</li>
                 <li>Se aparecer <strong>crm_record_message_error</strong>: corrigir banco/função de gravação.</li>
             </ul>
+        </div>
+    </div>
+
+    <div class="card card-soft mb-4">
+        <div class="card-body p-4">
+            <h2 class="h5 mb-3">Teste real de recebimento</h2>
+            <ol class="mb-0">
+                <li>Clique em limpar log.</li>
+                <li>Envie uma mensagem real do seu WhatsApp para +55 11 95786-7798.</li>
+                <li>Aguarde 10 segundos.</li>
+                <li>Atualize esta página.</li>
+            </ol>
+            <p class="mt-3 mb-0"><strong>Interpretação:</strong> sem <code>raw_post</code> externo, a Meta não chamou este webhook; com <code>raw_post</code> externo sem <code>messages</code>, chegou status/outro evento; com <code>incoming_message_seen</code> e <code>crm_record_message_ok</code>, o recebimento está funcionando; se gravou e não aparece no workspace, o problema está na listagem/filtro.</p>
         </div>
     </div>
 

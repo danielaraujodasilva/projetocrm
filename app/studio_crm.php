@@ -7,10 +7,10 @@ function studio_db_config(array $studio): array
     $platform = app_config('database');
 
     return [
-        'host' => (string)($studio['database_host'] ?? ($platform['host'] ?? 'localhost')),
+        'host' => !empty($studio['database_host']) ? (string)$studio['database_host'] : (string)($platform['host'] ?? 'localhost'),
         'port' => (int)($platform['port'] ?? 3306),
         'database' => (string)($studio['database_name'] ?? ''),
-        'username' => (string)($studio['database_user'] ?? ($platform['username'] ?? 'root')),
+        'username' => !empty($studio['database_user']) ? (string)$studio['database_user'] : (string)($platform['username'] ?? 'root'),
         'password' => (string)($studio['database_password'] ?? ($platform['password'] ?? '')),
         'charset' => (string)($platform['charset'] ?? 'utf8mb4'),
     ];
