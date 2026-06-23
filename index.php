@@ -3780,7 +3780,6 @@ echo 'scrollChatToLatest(true);';
 }
 
 if ($page === 'studio_whatsapp_mobile') {
-    $studio = require_studio();
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
     echo '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
@@ -3835,6 +3834,13 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '</form>';
         echo '</section>';
         echo '</div>';
+        echo '</div>';
+        echo '</body></html>';
+        exit;
+    }
+    $studio = get_studio((int)($currentUser['studio_id'] ?? 0));
+    if (!$studio) {
+        echo '<div style="padding:14px"><section class="panel"><h2>Estúdio não encontrado</h2><p class="muted">Seu login foi reconhecido, mas o estúdio vinculado não existe ou está inacessível.</p><a class="btn" href="' . h(app_url('studio_login')) . '">Recarregar login</a></section></div>';
         echo '</div>';
         echo '</body></html>';
         exit;
