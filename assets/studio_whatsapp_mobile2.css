@@ -486,10 +486,19 @@ body {
 
 .m2-audio-bubble {
     padding-top: 8px;
+    min-height: 0;
 }
 
-.m2-audio-bubble audio {
-    margin: 0 0 7px;
+.m2-audio-player {
+    display: block !important;
+    width: min(70vw, 310px) !important;
+    height: 54px !important;
+    min-height: 54px !important;
+    max-height: 54px !important;
+    margin: 0 0 7px !important;
+    padding: 0 !important;
+    box-sizing: border-box;
+    vertical-align: top;
 }
 
 .m2-file {

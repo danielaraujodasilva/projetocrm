@@ -479,7 +479,7 @@
       } else if (mediaKind === 'video') {
         html += '<video class="m2-media" src="' + escapeHtml(mediaUrl) + '" controls></video>';
       } else if (mediaKind === 'audio') {
-        html += '<audio src="' + escapeHtml(mediaUrl) + '" controls></audio>';
+        html += '<audio class="m2-audio-player" src="' + escapeHtml(mediaUrl) + '" controls preload="metadata"></audio>';
         if (!transcript) {
           html += '<button class="m2-transcribe" type="button" data-transcribe-audio="' + escapeHtml(message?.message_id || '') + '" data-media-url="' + escapeHtml(mediaUrl) + '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
         }
