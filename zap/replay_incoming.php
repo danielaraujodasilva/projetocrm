@@ -59,7 +59,7 @@ function replay_last_events(array $types = [], int $limit = 20): array
 
 replay_require_access();
 
-$serviceWebhookUrl = studio_whatsapp_webhook_url();
+$serviceWebhookUrl = app_base_path() . '/api/whatsapp_webhook.php';
 $studio = null;
 $payload = [
     'entry' => [[
