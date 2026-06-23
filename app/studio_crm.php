@@ -4218,8 +4218,10 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         return $upload;
     }
 
+    $fileName = (string)($upload['fileName'] ?? '');
+    $isRecordedAudio = (bool)preg_match('/^audio_\d+\./i', $fileName);
     $supported = ['audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg'];
-    if (in_array(strtok($mime, ';') ?: $mime, $supported, true)) {
+    if (!$isRecordedAudio && in_array(strtok($mime, ';') ?: $mime, $supported, true)) {
         if (str_starts_with($mime, 'audio/ogg')) {
             $upload['mime'] = 'audio/ogg';
         }
@@ -4257,7 +4259,7 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         if ($exitCode === 0 && is_file($target) && filesize($target) > 0) {
             $upload['path'] = $target;
             $upload['mime'] = 'audio/ogg';
-            $upload['fileName'] = preg_replace('/\.[^.]+$/', '', (string)($upload['fileName'] ?? 'audio')) . '.ogg';
+            $upload['fileName'] = preg_replace('/\.[^.]+$/', '', $fileName !== '' ? $fileName : 'audio') . '.ogg';
             $upload['kind'] = 'audio';
             $upload['convertedFromMime'] = $mime;
             return $upload;
@@ -4366,6 +4368,10 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
     $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload, 60);
     $result['diagnostic'] = $diagnostic + ['media_id' => $mediaId, 'upload_status' => $uploadStatus];
     $result['upload_json'] = $uploadJson;
+    if (!empty($result['ok']) && empty($result['json']['messages'][0]['id'])) {
+        $result['ok'] = false;
+        $result['error'] = 'A Meta aceitou a requisicao, mas nao retornou id da mensagem enviada.';
+    }
     return $result;
 }
 
