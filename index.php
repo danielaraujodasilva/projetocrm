@@ -3818,35 +3818,48 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
     echo '<style>
         body.mobile-wa{background:#0b141a;color:#e9edef}
+        body.mobile-wa::before{content:"";position:fixed;inset:0;background:
+            radial-gradient(circle at top left, rgba(37,211,102,.16), transparent 30%),
+            radial-gradient(circle at top right, rgba(17,27,33,.95), transparent 22%),
+            linear-gradient(180deg, rgba(11,20,26,.96), rgba(11,20,26,.99));pointer-events:none;z-index:-1}
         .mobile-wa-shell{min-height:100vh;display:flex;flex-direction:column}
-        .mobile-wa-top{position:sticky;top:0;z-index:20;background:#111b21;border-bottom:1px solid rgba(255,255,255,.08);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+        .mobile-wa-top{position:sticky;top:0;z-index:20;background:rgba(17,27,33,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.08);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px}
         .mobile-wa-title{display:flex;flex-direction:column}
         .mobile-wa-title strong{font-size:1rem}
         .mobile-wa-title span{font-size:.82rem;color:#8696a0}
         .mobile-wa-body{display:grid;grid-template-columns:1fr;gap:12px;padding:12px;flex:1;min-height:0}
-        .mobile-wa-list,.mobile-wa-chat{background:#111b21;border-radius:18px;border:1px solid rgba(255,255,255,.06);overflow:hidden}
+        .mobile-wa-list,.mobile-wa-chat{background:rgba(17,27,33,.96);border-radius:24px;border:1px solid rgba(255,255,255,.06);overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.18)}
         .mobile-wa-list{display:flex;flex-direction:column;min-height:280px}
         .mobile-wa-list-head,.mobile-wa-chat-head{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px}
         .mobile-wa-search{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
         .mobile-wa-search input{width:100%;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:10px 14px}
         .mobile-wa-items{overflow:auto;max-height:42vh}
         .mobile-wa-item{display:block;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:inherit}
-        .mobile-wa-item.active{background:rgba(37,211,102,.08)}
+        .mobile-wa-item.active{background:linear-gradient(90deg, rgba(37,211,102,.14), rgba(37,211,102,.04))}
         .mobile-wa-name{display:flex;justify-content:space-between;gap:10px;align-items:center}
         .mobile-wa-name strong{font-size:.98rem}
         .mobile-wa-name span{font-size:.78rem;color:#8696a0}
         .mobile-wa-preview{font-size:.86rem;color:#8696a0;margin-top:4px;line-height:1.35}
         .mobile-wa-chat-body{display:flex;flex-direction:column;min-height:45vh}
-        .mobile-wa-messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
-        .mobile-wa-message{max-width:88%;padding:10px 12px;border-radius:14px;background:#202c33;color:#e9edef;align-self:flex-start}
+        .mobile-wa-messages{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:
+            radial-gradient(circle at top left, rgba(255,255,255,.03), transparent 26%),
+            radial-gradient(circle at top right, rgba(255,255,255,.02), transparent 24%)}
+        .mobile-wa-message{max-width:88%;padding:10px 12px;border-radius:16px;background:#202c33;color:#e9edef;align-self:flex-start;box-shadow:0 6px 16px rgba(0,0,0,.12)}
         .mobile-wa-message.out{background:#005c4b;align-self:flex-end}
         .mobile-wa-message .meta{display:block;font-size:.72rem;color:#aebac1;margin-top:6px}
         .mobile-wa-assignment{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-        .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:#111b21;border-top:1px solid rgba(255,255,255,.08);padding:10px;display:flex;gap:8px;align-items:flex-end}
-        .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px}
+        .mobile-wa-actions{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
+        .mobile-wa-action{border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;border-radius:999px;padding:10px 12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+        .mobile-wa-action.primary{background:#25d366;color:#0b141a;border-color:#25d366}
+        .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
+        .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
+        .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;display:flex;gap:8px;align-items:flex-end}
+        .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px}
         .mobile-wa-btn{border:0;border-radius:14px;padding:12px 14px;background:#25d366;color:#0b141a;font-weight:700}
         .mobile-wa-btn.secondary{background:#202c33;color:#e9edef;border:1px solid rgba(255,255,255,.08)}
         .mobile-wa-muted{color:#8696a0;font-size:.88rem}
+        .mobile-wa-mini-topbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+        .mobile-wa-mini-topbar .btn, .mobile-wa-mini-topbar .mobile-wa-action{padding:8px 10px;font-size:.85rem}
         @media (min-width: 980px){ .mobile-wa-body{grid-template-columns:360px minmax(0,1fr);align-items:start} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
@@ -3954,22 +3967,24 @@ if ($page === 'studio_whatsapp_mobile') {
     } else {
         echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
         echo '<div class="mobile-wa-chat-body">';
+        echo '<div class="mobile-wa-actions">';
+        echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
+        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
+        if ($assignedUserId <= 0) {
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir</span></button></form>';
+        } elseif ($currentUserId === $assignedUserId) {
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar</span></button></form>';
+        }
+        echo '</div>';
         echo '<div class="wa-web-assignment-bar" style="padding:10px 14px">';
         if ($assignedUserId > 0) {
             echo '<span class="badge warn">Conversa assumida por: ' . h($assignedUserName !== '' ? $assignedUserName : ('Atendente #' . $assignedUserId)) . '</span>';
         } else {
             echo '<span class="badge">Conversa livre</span>';
         }
-        echo '<form method="post" class="inline-form" style="margin-left:auto">' . csrf_field() . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
-        if ($assignedUserId <= 0) {
-            echo '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="return_to_mobile" value="1"><button class="btn secondary" type="submit">Assumir conversa</button>';
-        } elseif ($currentUserId === $assignedUserId) {
-            echo '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="return_to_mobile" value="1"><button class="btn secondary" type="submit">Liberar conversa</button>';
-        }
-        echo '</form>';
         echo '</div>';
         if ($isAdmin && $assignedUserId > 0) {
-            echo '<div class="mobile-wa-assignment" style="padding:10px 14px 0">';
+            echo '<div class="mobile-wa-actions">';
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Desatribuir</button></form>';
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><select name="target_user_id"><option value="">Transferir para...</option>';
             foreach (studio_list_users($studio) as $studioUser) {
@@ -3978,7 +3993,7 @@ if ($page === 'studio_whatsapp_mobile') {
             echo '</select><button class="btn tiny secondary" type="submit">Transferir</button></form>';
             echo '</div>';
         }
-        echo '<div class="mobile-wa-assignment" style="padding:10px 14px 0">';
+        echo '<div class="mobile-wa-actions">';
         echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Marcar lida</button></form>';
         echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="return_to_mobile" value="1"><button class="btn tiny secondary" type="submit">Marcar não lida</button></form>';
         echo '</div>';
@@ -3998,12 +4013,30 @@ if ($page === 'studio_whatsapp_mobile') {
         if (!$canSendHere) {
             echo '<div class="mobile-wa-assignment"><span class="mobile-wa-muted">Você pode visualizar, mas não interagir com esta conversa.</span></div>';
         }
+        echo '<div id="mobileSchedulePanel" class="hidden" style="padding:0 12px 12px">';
+        echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08);border-radius:18px">';
+        echo '<h3 style="margin-top:0;color:#fff">Agendar atendimento</h3>';
+        echo '<p class="muted">Atalho rápido para organizar a próxima visita sem sair do atendimento.</p>';
+        echo '<form method="post" action="' . h(app_url('index.php')) . '" class="form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="update_whatsapp_conversation">';
+        echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
+        echo '<input type="hidden" name="return_to_mobile" value="1">';
+        echo '<div class="grid-2">';
+        echo '<div class="field"><label>Data</label><input type="date" name="appointment_date"></div>';
+        echo '<div class="field"><label>Hora</label><input type="time" name="appointment_time"></div>';
+        echo '</div>';
+        echo '<div class="field"><label>Observação</label><textarea name="notes" rows="3" placeholder="Ex.: cliente quer avaliar desenho maior"></textarea></div>';
+        echo '<button class="mobile-wa-btn" type="submit">Salvar agendamento</button>';
+        echo '</form>';
+        echo '</section>';
+        echo '</div>';
         echo '</div>';
     }
     echo '</section>';
     echo '</div>';
     echo '</div>';
-    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");if(messages){messages.scrollTop=messages.scrollHeight;} search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.location.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }});})();</script>';
+    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");const schedulePanel=document.getElementById("mobileSchedulePanel");const openSchedule=document.getElementById("mobileOpenSchedule");if(messages){messages.scrollTop=messages.scrollHeight;} openSchedule?.addEventListener("click",()=>schedulePanel?.classList.toggle("hidden")); search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }});})();</script>';
     echo '</body></html>';
     exit;
 }
