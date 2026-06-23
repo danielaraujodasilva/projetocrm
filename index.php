@@ -5724,7 +5724,7 @@ if ($page === 'studio_attendants') {
         && (string)($studioUser['role'] ?? '') === 'owner'
         && (int)($studioUser['studio_id'] ?? 0) === (int)$studio['id']
     );
-    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin, $studioUser, $canManageAttendants) {
+    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin, $studioUser, $canManageAttendants, $editingUser) {
         if (!$canManageAttendants) {
             $returnTo = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
             $_SESSION['admin_return_to'] = $returnTo;
