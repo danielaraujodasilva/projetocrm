@@ -443,8 +443,10 @@
     var mediaUrl = String(url || '').toLowerCase();
     var messageType = String(type || '').toLowerCase();
     if (mediaMime.indexOf('image/') === 0 || /\.(png|jpe?g|gif|webp)(\?|$)/i.test(mediaUrl) || messageType === 'image') return 'image';
-    if (mediaMime.indexOf('video/') === 0 || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl) || messageType === 'video') return 'video';
-    if (mediaMime.indexOf('audio/') === 0 || /\.(ogg|mp3|wav|m4a|webm)(\?|$)/i.test(mediaUrl) || messageType === 'audio') return 'audio';
+    if (mediaMime.indexOf('audio/') === 0 || messageType === 'audio') return 'audio';
+    if (mediaMime.indexOf('video/') === 0 || messageType === 'video') return 'video';
+    if (/\.(ogg|oga|opus|mp3|wav|m4a|aac|webm)(\?|$)/i.test(mediaUrl)) return 'audio';
+    if (/\.(mp4|mov|m4v|avi|mkv)(\?|$)/i.test(mediaUrl)) return 'video';
     return 'file';
   }
 
@@ -466,13 +468,15 @@
 
   function renderAudioWidget(mediaUrl) {
     var src = escapeHtml(mediaUrl);
-    return '<div class="m2-audio-widget" data-audio-src="' + src + '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' + src + '" preload="metadata"></audio></div>';
+    return '<div class="m2-audio-widget" data-audio-src="' + src + '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' + src + '" preload="metadata" style="display:none!important"></audio></div>';
   }
 
   function upgradeNativeAudioPlayers(root) {
-    (root || document).querySelectorAll('.m2-bubble audio[controls]:not(.m2-audio-native)').forEach(function (audio) {
+    var scope = root || shell || document;
+    scope.querySelectorAll('audio[controls]:not(.m2-audio-native)').forEach(function (audio) {
       var src = audio.getAttribute('src') || audio.currentSrc || '';
       if (!src || audio.closest('.m2-audio-widget')) return;
+      if (!audio.closest('.m2-messages, .m2-bubble, .m2-chat')) return;
       var wrapper = document.createElement('div');
       wrapper.innerHTML = renderAudioWidget(src);
       var widget = wrapper.firstElementChild;
@@ -549,9 +553,7 @@
       if (!force && latest && latest === messages.dataset.latestKey) return;
       messages.innerHTML = data.messages.map(renderMessage).join('');
       messages.dataset.latestKey = latest;
-      upgradeNativeAudioPlayers(messages);
-      initAudioWidgets(messages);
-      autoTranscribePending(messages);
+      normalizeAudioPlayers(messages);
       if (nearBottom || force) {
         scheduleScroll();
       }
@@ -649,17 +651,25 @@
     });
   }
 
-  upgradeNativeAudioPlayers(messages || document);
-  initAudioWidgets(messages || document);
-  autoTranscribePending(messages || document);
-  if (messages && window.MutationObserver) {
-    var audioUpgradeObserver = new MutationObserver(function () {
-      upgradeNativeAudioPlayers(messages);
-      initAudioWidgets(messages);
-      autoTranscribePending(messages);
-    });
-    audioUpgradeObserver.observe(messages, { childList: true, subtree: true });
+  function normalizeAudioPlayers(root) {
+    var scope = root || messages || shell || document;
+    upgradeNativeAudioPlayers(scope);
+    initAudioWidgets(scope);
+    autoTranscribePending(scope);
   }
+
+  normalizeAudioPlayers(messages || shell || document);
+  if (shell && window.MutationObserver) {
+    var audioUpgradeObserver = new MutationObserver(function () {
+      normalizeAudioPlayers(shell);
+    });
+    audioUpgradeObserver.observe(shell, { childList: true, subtree: true });
+  }
+  [250, 900, 1800, 3200].forEach(function (delay) {
+    window.setTimeout(function () {
+      normalizeAudioPlayers(shell);
+    }, delay);
+  });
   scheduleScroll();
   window.setTimeout(function () {
     refreshMessages(true);
