@@ -62,6 +62,12 @@
       if (fileInput) fileInput.click();
     }
 
+    function togglePanelById(id) {
+      var panel = byId(id);
+      if (!panel) return;
+      panel.classList.toggle('hidden');
+    }
+
     function onFileChange() {
       selectedFile = fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
       if (selectedFile) {
@@ -231,6 +237,56 @@
       attachButton.addEventListener('click', openAttachment, true);
       attachButton.addEventListener('touchend', openAttachment, true);
     }
+    var emojiToggle = byId('mobileOpenEmojiPanel');
+    if (emojiToggle) {
+      emojiToggle.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileEmojiPanel');
+      }, true);
+      emojiToggle.addEventListener('touchend', function (event) {
+        prevent(event);
+        togglePanelById('mobileEmojiPanel');
+      }, true);
+    }
+    var scheduleToggle = byId('mobileOpenSchedule');
+    if (scheduleToggle) {
+      scheduleToggle.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileSchedulePanel');
+      }, true);
+      scheduleToggle.addEventListener('touchend', function (event) {
+        prevent(event);
+        togglePanelById('mobileSchedulePanel');
+      }, true);
+    }
+    var quickMenuButton = byId('mobileQuickMenuButton');
+    var bottomActionsButton = byId('mobileBottomActionsButton');
+    var refreshButton = byId('mobileRefreshButton');
+    var globalRefreshButton = byId('mobileGlobalRefreshAction');
+    if (quickMenuButton) {
+      quickMenuButton.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileConversationMenu');
+      }, true);
+    }
+    if (bottomActionsButton) {
+      bottomActionsButton.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileGlobalActionsPanel');
+      }, true);
+    }
+    if (refreshButton) {
+      refreshButton.addEventListener('click', function (event) {
+        prevent(event);
+        window.location.reload();
+      }, true);
+    }
+    if (globalRefreshButton) {
+      globalRefreshButton.addEventListener('click', function (event) {
+        prevent(event);
+        window.location.reload();
+      }, true);
+    }
     if (pickButton) {
       pickButton.addEventListener('click', openAttachment, true);
       pickButton.addEventListener('touchend', openAttachment, true);
@@ -246,6 +302,15 @@
       emojiPanel.addEventListener('click', appendEmoji, true);
       emojiPanel.addEventListener('touchend', appendEmoji, true);
     }
+
+    document.querySelectorAll('.mobile-wa-action, .mobile-wa-btn, .mobile-wa-icon-btn, .nav-chip').forEach(function (button) {
+      button.addEventListener('touchstart', function () {
+        button.classList.add('is-touched');
+      }, { passive: true });
+      button.addEventListener('touchend', function () {
+        button.classList.remove('is-touched');
+      }, { passive: true });
+    });
     form.addEventListener('submit', sendForm, true);
 
     scheduleScroll();

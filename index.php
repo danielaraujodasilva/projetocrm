@@ -3925,15 +3925,15 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-message p{margin:0;word-break:break-word;overflow-wrap:anywhere}
         .mobile-wa-assignment{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
         .mobile-wa-actions{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
-        .mobile-wa-action{border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;border-radius:999px;padding:10px 12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+        .mobile-wa-action{border:1px solid rgba(255,255,255,.10);background:#202c33;color:#f2f5f7 !important;border-radius:999px;padding:10px 12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:8px;min-height:44px;line-height:1.1;box-shadow:0 2px 0 rgba(0,0,0,.12)}
         .mobile-wa-action.primary{background:#25d366;color:#0b141a;border-color:#25d366}
         .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
         .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
         .mobile-wa-action.ghost{background:transparent;color:#e9edef}
-        .mobile-wa-icon-btn{min-width:58px;height:46px;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:#202c33;color:#e9edef;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 8px;gap:2px;font-size:.62rem;font-weight:700}
-        .mobile-wa-icon-btn i{font-size:.95rem;line-height:1}
-        .mobile-wa-icon-btn.recording{background:#fb7185;color:#fff;border-color:#fb7185}
-        .mobile-wa-icon-btn span{display:block;line-height:1}
+        .mobile-wa-icon-btn{min-width:58px;height:46px;flex:0 0 auto;border:1px solid rgba(255,255,255,.10);border-radius:14px;background:#202c33;color:#f2f5f7 !important;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;padding:5px 8px;gap:2px;font-size:.62rem;font-weight:700;box-shadow:0 2px 0 rgba(0,0,0,.12)}
+        .mobile-wa-icon-btn i{font-size:1rem;line-height:1;color:inherit !important}
+        .mobile-wa-icon-btn span{display:block;line-height:1;color:inherit !important}
+        .mobile-wa-icon-btn.recording{background:#fb7185;color:#fff !important;border-color:#fb7185}
         .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
         .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px;font-size:16px !important;line-height:1.35;touch-action:manipulation;-webkit-text-size-adjust:100%;-webkit-user-select:text;user-select:text}
         .mobile-wa-shell input,.mobile-wa-shell textarea,.mobile-wa-shell select{font-size:16px !important;-webkit-text-size-adjust:100%}
@@ -3970,6 +3970,7 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-panel-close{grid-column:1/-1;border:0;border-radius:12px;padding:10px 12px;background:#202c33;color:#e9edef;font-weight:700;text-align:center}
         .mobile-wa-panel-close i{margin-right:6px}
         .mobile-wa-emoji-panel button{border:0;border-radius:14px;padding:10px 0;background:#202c33;color:#e9edef;font-size:1.05rem}
+        .mobile-wa-emoji-panel .quick-reply-copy{min-height:42px;font-size:1.15rem;font-weight:700}
         .mobile-wa-schedule-panel{max-width:720px}
         .mobile-wa-schedule-panel .panel{margin:0}
         @media (min-width: 980px){ .mobile-wa-shell{position:fixed;inset:0} .mobile-wa-body{display:flex} .mobile-wa-list{min-height:100%;height:100%} .mobile-wa-chat{min-height:100%;height:100%} .mobile-wa-items{max-height:none} }
