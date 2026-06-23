@@ -97,10 +97,13 @@
   }
 
   function currentFile() {
+    if (recordedFile) {
+      return recordedFile;
+    }
     if (fileInput && fileInput.files && fileInput.files[0]) {
       return fileInput.files[0];
     }
-    return recordedFile;
+    return null;
   }
 
   function clearAttachment() {
@@ -115,7 +118,11 @@
 
   function setFileInput(file) {
     recordedFile = file || null;
-    if (!fileInput || !file) return;
+    if (!fileInput) return;
+    if (!file) {
+      fileInput.value = '';
+      return;
+    }
     try {
       var transfer = new DataTransfer();
       transfer.items.add(file);
@@ -238,6 +245,9 @@
     if (textarea && textarea.disabled) return;
 
     if (recorder && recorder.state === 'recording') {
+      try {
+        recorder.requestData();
+      } catch (ignore) {}
       recorder.stop();
       return;
     }
@@ -263,6 +273,11 @@
       activeRecorder.addEventListener('stop', function () {
         stopStream();
         setRecordingUi(false);
+        if (!chunks.length) {
+          recorder = null;
+          alert('A gravacao ficou vazia. Tente gravar novamente.');
+          return;
+        }
         var finalMime = cleanMime(activeRecorder.mimeType || mime || 'audio/webm');
         var extension = finalMime.indexOf('ogg') !== -1 ? 'ogg' : (finalMime.indexOf('mp4') !== -1 || finalMime.indexOf('m4a') !== -1 ? 'm4a' : 'webm');
         var blob = new Blob(chunks, { type: finalMime });
@@ -279,7 +294,7 @@
         recorder = null;
       });
 
-      activeRecorder.start();
+      activeRecorder.start(1000);
       setRecordingUi(true);
     } catch (error) {
       stopStream();
