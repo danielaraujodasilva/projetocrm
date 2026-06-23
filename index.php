@@ -400,8 +400,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
         }
 
         if ($action === 'studio_login') {
+            $returnTo = trim((string)($_POST['return_to'] ?? ''));
             if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
                 flash_set('success', 'Login do estudio realizado.');
+                if ($returnTo !== '') {
+                    redirect_to_url($returnTo);
+                }
                 redirect_to('studio_home');
             }
             flash_set('error', 'Email ou senha invalidos para o estudio.');
@@ -1784,7 +1788,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_mobile', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -3815,6 +3819,26 @@ if ($page === 'studio_whatsapp_mobile') {
     </style>';
     echo '<div class="mobile-wa-shell">';
     echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Atendimento</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><span class="badge">Modo celular</span></div>';
+    if (!$currentUser) {
+        $mobileReturn = app_url('studio_whatsapp_mobile');
+        echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
+        echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
+        echo '<h2 style="color:#fff">Entrar para atendimento</h2>';
+        echo '<p class="muted">Use o email e a senha do atendente para acessar o atendimento no celular.</p>';
+        echo '<form class="form" method="post" action="' . h(app_url('studio_login')) . '">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="studio_login">';
+        echo '<input type="hidden" name="return_to" value="' . h($mobileReturn) . '">';
+        echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
+        echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
+        echo '<button class="mobile-wa-btn" type="submit">Entrar e abrir atendimento</button>';
+        echo '</form>';
+        echo '</section>';
+        echo '</div>';
+        echo '</div>';
+        echo '</body></html>';
+        exit;
+    }
     echo '<div class="mobile-wa-body">';
     $filters = [
         'q' => (string)($_GET['q'] ?? ''),
