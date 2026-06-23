@@ -5659,6 +5659,7 @@ if ($page === 'edit_studio') {
 
 if ($page === 'studio_attendants') {
     $admin = current_admin();
+    $studioUser = current_studio_user();
     $studios = list_studios();
     $studioId = (int)($_GET['studio_id'] ?? ($_POST['studio_id'] ?? 0));
     if ($studioId <= 0 && $studios) {
@@ -5669,13 +5670,18 @@ if ($page === 'studio_attendants') {
         flash_set('error', 'Estudio nao encontrado.');
         redirect_to('studios');
     }
-    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin) {
-        if (!$admin) {
+    $canManageAttendants = $admin || (
+        is_array($studioUser)
+        && (string)($studioUser['role'] ?? '') === 'owner'
+        && (int)($studioUser['studio_id'] ?? 0) === (int)$studio['id']
+    );
+    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin, $studioUser, $canManageAttendants) {
+        if (!$canManageAttendants) {
             $returnTo = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
             $_SESSION['admin_return_to'] = $returnTo;
             echo '<section class="panel" style="margin-bottom:16px">';
             echo '<h2>Acesso administrativo necessário</h2>';
-            echo '<p class="muted">Esta tela é do painel gerencial. Entre como administrador para criar ou atualizar acessos.</p>';
+            echo '<p class="muted">Esta tela aceita admin da plataforma ou dono do estúdio. Entre com uma dessas contas para criar ou atualizar acessos.</p>';
             echo '<form class="form" method="post" action="' . h(app_url('login')) . '">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="login">';
@@ -5715,7 +5721,7 @@ if ($page === 'studio_attendants') {
         }
         echo '</section>';
 
-        if ($admin) {
+        if ($canManageAttendants) {
             echo '<section class="panel" style="margin-top:16px"><h2>Criar ou atualizar acesso principal</h2>';
             echo '<p class="muted">Use para criar o primeiro acesso do estúdio ou redefinir o dono principal.</p>';
             echo '<form class="form" method="post">';
