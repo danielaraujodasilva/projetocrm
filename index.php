@@ -5658,7 +5658,7 @@ if ($page === 'edit_studio') {
 }
 
 if ($page === 'studio_attendants') {
-    require_admin();
+    $admin = current_admin();
     $studios = list_studios();
     $studioId = (int)($_GET['studio_id'] ?? ($_POST['studio_id'] ?? 0));
     if ($studioId <= 0 && $studios) {
@@ -5669,7 +5669,22 @@ if ($page === 'studio_attendants') {
         flash_set('error', 'Estudio nao encontrado.');
         redirect_to('studios');
     }
-    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios) {
+    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin) {
+        if (!$admin) {
+            $returnTo = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
+            echo '<section class="panel" style="margin-bottom:16px">';
+            echo '<h2>Acesso administrativo necessário</h2>';
+            echo '<p class="muted">Esta tela é do painel gerencial. Entre como administrador para criar ou atualizar acessos.</p>';
+            echo '<form class="form" method="post" action="' . h(app_url('login')) . '">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="login">';
+            echo '<input type="hidden" name="return_to" value="' . h($returnTo) . '">';
+            echo '<div class="grid cols-2">';
+            echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
+            echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
+            echo '</div><button class="btn" type="submit">Entrar como admin</button></form>';
+            echo '</section>';
+        }
         echo '<section class="panel">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
         echo '<div><h2 style="margin-bottom:6px">Estúdio: ' . h($studio['name']) . '</h2><p class="muted" style="margin:0">Página direta para criar e atualizar acessos do estúdio.</p></div>';
@@ -5699,18 +5714,20 @@ if ($page === 'studio_attendants') {
         }
         echo '</section>';
 
-        echo '<section class="panel" style="margin-top:16px"><h2>Criar ou atualizar acesso principal</h2>';
-        echo '<p class="muted">Use para criar o primeiro acesso do estúdio ou redefinir o dono principal.</p>';
-        echo '<form class="form" method="post">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="save_studio_access">';
-        echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
-        echo '<div class="grid cols-3">';
-        echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
-        echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
-        echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
-        echo '</div><button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
-        echo '</section>';
+        if ($admin) {
+            echo '<section class="panel" style="margin-top:16px"><h2>Criar ou atualizar acesso principal</h2>';
+            echo '<p class="muted">Use para criar o primeiro acesso do estúdio ou redefinir o dono principal.</p>';
+            echo '<form class="form" method="post">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="save_studio_access">';
+            echo '<input type="hidden" name="studio_id" value="' . h($studio['id']) . '">';
+            echo '<div class="grid cols-3">';
+            echo '<div class="field"><label>Nome</label><input name="access_name" value="' . h($studio['owner_name'] ?? '') . '" required></div>';
+            echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="access_email" value="' . h($studio['owner_email'] ?? '') . '" required></div>';
+            echo '<div class="field"><label>Senha inicial</label><input type="password" name="access_password" minlength="8" required></div>';
+            echo '</div><button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
+            echo '</section>';
+        }
     }, $flash);
     exit;
 }
