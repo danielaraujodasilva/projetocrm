@@ -61,7 +61,8 @@ replay_require_access();
 
 $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 $host = (string)($_SERVER['HTTP_HOST'] ?? 'danieltatuador.com');
-$serviceWebhookUrl = $scheme . '://' . $host . app_base_path() . '/api/whatsapp_webhook.php';
+$projectBase = rtrim(dirname(app_base_path()), '/');
+$serviceWebhookUrl = $scheme . '://' . $host . $projectBase . '/api/whatsapp_webhook.php';
 $studio = null;
 $payload = [
     'entry' => [[
