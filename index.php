@@ -3367,7 +3367,7 @@ if ($page === 'studio_whatsapp_workspace') {
             }
         }
 
-        echo '<section class="wa-web-shell">';
+        echo '<section class="wa-web-shell" style="display:grid;grid-template-columns:minmax(320px,360px) minmax(0,1fr);gap:16px;align-items:start;">';
         echo '<aside class="wa-web-sidebar">';
         echo '<div class="wa-web-sidebar-top">';
         echo '<div class="wa-web-brand">';
