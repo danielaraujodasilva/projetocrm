@@ -562,6 +562,11 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             studio_save_appointment($studio, $_POST);
             flash_set('success', 'Agenda salva.');
+            if (!empty($_POST['return_to_mobile2'])) {
+                redirect_to('studio_whatsapp_mobile2', array_filter([
+                    'id' => (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0) ?: null,
+                ], static fn($value) => $value !== null && $value !== ''));
+            }
             if (!empty($_POST['return_to_mobile'])) {
                 redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
@@ -875,6 +880,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'send_whatsapp_message') {
             $studio = require_studio();
+            $wantsWhatsappJson = !empty($_POST['return_to_mobile'])
+                || !empty($_POST['return_to_mobile2'])
+                || (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
 
             if (function_exists('crm_whatsapp_official_apply_defaults')) {
                 crm_whatsapp_official_apply_defaults($studio);
@@ -918,7 +926,7 @@ if ($action === 'studio_login') {
 
                     flash_set('error', 'Faltou telefone, mensagem ou anexo para enviar pela API oficial. ' . $details);
 
-                    if (!empty($_POST['return_to_mobile'])) {
+                    if ($wantsWhatsappJson) {
                         header('Content-Type: application/json; charset=utf-8');
                         echo json_encode(['ok' => false, 'error' => 'missing_phone_message_or_attachment'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                         exit;
@@ -959,9 +967,9 @@ if ($action === 'studio_login') {
 
                     flash_set('error', $error);
 
-                    if (!empty($_POST['return_to_mobile'])) {
+                    if ($wantsWhatsappJson) {
                         header('Content-Type: application/json; charset=utf-8');
-                        echo json_encode(['ok' => false, 'error' => 'send_failed'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                         exit;
                     }
                     if ($conversationId > 0) {
@@ -990,7 +998,7 @@ if ($action === 'studio_login') {
 
                 flash_set('success', 'Mensagem enviada pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
 
-                if (!empty($_POST['return_to_mobile'])) {
+                if ($wantsWhatsappJson) {
                     header('Content-Type: application/json; charset=utf-8');
                     echo json_encode(['ok' => true, 'message_id' => $messageId], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                     exit;
@@ -1004,7 +1012,7 @@ if ($action === 'studio_login') {
 
             studio_send_whatsapp_message($studio, $_POST);
             flash_set('success', 'Mensagem enviada pelo WhatsApp.');
-            if (!empty($_POST['return_to_mobile'])) {
+            if ($wantsWhatsappJson) {
                 header('Content-Type: application/json; charset=utf-8');
                 echo json_encode([
                     'ok' => true,
@@ -1050,6 +1058,11 @@ if ($action === 'studio_login') {
                 studio_whatsapp_mark_unread($studio, $conversationId);
                 flash_set('success', 'Conversa marcada como nao lida.');
             }
+            if (!empty($_POST['return_to_mobile2'])) {
+                redirect_to('studio_whatsapp_mobile2', array_filter([
+                    'id' => $conversationId > 0 ? $conversationId : null,
+                ], static fn($value) => $value !== null && $value !== ''));
+            }
             redirect_to('studio_whatsapp_mobile', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
                 'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
@@ -1072,6 +1085,11 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             studio_update_whatsapp_profile($studio, $_POST);
             flash_set('success', 'Cadastro, lead e conversa atualizados.');
+            if (!empty($_POST['return_to_mobile2'])) {
+                redirect_to('studio_whatsapp_mobile2', array_filter([
+                    'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
+                ], static fn($value) => $value !== null && $value !== ''));
+            }
             if (!empty($_POST['return_to_workspace'])) {
                 redirect_to('studio_whatsapp_workspace');
             }
@@ -1904,6 +1922,9 @@ if ($page === 'studio_whatsapp_mobile2') {
         'q' => (string)($_GET['q'] ?? ''),
         'filter' => (string)($_GET['filter'] ?? 'all'),
         'visibility' => (string)($_GET['visibility'] ?? 'all'),
+        'date_filter' => (string)($_GET['date_filter'] ?? ''),
+        'date_from' => (string)($_GET['date_from'] ?? ''),
+        'date_to' => (string)($_GET['date_to'] ?? ''),
         'offset' => 0,
     ];
     $conversations = studio_list_whatsapp_conversations($studio, $filters, 80);
@@ -1915,6 +1936,55 @@ if ($page === 'studio_whatsapp_mobile2') {
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
     $canSend = $conversation && ($isAdmin || $assignedUserId === $currentUserId);
+    $assistantInsights = $conversation ? studio_whatsapp_assistant_insights($studio, $conversation, $messages) : [];
+    $customers = $conversation ? studio_list_customers($studio) : [];
+    $leads = $conversation ? studio_list_leads($studio) : [];
+    $artists = $conversation ? studio_list_artists($studio) : [];
+    $quickReplies = $conversation ? array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active']))) : [];
+    $assistantAutofillEnabled = !empty(studio_settings($studio)['assistant_autofill_enabled']);
+    $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
+    if ($assistantAutofillEnabled && $assistantConfidence === 0 && count($messages) > 0) {
+        $assistantConfidence = 35;
+    }
+    $scheduleSuggestion = $conversation ? studio_whatsapp_schedule_suggestion($conversation, $messages, $artists) : [];
+    if ($conversation && !empty($assistantInsights['suggested_date']) && !empty($assistantInsights['suggested_time'])) {
+        $scheduleSuggestion['date'] = (string)$assistantInsights['suggested_date'];
+        $scheduleSuggestion['time'] = (string)$assistantInsights['suggested_time'];
+    }
+    if ($conversation && !empty($assistantInsights['schedule_reason'])) {
+        $scheduleSuggestion['reason'] = (string)$assistantInsights['schedule_reason'];
+    }
+    if ($conversation && !empty($assistantInsights['suggested_interest']) && trim((string)($conversation['lead_interest'] ?? '')) === '') {
+        $scheduleSuggestion['title'] = (string)$assistantInsights['suggested_interest'];
+    }
+    $publicUpdateUrl = '';
+    if ($conversation && !empty($conversation['lead_id'])) {
+        $publicToken = studio_ensure_lead_public_update_token($studio, (int)$conversation['lead_id']);
+        $publicUpdateUrl = app_url('lead_public_update', ['lead' => (int)$conversation['lead_id'], 'token' => $publicToken]);
+    }
+    $sharePhone = $conversation ? preg_replace('/\D+/', '', (string)($conversation['phone'] ?? '')) : '';
+    $whatsAppShareUrl = ($sharePhone !== '' && $publicUpdateUrl !== '') ? ('https://wa.me/' . $sharePhone . '?text=' . rawurlencode('Atualize seu cadastro por aqui: ' . $publicUpdateUrl)) : '';
+    $pendingAudioCount = 0;
+    foreach ($messages as $message) {
+        $pendingMime = (string)($message['media_mime'] ?? '');
+        $pendingType = (string)($message['message_type'] ?? '');
+        $pendingHasTranscript = trim((string)($message['transcricao'] ?? $message['transcript'] ?? '')) !== '';
+        if ((str_starts_with($pendingMime, 'audio/') || $pendingType === 'audio') && !$pendingHasTranscript) {
+            $pendingAudioCount++;
+        }
+    }
+    $nameFieldValue = $conversation ? (string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: ''))) : '';
+    if ($nameFieldValue === '' && !empty($assistantInsights['suggested_name'])) {
+        $nameFieldValue = (string)$assistantInsights['suggested_name'];
+    }
+    $interestFieldValue = $conversation ? (string)($conversation['lead_interest'] ?: ($conversation['last_message_preview'] ?? '')) : '';
+    if ($interestFieldValue === '' && !empty($assistantInsights['suggested_interest'])) {
+        $interestFieldValue = (string)$assistantInsights['suggested_interest'];
+    }
+    $notesFieldValue = $conversation ? (string)($conversation['customer_notes'] ?? '') : '';
+    if ($notesFieldValue === '' && !empty($assistantInsights['suggested_notes'])) {
+        $notesFieldValue = (string)$assistantInsights['suggested_notes'];
+    }
 
     $labelForConversation = static function (array $row): string {
         $name = trim((string)($row['customer_name'] ?? ''));
@@ -1942,6 +2012,41 @@ if ($page === 'studio_whatsapp_mobile2') {
     echo '<aside class="m2-list" id="m2ListPanel">';
     echo '<header class="m2-top"><strong>WhatsApp</strong><span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button><a class="m2-icon" href="' . h(app_url('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : [])) . '" aria-label="Workspace" title="Abrir desktop"><i class="fa-solid fa-display"></i></a></span></header>';
     echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
+    echo '<div class="m2-filter-strip">';
+    $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
+    foreach ($visibilityPills as $visibilityKey => $label) {
+        $href = app_url('studio_whatsapp_mobile2', array_filter([
+            'visibility' => $filters['visibility'] === $visibilityKey ? null : $visibilityKey,
+            'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
+            'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
+            'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
+            'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
+        ], static fn($value) => $value !== null && $value !== ''));
+        echo '<a class="' . h($filters['visibility'] === $visibilityKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
+    }
+    foreach (['all' => 'Tudo', 'unreplied' => 'Nao lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
+        $href = app_url('studio_whatsapp_mobile2', array_filter([
+            'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
+            'filter' => $filters['filter'] === $filterKey ? null : $filterKey,
+            'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
+            'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
+            'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
+        ], static fn($value) => $value !== null && $value !== ''));
+        echo '<a class="' . h($filters['filter'] === $filterKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
+    }
+    $todayActive = $filters['date_filter'] === 'today';
+    $todayHref = app_url('studio_whatsapp_mobile2', array_filter([
+        'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
+        'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
+        'date_filter' => $todayActive ? null : 'today',
+        'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
+        'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
+        'q' => $filters['q'] !== '' ? $filters['q'] : null,
+    ], static fn($value) => $value !== null && $value !== ''));
+    echo '<a class="' . h($todayActive ? 'active' : '') . '" href="' . h($todayHref) . '">Hoje</a>';
+    echo '</div>';
     echo '<nav class="m2-items" id="m2Items">';
     foreach ($conversations as $row) {
         $rowId = (int)($row['id'] ?? 0);
@@ -1951,7 +2056,9 @@ if ($page === 'studio_whatsapp_mobile2') {
         $href = app_url('studio_whatsapp_mobile2', ['id' => $rowId]);
         $active = $rowId === $conversationId ? ' active' : '';
         $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
-        echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h(strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview)) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
+        $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
+        $rowMode = ((string)($row['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano';
+        echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h(strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview)) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
     }
     echo '</nav></aside>';
 
@@ -1961,6 +2068,14 @@ if ($page === 'studio_whatsapp_mobile2') {
     } else {
         $displayName = $labelForConversation($conversation);
         echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url('studio_whatsapp_mobile2')) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">WhatsApp</a><i class="fa-solid fa-angle-right"></i><span>Mobile</span></div>';
+        echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button>';
+        echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
+        echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
+        if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
+        if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
+        if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
+        echo '<a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '" target="_blank" rel="noopener" title="Desktop" aria-label="Desktop"><i class="fa-solid fa-display"></i></a></div>';
         echo '<div class="m2-menu hidden" id="m2Menu">';
         if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
             echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-hand-pointer"></i>Assumir</button></form>';
@@ -2004,7 +2119,54 @@ if ($page === 'studio_whatsapp_mobile2') {
         foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) echo '<button type="button" data-emoji="' . h($emoji) . '">' . h($emoji) . '</button>';
         echo '</div>';
         echo '<div class="m2-attachment hidden" id="m2AttachmentPreview"></div>';
-        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input id="m2AttachmentInput" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input id="m2AttachmentInput" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+        if (!$canSend) {
+            echo '<div class="m2-notice">Voce pode visualizar, mas precisa assumir a conversa para responder.</div>';
+        }
+        echo '<div class="m2-drawer hidden" id="m2ToolsPanel"><div class="m2-drawer-head"><strong>Painel da conversa</strong><button type="button" data-close-drawer="m2ToolsPanel" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button></div><div class="m2-drawer-body">';
+        echo '<section class="m2-card"><div class="m2-card-head"><h3>Radar</h3><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Humano') . '</span></div><div class="m2-metrics"><span><strong>' . h((string)count($messages)) . '</strong><small>Msgs</small></span><span><strong>' . h((string)$assistantConfidence) . '%</strong><small>IA</small></span><span><strong>' . h((string)$pendingAudioCount) . '</strong><small>Audios</small></span></div><div class="m2-tool-grid"><button type="button" data-mode-toggle="bot">Bot</button><button type="button" data-mode-toggle="human">Humano</button><button type="button" data-status-set="novo">Novo</button><button type="button" id="m2TranscribePending">Transcrever</button></div></section>';
+        echo '<section class="m2-card"><div class="m2-card-head"><h3>Cadastro e funil</h3><span>' . h((string)($conversation['lead_score'] ?? 0)) . '/10</span></div><form class="m2-form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="update_whatsapp_profile"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><label>Nome<input name="name" value="' . h($nameFieldValue !== '' ? $nameFieldValue : $displayName) . '"></label><label>Telefone<input name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"></label><label>Email<input type="text" inputmode="email" name="email" value="' . h((string)($conversation['customer_email'] ?? '')) . '"></label><label>Instagram<input name="instagram" value="' . h((string)($conversation['customer_instagram'] ?? '')) . '"></label><label>Lead score<input type="number" name="lead_score" min="0" max="10" value="' . h((string)($conversation['lead_score'] ?? 0)) . '"></label><label>Cliente<select name="customer_id"><option value="">Criar/sem cliente</option>';
+        render_customer_options($customers, (int)($conversation['customer_id'] ?? 0));
+        echo '</select></label><label>Lead<select name="lead_id"><option value="">Criar/sem lead</option>';
+        render_lead_options($leads, (int)($conversation['lead_id'] ?? 0));
+        echo '</select></label><label>Interesse<input name="interest" value="' . h($interestFieldValue) . '"></label><label>Status<select name="status">';
+        render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
+        echo '</select></label><label>Etapa<select name="pipeline_stage">';
+        foreach (studio_list_pipeline_stages($studio) as $stage) {
+            echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h((string)$stage['name']) . '</option>';
+        }
+        echo '</select></label><label class="wide">Observacoes<textarea name="notes">' . h($notesFieldValue) . '</textarea></label><label class="check"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label><label class="check"><input type="checkbox" name="create_customer" value="1" ' . (empty($conversation['customer_id']) ? 'checked' : '') . '> Criar/atualizar cliente</label><label class="check"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label><button type="submit">Salvar dados</button></form></section>';
+        echo '<section class="m2-card"><div class="m2-card-head"><h3>Link de cadastro</h3><span>' . h($publicUpdateUrl !== '' ? 'Pronto' : 'Pendente') . '</span></div>';
+        if ($publicUpdateUrl !== '') {
+            echo '<label class="m2-copy-field">Link publico<input type="text" id="m2PublicUpdateUrl" readonly value="' . h($publicUpdateUrl) . '"></label><div class="m2-tool-grid"><a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir</a><button type="button" id="m2CopyPublicUrl">Copiar</button>' . ($whatsAppShareUrl !== '' ? '<a href="' . h($whatsAppShareUrl) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<button type="button" id="m2OpenAppointmentFromTools">Agendar</button></div>';
+        } else {
+            echo '<p>Vincule ou crie um lead para liberar o link publico de cadastro.</p>';
+        }
+        echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Assistente IA</h3><span>' . h($assistantAutofillEnabled ? 'Ligado' : 'Desligado') . '</span></div>';
+        if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
+            if (!empty($assistantInsights['suggested_name'])) echo '<p><strong>Nome:</strong> ' . h((string)$assistantInsights['suggested_name']) . '</p>';
+            if (!empty($assistantInsights['suggested_interest'])) echo '<p><strong>Interesse:</strong> ' . h((string)$assistantInsights['suggested_interest']) . '</p>';
+            if (!empty($assistantInsights['suggested_notes'])) echo '<p><strong>Resumo:</strong> ' . h((string)$assistantInsights['suggested_notes']) . '</p>';
+            if (!empty($assistantInsights['schedule_reason'])) echo '<p><strong>Agenda:</strong> ' . h((string)$assistantInsights['schedule_reason']) . '</p>';
+        } else {
+            echo '<p>Ainda nao houve leitura suficiente para uma sugestao util.</p>';
+        }
+        echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Respostas rapidas</h3><span>' . h((string)count($quickReplies)) . '</span></div>';
+        if ($quickReplies) {
+            echo '<div class="m2-quick-list">';
+            foreach (array_slice($quickReplies, 0, 16) as $reply) {
+                echo '<button type="button" data-reply="' . h((string)$reply['body']) . '">' . h((string)$reply['title']) . '</button>';
+            }
+            echo '</div>';
+        } else {
+            echo '<p>Nenhuma resposta rapida ativa.</p>';
+        }
+        echo '</section></div></div>';
+        echo '<div class="m2-drawer hidden" id="m2AppointmentPanel"><div class="m2-drawer-head"><strong>Agendar atendimento</strong><button type="button" data-close-drawer="m2AppointmentPanel" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button></div><div class="m2-drawer-body"><form class="m2-form" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="whatsapp"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><label>Titulo<input name="title" required value="' . h((string)($scheduleSuggestion['title'] ?? ($conversation['lead_interest'] ?: 'Atendimento'))) . '"></label><label>Tatuador<select name="artist_id">';
+        render_artist_options($artists, default_artist_id($studio) ?? 0);
+        echo '</select></label><label>Data<input type="date" name="appointment_date" value="' . h((string)($scheduleSuggestion['date'] ?? date('Y-m-d'))) . '" required></label><label>Inicio<input type="time" name="start_time" value="' . h((string)($scheduleSuggestion['time'] ?? '09:00')) . '" required></label><label>Fim<input type="time" name="end_time" value="' . h((string)($scheduleSuggestion['end_time'] ?? '10:00')) . '" required></label><label>Status<select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></label><label>Valor<input name="price" placeholder="0,00"></label><label>Sinal<input name="deposit_amount" placeholder="0,00"></label><label class="wide">Descricao<textarea name="description">' . h((string)($scheduleSuggestion['description'] ?? $scheduleSuggestion['reason'] ?? '')) . '</textarea></label><button type="submit">Salvar agendamento</button></form></div></div>';
     }
     echo '</section></main>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';

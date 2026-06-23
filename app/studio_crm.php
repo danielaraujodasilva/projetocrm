@@ -4533,12 +4533,19 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 function studio_prepare_whatsapp_attachment(array $studio, array $data, array $files, int $conversationId = 0): array
 {
     $file = $files['media_file'] ?? null;
-    if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+    if (!is_array($file)) {
         return ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
     }
 
-    if (!empty($file['error'])) {
+    $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($uploadError === UPLOAD_ERR_NO_FILE) {
+        return ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
+    }
+    if ($uploadError !== UPLOAD_ERR_OK) {
         throw new RuntimeException('Nao foi possivel ler o anexo enviado.');
+    }
+    if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        throw new RuntimeException('Upload invalido. Escolha o anexo novamente.');
     }
 
     $maxSize = 20 * 1024 * 1024;
@@ -4551,6 +4558,9 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
         $mime = (string)@mime_content_type($file['tmp_name']);
     }
     $mime = $mime !== '' ? $mime : 'application/octet-stream';
+    if (str_contains($mime, ';')) {
+        $mime = trim(strtok($mime, ';'));
+    }
     $fileName = trim((string)($file['name'] ?? 'arquivo'));
     $fileName = $fileName !== '' ? $fileName : 'arquivo';
     $ext = strtolower((string)pathinfo($fileName, PATHINFO_EXTENSION));

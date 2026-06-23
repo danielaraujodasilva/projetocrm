@@ -18,6 +18,12 @@
   var recordButton = document.getElementById('m2RecordButton');
   var form = document.getElementById('m2Composer');
   var textarea = document.getElementById('m2Message');
+  var openToolsButton = document.getElementById('m2OpenTools');
+  var toolsPanel = document.getElementById('m2ToolsPanel');
+  var openAppointmentButton = document.getElementById('m2OpenAppointment');
+  var appointmentPanel = document.getElementById('m2AppointmentPanel');
+  var openAppointmentFromTools = document.getElementById('m2OpenAppointmentFromTools');
+  var csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
   var recordedFile = null;
   var recorder = null;
   var stream = null;
@@ -37,6 +43,17 @@
   function closePanels() {
     if (menu) menu.classList.add('hidden');
     if (emojiPanel) emojiPanel.classList.add('hidden');
+    if (toolsPanel) toolsPanel.classList.add('hidden');
+    if (appointmentPanel) appointmentPanel.classList.add('hidden');
+  }
+
+  function openDrawer(drawer) {
+    if (!drawer) return;
+    if (toolsPanel && toolsPanel !== drawer) toolsPanel.classList.add('hidden');
+    if (appointmentPanel && appointmentPanel !== drawer) appointmentPanel.classList.add('hidden');
+    if (menu) menu.classList.add('hidden');
+    if (emojiPanel) emojiPanel.classList.add('hidden');
+    drawer.classList.remove('hidden');
   }
 
   function scrollToLatest() {
@@ -206,9 +223,14 @@
   function preferredAudioMime() {
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
     if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) return 'audio/ogg;codecs=opus';
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
     if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
     return '';
+  }
+
+  function cleanMime(value) {
+    return String(value || '').split(';')[0].trim() || 'audio/webm';
   }
 
   async function toggleRecording(event) {
@@ -241,8 +263,8 @@
       activeRecorder.addEventListener('stop', function () {
         stopStream();
         setRecordingUi(false);
-        var finalMime = activeRecorder.mimeType || mime || 'audio/webm';
-        var extension = finalMime.indexOf('ogg') !== -1 || finalMime.indexOf('opus') !== -1 ? 'ogg' : 'webm';
+        var finalMime = cleanMime(activeRecorder.mimeType || mime || 'audio/webm');
+        var extension = finalMime.indexOf('ogg') !== -1 ? 'ogg' : (finalMime.indexOf('mp4') !== -1 || finalMime.indexOf('m4a') !== -1 ? 'm4a' : 'webm');
         var blob = new Blob(chunks, { type: finalMime });
         var fileName = 'audio_' + Date.now() + '.' + extension;
         var file;
@@ -298,13 +320,17 @@
         }
       });
 
+      var rawResponse = await response.text();
       var data = null;
-      var contentType = response.headers.get('content-type') || '';
-      if (contentType.indexOf('application/json') !== -1) {
-        data = await response.json();
-      } else {
-        var textResponse = await response.text();
-        data = { ok: false, error: textResponse ? 'Resposta inesperada do servidor.' : '' };
+      if (rawResponse) {
+        try {
+          data = JSON.parse(rawResponse);
+        } catch (ignore) {
+          data = null;
+        }
+      }
+      if (!data && response.ok) {
+        data = { ok: true };
       }
 
       if (!response.ok || !data || !data.ok) {
@@ -375,6 +401,32 @@
     }
   }
 
+  async function postConversationUpdate(payload, message) {
+    var body = new URLSearchParams();
+    body.set('csrf_token', csrfToken);
+    body.set('action', 'update_whatsapp_profile');
+    body.set('conversation_id', String(conversationId));
+    body.set('return_to_mobile2', '1');
+    Object.keys(payload || {}).forEach(function (key) {
+      body.set(key, String(payload[key]));
+    });
+
+    var response = await fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: body
+    });
+
+    if (!response.ok) {
+      throw new Error(message || 'Nao foi possivel atualizar.');
+    }
+    window.location.reload();
+  }
+
   renderEmojiPanel();
   scheduleScroll();
 
@@ -414,6 +466,8 @@
     emojiButton.addEventListener('click', function (event) {
       stop(event);
       if (menu) menu.classList.add('hidden');
+      if (toolsPanel) toolsPanel.classList.add('hidden');
+      if (appointmentPanel) appointmentPanel.classList.add('hidden');
       emojiPanel.classList.toggle('hidden');
     });
     emojiPanel.addEventListener('click', function (event) {
@@ -421,6 +475,57 @@
       if (!button) return;
       stop(event);
       insertAtCursor(button.getAttribute('data-emoji') || button.textContent || '');
+    });
+  }
+
+  if (openToolsButton) {
+    openToolsButton.addEventListener('click', function (event) {
+      stop(event);
+      openDrawer(toolsPanel);
+    });
+  }
+
+  if (openAppointmentButton) {
+    openAppointmentButton.addEventListener('click', function (event) {
+      stop(event);
+      openDrawer(appointmentPanel);
+    });
+  }
+
+  if (openAppointmentFromTools) {
+    openAppointmentFromTools.addEventListener('click', function (event) {
+      stop(event);
+      openDrawer(appointmentPanel);
+    });
+  }
+
+  var copyPublicUrl = document.getElementById('m2CopyPublicUrl');
+  if (copyPublicUrl) {
+    copyPublicUrl.addEventListener('click', async function (event) {
+      stop(event);
+      var input = document.getElementById('m2PublicUpdateUrl');
+      if (!input) return;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        copyPublicUrl.textContent = 'Copiado';
+      } catch (error) {
+        input.select();
+        document.execCommand('copy');
+        copyPublicUrl.textContent = 'Copiado';
+      }
+    });
+  }
+
+  var transcribePending = document.getElementById('m2TranscribePending');
+  if (transcribePending) {
+    transcribePending.addEventListener('click', function (event) {
+      stop(event);
+      var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-transcribe-audio]'));
+      buttons.forEach(function (button, index) {
+        window.setTimeout(function () {
+          transcribeAudio(button);
+        }, index * 350);
+      });
     });
   }
 
@@ -450,6 +555,47 @@
   }
 
   document.addEventListener('click', function (event) {
+    var closeButton = event.target.closest('[data-close-drawer]');
+    if (closeButton) {
+      stop(event);
+      var drawer = document.getElementById(closeButton.getAttribute('data-close-drawer') || '');
+      if (drawer) drawer.classList.add('hidden');
+      return;
+    }
+
+    var replyButton = event.target.closest('[data-reply]');
+    if (replyButton) {
+      stop(event);
+      insertAtCursor(replyButton.getAttribute('data-reply') || '');
+      return;
+    }
+
+    var modeButton = event.target.closest('[data-mode-toggle]');
+    if (modeButton) {
+      stop(event);
+      var isBot = modeButton.getAttribute('data-mode-toggle') === 'bot';
+      postConversationUpdate({
+        attendance_mode: isBot ? 'bot' : 'human',
+        needs_human: isBot ? '0' : '1',
+        ai_last_status: isBot ? 'IA pronta' : 'IA inativa'
+      }, 'Nao foi possivel atualizar o atendimento.').catch(function (error) {
+        alert(error.message || 'Nao foi possivel atualizar o atendimento.');
+      });
+      return;
+    }
+
+    var statusButton = event.target.closest('[data-status-set]');
+    if (statusButton) {
+      stop(event);
+      postConversationUpdate({
+        status: statusButton.getAttribute('data-status-set') || 'novo',
+        create_lead: '1'
+      }, 'Nao foi possivel atualizar o status.').catch(function (error) {
+        alert(error.message || 'Nao foi possivel atualizar o status.');
+      });
+      return;
+    }
+
     var transcribeButton = event.target.closest('[data-transcribe-audio]');
     if (transcribeButton) {
       stop(event);
