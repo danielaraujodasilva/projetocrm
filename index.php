@@ -4618,6 +4618,11 @@ if ($page === 'studio_settings') {
         if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
         }
+        echo '<div class="panel soft" style="margin-bottom:16px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px">';
+        echo '<div><strong>Atendentes e acessos do estúdio</strong><div class="muted">Gerencie os usuários do estúdio em uma tela separada, fora do workspace.</div></div>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '#acessos-estudio">Abrir atendentes do estúdio</a>';
+        echo '</div></div>';
         echo '<div class="settings-overview-grid">';
         $settingsCards = [
             'studio' => ['Estúdio', 'Dados base e integração'],
@@ -4796,6 +4801,11 @@ if ($page === 'studio_settings') {
         echo '<li>Depois, confira se o número aparece em <strong>Contas do WhatsApp Business</strong> com a conta escolhida.</li>';
         echo '<li>Se o status acima estiver completo, seguimos para envio e recebimento via API oficial.</li>';
         echo '</ol>';
+        echo '</div>';
+        echo '<div class="settings-howto" style="margin-top:16px">';
+        echo '<h3 style="margin-top:0">Atendentes e acessos</h3>';
+        echo '<p class="muted" style="margin-top:0">O gerenciamento de usuários do estúdio fica na tela administrativa do estúdio, não no workspace. Use este atalho para abrir direto a seção de acessos.</p>';
+        echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '#acessos-estudio">Abrir atendentes do estúdio</a></div>';
         echo '</div>';
         echo '</div>';
         echo '</div></div>';
@@ -5572,7 +5582,7 @@ if ($page === 'studio') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_sql', ['id' => (int)$studio['id']])) . '">Ver SQL do banco do estudio</a>';
         echo '<a class="btn secondary" href="' . h(app_url('edit_studio', ['id' => (int)$studio['id']])) . '">Editar cadastro</a>';
         echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px"><h2>Acesso do estudio</h2>';
+        echo '<section class="panel" id="acessos-estudio" style="margin-top:16px"><h2>Acesso do estudio</h2>';
         $users = studio_users((int)$studio['id']);
         if ($users) {
             echo '<table class="table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Ultimo login</th></tr></thead><tbody>';
