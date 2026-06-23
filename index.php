@@ -3888,6 +3888,9 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-action.warn{background:#ffb020;color:#1c1400;border-color:#ffb020}
         .mobile-wa-action.danger{background:#fb7185;color:#1f0b0f;border-color:#fb7185}
         .mobile-wa-action.ghost{background:transparent;color:#e9edef}
+        .mobile-wa-icon-btn{width:42px;height:42px;flex:0 0 auto;border:1px solid rgba(255,255,255,.08);border-radius:14px;background:#202c33;color:#e9edef;display:inline-flex;align-items:center;justify-content:center;padding:0}
+        .mobile-wa-icon-btn i{font-size:1rem;line-height:1}
+        .mobile-wa-icon-btn.recording{background:#fb7185;color:#fff;border-color:#fb7185}
         .mobile-wa-composer{position:sticky;bottom:0;z-index:10;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08);padding:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;align-items:flex-end}
         .mobile-wa-composer textarea{flex:1;min-height:46px;max-height:120px;resize:none;border-radius:18px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:12px 14px}
         .mobile-wa-btn{border:0;border-radius:14px;padding:12px 14px;background:#25d366;color:#0b141a;font-weight:700}
@@ -3976,13 +3979,26 @@ if ($page === 'studio_whatsapp_mobile') {
     $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
     $canAssumeHere = $conversation && $currentUser && $assignedUserId <= 0 && !$isAdmin;
     $listHref = app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => $filters['visibility']]);
+    $mobileConversationLabel = static function (array $row): string {
+        $name = trim((string)($row['customer_name'] ?? ''));
+        if ($name === '') { $name = trim((string)($row['lead_name'] ?? '')); }
+        if ($name === '') { $name = trim((string)($row['name'] ?? '')); }
+        $phone = trim((string)($row['phone'] ?? ''));
+        if ($name !== '' && $name !== 'Cliente WhatsApp' && $name !== 'Contato WhatsApp') {
+            return $name;
+        }
+        if ($phone !== '') {
+            return $phone;
+        }
+        return $name !== '' ? $name : 'Contato WhatsApp';
+    };
     echo '<aside class="mobile-wa-list mobile-wa-view' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" id="mobileWaListPanel">';
     echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
     echo '<div class="mobile-wa-search"><input type="search" id="mobileWaSearch" placeholder="Buscar conversa, telefone ou mensagem"></div>';
     echo '<div class="mobile-wa-items" id="mobileWaItems">';
     foreach ($conversations as $row) {
         $rowId = (int)($row['id'] ?? 0);
-        $rowName = (string)($row['customer_name'] ?: ($row['lead_name'] ?: ($row['name'] ?: 'Contato WhatsApp')));
+        $rowName = $mobileConversationLabel($row);
         $rowPreview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? ''));
         $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
         $rowAssignedUserName = $rowAssignedUserId > 0 ? studio_user_label_by_id($rowAssignedUserId) : '';
@@ -4031,9 +4047,9 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<div class="mobile-wa-chat-body">';
         echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
-        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
+        echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-solid fa-calendar-days"></i><span>Agendar</span></button>';
         if (!empty($conversation['customer_id'])) {
-            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-regular fa-user"></i><span>Cliente</span></a>';
+            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-user"></i><span>Cliente</span></a>';
         }
         if (!empty($conversation['lead_id'])) {
             echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-seedling"></i><span>Lead</span></a>';
@@ -4118,7 +4134,7 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">';
         echo '<input type="hidden" name="return_to_workspace" value="1">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji"><i class="fa-solid fa-face-smile"></i></button>';
         echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button>';
         echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button>';
         echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . '></textarea>';
@@ -4222,7 +4238,16 @@ if ($page === 'studio_whatsapp_mobile_api') {
             }
             $items[] = [
                 'id' => (int)($row['id'] ?? 0),
-                'name' => (string)($row['customer_name'] ?: ($row['lead_name'] ?: ($row['name'] ?: 'Contato WhatsApp'))),
+                'name' => (function (array $row): string {
+                    $name = trim((string)($row['customer_name'] ?? ''));
+                    if ($name === '') { $name = trim((string)($row['lead_name'] ?? '')); }
+                    if ($name === '') { $name = trim((string)($row['name'] ?? '')); }
+                    $phone = trim((string)($row['phone'] ?? ''));
+                    if ($name !== '' && $name !== 'Cliente WhatsApp' && $name !== 'Contato WhatsApp') {
+                        return $name;
+                    }
+                    return $phone !== '' ? $phone : ($name !== '' ? $name : 'Contato WhatsApp');
+                })($row),
                 'phone' => (string)($row['phone'] ?? ''),
                 'preview' => trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? '')),
                 'message_last_at' => (string)($row['message_last_at'] ?? $row['updated_at'] ?? ''),
@@ -4256,7 +4281,16 @@ if ($page === 'studio_whatsapp_mobile_api') {
             'ok' => true,
             'conversation' => [
                 'id' => (int)$conversation['id'],
-                'name' => (string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))),
+                'name' => (function (array $conversation): string {
+                    $name = trim((string)($conversation['customer_name'] ?? ''));
+                    if ($name === '') { $name = trim((string)($conversation['lead_name'] ?? '')); }
+                    if ($name === '') { $name = trim((string)($conversation['name'] ?? '')); }
+                    $phone = trim((string)($conversation['phone'] ?? ''));
+                    if ($name !== '' && $name !== 'Cliente WhatsApp' && $name !== 'Contato WhatsApp') {
+                        return $name;
+                    }
+                    return $phone !== '' ? $phone : ($name !== '' ? $name : 'Contato WhatsApp');
+                })($conversation),
                 'phone' => (string)($conversation['phone'] ?? ''),
                 'assigned_user_id' => $assignedUserId,
                 'assigned_user_name' => $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '',
