@@ -4211,7 +4211,60 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     return $result;
 }
 
-function studio_whatsapp_official_send_media(array $studio, string $toPhone, array $upload, string $caption = ''): array
+function studio_whatsapp_official_prepare_audio_upload(array $upload): array
+{
+    $mime = strtolower(trim((string)($upload['mime'] ?? '')));
+    if (!str_starts_with($mime, 'audio/')) {
+        return $upload;
+    }
+
+    $supported = ['audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg'];
+    if (in_array(strtok($mime, ';') ?: $mime, $supported, true)) {
+        if (str_starts_with($mime, 'audio/ogg')) {
+            $upload['mime'] = 'audio/ogg';
+        }
+        return $upload;
+    }
+
+    $source = (string)($upload['path'] ?? '');
+    if ($source === '' || !is_file($source)) {
+        return $upload;
+    }
+
+    $ffmpeg = trim((string)(getenv('FFMPEG_BINARY') ?: ''));
+    if ($ffmpeg === '' && function_exists('shell_exec')) {
+        $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffmpeg 2>NUL' : 'command -v ffmpeg 2>/dev/null';
+        $ffmpeg = trim((string)@shell_exec($probe));
+        if (str_contains($ffmpeg, "\n")) {
+            $ffmpeg = trim(strtok($ffmpeg, "\n"));
+        }
+    }
+
+    if ($ffmpeg !== '' && is_executable($ffmpeg)) {
+        $target = preg_replace('/\.[^.\\\\\/]+$/', '', $source) . '_opus.ogg';
+        $command = escapeshellarg($ffmpeg)
+            . ' -y -i ' . escapeshellarg($source)
+            . ' -vn -ac 1 -c:a libopus -b:a 32k ' . escapeshellarg($target) . ' 2>&1';
+        $output = [];
+        $exitCode = 1;
+        @exec($command, $output, $exitCode);
+        if ($exitCode === 0 && is_file($target) && filesize($target) > 0) {
+            $upload['path'] = $target;
+            $upload['mime'] = 'audio/ogg';
+            $upload['fileName'] = preg_replace('/\.[^.]+$/', '', (string)($upload['fileName'] ?? 'audio')) . '.ogg';
+            $upload['kind'] = 'audio';
+            $upload['convertedFromMime'] = $mime;
+            return $upload;
+        }
+    }
+
+    $upload['kind'] = 'document';
+    $upload['mime'] = (string)($upload['mime'] ?? 'application/octet-stream');
+    $upload['audioFallbackDocument'] = true;
+    return $upload;
+}
+
+function studio_whatsapp_official_send_media(array $studio, string $toPhone, array &$upload, string $caption = ''): array
 {
     $settings = studio_settings($studio);
     if (studio_whatsapp_provider($studio) !== 'official') {
@@ -4232,6 +4285,7 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
     $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
     $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
     $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $upload = studio_whatsapp_official_prepare_audio_upload($upload);
     $path = (string)($upload['path'] ?? '');
     $mime = (string)($upload['mime'] ?? 'application/octet-stream');
     $kind = (string)($upload['kind'] ?? 'document');
@@ -4246,6 +4300,8 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
         'mime' => $mime,
         'file_name' => $fileName,
         'has_file' => $path !== '' && is_file($path),
+        'converted_from_mime' => (string)($upload['convertedFromMime'] ?? ''),
+        'audio_fallback_document' => !empty($upload['audioFallbackDocument']),
     ];
 
     if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $path === '' || !is_file($path)) {
