@@ -250,7 +250,10 @@
     }
     window.mobileTogglePanelById = togglePanelById;
     window.mobileToggleRecording = toggleRecording;
-    window.mobileOpenAttachmentPicker = openAttachment;
+    window.mobileOpenAttachmentPicker = function (event) {
+      if (event) prevent(event);
+      if (fileInput) fileInput.click();
+    };
     window.mobileOpenEmojiPanel = function (event) {
       if (event) prevent(event);
       togglePanelById('mobileEmojiPanel');
