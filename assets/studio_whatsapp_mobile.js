@@ -46,7 +46,7 @@
       if (!messages) return;
       messages.scrollTop = messages.scrollHeight;
       if (messages.lastElementChild && messages.lastElementChild.scrollIntoView) {
-        messages.lastElementChild.scrollIntoView(false);
+        messages.lastElementChild.scrollIntoView({ block: 'end', inline: 'nearest' });
       }
     }
 
@@ -172,12 +172,12 @@
     }
 
     function appendEmoji(event) {
+      prevent(event);
       var target = event.target;
       while (target && target !== emojiPanel && !target.getAttribute('data-reply')) {
         target = target.parentNode;
       }
       if (!target || target === emojiPanel) return;
-      prevent(event);
       var emoji = target.getAttribute('data-reply') || target.textContent || '';
       if (!textarea || !emoji) return;
       var start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : textarea.value.length;
@@ -301,6 +301,39 @@
     if (emojiPanel) {
       emojiPanel.addEventListener('click', appendEmoji, true);
       emojiPanel.addEventListener('touchend', appendEmoji, true);
+    }
+    var emojiToggle = byId('mobileOpenEmojiPanel');
+    if (emojiToggle) {
+      emojiToggle.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileEmojiPanel');
+      }, true);
+      emojiToggle.addEventListener('touchend', function (event) {
+        prevent(event);
+        togglePanelById('mobileEmojiPanel');
+      }, true);
+    }
+    var openAttachment = byId('mobileOpenAttachmentPicker');
+    if (openAttachment) {
+      openAttachment.addEventListener('click', function (event) {
+        prevent(event);
+        if (fileInput) fileInput.click();
+      }, true);
+      openAttachment.addEventListener('touchend', function (event) {
+        prevent(event);
+        if (fileInput) fileInput.click();
+      }, true);
+    }
+    var scheduleToggle = byId('mobileOpenSchedule');
+    if (scheduleToggle) {
+      scheduleToggle.addEventListener('click', function (event) {
+        prevent(event);
+        togglePanelById('mobileSchedulePanel');
+      }, true);
+      scheduleToggle.addEventListener('touchend', function (event) {
+        prevent(event);
+        togglePanelById('mobileSchedulePanel');
+      }, true);
     }
 
     document.querySelectorAll('.mobile-wa-action, .mobile-wa-btn, .mobile-wa-icon-btn, .nav-chip').forEach(function (button) {
