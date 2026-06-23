@@ -5672,6 +5672,7 @@ if ($page === 'studio_attendants') {
     render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin) {
         if (!$admin) {
             $returnTo = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
+            $_SESSION['admin_return_to'] = $returnTo;
             echo '<section class="panel" style="margin-bottom:16px">';
             echo '<h2>Acesso administrativo necessário</h2>';
             echo '<p class="muted">Esta tela é do painel gerencial. Entre como administrador para criar ou atualizar acessos.</p>';
