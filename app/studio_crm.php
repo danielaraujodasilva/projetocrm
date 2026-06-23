@@ -4198,6 +4198,98 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     return $result;
 }
 
+function studio_whatsapp_official_send_media(array $studio, string $toPhone, array $upload, string $caption = ''): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
+    }
+
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $crmVersion = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $crmPhoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $zapConfig = studio_whatsapp_zap_local_config();
+
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+
+    $accessToken = $useZapLocalConfig ? trim((string)$zapConfig['access_token']) : $crmAccessToken;
+    $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
+    $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
+    $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $path = (string)($upload['path'] ?? '');
+    $mime = (string)($upload['mime'] ?? 'application/octet-stream');
+    $kind = (string)($upload['kind'] ?? 'document');
+    $fileName = (string)($upload['fileName'] ?? 'arquivo');
+    $caption = trim($caption);
+
+    $diagnostic = [
+        'source' => $useZapLocalConfig ? 'zap_local_config' : 'crm_settings',
+        'phone_number_id' => $phoneNumberId,
+        'to_phone' => $toPhone,
+        'kind' => $kind,
+        'mime' => $mime,
+        'file_name' => $fileName,
+        'has_file' => $path !== '' && is_file($path),
+    ];
+
+    if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $path === '' || !is_file($path)) {
+        return ['ok' => false, 'error' => 'Faltam dados para enviar a midia.', 'diagnostic' => $diagnostic];
+    }
+
+    $uploadUrl = 'https://graph.facebook.com/' . rawurlencode($version) . '/' . rawurlencode($phoneNumberId) . '/media';
+    $ch = curl_init($uploadUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $accessToken],
+        CURLOPT_POSTFIELDS => [
+            'messaging_product' => 'whatsapp',
+            'type' => $mime,
+            'file' => new CURLFile($path, $mime, $fileName),
+        ],
+        CURLOPT_TIMEOUT => 60,
+    ]);
+    $rawUpload = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $uploadStatus = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $rawUpload === false) {
+        return ['ok' => false, 'error' => $error ?: 'Falha ao subir midia para a Meta.', 'status' => $uploadStatus, 'diagnostic' => $diagnostic];
+    }
+
+    $uploadJson = json_decode((string)$rawUpload, true);
+    if (!is_array($uploadJson) || $uploadStatus >= 400 || !empty($uploadJson['error']) || empty($uploadJson['id'])) {
+        return ['ok' => false, 'error' => (string)($uploadJson['error']['message'] ?? 'Falha ao subir midia para a Meta.'), 'status' => $uploadStatus, 'json' => $uploadJson, 'diagnostic' => $diagnostic];
+    }
+
+    $mediaId = (string)$uploadJson['id'];
+    $messageType = in_array($kind, ['image', 'video', 'audio', 'document'], true) ? $kind : 'document';
+    $mediaPayload = ['id' => $mediaId];
+    if ($caption !== '' && in_array($messageType, ['image', 'video', 'document'], true)) {
+        $mediaPayload['caption'] = $caption;
+    }
+    if ($messageType === 'document' && $fileName !== '') {
+        $mediaPayload['filename'] = $fileName;
+    }
+
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'to' => $toPhone,
+        'type' => $messageType,
+        $messageType => $mediaPayload,
+    ];
+
+    $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload, 60);
+    $result['diagnostic'] = $diagnostic + ['media_id' => $mediaId, 'upload_status' => $uploadStatus];
+    $result['upload_json'] = $uploadJson;
+    return $result;
+}
+
 function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
 {
     $settings = studio_settings($studio);
@@ -4482,6 +4574,7 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
         'fileName' => $fileName,
         'kind' => $kind,
         'relativePath' => $relativePath,
+        'path' => $dest,
     ];
 }
 
