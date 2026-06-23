@@ -3833,7 +3833,7 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-title{display:flex;flex-direction:column}
         .mobile-wa-title strong{font-size:1rem}
         .mobile-wa-title span{font-size:.82rem;color:#8696a0}
-        .mobile-wa-body{display:grid;grid-template-columns:1fr;gap:12px;padding:12px;flex:1;min-height:0}
+        .mobile-wa-body{display:block;padding:12px;flex:1;min-height:0}
         .mobile-wa-list,.mobile-wa-chat{background:rgba(17,27,33,.96);border-radius:24px;border:1px solid rgba(255,255,255,.06);overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.18)}
         .mobile-wa-list{display:flex;flex-direction:column;min-height:280px}
         .mobile-wa-list-head,.mobile-wa-chat-head{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px}
@@ -3879,7 +3879,14 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-bottom-nav .nav-chip i{font-size:1rem}
         .chat-day-separator{display:flex;justify-content:center;margin:10px 0}
         .chat-day-separator span{background:rgba(32,44,51,.92);color:#c9d3d8;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 12px;font-size:.76rem}
-        @media (min-width: 980px){ .mobile-wa-body{grid-template-columns:360px minmax(0,1fr);align-items:start} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
+        .mobile-wa-view{display:none}
+        .mobile-wa-view.active{display:block}
+        .mobile-wa-backbar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(17,27,33,.98);position:sticky;top:0;z-index:12}
+        .mobile-wa-backbtn{width:40px;height:40px;border:0;border-radius:999px;background:#202c33;color:#e9edef;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+        .mobile-wa-chat-head{padding:12px 14px}
+        .mobile-wa-chat-head strong{font-size:1rem}
+        .mobile-wa-chat-head .mobile-wa-muted{font-size:.82rem}
+        @media (min-width: 980px){ .mobile-wa-body{display:block} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
     $mobileView = (string)($_GET['view'] ?? 'chat');
@@ -3933,7 +3940,8 @@ if ($page === 'studio_whatsapp_mobile') {
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
     $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
     $isAdmin = studio_current_user_is_admin();
-    echo '<aside class="mobile-wa-list" id="mobileWaListPanel">';
+    $listHref = app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => $filters['visibility']]);
+    echo '<aside class="mobile-wa-list mobile-wa-view' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" id="mobileWaListPanel">';
     echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
     echo '<div class="mobile-wa-search"><input type="search" id="mobileWaSearch" placeholder="Buscar conversa, telefone ou mensagem"></div>';
     echo '<div class="mobile-wa-items" id="mobileWaItems">';
@@ -3983,12 +3991,12 @@ if ($page === 'studio_whatsapp_mobile') {
     }
     echo '</div>';
     echo '</aside>';
-    echo '<section class="mobile-wa-chat" id="mobileWaChatPanel">';
+    echo '<section class="mobile-wa-chat mobile-wa-view' . ($conversation ? ' active' : '') . '" id="mobileWaChatPanel">';
     if (!$conversation) {
         $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
-        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Escolha uma conversa na lista para visualizar, assumir ou responder.' : 'Escolha uma conversa na lista para visualizar as livres e responder as que estiverem atribuídas a você.') . '</div></div></div>';
+        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Toque em uma conversa para abrir.' : 'Toque em uma conversa livre ou atribuída a você para abrir.') . '</div></div></div>';
     } else {
-        echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
+        echo '<div class="mobile-wa-backbar"><a class="mobile-wa-backbtn" href="' . h($listHref) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div></div>';
         echo '<div class="mobile-wa-chat-body">';
         echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
@@ -4089,9 +4097,9 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '</section>';
     echo '</div>';
     echo '<div class="mobile-wa-bottom-nav">';
-    echo '<a class="nav-chip' . ($mobileView === 'chat' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'chat', 'visibility' => $filters['visibility']])) . '"><i class="fa-solid fa-comments"></i><span>Chats</span></a>';
-    echo '<a class="nav-chip' . ($mobileView === 'free' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'free', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
-    echo '<a class="nav-chip' . ($mobileView === 'mine' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'mine', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
+    echo '<a class="nav-chip' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" href="' . h($listHref) . '"><i class="fa-solid fa-comments"></i><span>Conversas</span></a>';
+    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'free', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
+    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'mine', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
     echo '<a class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" href="#mobileQuickActions"><i class="fa-solid fa-bolt"></i><span>Ações</span></a>';
     echo '</div>';
     echo '</div>';
