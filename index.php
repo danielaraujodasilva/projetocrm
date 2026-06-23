@@ -3860,6 +3860,7 @@ echo 'scrollChatToLatest(true);';
     exit;
 }
 
+<<<<<<< HEAD
 if ($page === 'studio_whatsapp_mobile') {
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
