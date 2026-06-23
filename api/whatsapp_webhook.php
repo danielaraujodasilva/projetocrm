@@ -247,6 +247,175 @@ function whatsapp_official_record_status(array $studio, array $status): void
     }
 }
 
+function whatsapp_official_media_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $zapConfig = studio_whatsapp_zap_local_config();
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== '';
+
+    return [
+        'access_token' => $useZapLocalConfig
+            ? trim((string)$zapConfig['access_token'])
+            : trim((string)($settings['whatsapp_official_access_token'] ?? '')),
+        'api_version' => $useZapLocalConfig
+            ? trim((string)$zapConfig['api_version'])
+            : trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0')),
+        'source' => $useZapLocalConfig ? 'zap_local_config' : 'crm_settings',
+    ];
+}
+
+function whatsapp_official_extension_for_mime(string $mime, string $fallback = ''): string
+{
+    $fallbackExt = strtolower((string)pathinfo($fallback, PATHINFO_EXTENSION));
+    if ($fallbackExt !== '') {
+        return $fallbackExt;
+    }
+
+    return match (strtolower(trim(strtok($mime, ';') ?: $mime))) {
+        'audio/ogg', 'audio/opus' => 'ogg',
+        'audio/mpeg' => 'mp3',
+        'audio/mp4', 'audio/aac', 'audio/m4a' => 'm4a',
+        'audio/amr' => 'amr',
+        'image/jpeg', 'image/jpg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'video/mp4' => 'mp4',
+        'application/pdf' => 'pdf',
+        default => 'bin',
+    };
+}
+
+function whatsapp_official_download_media(array $studio, array $message, string $messageType): array
+{
+    $media = is_array($message[$messageType] ?? null) ? $message[$messageType] : [];
+    $mediaId = trim((string)($media['id'] ?? ''));
+    if ($mediaId === '') {
+        return [];
+    }
+
+    $config = whatsapp_official_media_config($studio);
+    $token = (string)$config['access_token'];
+    $version = (string)$config['api_version'];
+    if ($token === '') {
+        whatsapp_webhook_log(['type' => 'official_media_download_skip', 'reason' => 'missing_access_token', 'media_id' => $mediaId, 'message_type' => $messageType]);
+        return [];
+    }
+
+    $metaUrl = 'https://graph.facebook.com/' . rawurlencode($version) . '/' . rawurlencode($mediaId);
+    $ch = curl_init($metaUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token],
+        CURLOPT_TIMEOUT => 25,
+    ]);
+    $rawMeta = curl_exec($ch);
+    $metaErrno = curl_errno($ch);
+    $metaError = curl_error($ch);
+    $metaStatus = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    $meta = json_decode((string)$rawMeta, true);
+    if ($metaErrno || !is_array($meta) || $metaStatus >= 400 || empty($meta['url'])) {
+        whatsapp_webhook_log([
+            'type' => 'official_media_metadata_error',
+            'media_id' => $mediaId,
+            'message_type' => $messageType,
+            'status' => $metaStatus,
+            'error' => $metaError ?: (string)($meta['error']['message'] ?? 'metadata_url_missing'),
+        ]);
+        return [];
+    }
+
+    $downloadUrl = (string)$meta['url'];
+    $ch = curl_init($downloadUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token],
+        CURLOPT_TIMEOUT => 45,
+    ]);
+    $binary = curl_exec($ch);
+    $downloadErrno = curl_errno($ch);
+    $downloadError = curl_error($ch);
+    $downloadStatus = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $contentType = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
+
+    if ($downloadErrno || $binary === false || $binary === '' || $downloadStatus >= 400) {
+        whatsapp_webhook_log([
+            'type' => 'official_media_download_error',
+            'media_id' => $mediaId,
+            'message_type' => $messageType,
+            'status' => $downloadStatus,
+            'error' => $downloadError ?: 'empty_media_download',
+        ]);
+        return [];
+    }
+
+    $mime = trim((string)($meta['mime_type'] ?? $media['mime_type'] ?? $contentType));
+    if (str_contains($mime, ';')) {
+        $mime = trim(strtok($mime, ';'));
+    }
+    $mime = $mime !== '' ? $mime : 'application/octet-stream';
+    $fileName = trim((string)($media['filename'] ?? $media['file_name'] ?? ''));
+    if ($fileName === '') {
+        $fileName = $messageType . '_' . $mediaId . '.' . whatsapp_official_extension_for_mime($mime);
+    }
+
+    whatsapp_webhook_log([
+        'type' => 'official_media_download_ok',
+        'media_id' => $mediaId,
+        'message_type' => $messageType,
+        'mime' => $mime,
+        'bytes' => strlen((string)$binary),
+        'source' => (string)$config['source'],
+    ]);
+
+    return [
+        'mediaBase64' => base64_encode((string)$binary),
+        'mediaMime' => $mime,
+        'mediaFileName' => $fileName,
+        'mediaId' => $mediaId,
+    ];
+}
+
+function whatsapp_official_update_duplicate_media(array $studio, string $messageId, array $mediaPayload, string $messageType): void
+{
+    if ($messageId === '' || empty($mediaPayload['mediaBase64'])) {
+        return;
+    }
+
+    try {
+        $stored = studio_store_whatsapp_media(
+            $studio,
+            0,
+            (string)$mediaPayload['mediaBase64'],
+            (string)($mediaPayload['mediaMime'] ?? ''),
+            $messageType,
+            (string)($mediaPayload['mediaFileName'] ?? '')
+        );
+        $pdo = studio_db($studio);
+        $stmt = $pdo->prepare(
+            'UPDATE whatsapp_messages
+             SET media_url = ?, media_mime = ?, media_file_name = ?, media_file_path = ?, message_type = ?
+             WHERE message_id = ? AND (media_url IS NULL OR media_url = "")'
+        );
+        $stmt->execute([
+            (string)($stored['relativePath'] ?? ''),
+            (string)($stored['mime'] ?? ($mediaPayload['mediaMime'] ?? '')),
+            (string)($stored['fileName'] ?? ($mediaPayload['mediaFileName'] ?? '')),
+            (string)($stored['relativePath'] ?? ''),
+            $messageType,
+            $messageId,
+        ]);
+        whatsapp_webhook_log(['type' => 'official_duplicate_media_update', 'message_id' => $messageId, 'updated' => $stmt->rowCount()]);
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'official_duplicate_media_update_error', 'message_id' => $messageId, 'error' => $e->getMessage()]);
+    }
+}
+
 function whatsapp_official_record_message(array $studio, array $message, array $contacts = []): void
 {
     $from = preg_replace('/\D+/', '', (string)($message['from'] ?? '')) ?: '';
@@ -276,16 +445,20 @@ function whatsapp_official_record_message(array $studio, array $message, array $
 
     $messageId = (string)($message['id'] ?? '');
     $messageType = $type !== '' ? $type : 'texto';
+    $mediaPayload = in_array($messageType, ['audio', 'image', 'video', 'document', 'sticker'], true)
+        ? whatsapp_official_download_media($studio, $message, $messageType)
+        : [];
     whatsapp_webhook_log([
         'type' => 'crm_record_message_attempt',
         'from' => $from,
         'message_id' => $messageId,
         'message_type' => $messageType,
+        'media_downloaded' => !empty($mediaPayload['mediaBase64']),
         'text_body' => $body !== '' ? $body : '[' . $messageType . ']',
         'studio_id' => (int)$studio['id'],
     ]);
     try {
-        $result = studio_record_whatsapp_message($studio, [
+        $recordPayload = [
             'numero' => $from,
             'name' => $name,
             'mensagem' => $body !== '' ? $body : '[' . $messageType . ']',
@@ -295,7 +468,14 @@ function whatsapp_official_record_message(array $studio, array $message, array $
             'remoteJid' => $from,
             'timestamp' => (int)($message['timestamp'] ?? time()),
             'tipoMensagem' => $messageType,
-        ]);
+        ];
+        if (!empty($mediaPayload)) {
+            $recordPayload += $mediaPayload;
+        }
+        $result = studio_record_whatsapp_message($studio, $recordPayload);
+        if (!empty($result['duplicate']) && !empty($mediaPayload['mediaBase64'])) {
+            whatsapp_official_update_duplicate_media($studio, $messageId, $mediaPayload, $messageType);
+        }
         whatsapp_webhook_log([
             'type' => 'crm_record_message_ok',
             'conversation_id' => (int)($result['conversation_id'] ?? 0),
