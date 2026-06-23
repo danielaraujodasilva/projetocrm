@@ -5724,7 +5724,9 @@ if ($page === 'studio_attendants') {
         && (string)($studioUser['role'] ?? '') === 'owner'
         && (int)($studioUser['studio_id'] ?? 0) === (int)$studio['id']
     );
-    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin, $studioUser, $canManageAttendants, $editingUser) {
+    $backUrl = $admin ? app_url('studios') : app_url('studio_home');
+    $backLabel = $admin ? 'Voltar ao painel gerencial' : 'Voltar ao painel do estúdio';
+    render_app_shell('Atendentes do estúdio', 'Gerencie os usuarios que podem acessar o estúdio.', 'studios', function () use ($studio, $studios, $admin, $studioUser, $canManageAttendants, $editingUser, $backUrl, $backLabel) {
         if (!$canManageAttendants) {
             $returnTo = app_url('studio_attendants', ['studio_id' => (int)$studio['id']]);
             $_SESSION['admin_return_to'] = $returnTo;
@@ -5744,7 +5746,7 @@ if ($page === 'studio_attendants') {
         echo '<section class="panel">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">';
         echo '<div><h2 style="margin-bottom:6px">Estúdio: ' . h($studio['name']) . '</h2><p class="muted" style="margin:0">Página direta para criar e atualizar acessos do estúdio.</p></div>';
-        echo '<a class="btn secondary" href="' . h(app_url('studio', ['id' => (int)$studio['id']])) . '">Abrir painel do estúdio</a>';
+        echo '<a class="btn secondary" href="' . h($backUrl) . '">' . h($backLabel) . '</a>';
         echo '</div>';
         echo '<form method="get" class="actions" style="margin-top:14px;gap:10px;flex-wrap:wrap">';
         echo '<input type="hidden" name="page" value="studio_attendants">';
