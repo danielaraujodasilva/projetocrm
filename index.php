@@ -3842,17 +3842,19 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-title span{font-size:.82rem;color:#8696a0}
         .mobile-wa-body{display:block;padding:0;flex:1;min-height:0;overflow:hidden}
         .mobile-wa-list,.mobile-wa-chat{background:rgba(17,27,33,.96);border:0;border-radius:0;overflow:hidden;box-shadow:none}
-        .mobile-wa-list{display:flex;flex-direction:column;min-height:100%}
+        .mobile-wa-list{display:flex;flex-direction:column;height:100%;min-height:100%}
         .mobile-wa-list-head,.mobile-wa-chat-head{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:center;gap:10px}
         .mobile-wa-search{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
         .mobile-wa-search input{width:100%;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:#202c33;color:#e9edef;padding:10px 14px}
-        .mobile-wa-items{overflow:auto;flex:1;max-height:none;-webkit-overflow-scrolling:touch}
+        .mobile-wa-items{overflow:auto;flex:1;max-height:none;min-height:0;-webkit-overflow-scrolling:touch}
         .mobile-wa-item{display:block;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:inherit}
-        .mobile-wa-item.active{background:linear-gradient(90deg, rgba(37,211,102,.14), rgba(37,211,102,.04))}
-        .mobile-wa-item.is-free{opacity:.74;filter:saturate(.78)}
-        .mobile-wa-item.is-free .mobile-wa-preview,.mobile-wa-item.is-free .mobile-wa-name span{color:#6f8088}
-        .mobile-wa-item.is-assigned{box-shadow:inset 3px 0 0 rgba(37,211,102,.85)}
-        .mobile-wa-item.is-mine{opacity:1}
+        .mobile-wa-item.active{background:linear-gradient(90deg, rgba(37,211,102,.18), rgba(37,211,102,.06))}
+        .mobile-wa-item.is-free{background:rgba(32,44,51,.52);opacity:.92;filter:saturate(.86)}
+        .mobile-wa-item.is-free .mobile-wa-preview,.mobile-wa-item.is-free .mobile-wa-name span{color:#7e929b}
+        .mobile-wa-item.is-assigned{background:rgba(32,44,51,.38);box-shadow:inset 3px 0 0 rgba(37,211,102,.85)}
+        .mobile-wa-item.is-assigned .mobile-wa-preview,.mobile-wa-item.is-assigned .mobile-wa-name span{color:#8d9da6}
+        .mobile-wa-item.is-mine{background:linear-gradient(90deg, rgba(37,211,102,.26), rgba(37,211,102,.10));opacity:1;filter:saturate(1)}
+        .mobile-wa-item.is-mine .mobile-wa-preview,.mobile-wa-item.is-mine .mobile-wa-name span{color:#d9fbe7}
         .mobile-wa-name{display:flex;justify-content:space-between;gap:10px;align-items:center}
         .mobile-wa-name strong{font-size:.98rem}
         .mobile-wa-name span{font-size:.78rem;color:#8696a0}
@@ -3894,15 +3896,15 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-bottom-nav .nav-chip i{font-size:1rem}
         .chat-day-separator{display:flex;justify-content:center;margin:10px 0}
         .chat-day-separator span{background:rgba(32,44,51,.92);color:#c9d3d8;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 12px;font-size:.76rem}
-        .mobile-wa-view{display:none;min-height:0}
-        .mobile-wa-view.active{display:block}
+        .mobile-wa-view{display:none;min-height:0;height:100%;overflow:hidden}
+        .mobile-wa-view.active{display:block;height:100%}
         .mobile-wa-backbar{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(17,27,33,.98);position:sticky;top:0;z-index:12}
         .mobile-wa-backbtn{width:40px;height:40px;border:0;border-radius:999px;background:#202c33;color:#e9edef;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;flex:0 0 auto}
         .mobile-wa-chat-head{padding:12px 14px}
         .mobile-wa-chat-head strong{font-size:1rem}
         .mobile-wa-chat-head .mobile-wa-muted{font-size:.82rem}
         .wa-chat-avatar{width:40px;height:40px;border-radius:999px;background:#25d366;color:#0b141a;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}
-        @media (min-width: 980px){ .mobile-wa-shell{position:fixed;inset:0} .mobile-wa-body{display:block} .mobile-wa-list{min-height:100%} .mobile-wa-chat{min-height:100%} .mobile-wa-items{max-height:none} }
+        @media (min-width: 980px){ .mobile-wa-shell{position:fixed;inset:0} .mobile-wa-body{display:block} .mobile-wa-list{min-height:100%;height:100%} .mobile-wa-chat{min-height:100%;height:100%} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
     $mobileView = (string)($_GET['view'] ?? ((int)($_GET['id'] ?? 0) > 0 ? 'chat' : 'list'));
