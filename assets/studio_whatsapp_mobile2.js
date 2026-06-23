@@ -467,7 +467,8 @@
     var mediaName = String(message?.media_file_name || '');
     var mediaKind = inferMediaKind(message?.media_mime, mediaUrl, message?.message_type);
     var transcript = String(message?.transcricao || message?.transcript || '').trim();
-    var html = '<article class="m2-msg ' + direction + '" data-message-key="' + escapeHtml(keyForMessage(message)) + '"><div class="m2-bubble">';
+    var bubbleClass = 'm2-bubble' + (mediaKind === 'audio' ? ' m2-audio-bubble' : '');
+    var html = '<article class="m2-msg ' + direction + '" data-message-key="' + escapeHtml(keyForMessage(message)) + '"><div class="' + bubbleClass + '">';
 
     if (mediaUrl) {
       if (!mediaName) {
