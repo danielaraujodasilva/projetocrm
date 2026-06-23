@@ -1098,21 +1098,22 @@ if ($action === 'studio_login') {
             $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
             $user = current_studio_user();
             $admin = current_admin();
-            $isAdmin = $admin !== null;
+            $isAdmin = studio_current_user_is_admin();
+            $actorId = (int)($admin['id'] ?? ($user['id'] ?? 0));
             if (!$conversation || !$user) {
                 flash_set('error', 'Conversa invalida.');
             } elseif ($action === 'assign_whatsapp_conversation') {
                 if (!$isAdmin && !empty($conversation['assigned_user_id']) && (int)$conversation['assigned_user_id'] !== (int)$user['id']) {
                     flash_set('error', 'Conversa atribuida a outro atendente.');
                 } else {
-                    studio_assign_whatsapp_conversation($studio, $conversationId, (int)$user['id'], (int)($admin['id'] ?? $user['id']));
+                    studio_assign_whatsapp_conversation($studio, $conversationId, (int)$user['id'], $actorId);
                     flash_set('success', 'Conversa assumida.');
                 }
             } elseif ($action === 'release_whatsapp_conversation') {
                 if (!$isAdmin && (int)($conversation['assigned_user_id'] ?? 0) !== (int)$user['id']) {
                     flash_set('error', 'Voce nao pode liberar esta conversa.');
                 } else {
-                    studio_release_whatsapp_conversation($studio, $conversationId, (int)($admin['id'] ?? $user['id']));
+                    studio_release_whatsapp_conversation($studio, $conversationId, $actorId);
                     flash_set('success', 'Conversa liberada.');
                 }
             } elseif ($action === 'transfer_whatsapp_conversation') {
@@ -1123,7 +1124,7 @@ if ($action === 'studio_login') {
                     if ($targetUserId <= 0) {
                         flash_set('error', 'Selecione um atendente de destino.');
                     } else {
-                        studio_transfer_whatsapp_conversation($studio, $conversationId, $targetUserId, (int)$admin['id']);
+                        studio_transfer_whatsapp_conversation($studio, $conversationId, $targetUserId, $actorId);
                         flash_set('success', 'Conversa transferida.');
                     }
                 }
@@ -3860,7 +3861,6 @@ echo 'scrollChatToLatest(true);';
     exit;
 }
 
-<<<<<<< HEAD
 if ($page === 'studio_whatsapp_mobile') {
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
@@ -4026,7 +4026,7 @@ if ($page === 'studio_whatsapp_mobile') {
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
     $isAdmin = studio_current_user_is_admin();
     $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
-    $canAssumeHere = $conversation && $currentUser && $assignedUserId <= 0 && !$isAdmin;
+    $canAssumeHere = $conversation && $currentUser && ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId);
     $listHref = app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => $filters['visibility']]);
     $mobileConversationLabel = static function (array $row): string {
         $name = trim((string)($row['customer_name'] ?? ''));
@@ -4078,7 +4078,7 @@ if ($page === 'studio_whatsapp_mobile') {
         } else {
             echo '<span class="mobile-wa-item-chip assigned">Com ' . h($rowAssignedUserName !== '' ? $rowAssignedUserName : ('Atendente #' . $rowAssignedUserId)) . '</span>';
         }
-        if ($currentUser && $rowAssignedUserId <= 0) {
+        if ($currentUser && ($rowAssignedUserId <= 0 || $isAdmin || $rowAssignedUserId === $currentUserId)) {
             echo '<span class="mobile-wa-item-chip small-action">toque para assumir</span>';
         }
         echo '</div>';
@@ -4103,16 +4103,19 @@ if ($page === 'studio_whatsapp_mobile') {
         if (!empty($conversation['lead_id'])) {
             echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener"><i class="fa-solid fa-seedling"></i><span>Lead</span></a>';
         }
-        if ($assignedUserId <= 0) {
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir</span></button></form>';
-        } elseif ($currentUserId === $assignedUserId) {
+        if ($assignedUserId <= 0 || $isAdmin || $currentUserId === $assignedUserId) {
+            $assumeLabel = ($assignedUserId > 0 && $currentUserId !== $assignedUserId) ? 'Assumir para mim' : 'Assumir';
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>' . h($assumeLabel) . '</span></button></form>';
+        }
+        if ($currentUserId === $assignedUserId && $assignedUserId > 0) {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar</span></button></form>';
         }
         echo '</div>';
         echo '<div id="mobileConversationMenu" class="mobile-wa-menu-panel hidden">';
         echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileConversationMenu\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar</button>';
         if ($canAssumeHere) {
-            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir conversa</span></button></form>';
+            $assumeMenuLabel = ($assignedUserId > 0 && $currentUserId !== $assignedUserId) ? 'Assumir conversa para mim' : 'Assumir conversa';
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>' . h($assumeMenuLabel) . '</span></button></form>';
         }
         if ($currentUserId === $assignedUserId && $assignedUserId > 0) {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar conversa</span></button></form>';

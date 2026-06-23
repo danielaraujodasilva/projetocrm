@@ -443,7 +443,16 @@ function studio_current_user(): ?array
 
 function studio_current_user_is_admin(): bool
 {
-    return current_admin() !== null;
+    if (current_admin() !== null) {
+        return true;
+    }
+
+    $user = current_studio_user();
+    if (!is_array($user)) {
+        return false;
+    }
+
+    return in_array((string)($user['role'] ?? ''), ['admin', 'owner'], true);
 }
 
 function studio_can_view_whatsapp_conversation(array $studio, array $conversation, array $user): bool
