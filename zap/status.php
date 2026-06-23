@@ -81,6 +81,9 @@ $externalRawCount = 0;
 $lastRemoteAddr = '';
 $lastUserAgent = '';
 $lastMessagesEvent = null;
+$lastField = '';
+$lastDeliveryKind = '';
+$lastSignature = '';
 foreach ($rawPosts as $event) {
     $remoteAddr = trim((string)($event['remote_addr'] ?? ''));
     if ($remoteAddr === '127.0.0.1' || $remoteAddr === '::1') {
@@ -93,6 +96,15 @@ foreach ($rawPosts as $event) {
     }
     if (trim((string)($event['user_agent'] ?? '')) !== '') {
         $lastUserAgent = (string)$event['user_agent'];
+    }
+    if (trim((string)($event['headers']['x-hub-signature-256'] ?? '')) !== '') {
+        $lastSignature = (string)$event['headers']['x-hub-signature-256'];
+    }
+    if (trim((string)($event['field'] ?? '')) !== '') {
+        $lastField = (string)$event['field'];
+    }
+    if (trim((string)($event['delivery_kind'] ?? '')) !== '') {
+        $lastDeliveryKind = (string)$event['delivery_kind'];
     }
     $payload = is_array($event['payload'] ?? null) ? $event['payload'] : [];
     $hasMessages = false;
@@ -150,6 +162,8 @@ foreach ($rawPosts as $event) {
         <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Total raw_post externo</strong><div class="h3 mt-2 mb-0"><?= status_h((string)$externalRawCount) ?></div></div></div></div>
         <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Último remote_addr</strong><div class="mono small mt-2"><?= status_h($lastRemoteAddr !== '' ? $lastRemoteAddr : '-') ?></div><div class="small mt-2"><?= status_h(($lastRemoteAddr === '127.0.0.1' || $lastRemoteAddr === '::1') ? 'Evento local/replay' : ($lastRemoteAddr !== '' ? 'Evento externo/Meta provável' : 'Sem evento')) ?></div></div></div></div>
         <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Último user_agent</strong><div class="mono small mt-2"><?= status_h($lastUserAgent !== '' ? $lastUserAgent : '-') ?></div></div></div></div>
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Último field</strong><div class="mono small mt-2"><?= status_h($lastField !== '' ? $lastField : '-') ?></div><div class="small mt-2">Delivery: <?= status_h($lastDeliveryKind !== '' ? $lastDeliveryKind : '-') ?></div></div></div></div>
+        <div class="col-lg-3"><div class="card card-soft h-100"><div class="card-body p-4"><strong>Última assinatura</strong><div class="mono small mt-2"><?= status_h($lastSignature !== '' ? $lastSignature : '-') ?></div></div></div></div>
     </div>
 
     <div class="card card-soft mb-4"><div class="card-body p-4"><strong>Último evento com messages</strong><div class="small mt-2"><?= $lastMessagesEvent ? status_h((string)($lastMessagesEvent['logged_at'] ?? '')) : 'Nenhum ainda' ?></div><?php if ($lastMessagesEvent): ?><pre class="mono mt-3"><?= status_h(json_encode($lastMessagesEvent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></pre><?php endif; ?></div></div>

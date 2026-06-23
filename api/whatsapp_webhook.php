@@ -72,12 +72,31 @@ function whatsapp_webhook_capture_request(): array
         ]);
     }
 
+    $headers = function_exists('getallheaders') ? getallheaders() : [];
+    if (!is_array($headers)) {
+        $headers = [];
+    }
+    $normalizedHeaders = [];
+    foreach ($headers as $name => $value) {
+        $key = strtolower((string)$name);
+        if ($key === 'authorization') {
+            $normalizedHeaders[$key] = 'redacted';
+            continue;
+        }
+        if ($key === 'x-hub-signature-256' && is_string($value)) {
+            $normalizedHeaders[$key] = strlen($value) > 12 ? substr($value, 0, 12) . '…' : $value;
+            continue;
+        }
+        $normalizedHeaders[$key] = is_array($value) ? $value : (string)$value;
+    }
+
     whatsapp_webhook_log([
         'type' => 'raw_post',
         'request_method' => (string)($_SERVER['REQUEST_METHOD'] ?? ''),
         'content_type' => (string)($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? ''),
         'user_agent' => (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
         'remote_addr' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+        'headers' => $normalizedHeaders,
         'payload' => $payload,
     ]);
 
@@ -445,9 +464,13 @@ foreach ($entries as $entry) {
         $statuses = is_array($value['statuses'] ?? null) ? $value['statuses'] : [];
         $contacts = is_array($value['contacts'] ?? null) ? $value['contacts'] : [];
 
+        $changeField = (string)($change['field'] ?? '');
+        $deliveryKind = $messages ? 'messages' : ($statuses ? 'statuses' : ($contacts ? 'contacts' : 'other'));
         whatsapp_webhook_log([
             'type' => 'change_received',
             'phone_number_id' => $phoneNumberId,
+            'field' => $changeField,
+            'delivery_kind' => $deliveryKind,
             'has_messages' => $messages ? 'SIM' : 'NAO',
             'messages_count' => count($messages),
             'has_statuses' => $statuses ? 'SIM' : 'NAO',
