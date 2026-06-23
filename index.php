@@ -2112,7 +2112,8 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
                     if (empty($message['transcricao']) && empty($message['transcript'])) echo '<button class="m2-transcribe" type="button" data-transcribe-audio="' . h($message['message_id'] ?? '') . '" data-media-url="' . h($mediaUrl) . '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
                 } else echo '<a class="m2-file" href="' . h($mediaUrl) . '" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i>' . h($mediaName !== '' ? $mediaName : 'Abrir anexo') . '</a>';
             }
-            if ($body !== '') echo '<p>' . nl2br(h($body)) . '</p>';
+            $syntheticAudioBody = $kind === 'audio' && preg_match('/^\[(audio|áudio)\]$/iu', trim($body)) === 1;
+            if ($body !== '' && !$syntheticAudioBody) echo '<p>' . nl2br(h($body)) . '</p>';
             $transcribedText = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
             if ($transcribedText !== '') echo '<div class="m2-transcript">' . h($transcribedText) . '</div>';
             echo '<time>' . h(format_datetime_pt((string)($message['sent_at'] ?? ''), false)) . '</time></div></article>';

@@ -373,9 +373,11 @@
 
   async function transcribeAudio(button) {
     if (!button || button.getAttribute('data-busy') === '1') return;
+    var automatic = button.getAttribute('data-auto-transcribe') === '1';
     button.setAttribute('data-busy', '1');
     button.disabled = true;
     var oldHtml = button.innerHTML;
+    if (automatic) button.hidden = true;
     button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Transcrevendo';
 
     try {
@@ -413,8 +415,10 @@
         box.textContent = data.text || 'Transcricao concluida.';
       }
       button.innerHTML = '<i class="fa-solid fa-check"></i>Transcrito';
+      if (data.text) button.hidden = true;
     } catch (error) {
-      alert(error.message || 'Nao foi possivel transcrever.');
+      if (!automatic) alert(error.message || 'Nao foi possivel transcrever.');
+      if (automatic) button.hidden = false;
       button.innerHTML = oldHtml;
       button.disabled = false;
     } finally {
@@ -493,7 +497,8 @@
       }
     }
 
-    if (body) {
+    var syntheticAudioBody = mediaKind === 'audio' && /^\[(audio|áudio)\]$/i.test(body.trim());
+    if (body && !syntheticAudioBody) {
       html += '<p>' + escapeHtml(body).replace(/\n/g, '<br>') + '</p>';
     } else if (!mediaUrl && String(message?.message_type || '') !== 'texto') {
       html += '<p>[' + escapeHtml(message?.message_type || 'mensagem') + ']</p>';
@@ -533,6 +538,7 @@
       messages.innerHTML = data.messages.map(renderMessage).join('');
       messages.dataset.latestKey = latest;
       initAudioWidgets(messages);
+      autoTranscribePending(messages);
       if (nearBottom || force) {
         scheduleScroll();
       }
@@ -620,7 +626,18 @@
     });
   }
 
+  function autoTranscribePending(root) {
+    var buttons = Array.prototype.slice.call((root || document).querySelectorAll('[data-transcribe-audio]:not([data-auto-transcribe])'));
+    buttons.forEach(function (button, index) {
+      button.setAttribute('data-auto-transcribe', '1');
+      window.setTimeout(function () {
+        transcribeAudio(button);
+      }, 450 + index * 700);
+    });
+  }
+
   initAudioWidgets(messages || document);
+  autoTranscribePending(messages || document);
   scheduleScroll();
   window.setTimeout(function () {
     refreshMessages(true);
