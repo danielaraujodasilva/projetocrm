@@ -975,6 +975,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             redirect_to('studio_settings', ['tab' => (string)($_POST['settings_tab'] ?? 'studio')]);
         }
 
+        if ($action === 'assign_whatsapp_conversation' || $action === 'release_whatsapp_conversation' || $action === 'transfer_whatsapp_conversation') {
+            csrf_verify();
+            $studio = require_studio();
+            $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
+            $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+            $user = current_studio_user();
+            $admin = current_admin();
+            $isAdmin = $admin !== null;
+            if (!$conversation || !$user) {
+                flash_set('error', 'Conversa invalida.');
+            } elseif ($action === 'assign_whatsapp_conversation') {
+                if (!$isAdmin && !empty($conversation['assigned_user_id']) && (int)$conversation['assigned_user_id'] !== (int)$user['id']) {
+                    flash_set('error', 'Conversa atribuida a outro atendente.');
+                } else {
+                    studio_assign_whatsapp_conversation($studio, $conversationId, (int)$user['id'], (int)($admin['id'] ?? $user['id']));
+                    flash_set('success', 'Conversa assumida.');
+                }
+            } elseif ($action === 'release_whatsapp_conversation') {
+                if (!$isAdmin && (int)($conversation['assigned_user_id'] ?? 0) !== (int)$user['id']) {
+                    flash_set('error', 'Voce nao pode liberar esta conversa.');
+                } else {
+                    studio_release_whatsapp_conversation($studio, $conversationId, (int)($admin['id'] ?? $user['id']));
+                    flash_set('success', 'Conversa liberada.');
+                }
+            } elseif ($action === 'transfer_whatsapp_conversation') {
+                if (!$isAdmin) {
+                    flash_set('error', 'Apenas administradores podem transferir conversas.');
+                } else {
+                    $targetUserId = (int)($_POST['target_user_id'] ?? 0);
+                    if ($targetUserId <= 0) {
+                        flash_set('error', 'Selecione um atendente de destino.');
+                    } else {
+                        studio_transfer_whatsapp_conversation($studio, $conversationId, $targetUserId, (int)$admin['id']);
+                        flash_set('success', 'Conversa transferida.');
+                    }
+                }
+            }
+            redirect_to('studio_whatsapp_workspace', ['id' => $conversationId]);
+        }
+
         if ($action === 'test_whatsapp_official') {
             $studio = require_studio();
             $_SESSION['studio_whatsapp_official_test_result'] = studio_whatsapp_official_test_connection($studio);
@@ -3037,6 +3077,7 @@ if ($page === 'studio_whatsapp') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
+            'visibility' => (string)($_GET['visibility'] ?? 'all'),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         $conversationPageSize = 30;
@@ -3202,6 +3243,26 @@ if ($page === 'studio_whatsapp') {
     exit;
 }
 
+if ($page === 'studio_whatsapp_debug') {
+    $studio = require_studio();
+    render_studio_shell('Debug WhatsApp', 'Eventos do webhook oficial e diagnostico seguro.', 'whatsapp', function () use ($studio) {
+        $logPath = APP_BASE_PATH . '/storage/whatsapp_webhook_events.log';
+        $events = [];
+        if (is_file($logPath)) {
+            $lines = array_slice(array_reverse(array_filter(array_map('trim', file($logPath, FILE_IGNORE_NEW_LINES) ?: []))), 0, 50);
+            foreach ($lines as $line) {
+                $decoded = json_decode($line, true);
+                if (is_array($decoded)) {
+                    $events[] = $decoded;
+                }
+            }
+        }
+        echo '<div class="panel"><h2>Debug WhatsApp</h2><p class="muted">Ultimos eventos do webhook oficial.</p>';
+        echo '<pre style="white-space:pre-wrap;max-height:70vh;overflow:auto">' . h(json_encode($events, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '</pre></div>';
+    });
+    exit;
+}
+
 if ($page === 'studio_whatsapp_workspace') {
     $studio = require_studio();
     render_studio_shell('Workspace WhatsApp', 'Leitura tipo WhatsApp Web com ferramentas do CRM.', 'whatsapp', function () use ($studio) {
@@ -3217,6 +3278,7 @@ if ($page === 'studio_whatsapp_workspace') {
             'needs_human' => !empty($_GET['needs_human']),
             'min_score' => (int)($_GET['min_score'] ?? 0),
             'filter' => (string)($_GET['filter'] ?? 'all'),
+            'visibility' => (string)($_GET['visibility'] ?? 'all'),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         $conversationPageSize = 30;
@@ -3229,6 +3291,12 @@ if ($page === 'studio_whatsapp_workspace') {
             $conversationId = (int)$conversations[0]['id'];
         }
         $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+        $currentUser = current_studio_user();
+        $isAdmin = current_admin() !== null;
+        if ($conversation && $currentUser && !$isAdmin && !studio_can_view_whatsapp_conversation($studio, $conversation, $currentUser)) {
+            flash_set('error', 'Conversa atribuida a outro atendente.');
+            redirect_to('studio_whatsapp');
+        }
         $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 80, $conversation) : [];
         $assistantInsights = $conversation ? studio_whatsapp_assistant_insights($studio, $conversation, $messages) : [];
         $displayName = $conversation ? ($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) : 'Selecione uma conversa';
@@ -3241,6 +3309,9 @@ if ($page === 'studio_whatsapp_workspace') {
         $quickReplies = $conversation ? array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active']))) : [];
         $assistantAutofillEnabled = !empty(studio_settings($studio)['assistant_autofill_enabled']);
         $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
+        $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+        $canSendHere = !$conversation || !$currentUser || $isAdmin || $assignedUserId === 0 || $assignedUserId === (int)($currentUser['id'] ?? 0);
+        $assignedUserName = (string)($conversation['assigned_user_name'] ?? '');
         if ($assistantAutofillEnabled && $assistantConfidence === 0 && count($messages) > 0) {
             $assistantConfidence = 35;
         }
@@ -3290,6 +3361,18 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<div class="wa-web-search-suggestions hidden" id="waWorkspaceSearchSuggestions"></div>';
         echo '</form>';
         echo '<div class="wa-web-filter-row">';
+        $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas', 'free' => 'Livres'];
+        foreach ($visibilityPills as $visibilityKey => $label) {
+            $href = app_url('studio_whatsapp_workspace', array_filter([
+                'id' => $conversationId > 0 ? $conversationId : null,
+                'visibility' => $visibilityKey !== 'all' ? $visibilityKey : null,
+                'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
+                'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                'conv_offset' => null,
+            ], static fn($value) => $value !== null && $value !== ''));
+            $active = ($filters['visibility'] ?: ($isAdmin ? 'all' : 'mine')) === $visibilityKey ? ' active' : '';
+            echo '<a class="wa-web-filter-pill' . h($active) . '" href="' . h($href) . '">' . h($label) . '</a>';
+        }
         foreach (['all' => 'Tudo', 'unreplied' => 'Não lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
             $href = app_url('studio_whatsapp_workspace', array_filter([
                 'id' => $conversationId > 0 ? $conversationId : null,
@@ -3358,6 +3441,21 @@ if ($page === 'studio_whatsapp_workspace') {
         } else {
         echo '<div class="wa-web-main-header">';
         echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span></div></div></div>';
+        echo '<div class="wa-web-assignment-bar">';
+        if ($assignedUserId > 0) {
+            echo '<span class="badge warn">Conversa assumida por: ' . h($assignedUserName !== '' ? $assignedUserName : ('Atendente #' . $assignedUserId)) . '</span>';
+        } else {
+            echo '<span class="badge">Conversa livre</span>';
+        }
+        echo '<div class="d-flex flex-wrap gap-2">';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><button class="btn secondary" type="submit">Assumir conversa</button></form>';
+        echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><button class="btn secondary" type="submit">Liberar conversa</button></form>';
+        if ($isAdmin) {
+            echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><select name="target_user_id"><option value="">Transferir para...</option>';
+            foreach (studio_list_users($studio) as $studioUser) { echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>'; }
+            echo '</select><button class="btn secondary" type="submit">Transferir</button></form>';
+        }
+        echo '</div></div>';
         echo '<div class="wa-web-main-actions"><button class="wa-web-action-pill" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
             if ($publicUpdateUrl !== '') {
                 echo '<a class="wa-web-action-pill" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i><span>Cadastro</span></a>';
@@ -3370,11 +3468,13 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<div class="wa-web-composer-shell">';
             echo '<button class="wa-web-composer-action" type="button" id="chatEmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i><span>Emoji</span></button>';
             echo '<button class="wa-web-composer-action" type="button" id="chatAttachmentButton" aria-label="Anexar"><i class="fa-solid fa-plus"></i><span>Anexar</span></button>';
-            echo '<div class="wa-web-composer-input"><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1"></textarea></div>';
+            echo '<div class="wa-web-composer-input"><textarea id="reply-message" name="message" placeholder="Digite uma mensagem" rows="1" ' . (!$canSendHere ? 'disabled' : '') . '></textarea></div>';
             echo '<input id="chatAttachment" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
             echo '<span id="chatRecordingState" class="muted wa-web-recording-state"></span>';
             echo '<button class="wa-web-composer-action" type="button" id="chatRecordButton" aria-label="Gravar audio"><i class="fa-solid fa-microphone"></i><span>Audio</span></button>';
-            echo '<button class="wa-web-send-btn" type="submit" aria-label="Enviar"><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
+            echo '<button class="wa-web-send-btn" type="submit" aria-label="Enviar" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
+            if (!$canSendHere && $conversation) { echo '<div class="muted" style="margin-top:8px">Esta conversa esta atribuida a outro atendente.</div>'; }
+            if (!$canSendHere && $conversation) { echo '<div class="muted" style="margin-top:8px">Esta conversa esta atribuida a outro atendente.</div>'; }
             echo '</div>';
             echo '<div class="wa-web-emoji-panel hidden" id="chatEmojiPanel">';
             foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) {
