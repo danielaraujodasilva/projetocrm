@@ -237,60 +237,6 @@
       attachButton.addEventListener('click', openAttachment, true);
       attachButton.addEventListener('touchend', openAttachment, true);
     }
-    var emojiToggle = byId('mobileOpenEmojiPanel');
-    if (emojiToggle) {
-      emojiToggle.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileEmojiPanel');
-      }, true);
-      emojiToggle.addEventListener('touchend', function (event) {
-        prevent(event);
-        togglePanelById('mobileEmojiPanel');
-      }, true);
-    }
-    var scheduleToggle = byId('mobileOpenSchedule');
-    if (scheduleToggle) {
-      scheduleToggle.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileSchedulePanel');
-      }, true);
-      scheduleToggle.addEventListener('touchend', function (event) {
-        prevent(event);
-        togglePanelById('mobileSchedulePanel');
-      }, true);
-    }
-    var quickMenuButton = byId('mobileQuickMenuButton');
-    var bottomActionsButton = byId('mobileBottomActionsButton');
-    var refreshButton = byId('mobileRefreshButton');
-    var globalRefreshButton = byId('mobileGlobalRefreshAction');
-    if (quickMenuButton) {
-      quickMenuButton.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileConversationMenu');
-      }, true);
-    }
-    if (bottomActionsButton) {
-      bottomActionsButton.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileGlobalActionsPanel');
-      }, true);
-    }
-    if (refreshButton) {
-      refreshButton.addEventListener('click', function (event) {
-        prevent(event);
-        window.location.reload();
-      }, true);
-    }
-    if (globalRefreshButton) {
-      globalRefreshButton.addEventListener('click', function (event) {
-        prevent(event);
-        window.location.reload();
-      }, true);
-    }
-    if (pickButton) {
-      pickButton.addEventListener('click', openAttachment, true);
-      pickButton.addEventListener('touchend', openAttachment, true);
-    }
     if (fileInput) {
       fileInput.addEventListener('change', onFileChange);
     }
@@ -302,39 +248,29 @@
       emojiPanel.addEventListener('click', appendEmoji, true);
       emojiPanel.addEventListener('touchend', appendEmoji, true);
     }
-    var emojiToggle = byId('mobileOpenEmojiPanel');
-    if (emojiToggle) {
-      emojiToggle.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileEmojiPanel');
-      }, true);
-      emojiToggle.addEventListener('touchend', function (event) {
-        prevent(event);
-        togglePanelById('mobileEmojiPanel');
-      }, true);
-    }
-    var openAttachment = byId('mobileOpenAttachmentPicker');
-    if (openAttachment) {
-      openAttachment.addEventListener('click', function (event) {
-        prevent(event);
-        if (fileInput) fileInput.click();
-      }, true);
-      openAttachment.addEventListener('touchend', function (event) {
-        prevent(event);
-        if (fileInput) fileInput.click();
-      }, true);
-    }
-    var scheduleToggle = byId('mobileOpenSchedule');
-    if (scheduleToggle) {
-      scheduleToggle.addEventListener('click', function (event) {
-        prevent(event);
-        togglePanelById('mobileSchedulePanel');
-      }, true);
-      scheduleToggle.addEventListener('touchend', function (event) {
-        prevent(event);
-        togglePanelById('mobileSchedulePanel');
-      }, true);
-    }
+    window.mobileTogglePanelById = togglePanelById;
+    window.mobileToggleRecording = toggleRecording;
+    window.mobileOpenAttachmentPicker = openAttachment;
+    window.mobileOpenEmojiPanel = function (event) {
+      if (event) prevent(event);
+      togglePanelById('mobileEmojiPanel');
+    };
+    window.mobileOpenSchedulePanel = function (event) {
+      if (event) prevent(event);
+      togglePanelById('mobileSchedulePanel');
+    };
+    window.mobileOpenConversationMenu = function (event) {
+      if (event) prevent(event);
+      togglePanelById('mobileConversationMenu');
+    };
+    window.mobileOpenGlobalActions = function (event) {
+      if (event) prevent(event);
+      togglePanelById('mobileGlobalActionsPanel');
+    };
+    window.mobileReloadMobile = function (event) {
+      if (event) prevent(event);
+      window.location.reload();
+    };
 
     document.querySelectorAll('.mobile-wa-action, .mobile-wa-btn, .mobile-wa-icon-btn, .nav-chip').forEach(function (button) {
       button.addEventListener('touchstart', function () {
