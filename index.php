@@ -399,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             redirect_to('login');
         }
 
-        if ($action === 'studio_login') {
+if ($action === 'studio_login') {
             $returnTo = trim((string)($_POST['return_to'] ?? ''));
             if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
                 flash_set('success', 'Login do estudio realizado.');
@@ -410,6 +410,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             }
             flash_set('error', 'Email ou senha invalidos para o estudio.');
             redirect_to('studio_login');
+        }
+
+        if ($action === 'studio_mobile_login') {
+            if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
+                flash_set('success', 'Login do estudio realizado.');
+                redirect_to('studio_whatsapp_mobile');
+            }
+            flash_set('error', 'Email ou senha invalidos para o estudio.');
+            redirect_to('studio_whatsapp_mobile');
         }
 
         if ($action === 'create_studio') {
@@ -3819,19 +3828,18 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '<div class="mobile-wa-shell">';
     echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Atendimento</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><span class="badge">Modo celular</span></div>';
     if (!$currentUser) {
-        $mobileReturn = app_url('studio_whatsapp_mobile');
         echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
         echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
         echo '<h2 style="color:#fff">Entrar para atendimento</h2>';
         echo '<p class="muted">Use o email e a senha do atendente para acessar o atendimento no celular.</p>';
-        echo '<form class="form" method="post" action="' . h(app_url('studio_login')) . '">';
+        echo '<form class="form" method="post" action="' . h(app_url('index.php')) . '">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="studio_login">';
-        echo '<input type="hidden" name="return_to" value="' . h($mobileReturn) . '">';
+        echo '<input type="hidden" name="action" value="studio_mobile_login">';
         echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
         echo '<button class="mobile-wa-btn" type="submit">Entrar e abrir atendimento</button>';
         echo '</form>';
+        echo '<div class="mobile-wa-muted">Se você já tem acesso ao CRM do estúdio, use o mesmo email cadastrado no atendente.</div>';
         echo '</section>';
         echo '</div>';
         echo '</div>';
