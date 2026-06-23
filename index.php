@@ -4085,7 +4085,7 @@ if ($page === 'studio_whatsapp_mobile') {
         }
         echo '</div>';
         echo '<div id="mobileConversationMenu" class="mobile-wa-menu-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" data-close-panel><i class="fa-solid fa-xmark"></i> Fechar</button>';
+        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileConversationMenu\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar</button>';
         if ($canAssumeHere) {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit"><i class="fa-solid fa-hand-pointer"></i><span>Assumir conversa</span></button></form>';
         }
@@ -4135,13 +4135,13 @@ if ($page === 'studio_whatsapp_mobile') {
         render_chat_messages($messages);
         echo '</div>';
         echo '<div id="mobileEmojiPanel" class="mobile-wa-emoji-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" data-close-panel><i class="fa-solid fa-xmark"></i> Fechar emojis</button>';
+        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileEmojiPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar emojis</button>';
         foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) {
             echo '<button type="button" class="quick-reply-copy" data-reply="' . h($emoji) . '">' . h($emoji) . '</button>';
         }
         echo '</div>';
         echo '<div id="mobileAttachmentPanel" class="mobile-wa-menu-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" data-close-panel><i class="fa-solid fa-xmark"></i> Fechar anexos</button>';
+        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileAttachmentPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar anexos</button>';
         echo '<input type="file" id="mobileAttachmentInput" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip" hidden>';
         echo '<button type="button" id="mobileAttachmentPickAction">Escolher arquivo</button>';
         echo '<span class="mobile-wa-muted" id="mobileAttachmentName">Nenhum arquivo selecionado</span>';
@@ -4152,9 +4152,9 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
         echo '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji" onclick="document.getElementById(\'mobileEmojiPanel\')?.classList.toggle(\'hidden\')"><i class="fa-solid fa-face-smile"></i><span>Emoji</span></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar" onclick="document.getElementById(\'mobileAttachmentPickAction\')?.click()"><i class="fa-solid fa-paperclip"></i><span>Anexar</span></button>';
-        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio" onclick="window.mobileToggleRecording?.()"><i class="fa-solid fa-microphone"></i><span>Áudio</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenEmojiPanel" aria-label="Emoji" onclick="var p=document.getElementById(\'mobileEmojiPanel\'); if(p){p.classList.toggle(\'hidden\');}"><i class="fa-solid fa-face-smile"></i><span>Emoji</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileOpenAttachmentPicker" aria-label="Anexar" onclick="var p=document.getElementById(\'mobileAttachmentPickAction\'); if(p){p.click();}"><i class="fa-solid fa-paperclip"></i><span>Anexar</span></button>';
+        echo '<button class="mobile-wa-icon-btn" type="button" id="mobileRecordAudioButton" aria-label="Audio" onclick="if(window.mobileToggleRecording){window.mobileToggleRecording();}else{alert(\'Audio indisponivel\');}"><i class="fa-solid fa-microphone"></i><span>Áudio</span></button>';
         echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . ' onfocus="this.style.fontSize=\'16px\'; this.scrollIntoView({block:\'center\'});" autocomplete="off" autocapitalize="sentences" autocorrect="on" spellcheck="true"></textarea>';
         echo '<button class="mobile-wa-btn" type="submit" onclick="this.blur()" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i><span>Enviar</span></button>';
         echo '</form>';
@@ -4165,7 +4165,7 @@ if ($page === 'studio_whatsapp_mobile') {
             echo '<div class="mobile-wa-assignment"><span class="mobile-wa-muted">Você pode visualizar, mas não interagir com esta conversa.</span></div>';
         }
         echo '<div id="mobileSchedulePanel" class="mobile-wa-schedule-panel hidden">';
-        echo '<button type="button" class="mobile-wa-panel-close" data-close-panel><i class="fa-solid fa-xmark"></i> Fechar agenda</button>';
+        echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileSchedulePanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar agenda</button>';
         echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08);border-radius:18px">';
         echo '<h3 style="margin-top:0;color:#fff">Agendar atendimento</h3>';
         echo '<p class="muted">Atalho rápido para organizar a próxima visita sem sair do atendimento.</p>';
@@ -4207,10 +4207,10 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '<a class="nav-chip' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" href="' . h($listHref) . '"><i class="fa-solid fa-comments"></i><span>Conversas</span></a>';
     echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
     echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
-    echo '<button type="button" class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" id="mobileBottomActionsButton" onclick="document.getElementById(\'mobileGlobalActionsPanel\')?.classList.toggle(\'hidden\')"><i class="fa-solid fa-bolt"></i><span>Ações</span></button>';
+    echo '<button type="button" class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" id="mobileBottomActionsButton" onclick="var p=document.getElementById(\'mobileGlobalActionsPanel\'); if(p){p.classList.toggle(\'hidden\');}"><i class="fa-solid fa-bolt"></i><span>Ações</span></button>';
     echo '</div>';
     echo '<div id="mobileGlobalActionsPanel" class="mobile-wa-global-panel hidden">';
-    echo '<button type="button" class="mobile-wa-panel-close" data-close-panel><i class="fa-solid fa-xmark"></i> Fechar ações</button>';
+    echo '<button type="button" class="mobile-wa-panel-close" onclick="var p=this.closest(\'#mobileGlobalActionsPanel\'); if(p){p.classList.add(\'hidden\');}"><i class="fa-solid fa-xmark"></i> Fechar ações</button>';
     echo '<a class="mobile-wa-action primary" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'all'])) . '"><i class="fa-solid fa-comments"></i><span>Todas as conversas</span></a>';
     echo '<a class="mobile-wa-action" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Somente livres</span></a>';
     echo '<a class="mobile-wa-action" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas conversas</span></a>';
