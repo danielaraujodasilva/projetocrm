@@ -3873,10 +3873,17 @@ if ($page === 'studio_whatsapp_mobile') {
         .mobile-wa-mini-topbar .btn, .mobile-wa-mini-topbar .mobile-wa-action{padding:8px 10px;font-size:.85rem}
         .mobile-wa-context{padding:10px 14px;border-top:1px solid rgba(255,255,255,.06);display:flex;gap:8px;flex-wrap:wrap}
         .mobile-wa-context a{font-size:.85rem}
+        .mobile-wa-bottom-nav{position:sticky;bottom:0;z-index:25;display:flex;gap:8px;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(17,27,33,.98);backdrop-filter:blur(14px);border-top:1px solid rgba(255,255,255,.08)}
+        .mobile-wa-bottom-nav .nav-chip{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 8px;border-radius:16px;text-decoration:none;color:#e9edef;background:#202c33;border:1px solid rgba(255,255,255,.08);font-size:.76rem}
+        .mobile-wa-bottom-nav .nav-chip.active{background:#25d366;color:#0b141a;border-color:#25d366;font-weight:700}
+        .mobile-wa-bottom-nav .nav-chip i{font-size:1rem}
+        .chat-day-separator{display:flex;justify-content:center;margin:10px 0}
+        .chat-day-separator span{background:rgba(32,44,51,.92);color:#c9d3d8;border:1px solid rgba(255,255,255,.08);border-radius:999px;padding:6px 12px;font-size:.76rem}
         @media (min-width: 980px){ .mobile-wa-body{grid-template-columns:360px minmax(0,1fr);align-items:start} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
-    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Atendimento</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><span class="badge">Modo celular</span></div>';
+    $mobileView = (string)($_GET['view'] ?? 'chat');
+    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>WhatsApp</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><span class="badge">Online</span><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
     if (!$currentUser) {
         echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
         echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
@@ -3926,7 +3933,7 @@ if ($page === 'studio_whatsapp_mobile') {
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
     $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
     $isAdmin = studio_current_user_is_admin();
-    echo '<aside class="mobile-wa-list">';
+    echo '<aside class="mobile-wa-list" id="mobileWaListPanel">';
     echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
     echo '<div class="mobile-wa-search"><input type="search" id="mobileWaSearch" placeholder="Buscar conversa, telefone ou mensagem"></div>';
     echo '<div class="mobile-wa-items" id="mobileWaItems">';
@@ -3976,14 +3983,14 @@ if ($page === 'studio_whatsapp_mobile') {
     }
     echo '</div>';
     echo '</aside>';
-    echo '<section class="mobile-wa-chat">';
+    echo '<section class="mobile-wa-chat" id="mobileWaChatPanel">';
     if (!$conversation) {
         $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
         echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Escolha uma conversa na lista para visualizar, assumir ou responder.' : 'Escolha uma conversa na lista para visualizar as livres e responder as que estiverem atribuídas a você.') . '</div></div></div>';
     } else {
         echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
         echo '<div class="mobile-wa-chat-body">';
-        echo '<div class="mobile-wa-actions">';
+        echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
         echo '<button type="button" class="mobile-wa-action" id="mobileOpenSchedule"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
         if (!empty($conversation['customer_id'])) {
@@ -4081,8 +4088,14 @@ if ($page === 'studio_whatsapp_mobile') {
     }
     echo '</section>';
     echo '</div>';
+    echo '<div class="mobile-wa-bottom-nav">';
+    echo '<a class="nav-chip' . ($mobileView === 'chat' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'chat', 'visibility' => $filters['visibility']])) . '"><i class="fa-solid fa-comments"></i><span>Chats</span></a>';
+    echo '<a class="nav-chip' . ($mobileView === 'free' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'free', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
+    echo '<a class="nav-chip' . ($mobileView === 'mine' ? ' active' : '') . '" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'mine', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
+    echo '<a class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" href="#mobileQuickActions"><i class="fa-solid fa-bolt"></i><span>Ações</span></a>';
     echo '</div>';
-    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");const schedulePanel=document.getElementById("mobileSchedulePanel");const openSchedule=document.getElementById("mobileOpenSchedule");if(messages){messages.scrollTop=messages.scrollHeight;} openSchedule?.addEventListener("click",()=>schedulePanel?.classList.toggle("hidden")); search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }});})();</script>';
+    echo '</div>';
+    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");const schedulePanel=document.getElementById("mobileSchedulePanel");const openSchedule=document.getElementById("mobileOpenSchedule");const quickMenu=document.getElementById("mobileQuickMenuButton");if(messages){messages.scrollTop=messages.scrollHeight;} openSchedule?.addEventListener("click",()=>schedulePanel?.classList.toggle("hidden")); quickMenu?.addEventListener("click",()=>{ const target=document.getElementById("mobileQuickActions"); if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); } }); search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }});})();</script>';
     echo '</body></html>';
     exit;
 }
@@ -7026,7 +7039,21 @@ function render_chat_messages(array $messages): void
     if (!$messages) {
         echo '<div class="alert alert-light border mb-0">Ainda nao ha mensagens registradas nesta conversa.</div>';
     }
+    $lastDate = '';
     foreach ($messages as $message) {
+        $sentAt = (string)($message['sent_at'] ?? '');
+        $dayKey = '';
+        if ($sentAt !== '') {
+            try {
+                $dayKey = (new DateTimeImmutable($sentAt, new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d');
+            } catch (Throwable) {
+                $dayKey = substr($sentAt, 0, 10);
+            }
+        }
+        if ($dayKey !== '' && $dayKey !== $lastDate) {
+            $lastDate = $dayKey;
+            echo '<div class="chat-day-separator"><span>' . h(format_date_pt($dayKey, true)) . '</span></div>';
+        }
         $direction = (string)($message['direction'] ?? 'in');
         $class = $direction === 'out' ? 'out' : 'in';
         $body = (string)($message['body'] ?? '');
