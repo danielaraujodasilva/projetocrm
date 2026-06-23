@@ -3900,7 +3900,8 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '</aside>';
     echo '<section class="mobile-wa-chat">';
     if (!$conversation) {
-        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Escolha uma conversa para responder</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">Faça login, escolha uma conversa na lista e comece a responder. Esta tela foi deixada intencionalmente sem conversa pré-aberta.</div></div></div>';
+        $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
+        echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">Escolha uma conversa na lista para visualizar e responder. Esta tela fica sem conversa pré-aberta de propósito.</div></div></div>';
     } else {
         echo '<div class="mobile-wa-chat-head"><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div><div class="mobile-wa-muted">' . h($assignedUserName !== '' ? 'Assumida por ' . $assignedUserName : 'Livre') . '</div></div>';
         echo '<div class="mobile-wa-chat-body">';
