@@ -1430,6 +1430,25 @@ function studio_user_name_by_id(int $studioUserId): string
     return is_array($user) ? trim((string)($user['name'] ?? '')) : '';
 }
 
+function studio_user_label_by_id(int $studioUserId): string
+{
+    $user = studio_find_user($studioUserId);
+    if (!is_array($user)) {
+        return $studioUserId > 0 ? 'Atendente #' . $studioUserId : '';
+    }
+    $name = trim((string)($user['name'] ?? ''));
+    $role = trim((string)($user['role'] ?? ''));
+    if ($name === '') {
+        $name = 'Atendente #' . $studioUserId;
+    }
+    if ($role !== '' && $role !== 'attendant') {
+        $suffixMap = ['admin' => 'Admin', 'owner' => 'Dono'];
+        $suffix = $suffixMap[$role] ?? $role;
+        return $name . ' [' . $suffix . ']';
+    }
+    return $name;
+}
+
 function create_or_update_studio_owner_user(array $studio, string $name, string $email, string $password): void
 {
     $name = trim($name);
