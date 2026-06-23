@@ -460,6 +460,11 @@
     return String(message?.id || message?.message_id || message?.sent_at || '');
   }
 
+  function renderAudioWidget(mediaUrl) {
+    var src = escapeHtml(mediaUrl);
+    return '<div class="m2-audio-widget" data-audio-src="' + src + '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' + src + '" preload="metadata"></audio></div>';
+  }
+
   function renderMessage(message) {
     var direction = String(message?.direction || 'in') === 'out' ? 'out' : 'in';
     var body = String(message?.body || '');
@@ -479,7 +484,7 @@
       } else if (mediaKind === 'video') {
         html += '<video class="m2-media" src="' + escapeHtml(mediaUrl) + '" controls></video>';
       } else if (mediaKind === 'audio') {
-        html += '<div class="m2-audio-shell"><audio class="m2-audio-player" src="' + escapeHtml(mediaUrl) + '" controls preload="metadata"></audio></div>';
+        html += renderAudioWidget(mediaUrl);
         if (!transcript) {
           html += '<button class="m2-transcribe" type="button" data-transcribe-audio="' + escapeHtml(message?.message_id || '') + '" data-media-url="' + escapeHtml(mediaUrl) + '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
         }
@@ -527,6 +532,7 @@
       if (!force && latest && latest === messages.dataset.latestKey) return;
       messages.innerHTML = data.messages.map(renderMessage).join('');
       messages.dataset.latestKey = latest;
+      initAudioWidgets(messages);
       if (nearBottom || force) {
         scheduleScroll();
       }
@@ -563,6 +569,58 @@
   if (messages) {
     messages.dataset.latestKey = latestRenderedKey();
   }
+
+  function formatAudioTime(seconds) {
+    var value = Number(seconds || 0);
+    if (!Number.isFinite(value) || value < 0) value = 0;
+    var minutes = Math.floor(value / 60);
+    var rest = Math.floor(value % 60);
+    return minutes + ':' + String(rest).padStart(2, '0');
+  }
+
+  function stopOtherAudioWidgets(current) {
+    document.querySelectorAll('.m2-audio-widget').forEach(function (widget) {
+      if (widget === current) return;
+      var audio = widget.querySelector('audio');
+      if (audio && !audio.paused) audio.pause();
+      widget.classList.remove('is-playing');
+      var icon = widget.querySelector('.m2-audio-toggle i');
+      if (icon) icon.className = 'fa-solid fa-play';
+    });
+  }
+
+  function updateAudioWidget(widget) {
+    if (!widget) return;
+    var audio = widget.querySelector('audio');
+    var time = widget.querySelector('.m2-audio-time');
+    var bar = widget.querySelector('.m2-audio-track span');
+    if (!audio) return;
+    var duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    var current = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    if (time) time.textContent = formatAudioTime(current || duration || 0);
+    if (bar) bar.style.width = duration > 0 ? Math.min(100, Math.max(0, (current / duration) * 100)) + '%' : '0%';
+  }
+
+  function initAudioWidgets(root) {
+    (root || document).querySelectorAll('.m2-audio-widget').forEach(function (widget) {
+      if (widget.dataset.ready === '1') return;
+      widget.dataset.ready = '1';
+      var audio = widget.querySelector('audio');
+      if (!audio) return;
+      audio.addEventListener('loadedmetadata', function () { updateAudioWidget(widget); });
+      audio.addEventListener('timeupdate', function () { updateAudioWidget(widget); });
+      audio.addEventListener('ended', function () {
+        widget.classList.remove('is-playing');
+        audio.currentTime = 0;
+        var icon = widget.querySelector('.m2-audio-toggle i');
+        if (icon) icon.className = 'fa-solid fa-play';
+        updateAudioWidget(widget);
+      });
+      updateAudioWidget(widget);
+    });
+  }
+
+  initAudioWidgets(messages || document);
   scheduleScroll();
   window.setTimeout(function () {
     refreshMessages(true);
@@ -696,6 +754,40 @@
   }
 
   document.addEventListener('click', function (event) {
+    var audioToggle = event.target.closest('.m2-audio-toggle');
+    if (audioToggle) {
+      stop(event);
+      var widget = audioToggle.closest('.m2-audio-widget');
+      var audio = widget ? widget.querySelector('audio') : null;
+      var icon = audioToggle.querySelector('i');
+      if (!audio || !widget) return;
+      if (audio.paused) {
+        stopOtherAudioWidgets(widget);
+        audio.play().then(function () {
+          widget.classList.add('is-playing');
+          if (icon) icon.className = 'fa-solid fa-pause';
+        }).catch(function () {});
+      } else {
+        audio.pause();
+        widget.classList.remove('is-playing');
+        if (icon) icon.className = 'fa-solid fa-play';
+      }
+      return;
+    }
+
+    var audioTrack = event.target.closest('.m2-audio-track');
+    if (audioTrack) {
+      stop(event);
+      var trackWidget = audioTrack.closest('.m2-audio-widget');
+      var trackAudio = trackWidget ? trackWidget.querySelector('audio') : null;
+      if (!trackAudio || !Number.isFinite(trackAudio.duration) || trackAudio.duration <= 0) return;
+      var rect = audioTrack.getBoundingClientRect();
+      var ratio = rect.width > 0 ? Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) : 0;
+      trackAudio.currentTime = ratio * trackAudio.duration;
+      updateAudioWidget(trackWidget);
+      return;
+    }
+
     var closeButton = event.target.closest('[data-close-drawer]');
     if (closeButton) {
       stop(event);

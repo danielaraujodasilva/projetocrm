@@ -2108,7 +2108,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
                 if ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
                 elseif ($kind === 'video') echo '<video class="m2-media" src="' . h($mediaUrl) . '" controls></video>';
                 elseif ($kind === 'audio') {
-                    echo '<div class="m2-audio-shell"><audio class="m2-audio-player" src="' . h($mediaUrl) . '" controls preload="metadata"></audio></div>';
+                    echo '<div class="m2-audio-widget" data-audio-src="' . h($mediaUrl) . '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' . h($mediaUrl) . '" preload="metadata"></audio></div>';
                     if (empty($message['transcricao']) && empty($message['transcript'])) echo '<button class="m2-transcribe" type="button" data-transcribe-audio="' . h($message['message_id'] ?? '') . '" data-media-url="' . h($mediaUrl) . '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
                 } else echo '<a class="m2-file" href="' . h($mediaUrl) . '" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i>' . h($mediaName !== '' ? $mediaName : 'Abrir anexo') . '</a>';
             }
