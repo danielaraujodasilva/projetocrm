@@ -4223,7 +4223,7 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
     $supported = ['audio/amr', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/ogg'];
     if (!$isRecordedAudio && in_array(strtok($mime, ';') ?: $mime, $supported, true)) {
         if (str_starts_with($mime, 'audio/ogg')) {
-            $upload['mime'] = 'audio/ogg';
+            $upload['mime'] = 'audio/ogg; codecs=opus';
         }
         return $upload;
     }
@@ -4238,14 +4238,7 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         return $upload;
     }
 
-    $ffmpeg = trim((string)(getenv('FFMPEG_BINARY') ?: ''));
-    if ($ffmpeg === '' && function_exists('shell_exec')) {
-        $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffmpeg 2>NUL' : 'command -v ffmpeg 2>/dev/null';
-        $ffmpeg = trim((string)@shell_exec($probe));
-        if (str_contains($ffmpeg, "\n")) {
-            $ffmpeg = trim(strtok($ffmpeg, "\n"));
-        }
-    }
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
 
     $ffmpegRunnable = $ffmpeg !== '' && (is_executable($ffmpeg) || !str_contains($ffmpeg, DIRECTORY_SEPARATOR));
     if ($ffmpegRunnable) {
@@ -4258,7 +4251,7 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         @exec($command, $output, $exitCode);
         if ($exitCode === 0 && is_file($target) && filesize($target) > 0) {
             $upload['path'] = $target;
-            $upload['mime'] = 'audio/ogg';
+            $upload['mime'] = 'audio/ogg; codecs=opus';
             $upload['fileName'] = preg_replace('/\.[^.]+$/', '', $fileName !== '' ? $fileName : 'audio') . '.ogg';
             $upload['kind'] = 'audio';
             $upload['convertedFromMime'] = $mime;
@@ -4268,8 +4261,42 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         return $upload;
     }
 
-    $upload['audioConversionError'] = 'ffmpeg nao encontrado no servidor. Instale ffmpeg ou configure FFMPEG_BINARY para enviar audio gravado.';
+    $upload['audioConversionError'] = 'ffmpeg nao encontrado no servidor. Rode o deploy com npm install em services/whatsapp ou configure FFMPEG_BINARY para enviar audio gravado.';
     return $upload;
+}
+
+function studio_whatsapp_ffmpeg_binary(): string
+{
+    $fromEnv = trim((string)(getenv('FFMPEG_BINARY') ?: ''));
+    if ($fromEnv !== '') {
+        return $fromEnv;
+    }
+
+    if (!function_exists('shell_exec')) {
+        return '';
+    }
+
+    $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffmpeg 2>NUL' : 'command -v ffmpeg 2>/dev/null';
+    $ffmpeg = trim((string)@shell_exec($probe));
+    if (str_contains($ffmpeg, "\n")) {
+        $ffmpeg = trim(strtok($ffmpeg, "\n"));
+    }
+    if ($ffmpeg !== '') {
+        return $ffmpeg;
+    }
+
+    $servicePath = realpath(__DIR__ . '/../services/whatsapp');
+    if ($servicePath === false) {
+        return '';
+    }
+
+    $node = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'node.exe' : 'node';
+    $command = 'cd ' . escapeshellarg($servicePath)
+        . ' && ' . escapeshellarg($node)
+        . ' -e ' . escapeshellarg('try{process.stdout.write(require("@ffmpeg-installer/ffmpeg").path||"")}catch(e){}')
+        . ' 2>' . (PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null');
+    $local = trim((string)@shell_exec($command));
+    return is_file($local) ? $local : '';
 }
 
 function studio_whatsapp_official_send_media(array $studio, string $toPhone, array &$upload, string $caption = ''): array

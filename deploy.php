@@ -89,6 +89,12 @@ if ($whatsappEnabled) {
 
     file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $whatsappOutput . "\n", FILE_APPEND);
     $output .= "\n" . $whatsappOutput;
+
+    $ffmpegOutput = projetocrm_ensure_ffmpeg($deployConfig['ffmpeg'] ?? []);
+    if ($ffmpegOutput !== '') {
+        file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $ffmpegOutput . "\n", FILE_APPEND);
+        $output .= "\n" . $ffmpegOutput;
+    }
 }
 
 header('Content-Type: text/plain; charset=utf-8');
@@ -100,8 +106,15 @@ function projetocrm_deploy_whatsapp_service(string $servicePath, array $config):
     $pidFile = $servicePath . '/whatsapp_service.pid';
     $logFile = $servicePath . '/whatsapp_service.log';
     $port = (string)($config['port'] ?? getenv('WHATSAPP_PORT') ?: '3010');
-    $install = false;
+    $install = array_key_exists('install', $config) ? (bool)$config['install'] : true;
     $restart = array_key_exists('restart', $config) ? (bool)$config['restart'] : true;
+
+    if ($install) {
+        $npm = PHP_OS_FAMILY === 'Windows' ? 'npm.cmd' : 'npm';
+        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && ' . $npm . ' install --omit=dev';
+        $lines[] = '$ ' . $installCommand;
+        $lines[] = trim((string)shell_exec($installCommand . ' 2>&1'));
+    }
 
     if (!$restart) {
         $lines[] = 'Reinicio automatico desativado.';
@@ -167,6 +180,19 @@ function projetocrm_ensure_ffmpeg(mixed $config): string
     if ($binary !== '' && (is_file($binary) || projetocrm_command_exists($binary))) {
         $lines[] = 'Disponivel: ' . $binary;
         return implode("\n", $lines) . "\n";
+    }
+
+    $servicePath = realpath(__DIR__ . '/services/whatsapp');
+    if ($servicePath !== false && projetocrm_command_exists(PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node')) {
+        $node = PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node';
+        $localCommand = 'cd ' . escapeshellarg($servicePath)
+            . ' && ' . $node
+            . ' -e ' . escapeshellarg('try{process.stdout.write(require("@ffmpeg-installer/ffmpeg").path||"")}catch(e){}');
+        $localBinary = trim((string)shell_exec($localCommand . ' 2>&1'));
+        if ($localBinary !== '' && is_file($localBinary)) {
+            $lines[] = 'Disponivel via npm: ' . $localBinary;
+            return implode("\n", $lines) . "\n";
+        }
     }
 
     $installCommand = trim((string)($config['install_command'] ?? ''));
