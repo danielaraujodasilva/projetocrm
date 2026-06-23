@@ -3402,9 +3402,10 @@ if ($page === 'studio_whatsapp_workspace') {
     exit;
 }
 
-if ($page === 'studio_whatsapp_conversation') {
+if ($page === 'studio_whatsapp_conversation' || $page === 'studio_whatsapp_mobile') {
     $studio = require_studio();
-    render_studio_shell('Conversa WhatsApp', 'Historico, atendimento e envio direto.', 'whatsapp', function () use ($studio) {
+    $mobileWhatsAppPage = $page === 'studio_whatsapp_mobile';
+    render_studio_shell($mobileWhatsAppPage ? 'WhatsApp Mobile' : 'Conversa WhatsApp', 'Historico, atendimento e envio direto.', 'whatsapp', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
