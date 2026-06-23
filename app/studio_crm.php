@@ -2124,6 +2124,7 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
         $where[] = 'wc.needs_human = 1';
     }
     $minScore = (int)($filters['min_score'] ?? 0);
+    $where[] = 'DATE(COALESCE(wc.last_message_at, wc.updated_at, wc.created_at)) = CURDATE()';
     if ($minScore > 0) {
         $where[] = 'COALESCE(wc.lead_score, 0) >= ?';
         $params[] = min(10, $minScore);

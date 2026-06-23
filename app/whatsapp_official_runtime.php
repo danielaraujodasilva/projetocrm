@@ -267,7 +267,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?
             flash_set('error', 'Voce precisa estar autenticado para enviar mensagem.');
             redirect_to('studio_whatsapp');
         }
-        if ($conversation && !studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
+        if (!$conversation || !studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
             flash_set('error', 'Esta conversa esta atribuida a outro atendente.');
             redirect_to('studio_whatsapp_workspace', ['id' => $conversationId]);
         }
