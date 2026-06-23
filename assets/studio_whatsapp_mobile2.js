@@ -233,6 +233,23 @@
     return String(value || '').split(';')[0].trim() || 'audio/webm';
   }
 
+  function cleanFileMime(value) {
+    return String(value || '').split(';')[0].trim() || 'application/octet-stream';
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(String(reader.result || ''));
+      };
+      reader.onerror = function () {
+        reject(reader.error || new Error('Nao foi possivel ler o anexo.'));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function toggleRecording(event) {
     stop(event);
     if (textarea && textarea.disabled) return;
@@ -301,13 +318,26 @@
 
     var submitButton = form.querySelector('button[type="submit"]');
     if (submitButton) submitButton.disabled = true;
+    form.setAttribute('data-sending', '1');
 
     try {
       var body = new FormData(form);
       body.set('return_to_mobile', '1');
+      body.set('return_to_mobile2', '1');
       body.set('return_to_workspace', '0');
       if (file) {
-        body.set('media_file', file, file.name || 'audio.webm');
+        var fileName = file.name || 'audio.webm';
+        body.set('media_intent', '1');
+        body.set('m2_media_intent', '1');
+        body.set('media_file_name', fileName);
+        body.set('media_mime', cleanFileMime(file.type));
+
+        if (window.FileReader && Number(file.size || 0) > 0 && Number(file.size || 0) <= (5 * 1024 * 1024)) {
+          body.delete('media_file');
+          body.set('media_base64', await readFileAsDataUrl(file));
+        } else {
+          body.set('media_file', file, fileName);
+        }
       }
 
       var response = await fetch(window.location.pathname + window.location.search, {
@@ -342,10 +372,15 @@
         autoResizeTextarea();
       }
       clearAttachment();
-      window.location.reload();
+      form.setAttribute('data-sending', '0');
+      await refreshMessages(true);
+      window.setTimeout(function () {
+        refreshMessages(true);
+      }, 900);
     } catch (error) {
       alert(error.message || 'Nao foi possivel enviar.');
     } finally {
+      form.setAttribute('data-sending', '0');
       if (submitButton) submitButton.disabled = false;
     }
   }
@@ -401,6 +436,116 @@
     }
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, function (char) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[char] || char;
+    });
+  }
+
+  function inferMediaKind(mime, url, type) {
+    var mediaMime = String(mime || '').toLowerCase();
+    var mediaUrl = String(url || '').toLowerCase();
+    var messageType = String(type || '').toLowerCase();
+    if (mediaMime.indexOf('image/') === 0 || /\.(png|jpe?g|gif|webp)(\?|$)/i.test(mediaUrl) || messageType === 'image') return 'image';
+    if (mediaMime.indexOf('video/') === 0 || /\.(mp4|webm|mov)(\?|$)/i.test(mediaUrl) || messageType === 'video') return 'video';
+    if (mediaMime.indexOf('audio/') === 0 || /\.(ogg|mp3|wav|m4a|webm)(\?|$)/i.test(mediaUrl) || messageType === 'audio') return 'audio';
+    return 'file';
+  }
+
+  function formatMessageTime(value) {
+    if (!value) return '';
+    var date = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  function keyForMessage(message) {
+    return String(message?.id || message?.message_id || message?.sent_at || '');
+  }
+
+  function renderMessage(message) {
+    var direction = String(message?.direction || 'in') === 'out' ? 'out' : 'in';
+    var body = String(message?.body || '');
+    var mediaUrl = String(message?.media_url || '');
+    var mediaName = String(message?.media_file_name || '');
+    var mediaKind = inferMediaKind(message?.media_mime, mediaUrl, message?.message_type);
+    var transcript = String(message?.transcricao || message?.transcript || '').trim();
+    var html = '<article class="m2-msg ' + direction + '" data-message-key="' + escapeHtml(keyForMessage(message)) + '"><div class="m2-bubble">';
+
+    if (mediaUrl) {
+      if (!mediaName) {
+        mediaName = decodeURIComponent((mediaUrl.split('/').pop() || '').split('?')[0] || '');
+      }
+      if (mediaKind === 'image') {
+        html += '<img class="m2-media" src="' + escapeHtml(mediaUrl) + '" alt="' + escapeHtml(mediaName || 'Midia') + '">';
+      } else if (mediaKind === 'video') {
+        html += '<video class="m2-media" src="' + escapeHtml(mediaUrl) + '" controls></video>';
+      } else if (mediaKind === 'audio') {
+        html += '<audio src="' + escapeHtml(mediaUrl) + '" controls></audio>';
+        if (!transcript) {
+          html += '<button class="m2-transcribe" type="button" data-transcribe-audio="' + escapeHtml(message?.message_id || '') + '" data-media-url="' + escapeHtml(mediaUrl) + '"><i class="fa-solid fa-wave-square"></i>Transcrever</button>';
+        }
+      } else {
+        html += '<a class="m2-file" href="' + escapeHtml(mediaUrl) + '" target="_blank" rel="noopener"><i class="fa-solid fa-paperclip"></i>' + escapeHtml(mediaName || 'Abrir anexo') + '</a>';
+      }
+    }
+
+    if (body) {
+      html += '<p>' + escapeHtml(body).replace(/\n/g, '<br>') + '</p>';
+    } else if (!mediaUrl && String(message?.message_type || '') !== 'texto') {
+      html += '<p>[' + escapeHtml(message?.message_type || 'mensagem') + ']</p>';
+    }
+    if (transcript) {
+      html += '<div class="m2-transcript">' + escapeHtml(transcript) + '</div>';
+    }
+    html += '<time>' + escapeHtml(formatMessageTime(message?.sent_at || '')) + '</time></div></article>';
+    return html;
+  }
+
+  function latestRenderedKey() {
+    if (!messages || !messages.lastElementChild) return '';
+    return messages.lastElementChild.getAttribute('data-message-key') || '';
+  }
+
+  async function refreshMessages(force) {
+    if (!messages || !conversationId || document.hidden) return;
+    if (form && form.getAttribute('data-sending') === '1') return;
+
+    var nearBottom = (messages.scrollHeight - messages.scrollTop - messages.clientHeight) < 180;
+    try {
+      var url = window.location.pathname + '?page=studio_whatsapp_mobile_api&action=messages&id=' + encodeURIComponent(String(conversationId));
+      var response = await fetch(url, {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      if (!response.ok) return;
+      var data = await response.json().catch(function () { return null; });
+      if (!data || !data.ok || !Array.isArray(data.messages)) return;
+
+      var latest = data.messages.length ? keyForMessage(data.messages[data.messages.length - 1]) : '';
+      if (!force && latest && latest === messages.dataset.latestKey) return;
+      messages.innerHTML = data.messages.map(renderMessage).join('');
+      messages.dataset.latestKey = latest;
+      if (nearBottom || force) {
+        scheduleScroll();
+      }
+    } catch (ignore) {}
+  }
+
   async function postConversationUpdate(payload, message) {
     var body = new URLSearchParams();
     body.set('csrf_token', csrfToken);
@@ -428,7 +573,16 @@
   }
 
   renderEmojiPanel();
+  if (messages) {
+    messages.dataset.latestKey = latestRenderedKey();
+  }
   scheduleScroll();
+  window.setTimeout(function () {
+    refreshMessages(true);
+  }, 1200);
+  window.setInterval(function () {
+    refreshMessages(false);
+  }, 5000);
 
   if (messages) {
     messages.querySelectorAll('img, video').forEach(function (media) {

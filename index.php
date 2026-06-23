@@ -2100,7 +2100,8 @@ if ($page === 'studio_whatsapp_mobile2') {
             $mediaName = (string)($message['media_file_name'] ?? '');
             $kind = $inferMediaType($mime, $mediaUrl, $type);
             if ($mediaName === '' && $mediaUrl !== '') $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl);
-            echo '<article class="m2-msg' . h($class) . '"><div class="m2-bubble">';
+            $messageKey = (string)($message['id'] ?? $message['message_id'] ?? $message['sent_at'] ?? '');
+            echo '<article class="m2-msg' . h($class) . '" data-message-key="' . h($messageKey) . '"><div class="m2-bubble">';
             if ($mediaUrl !== '') {
                 if ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
                 elseif ($kind === 'video') echo '<video class="m2-media" src="' . h($mediaUrl) . '" controls></video>';

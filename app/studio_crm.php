@@ -4532,23 +4532,131 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 
 function studio_prepare_whatsapp_attachment(array $studio, array $data, array $files, int $conversationId = 0): array
 {
+    $empty = ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
+    $maxSize = 20 * 1024 * 1024;
+    $mediaIntent = !empty($data['media_intent']) || !empty($data['m2_media_intent']);
+    $buildStoredUpload = static function (string $binary, string $mime, string $fileName) use ($studio, $conversationId, $maxSize): array {
+        if ($binary === '') {
+            throw new RuntimeException('Anexo vazio. Escolha o arquivo novamente.');
+        }
+        if (strlen($binary) > $maxSize) {
+            throw new RuntimeException('Anexo muito grande. Use um arquivo de ate 20MB.');
+        }
+
+        $mime = trim($mime) !== '' ? trim($mime) : 'application/octet-stream';
+        if (str_contains($mime, ';')) {
+            $mime = trim(strtok($mime, ';'));
+        }
+
+        $fileName = trim($fileName) !== '' ? trim($fileName) : 'arquivo';
+        $ext = strtolower((string)pathinfo($fileName, PATHINFO_EXTENSION));
+        if ($ext === '') {
+            $ext = match ($mime) {
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/gif' => 'gif',
+                'image/webp' => 'webp',
+                'video/mp4' => 'mp4',
+                'video/webm' => 'webm',
+                'audio/ogg' => 'ogg',
+                'audio/webm' => 'webm',
+                'audio/mpeg' => 'mp3',
+                'audio/mp4', 'audio/m4a' => 'm4a',
+                'application/pdf' => 'pdf',
+                default => '',
+            };
+            if ($ext !== '') {
+                $fileName .= '.' . $ext;
+            }
+        }
+
+        $kind = 'document';
+        if (str_starts_with($mime, 'image/')) {
+            $kind = 'image';
+        } elseif (str_starts_with($mime, 'video/')) {
+            $kind = 'video';
+        } elseif (str_starts_with($mime, 'audio/')) {
+            $kind = 'audio';
+        }
+
+        $storage = studio_whatsapp_attachment_dir($studio, $conversationId);
+        $base = pathinfo($fileName, PATHINFO_FILENAME);
+        $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $base) ?: 'arquivo';
+        $stamp = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+        $storedName = $stamp . '_' . $base . ($ext !== '' ? '.' . $ext : '');
+        $dest = $storage['folder'] . DIRECTORY_SEPARATOR . $storedName;
+        if (file_put_contents($dest, $binary) === false) {
+            throw new RuntimeException('Nao foi possivel salvar o anexo.');
+        }
+
+        return [
+            'base64' => base64_encode($binary),
+            'mime' => $mime,
+            'fileName' => $fileName,
+            'kind' => $kind,
+            'relativePath' => $storage['relativePrefix'] . $storedName,
+            'path' => $dest,
+        ];
+    };
+    $prepareBase64Fallback = static function () use ($data, $buildStoredUpload): array {
+        $encoded = trim((string)($data['media_base64'] ?? $data['m2_media_base64'] ?? ''));
+        if ($encoded === '') {
+            return [];
+        }
+
+        $mime = trim((string)($data['media_mime'] ?? $data['m2_media_mime'] ?? 'application/octet-stream'));
+        if (preg_match('/^data:([^;]+);base64,(.*)$/s', $encoded, $matches)) {
+            $mime = trim((string)$matches[1]);
+            $encoded = (string)$matches[2];
+        }
+
+        $binary = base64_decode($encoded, true);
+        if ($binary === false) {
+            throw new RuntimeException('Anexo invalido. Escolha o arquivo novamente.');
+        }
+
+        $fileName = trim((string)($data['media_file_name'] ?? $data['m2_media_file_name'] ?? 'arquivo'));
+        return $buildStoredUpload($binary, $mime, $fileName);
+    };
+
     $file = $files['media_file'] ?? null;
     if (!is_array($file)) {
-        return ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
+        $fallback = $prepareBase64Fallback();
+        if ($fallback) {
+            return $fallback;
+        }
+        if ($mediaIntent) {
+            throw new RuntimeException('O anexo nao chegou ao servidor. Tente escolher o arquivo novamente.');
+        }
+        return $empty;
     }
 
     $uploadError = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
     if ($uploadError === UPLOAD_ERR_NO_FILE) {
-        return ['base64' => '', 'mime' => '', 'fileName' => '', 'kind' => '', 'relativePath' => ''];
+        $fallback = $prepareBase64Fallback();
+        if ($fallback) {
+            return $fallback;
+        }
+        if ($mediaIntent) {
+            throw new RuntimeException('O anexo nao chegou ao servidor. Tente escolher o arquivo novamente.');
+        }
+        return $empty;
     }
     if ($uploadError !== UPLOAD_ERR_OK) {
+        $fallback = $prepareBase64Fallback();
+        if ($fallback) {
+            return $fallback;
+        }
         throw new RuntimeException('Nao foi possivel ler o anexo enviado.');
     }
     if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        $fallback = $prepareBase64Fallback();
+        if ($fallback) {
+            return $fallback;
+        }
         throw new RuntimeException('Upload invalido. Escolha o anexo novamente.');
     }
 
-    $maxSize = 20 * 1024 * 1024;
     if (!empty($file['size']) && (int)$file['size'] > $maxSize) {
         throw new RuntimeException('Anexo muito grande. Use um arquivo de ate 20MB.');
     }
@@ -4563,38 +4671,8 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
     }
     $fileName = trim((string)($file['name'] ?? 'arquivo'));
     $fileName = $fileName !== '' ? $fileName : 'arquivo';
-    $ext = strtolower((string)pathinfo($fileName, PATHINFO_EXTENSION));
-    $kind = 'document';
-    if (str_starts_with($mime, 'image/')) {
-        $kind = 'image';
-    } elseif (str_starts_with($mime, 'video/')) {
-        $kind = 'video';
-    } elseif (str_starts_with($mime, 'audio/')) {
-        $kind = 'audio';
-    }
-
-    $storage = studio_whatsapp_attachment_dir($studio, $conversationId);
-
-    $base = pathinfo($fileName, PATHINFO_FILENAME);
-    $base = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $base) ?: 'arquivo';
-    $stamp = date('Ymd_His') . '_' . bin2hex(random_bytes(4));
-    $storedName = $stamp . '_' . $base . ($ext !== '' ? '.' . $ext : '');
-    $dest = $storage['folder'] . DIRECTORY_SEPARATOR . $storedName;
-    if (!move_uploaded_file($file['tmp_name'], $dest)) {
-        throw new RuntimeException('Nao foi possivel salvar o anexo.');
-    }
-
-    $relativePath = $storage['relativePrefix'] . $storedName;
-    $base64 = base64_encode((string)file_get_contents($dest));
-
-    return [
-        'base64' => $base64,
-        'mime' => $mime,
-        'fileName' => $fileName,
-        'kind' => $kind,
-        'relativePath' => $relativePath,
-        'path' => $dest,
-    ];
+    $binary = (string)file_get_contents($file['tmp_name']);
+    return $buildStoredUpload($binary, $mime, $fileName);
 }
 
 function studio_report_data(array $studio): array
