@@ -338,6 +338,7 @@ $payload = whatsapp_webhook_capture_request();
 
 $studioSessionKey = trim((string)($payload['studioSessionKey'] ?? $payload['sessionKey'] ?? $payload['studio_session_key'] ?? ''));
 $webhookToken = trim((string)($payload['webhookToken'] ?? $payload['webhook_token'] ?? ''));
+$statusEvent = !empty($payload['statusEvent']);
 if ($studioSessionKey !== '' || $webhookToken !== '') {
     $studio = null;
     if ($studioSessionKey !== '') {
@@ -361,6 +362,17 @@ if ($studioSessionKey !== '' || $webhookToken !== '') {
 
     if (!$studio) {
         whatsapp_webhook_log(['type' => 'incoming_message_without_studio', 'session_key' => $studioSessionKey, 'webhook_token_present' => $webhookToken !== '']);
+        whatsapp_webhook_respond_ok();
+    }
+
+    if ($statusEvent) {
+        whatsapp_webhook_log([
+            'type' => 'status_event',
+            'studio_id' => (int)$studio['id'],
+            'studio_session_key' => $studioSessionKey,
+            'status' => (string)($payload['status'] ?? ''),
+            'message' => (string)($payload['message'] ?? ''),
+        ]);
         whatsapp_webhook_respond_ok();
     }
 

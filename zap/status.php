@@ -59,6 +59,16 @@ if (($_POST['action'] ?? '') === 'clear_log') {
     exit;
 }
 
+if (($_POST['action'] ?? '') === 'clear_all_logs') {
+    foreach ([status_log_path(), APP_BASE_PATH . '/services/whatsapp/whatsapp_service.log'] as $logPath) {
+        if (is_file($logPath)) {
+            file_put_contents($logPath, '', LOCK_EX);
+        }
+    }
+    header('Location: status.php?key=' . urlencode((string)($_GET['key'] ?? '')));
+    exit;
+}
+
 $filters = ['type' => (string)($_GET['type'] ?? 'all')];
 $events = status_read_events($filters);
 $known = function_exists('studio_whatsapp_zap_local_config') ? studio_whatsapp_zap_local_config() : [];
@@ -86,8 +96,9 @@ $knownVerify = trim((string)($known['verify_token'] ?? 'zap_crm_daniel_2026'));
         </div>
         <div class="d-flex gap-2 flex-wrap">
             <a class="btn btn-outline-primary rounded-pill" href="replay_incoming.php?key=zap_crm_daniel_2026">replay</a>
-            <form method="post" class="d-inline">
-                <button class="btn btn-outline-danger rounded-pill" name="action" value="clear_log">limpar log</button>
+            <form method="post" class="d-inline d-flex gap-2 flex-wrap">
+                <button class="btn btn-outline-danger rounded-pill" name="action" value="clear_log">limpar webhook</button>
+                <button class="btn btn-outline-warning rounded-pill" name="action" value="clear_all_logs">limpar tudo</button>
             </form>
         </div>
     </div>
