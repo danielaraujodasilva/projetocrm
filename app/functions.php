@@ -148,6 +148,19 @@ function redirect_to(string $page = 'dashboard', array $params = []): never
     exit;
 }
 
+function redirect_to_url(string $url): never
+{
+    $url = trim($url);
+    if ($url === '') {
+        redirect_to('dashboard');
+    }
+    if (!preg_match('#^/[A-Za-z0-9._~/?=&%+\-#]*$#', $url)) {
+        redirect_to('dashboard');
+    }
+    header('Location: ' . $url);
+    exit;
+}
+
 function flash_set(string $type, string $message): void
 {
     $_SESSION['flash'] = ['type' => $type, 'message' => $message];
@@ -451,6 +464,7 @@ function require_admin(): array
 {
     $admin = current_admin();
     if (!$admin) {
+        $_SESSION['admin_return_to'] = (string)($_SERVER['REQUEST_URI'] ?? app_url('dashboard'));
         redirect_to('login');
     }
 

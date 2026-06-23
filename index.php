@@ -358,10 +358,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
         if ($action === 'login') {
             $email = (string)$_POST['email'];
             $password = (string)$_POST['password'];
+            $returnTo = trim((string)($_POST['return_to'] ?? $_SESSION['admin_return_to'] ?? ''));
+            unset($_SESSION['admin_return_to']);
             $identity = auth_identity_by_email($email);
             if ($identity['type'] === 'admin') {
                 if (login_admin($email, $password)) {
                     flash_set('success', 'Login administrativo realizado.');
+                    if ($returnTo !== '') {
+                        redirect_to_url($returnTo);
+                    }
                     redirect_to('dashboard');
                 }
                 flash_set('error', 'Email ou senha invalidos para o painel administrativo.');
@@ -381,6 +386,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             }
             if (login_admin($email, $password)) {
                 flash_set('success', 'Login administrativo realizado.');
+                if ($returnTo !== '') {
+                    redirect_to_url($returnTo);
+                }
                 redirect_to('dashboard');
             }
             if (login_studio_user($email, $password)) {
@@ -1694,10 +1702,14 @@ if (admin_count() === 0) {
 
 if ($page === 'login') {
     render_auth_page('Entrar na plataforma', 'O sistema identifica se o acesso é administrativo ou de estúdio e direciona para o local certo.', function () {
+        $returnTo = trim((string)($_SESSION['admin_return_to'] ?? ''));
         $emailHint = auth_identity_by_email((string)($_POST['email'] ?? ''));
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="login">';
+        if ($returnTo !== '') {
+            echo '<input type="hidden" name="return_to" value="' . h($returnTo) . '">';
+        }
         echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="admin@... ou acesso do estúdio"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
         echo '<div class="actions" style="justify-content:space-between;gap:10px;align-items:center">';
