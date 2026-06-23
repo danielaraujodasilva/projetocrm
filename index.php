@@ -3821,6 +3821,11 @@ echo 'scrollChatToLatest(true);';
 if ($page === 'studio_whatsapp_mobile') {
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
+    echo '<meta name="mobile-web-app-capable" content="yes">';
+    echo '<meta name="apple-mobile-web-app-capable" content="yes">';
+    echo '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
+    echo '<meta name="theme-color" content="#075e54">';
+    echo '<link rel="manifest" href="' . h(app_url('studio_whatsapp_manifest')) . '">';
     echo '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">';
     echo '<style>
         body.mobile-wa{background:#0b141a;color:#e9edef}
@@ -3889,8 +3894,8 @@ if ($page === 'studio_whatsapp_mobile') {
         @media (min-width: 980px){ .mobile-wa-body{display:block} .mobile-wa-list{min-height:calc(100vh - 90px)} .mobile-wa-chat{min-height:calc(100vh - 90px)} .mobile-wa-items{max-height:none} }
     </style>';
     echo '<div class="mobile-wa-shell">';
-    $mobileView = (string)($_GET['view'] ?? 'chat');
-    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>WhatsApp</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><span class="badge">Online</span><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
+    $mobileView = (string)($_GET['view'] ?? ((int)($_GET['id'] ?? 0) > 0 ? 'chat' : 'list'));
+    echo '<div class="mobile-wa-top"><div class="mobile-wa-title"><strong>Conversas</strong><span>' . h((string)($currentUser['name'] ?? 'Atendente')) . '</span></div><div class="mobile-wa-mini-topbar"><button type="button" class="mobile-wa-action" id="mobileRefreshButton" aria-label="Atualizar"><i class="fa-solid fa-rotate"></i></button><button type="button" class="mobile-wa-action" id="mobileQuickMenuButton" aria-label="Mais opções"><i class="fa-solid fa-ellipsis-vertical"></i></button></div></div>';
     if (!$currentUser) {
         echo '<div style="padding:14px;display:grid;gap:12px;max-width:720px;margin:0 auto;width:100%">';
         echo '<section class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08)">';
@@ -3938,8 +3943,9 @@ if ($page === 'studio_whatsapp_mobile') {
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
     $assignedUserName = $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '';
-    $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
     $isAdmin = studio_current_user_is_admin();
+    $canSendHere = $conversation && $currentUser && studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser);
+    $canAssumeHere = $conversation && $currentUser && $assignedUserId <= 0 && !$isAdmin;
     $listHref = app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => $filters['visibility']]);
     echo '<aside class="mobile-wa-list mobile-wa-view' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" id="mobileWaListPanel">';
     echo '<div class="mobile-wa-list-head"><strong>Conversas</strong><span class="mobile-wa-muted">' . h((string)count($conversations)) . '</span></div>';
@@ -3991,12 +3997,12 @@ if ($page === 'studio_whatsapp_mobile') {
     }
     echo '</div>';
     echo '</aside>';
-    echo '<section class="mobile-wa-chat mobile-wa-view' . ($conversation ? ' active' : '') . '" id="mobileWaChatPanel">';
+    echo '<section class="mobile-wa-chat mobile-wa-view' . ($conversation ? ' active' : '') . '" id="mobileWaChatPanel" data-conversation-id="' . h((string)$conversationId) . '">';
     if (!$conversation) {
         $loggedUserLabel = h((string)($currentUser['name'] ?? 'Atendente'));
         echo '<div class="mobile-wa-chat-body"><div class="mobile-wa-chat-head"><strong>Pronto para atender</strong><span class="mobile-wa-muted">Logado como ' . $loggedUserLabel . '</span></div><div class="mobile-wa-messages"><div class="mobile-wa-muted">' . h($isAdmin ? 'Toque em uma conversa para abrir.' : 'Toque em uma conversa livre ou atribuída a você para abrir.') . '</div></div></div>';
     } else {
-        echo '<div class="mobile-wa-backbar"><a class="mobile-wa-backbtn" href="' . h($listHref) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><div><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div></div></div>';
+        echo '<div class="mobile-wa-backbar"><a class="mobile-wa-backbtn" href="' . h($listHref) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><div class="wa-chat-avatar">' . h(strtoupper(substr(trim((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'W')))), 0, 1))) . '</div><div style="min-width:0;flex:1"><strong>' . h((string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))) ) . '</strong><div class="mobile-wa-muted">' . h((string)($conversation['phone'] ?? '')) . '</div><div class="mobile-wa-muted">' . h($assignedUserId <= 0 ? 'Livre' : ($assignedUserId === $currentUserId ? 'Assumida por você' : 'Assumida por ' . $assignedUserName)) . '</div></div><button type="button" class="mobile-wa-backbtn" id="mobileConversationMenuButton" aria-label="Mais opções"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '<div class="mobile-wa-chat-body">';
         echo '<div class="mobile-wa-actions" id="mobileQuickActions">';
         echo '<a class="mobile-wa-action primary" href="#mobileReplyMessage"><i class="fa-solid fa-reply"></i><span>Responder</span></a>';
@@ -4013,6 +4019,31 @@ if ($page === 'studio_whatsapp_mobile') {
             echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit"><i class="fa-solid fa-lock-open"></i><span>Liberar</span></button></form>';
         }
         echo '</div>';
+        echo '<div id="mobileConversationMenu" class="hidden" style="padding:0 12px 12px"><div class="panel" style="background:#111b21;color:#e9edef;border:1px solid rgba(255,255,255,.08);border-radius:18px"><div class="mobile-wa-actions">';
+        if ($canAssumeHere) {
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit">Assumir conversa</button></form>';
+        }
+        if ($currentUserId === $assignedUserId && $assignedUserId > 0) {
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action danger" type="submit">Liberar conversa</button></form>';
+        }
+        if ($isAdmin && $assignedUserId > 0) {
+            echo '<form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action">Desatribuir</button></form>';
+        }
+        if ($isAdmin && $assignedUserId > 0) {
+            echo '<form method="post" class="inline-form" style="margin:0;width:100%">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><select name="target_user_id" style="width:100%"><option value="">Transferir para...</option>';
+            foreach (studio_list_users($studio) as $studioUser) {
+                echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
+            }
+            echo '</select><button class="mobile-wa-action" type="submit">Transferir</button></form>';
+        }
+        if (!empty($conversation['customer_id'])) {
+            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener">Ver cliente</a>';
+        }
+        if (!empty($conversation['lead_id'])) {
+            echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener">Ver lead</a>';
+        }
+        echo '<a class="mobile-wa-action ghost" href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '" target="_blank" rel="noopener">Abrir workspace completo</a>';
+        echo '</div></div></div>';
         echo '<div class="mobile-wa-context">';
         echo '<a class="badge" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'all'])) . '">Todas</a>';
         echo '<a class="badge" href="' . h(app_url('studio_whatsapp_mobile', ['visibility' => 'free'])) . '">Livres</a>';
@@ -4053,8 +4084,11 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<input type="hidden" name="return_to_workspace" value="1">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
         echo '<textarea id="mobileReplyMessage" name="message" placeholder="Digite uma mensagem" ' . (!$canSendHere ? 'disabled' : '') . '></textarea>';
-        echo '<button class="mobile-wa-btn" type="submit" ' . (!$canSendHere ? 'disabled' : '') . '>Enviar</button>';
+        echo '<button class="mobile-wa-btn" type="submit" ' . (!$canSendHere ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button>';
         echo '</form>';
+        if ($assignedUserId <= 0 && !$isAdmin) {
+            echo '<div class="mobile-wa-assignment"><form method="post" class="inline-form" style="margin:0">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile" value="1"><button class="mobile-wa-action warn" type="submit">Assumir conversa para responder</button></form></div>';
+        }
         if (!$canSendHere) {
             echo '<div class="mobile-wa-assignment"><span class="mobile-wa-muted">Você pode visualizar, mas não interagir com esta conversa.</span></div>';
         }
@@ -4098,13 +4132,131 @@ if ($page === 'studio_whatsapp_mobile') {
     echo '</div>';
     echo '<div class="mobile-wa-bottom-nav">';
     echo '<a class="nav-chip' . ($mobileView === 'list' || !$conversation ? ' active' : '') . '" href="' . h($listHref) . '"><i class="fa-solid fa-comments"></i><span>Conversas</span></a>';
-    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'free', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
-    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'mine', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
-    echo '<a class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" href="#mobileQuickActions"><i class="fa-solid fa-bolt"></i><span>Ações</span></a>';
+    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'free'])) . '"><i class="fa-regular fa-square"></i><span>Livres</span></a>';
+    echo '<a class="nav-chip" href="' . h(app_url('studio_whatsapp_mobile', ['view' => 'list', 'visibility' => 'mine'])) . '"><i class="fa-solid fa-user-check"></i><span>Minhas</span></a>';
+    echo '<a class="nav-chip' . ($mobileView === 'actions' ? ' active' : '') . '" href="#mobileConversationMenu"><i class="fa-solid fa-bolt"></i><span>Ações</span></a>';
     echo '</div>';
     echo '</div>';
-    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");const schedulePanel=document.getElementById("mobileSchedulePanel");const openSchedule=document.getElementById("mobileOpenSchedule");const quickMenu=document.getElementById("mobileQuickMenuButton");if(messages){messages.scrollTop=messages.scrollHeight;} openSchedule?.addEventListener("click",()=>schedulePanel?.classList.toggle("hidden")); quickMenu?.addEventListener("click",()=>{ const target=document.getElementById("mobileQuickActions"); if(target){ target.scrollIntoView({behavior:"smooth", block:"start"}); } }); search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }});})();</script>';
+    echo '<script>(function(){const list=document.getElementById("mobileWaItems");const search=document.getElementById("mobileWaSearch");const composer=document.getElementById("mobileChatComposer");const textarea=document.getElementById("mobileReplyMessage");const messages=document.getElementById("mobileWaMessages");const schedulePanel=document.getElementById("mobileSchedulePanel");const openSchedule=document.getElementById("mobileOpenSchedule");const quickMenu=document.getElementById("mobileQuickMenuButton");const refreshButton=document.getElementById("mobileRefreshButton");const conversationPanel=document.getElementById("mobileWaChatPanel");const conversationId=conversationPanel?.dataset.conversationId||"";let lastSnapshot="";function snapshot(){return [conversationId,messages?.textContent?.length||0,list?.textContent?.length||0].join("|");}function maybeReload(){if(document.activeElement===textarea) return; const now=snapshot(); if(lastSnapshot && now!==lastSnapshot){ location.reload(); } lastSnapshot=now; }if(messages){messages.scrollTop=messages.scrollHeight;} refreshButton?.addEventListener("click",()=>location.reload()); openSchedule?.addEventListener("click",()=>schedulePanel?.classList.toggle("hidden")); quickMenu?.addEventListener("click",()=>{ const target=document.getElementById("mobileConversationMenu"); if(target){ target.classList.toggle("hidden"); target.scrollIntoView({behavior:"smooth", block:"start"}); } }); search?.addEventListener("input",()=>{const q=search.value.trim().toLowerCase(); list?.querySelectorAll(".mobile-wa-item").forEach((item)=>{ const hay=(item.textContent||"").toLowerCase(); item.style.display=!q || hay.includes(q) ? "" : "none"; });}); composer?.addEventListener("submit", async (event)=>{ event.preventDefault(); const hasText=!!textarea?.value.trim(); const formData=new FormData(composer); if(!hasText) return; try{ const response=await fetch(window.location.pathname+window.search,{ method:"POST", body:formData }); if(!response.ok) throw new Error("Nao foi possivel enviar a mensagem."); if(textarea) textarea.value=""; location.reload(); }catch(error){ alert(error.message||"Erro ao enviar mensagem"); }}); setInterval(async()=>{ try{ if(conversationId){ const url=new URL(window.location.href); url.searchParams.set("page","studio_whatsapp_mobile_api"); url.searchParams.set("action","messages"); url.searchParams.set("id",conversationId); const response=await fetch(url.toString(),{ credentials:"same-origin" }); const data=await response.json().catch(()=>null); if(data?.ok){ const nextSnapshot=String(data.conversation?.last_message_at||"")+"|"+String(data.messages?.length||0); if(lastSnapshot && nextSnapshot!==lastSnapshot && document.activeElement!==textarea){ location.reload(); return; } lastSnapshot=nextSnapshot; } } else { const url=new URL(window.location.href); url.searchParams.set("page","studio_whatsapp_mobile_api"); url.searchParams.set("action","list"); url.searchParams.set("visibility","all"); const response=await fetch(url.toString(),{ credentials:"same-origin" }); const data=await response.json().catch(()=>null); if(data?.ok){ const nextSnapshot=String(data.items?.length||0); if(lastSnapshot && nextSnapshot!==lastSnapshot){ location.reload(); return; } lastSnapshot=nextSnapshot; } } } catch(error){} }, 8000); lastSnapshot=snapshot();})();</script>';
     echo '</body></html>';
+    exit;
+}
+
+if ($page === 'studio_whatsapp_mobile_api') {
+    $currentUser = current_studio_user();
+    if (!$currentUser) {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => 'unauthorized'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    $studio = get_studio((int)($currentUser['studio_id'] ?? 0));
+    if (!$studio) {
+        http_response_code(404);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => 'studio_not_found'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    $action = (string)($_GET['action'] ?? '');
+    $isAdmin = studio_current_user_is_admin();
+    header('Content-Type: application/json; charset=utf-8');
+    if ($action === 'list') {
+        $visibility = (string)($_GET['visibility'] ?? 'all');
+        $filters = [
+            'q' => (string)($_GET['q'] ?? ''),
+            'visibility' => $visibility === '' ? 'all' : $visibility,
+        ];
+        $rows = studio_list_whatsapp_conversations($studio, $filters, 40);
+        $items = [];
+        foreach ($rows as $row) {
+            $assignedUserId = (int)($row['assigned_user_id'] ?? 0);
+            if (!$isAdmin && $assignedUserId > 0 && $assignedUserId !== (int)$currentUser['id']) {
+                continue;
+            }
+            $items[] = [
+                'id' => (int)($row['id'] ?? 0),
+                'name' => (string)($row['customer_name'] ?: ($row['lead_name'] ?: ($row['name'] ?: 'Contato WhatsApp'))),
+                'phone' => (string)($row['phone'] ?? ''),
+                'preview' => trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? '')),
+                'message_last_at' => (string)($row['message_last_at'] ?? $row['updated_at'] ?? ''),
+                'assigned_user_id' => $assignedUserId,
+                'assigned_user_name' => $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '',
+                'unread_count' => studio_whatsapp_unread_count($row, $studio),
+                'can_view' => true,
+                'can_assume' => $assignedUserId <= 0 && !empty($currentUser),
+                'can_reply' => $assignedUserId === (int)$currentUser['id'] || $isAdmin,
+            ];
+        }
+        echo json_encode(['ok' => true, 'items' => $items], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    if ($action === 'messages') {
+        $conversationId = (int)($_GET['id'] ?? 0);
+        $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+        if (!$conversation) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'conversation_not_found'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+        $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
+        if (!$isAdmin && $assignedUserId > 0 && $assignedUserId !== (int)$currentUser['id']) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'forbidden'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+        $messages = studio_whatsapp_messages($studio, $conversationId, 100, $conversation);
+        echo json_encode([
+            'ok' => true,
+            'conversation' => [
+                'id' => (int)$conversation['id'],
+                'name' => (string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: 'Contato WhatsApp'))),
+                'phone' => (string)($conversation['phone'] ?? ''),
+                'assigned_user_id' => $assignedUserId,
+                'assigned_user_name' => $assignedUserId > 0 ? studio_user_label_by_id($assignedUserId) : '',
+                'unread_count' => studio_whatsapp_unread_count($conversation, $studio),
+                'last_message_at' => (string)($conversation['last_message_at'] ?? $conversation['updated_at'] ?? ''),
+                'last_message_direction' => (string)($conversation['last_message_direction'] ?? ''),
+            ],
+            'messages' => array_map(static function (array $message): array {
+                return [
+                    'id' => (int)($message['id'] ?? 0),
+                    'direction' => (string)($message['direction'] ?? 'in'),
+                    'sender_type' => (string)($message['sender_type'] ?? 'customer'),
+                    'body' => (string)($message['body'] ?? ''),
+                    'media_url' => (string)($message['media_url'] ?? ''),
+                    'media_mime' => (string)($message['media_mime'] ?? ''),
+                    'media_file_name' => (string)($message['media_file_name'] ?? ''),
+                    'message_type' => (string)($message['message_type'] ?? 'texto'),
+                    'message_id' => (string)($message['message_id'] ?? ''),
+                    'sent_at' => (string)($message['sent_at'] ?? ''),
+                    'status' => (string)($message['status'] ?? ''),
+                    'transcricao' => (string)($message['transcricao'] ?? ''),
+                    'transcript' => (string)($message['transcript'] ?? ''),
+                    'transcricao_erro' => (string)($message['transcricao_erro'] ?? ''),
+                ];
+            }, $messages),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'invalid_action'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+if ($page === 'studio_whatsapp_manifest') {
+    header('Content-Type: application/manifest+json; charset=utf-8');
+    echo json_encode([
+        'name' => 'CRM WhatsApp',
+        'short_name' => 'Zap CRM',
+        'start_url' => app_url('studio_whatsapp_mobile'),
+        'scope' => app_base_path() . '/',
+        'display' => 'standalone',
+        'background_color' => '#0b141a',
+        'theme_color' => '#075e54',
+        'icons' => [
+            ['src' => app_asset_url('assets/wa-icon.svg'), 'sizes' => 'any', 'type' => 'image/svg+xml'],
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
