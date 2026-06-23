@@ -5795,7 +5795,7 @@ if ($page === 'studio_attendants') {
             echo '<div class="field"><label>Nome</label><input name="name" value="' . h($editingUser['name'] ?? ($studio['owner_name'] ?? '')) . '" required></div>';
             echo '<div class="field"><label>Email de login</label><input type="text" inputmode="email" name="email" value="' . h($editingUser['email'] ?? ($studio['owner_email'] ?? '')) . '" required></div>';
             echo '<div class="field"><label>Senha ' . h($editingUser ? '(opcional para manter)' : '(obrigatória)') . '</label><input type="password" name="password" minlength="8" ' . ($editingUser ? '' : 'required') . '></div>';
-            echo '</div><button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
+            echo '</div>';
             echo '<div class="grid cols-3" style="margin-top:12px">';
             echo '<div class="field"><label>Papel</label><select name="role">';
             foreach (['attendant' => 'Atendente', 'admin' => 'Administrador do estúdio', 'owner' => 'Dono'] as $value => $label) {
@@ -5806,6 +5806,7 @@ if ($page === 'studio_attendants') {
             echo '<div class="field"><label>Status</label><select name="is_active"><option value="1"' . (!isset($editingUser['is_active']) || !empty($editingUser['is_active']) ? ' selected' : '') . '>Ativo</option><option value="0"' . (isset($editingUser['is_active']) && empty($editingUser['is_active']) ? ' selected' : '') . '>Inativo</option></select></div>';
             echo '<div class="field"><label>Dica</label><div class="muted">Salvar sem senha mantém a senha atual do atendente editado.</div></div>';
             echo '</div>';
+            echo '<button class="btn" type="submit">Salvar acesso do estúdio</button></form>';
             echo '</section>';
         }
     }, $flash);
