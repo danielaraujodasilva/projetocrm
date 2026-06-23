@@ -562,6 +562,12 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             studio_save_appointment($studio, $_POST);
             flash_set('success', 'Agenda salva.');
+            if (!empty($_POST['return_to_mobile'])) {
+                redirect_to('studio_whatsapp_mobile', array_filter([
+                    'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
+                    'visibility' => 'all',
+                ], static fn($value) => $value !== null && $value !== ''));
+            }
             if (!empty($_POST['return_to_workspace'])) {
                 redirect_to('studio_whatsapp_workspace');
             }
@@ -4019,14 +4025,30 @@ if ($page === 'studio_whatsapp_mobile') {
         echo '<p class="muted">Atalho rápido para organizar a próxima visita sem sair do atendimento.</p>';
         echo '<form method="post" action="' . h(app_url('index.php')) . '" class="form">';
         echo csrf_field();
-        echo '<input type="hidden" name="action" value="update_whatsapp_conversation">';
+        echo '<input type="hidden" name="action" value="save_appointment">';
         echo '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">';
+        echo '<input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '">';
+        echo '<input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '">';
+        echo '<input type="hidden" name="import_source" value="whatsapp">';
+        echo '<input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '">';
         echo '<input type="hidden" name="return_to_mobile" value="1">';
         echo '<div class="grid-2">';
-        echo '<div class="field"><label>Data</label><input type="date" name="appointment_date"></div>';
-        echo '<div class="field"><label>Hora</label><input type="time" name="appointment_time"></div>';
+        echo '<div class="field"><label>Título</label><input name="title" required value="' . h((string)($conversation['lead_interest'] ?: 'Atendimento')) . '"></div>';
+        echo '<div class="field"><label>Tatuador</label><select name="artist_id">';
+        render_artist_options($artists, default_artist_id($studio) ?? 0);
+        echo '</select></div>';
+        echo '<div class="field"><label>Data</label><input type="date" name="appointment_date" value="' . h((string)($scheduleSuggestion['date'] ?? date('Y-m-d'))) . '" required></div>';
+        echo '<div class="field"><label>Início</label><input type="time" name="start_time" value="' . h((string)($scheduleSuggestion['time'] ?? '09:00')) . '" required></div>';
+        echo '<div class="field"><label>Fim</label><input type="time" name="end_time" value="' . h((string)($scheduleSuggestion['end_time'] ?? '10:00')) . '" required></div>';
+        echo '<div class="field"><label>Status</label><select name="status">';
+        render_options(appointment_status_options(), 'pre_agendado');
+        echo '</select></div>';
         echo '</div>';
-        echo '<div class="field"><label>Observação</label><textarea name="notes" rows="3" placeholder="Ex.: cliente quer avaliar desenho maior"></textarea></div>';
+        echo '<div class="grid-2">';
+        echo '<div class="field"><label>Valor</label><input name="price" placeholder="0,00"></div>';
+        echo '<div class="field"><label>Sinal</label><input name="deposit_amount" placeholder="0,00"></div>';
+        echo '</div>';
+        echo '<div class="field"><label>Descrição</label><textarea name="description" rows="3" placeholder="Ex.: cliente quer avaliar desenho maior"></textarea></div>';
         echo '<button class="mobile-wa-btn" type="submit">Salvar agendamento</button>';
         echo '</form>';
         echo '</section>';
