@@ -2380,20 +2380,28 @@ function studio_whatsapp_mark_unread(array $studio, int $conversationId): void
 
 function studio_whatsapp_unread_count(array $conversation, array $studio): int
 {
-    $readAt = studio_whatsapp_get_read_at($studio, (int)($conversation['id'] ?? 0));
-    $lastRead = $readAt !== '' ? strtotime($readAt) : 0;
-    $lastIncoming = trim((string)($conversation['last_incoming_at'] ?? ''));
-    if ($lastIncoming === '') {
+    $conversationId = (int)($conversation['id'] ?? 0);
+    if ($conversationId <= 0) {
         return 0;
     }
 
-    $incomingTs = strtotime($lastIncoming);
-    if ($incomingTs === false || $incomingTs <= $lastRead) {
-        return 0;
+    $readAt = studio_whatsapp_get_read_at($studio, $conversationId);
+    $readTs = $readAt !== '' ? strtotime($readAt) : false;
+
+    $sql = 'SELECT COUNT(*)
+            FROM whatsapp_messages
+            WHERE conversation_id = ?
+              AND (direction = "in" OR sender_type = "customer")';
+    $params = [$conversationId];
+    if ($readTs !== false && $readTs > 0) {
+        $sql .= ' AND sent_at > ?';
+        $params[] = date('Y-m-d H:i:s', $readTs);
     }
 
-    $totalMessages = max(1, (int)($conversation['message_count'] ?? 1));
-    return min(99, $totalMessages);
+    $stmt = studio_db($studio)->prepare($sql);
+    $stmt->execute($params);
+
+    return min(99, max(0, (int)$stmt->fetchColumn()));
 }
 
 function studio_update_whatsapp_conversation(array $studio, array $data): void
