@@ -233,23 +233,6 @@
     return String(value || '').split(';')[0].trim() || 'audio/webm';
   }
 
-  function cleanFileMime(value) {
-    return String(value || '').split(';')[0].trim() || 'application/octet-stream';
-  }
-
-  function readFileAsDataUrl(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        resolve(String(reader.result || ''));
-      };
-      reader.onerror = function () {
-        reject(reader.error || new Error('Nao foi possivel ler o anexo.'));
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function toggleRecording(event) {
     stop(event);
     if (textarea && textarea.disabled) return;
@@ -326,18 +309,7 @@
       body.set('return_to_mobile2', '1');
       body.set('return_to_workspace', '0');
       if (file) {
-        var fileName = file.name || 'audio.webm';
-        body.set('media_intent', '1');
-        body.set('m2_media_intent', '1');
-        body.set('media_file_name', fileName);
-        body.set('media_mime', cleanFileMime(file.type));
-
-        if (window.FileReader && Number(file.size || 0) > 0 && Number(file.size || 0) <= (5 * 1024 * 1024)) {
-          body.delete('media_file');
-          body.set('media_base64', await readFileAsDataUrl(file));
-        } else {
-          body.set('media_file', file, fileName);
-        }
+        body.set('media_file', file, file.name || 'audio.webm');
       }
 
       var response = await fetch(window.location.pathname + window.location.search, {
