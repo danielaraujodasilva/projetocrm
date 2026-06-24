@@ -195,6 +195,60 @@ body {
     -webkit-overflow-scrolling: touch;
 }
 
+.m2-bulk-form {
+    display: contents;
+}
+
+.m2-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 10px 12px 6px;
+    background: var(--m2-panel);
+    border-top: 1px solid var(--m2-border);
+}
+
+.m2-select-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .86rem;
+    color: var(--m2-text);
+}
+
+.m2-select-all input,
+.m2-select-row input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--m2-accent);
+}
+
+.m2-bulk-count {
+    color: var(--m2-muted);
+    font-size: .8rem;
+    white-space: nowrap;
+}
+
+.m2-bulk-delete {
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 0;
+    background: var(--m2-danger);
+    color: #fff;
+    font-weight: 700;
+}
+
+.m2-bulk-delete:disabled {
+    opacity: .5;
+}
+
+.m2-items-admin {
+    padding-top: 6px;
+}
+
 .m2-item {
     display: grid;
     grid-template-columns: 46px minmax(0, 1fr) auto;
@@ -207,9 +261,52 @@ body {
     text-decoration: none;
 }
 
+.m2-item-admin {
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: stretch;
+}
+
 .m2-item:hover,
 .m2-item.active {
     background: #202c33;
+}
+
+.m2-item-link {
+    display: grid;
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+    flex: 1 1 auto;
+}
+
+.m2-item-admin .m2-item-link {
+    min-width: 0;
+}
+
+.m2-select-row {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    cursor: pointer;
+}
+
+.m2-select-row span {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, .28);
+    background: rgba(255, 255, 255, .03);
+}
+
+.m2-select-row input:checked + span {
+    background: var(--m2-accent);
+    border-color: var(--m2-accent);
+    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .16);
 }
 
 .m2-item span:nth-child(2) {

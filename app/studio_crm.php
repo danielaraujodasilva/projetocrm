@@ -532,6 +532,70 @@ function studio_transfer_whatsapp_conversation(array $studio, int $conversationI
     studio_db($studio)->prepare('UPDATE whatsapp_conversations SET assigned_user_id = ?, assigned_at = NOW(), assigned_by_user_id = ?, released_at = NULL, locked_at = NOW(), updated_at = NOW() WHERE id = ?')->execute([$toUserId, $byUserId, $conversationId]);
 }
 
+function studio_delete_whatsapp_conversations(array $studio, array $conversationIds, ?array $actor = null): array
+{
+    $conversationIds = array_values(array_unique(array_filter(array_map('intval', $conversationIds), static fn(int $id): bool => $id > 0)));
+    if (!$conversationIds) {
+        return ['ok' => false, 'error' => 'Nenhuma conversa selecionada.'];
+    }
+    if (!studio_current_user_is_admin()) {
+        return ['ok' => false, 'error' => 'Apenas administradores podem excluir conversas.'];
+    }
+
+    $pdo = studio_db($studio);
+    $placeholders = implode(',', array_fill(0, count($conversationIds), '?'));
+    $deletedMessages = 0;
+    $deletedConversations = 0;
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT id, phone, name FROM whatsapp_conversations WHERE id IN (' . $placeholders . ')');
+        $stmt->execute($conversationIds);
+        $rows = $stmt->fetchAll() ?: [];
+
+        $stmt = $pdo->prepare('DELETE FROM whatsapp_messages WHERE conversation_id IN (' . $placeholders . ')');
+        $stmt->execute($conversationIds);
+        $deletedMessages = $stmt->rowCount();
+
+        $stmt = $pdo->prepare('DELETE FROM whatsapp_conversations WHERE id IN (' . $placeholders . ')');
+        $stmt->execute($conversationIds);
+        $deletedConversations = $stmt->rowCount();
+
+        $pdo->commit();
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            studio_whatsapp_event_log($studio, [
+                'provider' => 'system',
+                'event_type' => 'conversation_deleted',
+                'direction' => 'system',
+                'phone' => (string)($row['phone'] ?? ''),
+                'conversation_id' => (int)($row['id'] ?? 0),
+                'status' => 'deleted',
+                'payload' => [
+                    'name' => (string)($row['name'] ?? ''),
+                    'deleted_by_user_id' => (int)($actor['id'] ?? 0),
+                ],
+            ]);
+        }
+
+        return [
+            'ok' => true,
+            'deleted_conversations' => $deletedConversations,
+            'deleted_messages' => $deletedMessages,
+            'ids' => $conversationIds,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return ['ok' => false, 'error' => $e->getMessage()];
+    }
+}
+
 function crm_whatsapp_official_apply_defaults(array $studio): void
 {
     $settings = studio_settings($studio);

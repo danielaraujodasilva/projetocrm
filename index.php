@@ -1132,6 +1132,33 @@ if ($action === 'studio_login') {
             ], static fn($value) => $value !== null && $value !== ''));
         }
 
+        if ($action === 'mobile_delete_whatsapp_conversations') {
+            csrf_verify();
+            $studio = require_studio();
+            $currentUser = current_studio_user();
+            if (!$currentUser || !studio_current_user_is_admin()) {
+                flash_set('error', 'Apenas administradores podem excluir conversas.');
+                redirect_to('studio_whatsapp_mobile');
+            }
+
+            $conversationIds = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['conversation_ids'] ?? [])), static fn(int $id): bool => $id > 0)));
+            $result = studio_delete_whatsapp_conversations($studio, $conversationIds, $currentUser);
+            if (empty($result['ok'])) {
+                flash_set('error', (string)($result['error'] ?? 'Nao foi possivel excluir as conversas.'));
+            } else {
+                flash_set('success', (int)($result['deleted_conversations'] ?? 0) . ' conversas excluidas.');
+            }
+
+            redirect_to('studio_whatsapp_mobile', array_filter([
+                'filter' => (string)($_POST['filter'] ?? $_GET['filter'] ?? 'all'),
+                'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
+                'visibility' => (string)($_POST['visibility'] ?? $_GET['visibility'] ?? 'all'),
+                'date_filter' => (string)($_POST['date_filter'] ?? $_GET['date_filter'] ?? ''),
+                'date_from' => (string)($_POST['date_from'] ?? $_GET['date_from'] ?? ''),
+                'date_to' => (string)($_POST['date_to'] ?? $_GET['date_to'] ?? ''),
+            ], static fn($value) => $value !== null && $value !== ''));
+        }
+
         if ($action === 'update_whatsapp_conversation') {
             $studio = require_studio();
             studio_update_whatsapp_conversation($studio, $_POST);
@@ -2073,7 +2100,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
 
     echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '">';
     echo '<aside class="m2-list" id="m2ListPanel">';
-    echo '<header class="m2-top"><strong>WhatsApp</strong><span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button><a class="m2-icon" href="' . h(app_url('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : [])) . '" aria-label="Workspace" title="Abrir desktop"><i class="fa-solid fa-display"></i></a></span></header>';
+    echo '<header class="m2-top"><strong>WhatsApp</strong>' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . '<span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button><a class="m2-icon" href="' . h(app_url('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : [])) . '" aria-label="Workspace" title="Abrir desktop"><i class="fa-solid fa-display"></i></a></span></header>';
     echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
     echo '<div class="m2-filter-strip">';
     $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
@@ -2110,7 +2137,19 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     ], static fn($value) => $value !== null && $value !== ''));
     echo '<a class="' . h($todayActive ? 'active' : '') . '" href="' . h($todayHref) . '">Hoje</a>';
     echo '</div>';
-    echo '<nav class="m2-items" id="m2Items">';
+    if ($isAdmin) {
+        echo '<form id="m2BulkDeleteForm" class="m2-bulk-form" method="post">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="mobile_delete_whatsapp_conversations">';
+        echo '<input type="hidden" name="filter" value="' . h($filters['filter']) . '">';
+        echo '<input type="hidden" name="visibility" value="' . h($filters['visibility']) . '">';
+        echo '<input type="hidden" name="date_filter" value="' . h($filters['date_filter']) . '">';
+        echo '<input type="hidden" name="date_from" value="' . h($filters['date_from']) . '">';
+        echo '<input type="hidden" name="date_to" value="' . h($filters['date_to']) . '">';
+        echo '<input type="hidden" name="q" value="' . h($filters['q']) . '">';
+        echo '<div class="m2-bulk-bar"><label class="m2-select-all"><input type="checkbox" id="m2SelectAllConversations"><span>Selecionar tudo</span></label><span class="m2-bulk-count" id="m2BulkCount">0 selecionadas</span><button class="m2-bulk-delete" type="submit" id="m2DeleteSelectedConversations" disabled>Excluir selecionadas</button></div>';
+    }
+    echo '<nav class="m2-items' . ($isAdmin ? ' m2-items-admin' : '') . '" id="m2Items">';
     foreach ($conversations as $row) {
         $rowId = (int)($row['id'] ?? 0);
         $rowName = $labelForConversation($row);
@@ -2121,9 +2160,18 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
         $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
         $rowMode = ((string)($row['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano';
-        echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h(strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview)) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
+        $searchText = strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview);
+        if ($isAdmin) {
+            echo '<div class="m2-item m2-item-admin' . h($active) . '" data-conversation-id="' . h((string)$rowId) . '" data-search="' . h($searchText) . '"><label class="m2-select-row"><input class="m2-conversation-checkbox" type="checkbox" name="conversation_ids[]" value="' . h((string)$rowId) . '"><span></span></label><a class="m2-item-link" href="' . h($href) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a></div>';
+        } else {
+            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
+        }
     }
-    echo '</nav></aside>';
+    echo '</nav>';
+    if ($isAdmin) {
+        echo '</form>';
+    }
+    echo '</aside>';
 
     echo '<section class="m2-chat' . (!$conversation ? ' empty' : '') . '" id="m2ChatPanel">';
     if (!$conversation) {

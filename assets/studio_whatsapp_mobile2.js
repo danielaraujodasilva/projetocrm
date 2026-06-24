@@ -23,6 +23,10 @@
   var openAppointmentButton = document.getElementById('m2OpenAppointment');
   var appointmentPanel = document.getElementById('m2AppointmentPanel');
   var openAppointmentFromTools = document.getElementById('m2OpenAppointmentFromTools');
+  var bulkDeleteForm = document.getElementById('m2BulkDeleteForm');
+  var selectAllConversations = document.getElementById('m2SelectAllConversations');
+  var deleteSelectedConversations = document.getElementById('m2DeleteSelectedConversations');
+  var bulkCount = document.getElementById('m2BulkCount');
   var csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
   var recordedFile = null;
   var recorder = null;
@@ -74,6 +78,31 @@
 
   function normalize(value) {
     return String(value || '').toLocaleLowerCase('pt-BR');
+  }
+
+  function conversationCheckboxes() {
+    return Array.prototype.slice.call(document.querySelectorAll('.m2-conversation-checkbox'));
+  }
+
+  function updateBulkSelectionUi() {
+    if (!selectAllConversations && !deleteSelectedConversations && !bulkCount) return;
+    var boxes = conversationCheckboxes();
+    var checked = boxes.filter(function (box) { return box.checked; });
+    var visibleBoxes = boxes.filter(function (box) {
+      var item = box.closest('.m2-item');
+      return item ? !item.hidden : true;
+    });
+    if (bulkCount) {
+      bulkCount.textContent = checked.length + ' selecionadas';
+    }
+    if (deleteSelectedConversations) {
+      deleteSelectedConversations.disabled = checked.length === 0;
+    }
+    if (selectAllConversations) {
+      var visibleChecked = visibleBoxes.filter(function (box) { return box.checked; });
+      selectAllConversations.checked = visibleBoxes.length > 0 && visibleChecked.length === visibleBoxes.length;
+      selectAllConversations.indeterminate = visibleChecked.length > 0 && visibleChecked.length < visibleBoxes.length;
+    }
   }
 
   function autoResizeTextarea() {
@@ -699,6 +728,7 @@
         var haystack = normalize(item.getAttribute('data-search'));
         item.hidden = query !== '' && haystack.indexOf(query) === -1;
       });
+      updateBulkSelectionUi();
     });
   }
 
@@ -801,6 +831,41 @@
   if (form) {
     form.addEventListener('submit', sendForm);
   }
+
+  if (bulkDeleteForm) {
+    bulkDeleteForm.addEventListener('submit', function (event) {
+      var selected = conversationCheckboxes().filter(function (box) { return box.checked; });
+      if (!selected.length) {
+        stop(event);
+        alert('Selecione pelo menos uma conversa.');
+        return;
+      }
+      var answer = window.confirm('Excluir ' + selected.length + ' conversa(s)? Essa ação apaga mensagens e histórico.');
+      if (!answer) {
+        stop(event);
+      }
+    });
+  }
+
+  if (selectAllConversations) {
+    selectAllConversations.addEventListener('change', function () {
+      var boxes = conversationCheckboxes();
+      boxes.forEach(function (box) {
+        var item = box.closest('.m2-item');
+        if (item && item.hidden) return;
+        box.checked = selectAllConversations.checked;
+      });
+      updateBulkSelectionUi();
+    });
+  }
+
+  document.addEventListener('change', function (event) {
+    if (event.target && event.target.classList && event.target.classList.contains('m2-conversation-checkbox')) {
+      updateBulkSelectionUi();
+    }
+  });
+
+  updateBulkSelectionUi();
 
   document.addEventListener('click', function (event) {
     var audioToggle = event.target.closest('.m2-audio-toggle');
