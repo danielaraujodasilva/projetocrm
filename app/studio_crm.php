@@ -2388,14 +2388,32 @@ function studio_whatsapp_unread_count(array $conversation, array $studio): int
     $readAt = studio_whatsapp_get_read_at($studio, $conversationId);
     $readTs = $readAt !== '' ? strtotime($readAt) : false;
 
+    $stmt = studio_db($studio)->prepare(
+        'SELECT MAX(sent_at)
+         FROM whatsapp_messages
+         WHERE conversation_id = ?
+           AND (direction = "out" OR sender_type IN ("human", "bot", "system") OR from_me = 1)'
+    );
+    $stmt->execute([$conversationId]);
+    $lastOutgoingAt = trim((string)$stmt->fetchColumn());
+    $lastOutgoingTs = $lastOutgoingAt !== '' ? strtotime($lastOutgoingAt) : false;
+
+    $cutoffTs = 0;
+    if ($readTs !== false && $readTs > $cutoffTs) {
+        $cutoffTs = $readTs;
+    }
+    if ($lastOutgoingTs !== false && $lastOutgoingTs > $cutoffTs) {
+        $cutoffTs = $lastOutgoingTs;
+    }
+
     $sql = 'SELECT COUNT(*)
             FROM whatsapp_messages
             WHERE conversation_id = ?
               AND (direction = "in" OR sender_type = "customer")';
     $params = [$conversationId];
-    if ($readTs !== false && $readTs > 0) {
+    if ($cutoffTs > 0) {
         $sql .= ' AND sent_at > ?';
-        $params[] = date('Y-m-d H:i:s', $readTs);
+        $params[] = date('Y-m-d H:i:s', $cutoffTs);
     }
 
     $stmt = studio_db($studio)->prepare($sql);
