@@ -1280,20 +1280,25 @@ function studio_whatsapp_ai_timeout(array $studio): int
 
 function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
-    if (!plan_allows('ai')) {
+    if (empty(studio_settings($studio)['ai_enabled'])) {
         try {
             studio_update_whatsapp_conversation($studio, [
                 'conversation_id' => (int)$conversation['id'],
-                'ai_last_status' => 'IA indisponivel no plano atual',
+                'ai_last_status' => 'IA desativada nas configuracoes',
             ]);
         } catch (Throwable) {
         }
-        return ['ok' => false, 'error' => 'Os recursos de IA estão disponíveis no plano Avançado.'];
+        return ['ok' => false, 'error' => 'IA desativada nas configuracoes.'];
     }
 
     $sessionKey = studio_session_key($studio);
     if ($sessionKey === '') {
         return ['ok' => false, 'error' => 'Sessao WhatsApp invalida.'];
+    }
+
+    $incomingMessageId = trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? ''));
+    if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
+        return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
     }
 
     try {
@@ -1310,19 +1315,27 @@ function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, arra
         return ['ok' => false, 'error' => 'Worker de IA nao encontrado.'];
     }
 
-    $logFile = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'services' . DIRECTORY_SEPARATOR . 'whatsapp' . DIRECTORY_SEPARATOR . 'whatsapp_service.log';
+    $logDir = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+    $logFile = $logDir . DIRECTORY_SEPARATOR . 'whatsapp_ai_worker.log';
     $launcher = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'projetocrm_ai_worker_' . uniqid() . '.cmd';
     $lines = [
         '@echo off',
         'cd /d "' . str_replace('"', '', dirname($worker)) . '"',
         'echo [%date% %time%] [ai-worker-launcher] start >> "' . str_replace('"', '', $logFile) . '"',
-        '"' . str_replace('"', '', $php) . '" "' . str_replace('"', '', $worker) . '" "' . str_replace('"', '', $sessionKey) . '" "' . (string)((int)$conversation['id']) . '" "' . str_replace('"', '', trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? ''))) . '" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
+        '"' . str_replace('"', '', $php) . '" "' . str_replace('"', '', $worker) . '" "' . str_replace('"', '', $sessionKey) . '" "' . (string)((int)$conversation['id']) . '" "' . str_replace('"', '', $incomingMessageId) . '"',
     ];
     if (file_put_contents($launcher, implode("\r\n", $lines) . "\r\n") === false) {
         return ['ok' => false, 'error' => 'Nao consegui preparar o worker de IA.'];
     }
 
-    $command = 'cmd /c start "" /B ' . studio_windows_cmd_arg($launcher) . ' > NUL 2>&1';
+    if (PHP_OS_FAMILY === 'Windows') {
+        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -WindowStyle Hidden -FilePath ' . studio_windows_cmd_arg($launcher) . '"';
+    } else {
+        $command = 'nohup ' . escapeshellarg($launcher) . ' > /dev/null 2>&1 &';
+    }
     if (function_exists('shell_exec')) {
         @shell_exec($command);
     } elseif (function_exists('popen')) {
@@ -2726,16 +2739,18 @@ function studio_update_whatsapp_conversation(array $studio, array $data): void
         throw new RuntimeException('Conversa invalida.');
     }
 
-    $mode = (string)($data['attendance_mode'] ?? 'human');
+    $current = studio_find_whatsapp_conversation($studio, $id) ?: [];
+
+    $mode = array_key_exists('attendance_mode', $data) ? (string)$data['attendance_mode'] : (string)($current['attendance_mode'] ?? 'human');
     if (!in_array($mode, ['human', 'bot'], true)) {
         $mode = 'human';
     }
-    $needsHuman = !empty($data['needs_human']) ? 1 : 0;
-    $score = max(0, min(10, (int)($data['lead_score'] ?? 0)));
-    $aiStatus = trim((string)($data['ai_last_status'] ?? ''));
-    $aiMessage = trim((string)($data['ai_last_message'] ?? ''));
-    $aiMessageId = trim((string)($data['ai_last_message_id'] ?? ''));
-    $aiLastAt = trim((string)($data['ai_last_at'] ?? ''));
+    $needsHuman = array_key_exists('needs_human', $data) ? (!empty($data['needs_human']) ? 1 : 0) : (int)($current['needs_human'] ?? 0);
+    $score = array_key_exists('lead_score', $data) ? max(0, min(10, (int)$data['lead_score'])) : max(0, min(10, (int)($current['lead_score'] ?? 0)));
+    $aiStatus = array_key_exists('ai_last_status', $data) ? trim((string)$data['ai_last_status']) : trim((string)($current['ai_last_status'] ?? ''));
+    $aiMessage = array_key_exists('ai_last_message', $data) ? trim((string)$data['ai_last_message']) : trim((string)($current['ai_last_message'] ?? ''));
+    $aiMessageId = array_key_exists('ai_last_message_id', $data) ? trim((string)$data['ai_last_message_id']) : trim((string)($current['ai_last_message_id'] ?? ''));
+    $aiLastAt = array_key_exists('ai_last_at', $data) ? trim((string)$data['ai_last_at']) : trim((string)($current['ai_last_at'] ?? ''));
     if ($aiStatus === '' && $mode === 'human') {
         $aiStatus = 'IA inativa';
     } elseif ($aiStatus === '' && $mode === 'bot') {
@@ -4292,7 +4307,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
                 'conversation_id' => (int)$conversation['id'],
                 'ai_last_status' => 'Analisando com IA...',
             ]);
-            $aiResult = studio_whatsapp_ai_reply($studio, $conversation, [
+            $aiResult = studio_queue_whatsapp_ai_reply($studio, $conversation, [
                 'body' => $body,
                 'mensagem' => $body,
                 'from_me' => $fromMe,
@@ -4712,14 +4727,20 @@ function studio_openai_config(array $studio): array
         $provider = 'ollama';
     }
     $apiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
-    $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'llama3.2:3b'));
-    $model = $model !== '' ? $model : 'llama3.2:3b';
+    $studioModel = trim((string)($settings['ai_model'] ?? $studio['ai_model'] ?? ''));
+    $openAiModel = trim((string)($settings['openai_model'] ?? ''));
+    $model = $provider === 'ollama'
+        ? ($studioModel !== '' ? $studioModel : $openAiModel)
+        : ($openAiModel !== '' ? $openAiModel : $studioModel);
+    if ($provider === 'ollama' && ($model === '' || preg_match('/^(gpt-|chatgpt|o[0-9])/i', $model))) {
+        $model = 'llama3.2:3b';
+    }
+    $model = $model !== '' ? $model : ($provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2:3b');
     $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
     if ($provider === 'ollama') {
-        $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'http://localhost:11434/v1';
-        if ($apiKey === '') {
-            $apiKey = 'ollama';
-        }
+        $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'http://127.0.0.1:11434/v1';
+        $baseUrl = preg_replace('#^http://localhost:11434#i', 'http://127.0.0.1:11434', $baseUrl) ?: $baseUrl;
+        $apiKey = 'ollama';
     }
     if ($provider === 'openai') {
         $looksLikeLocalOllama = $baseUrl === '' || (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
@@ -4848,7 +4869,13 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
             return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
-        return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))];
+        $apiError = is_array($json['error'] ?? null)
+            ? (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))
+            : (string)($json['error'] ?? ('Erro HTTP ' . $status));
+        if ($isOllama && stripos($apiError, 'model') !== false && stripos($apiError, 'not found') !== false) {
+            $apiError .= '. Configure um modelo baixado no Ollama, como llama3.2:3b, qwen3:4b, qwen3:14b ou llama3:8b.';
+        }
+        return ['ok' => false, 'error' => $apiError];
     }
 
     if ($isOllama) {

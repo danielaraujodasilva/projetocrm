@@ -6,7 +6,11 @@ require __DIR__ . '/../app/bootstrap.php';
 
 function worker_log(string $message, array $context = []): void
 {
-    $logFile = __DIR__ . '/../services/whatsapp/whatsapp_service.log';
+    $logDir = __DIR__ . '/../storage/logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+    $logFile = $logDir . '/whatsapp_ai_worker.log';
     $line = '[' . date('c') . '] [ai-worker] ' . $message;
     if ($context) {
         $line .= ' ' . json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -59,6 +63,12 @@ try {
     if (!empty($result['ok'])) {
         worker_log('IA concluida', ['conversationId' => $conversationId, 'messageId' => $messageId, 'status' => $result['ai_last_status'] ?? '']);
     } else {
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'ai_last_status' => 'IA sem resposta: ' . mb_substr((string)($result['error'] ?? 'erro'), 0, 120),
+            'ai_last_message_id' => $messageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
         worker_log('IA falhou', ['conversationId' => $conversationId, 'messageId' => $messageId, 'error' => $result['error'] ?? 'erro']);
     }
 } catch (Throwable $e) {
