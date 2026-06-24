@@ -7,7 +7,8 @@
   var conversationId = Number(shell.getAttribute('data-conversation-id') || '0') || 0;
   var messages = document.getElementById('m2Messages');
   var search = document.getElementById('m2Search');
-  var refreshButton = document.getElementById('m2RefreshButton');
+  var filtersButton = document.getElementById('m2FiltersButton');
+  var filterMenu = document.querySelector('.m2-filter-menu');
   var menuButton = document.getElementById('m2MenuButton');
   var menu = document.getElementById('m2Menu');
   var emojiButton = document.getElementById('m2EmojiButton');
@@ -38,6 +39,15 @@
 
   if (conversationId > 0) {
     shell.classList.add('has-chat');
+  }
+
+  function updateFilterButtonState() {
+    if (!filtersButton) return;
+    var open = !!(filterMenu && filterMenu.open);
+    filtersButton.classList.toggle('is-active', open);
+    filtersButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+    filtersButton.setAttribute('title', open ? 'Fechar filtros' : 'Filtros');
+    filtersButton.setAttribute('aria-label', open ? 'Fechar filtros' : 'Filtros');
   }
 
   function manageModeEnabled() {
@@ -807,10 +817,14 @@
     });
   }
 
-  if (refreshButton) {
-    refreshButton.addEventListener('click', function (event) {
+  if (filtersButton && filterMenu) {
+    filtersButton.addEventListener('click', function (event) {
       stop(event);
-      window.location.reload();
+      filterMenu.open = !filterMenu.open;
+      updateFilterButtonState();
+    });
+    filterMenu.addEventListener('toggle', function () {
+      updateFilterButtonState();
     });
   }
 
@@ -972,6 +986,7 @@
   } catch (ignore) {
     setManageMode(false);
   }
+  updateFilterButtonState();
 
   document.addEventListener('change', function (event) {
     if (event.target && event.target.classList && event.target.classList.contains('m2-conversation-checkbox')) {

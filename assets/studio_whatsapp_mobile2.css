@@ -119,11 +119,13 @@ body {
     color: #fff;
 }
 
+.m2-filter-button,
 .m2-manage-toggle {
     background: rgba(0, 168, 132, .16);
     color: #d6fff6;
 }
 
+.m2-filter-button.is-active,
 .m2-manage-toggle.is-active {
     background: rgba(241, 92, 109, .18);
     color: #ffe8ec;
