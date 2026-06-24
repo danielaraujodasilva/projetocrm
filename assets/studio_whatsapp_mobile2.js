@@ -693,10 +693,11 @@
   async function postConversationUpdate(payload, message) {
     var body = new URLSearchParams();
     body.set('csrf_token', csrfToken);
-    body.set('action', 'update_whatsapp_profile');
+    body.set('action', payload && payload.action ? String(payload.action) : 'update_whatsapp_profile');
     body.set('conversation_id', String(conversationId));
     body.set('return_to_mobile2', '1');
     Object.keys(payload || {}).forEach(function (key) {
+      if (key === 'action') return;
       body.set(key, String(payload[key]));
     });
 
@@ -710,8 +711,11 @@
       body: body
     });
 
-    if (!response.ok) {
-      throw new Error(message || 'Nao foi possivel atualizar.');
+    var contentType = response.headers.get('content-type') || '';
+    var data = contentType.indexOf('application/json') !== -1 ? await response.json().catch(function () { return null; }) : null;
+    var text = data ? '' : await response.text();
+    if (!response.ok || (data && data.ok === false)) {
+      throw new Error((data && data.error) || text.trim() || message || 'Nao foi possivel atualizar.');
     }
     window.location.reload();
   }
@@ -1056,6 +1060,22 @@
         ai_last_status: isBot ? 'IA pronta' : 'IA inativa'
       }, 'Nao foi possivel atualizar o atendimento.').catch(function (error) {
         alert(error.message || 'Nao foi possivel atualizar o atendimento.');
+      });
+      return;
+    }
+
+    var aiModeButton = event.target.closest('#m2AiModeButton');
+    if (aiModeButton) {
+      stop(event);
+      var nextMode = aiModeButton.getAttribute('data-next-mode') || 'bot';
+      if (nextMode === 'bot' && !confirm('Ativar IA automatica para esta conversa? Ela podera responder novas mensagens.')) {
+        return;
+      }
+      postConversationUpdate({
+        action: 'toggle_whatsapp_ai_mode',
+        attendance_mode: nextMode
+      }, 'Nao foi possivel alternar a IA.').catch(function (error) {
+        alert(error.message || 'Nao foi possivel alternar a IA.');
       });
       return;
     }
