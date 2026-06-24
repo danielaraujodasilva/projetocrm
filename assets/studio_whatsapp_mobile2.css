@@ -595,6 +595,18 @@ body {
     color: #fff;
 }
 
+.m2-action-row #m2AiModeButton {
+    background: #202c33;
+    color: #d6fff6;
+    border-color: rgba(134, 150, 160, .2);
+}
+
+.m2-action-row #m2AiModeButton.is-active {
+    background: linear-gradient(180deg, rgba(0, 168, 132, .24) 0%, rgba(0, 92, 75, .52) 100%);
+    border-color: rgba(0, 168, 132, .34);
+    color: #effffb;
+}
+
 .m2-action-row #m2AiButton {
     background: linear-gradient(180deg, rgba(0, 168, 132, .26) 0%, rgba(0, 92, 75, .52) 100%);
     color: #d6fff6;

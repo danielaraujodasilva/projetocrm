@@ -69,6 +69,7 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `lead_score` TINYINT UNSIGNED NULL,
             `ai_last_status` VARCHAR(80) NULL,
             `ai_last_message` TEXT NULL,
+            `ai_last_message_id` VARCHAR(191) NULL,
             `ai_last_at` DATETIME NULL,
             `last_message_preview` VARCHAR(260) NULL,
             `last_message_direction` ENUM("in", "out") NULL,
@@ -92,7 +93,8 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_status` VARCHAR(80) NULL AFTER `lead_score`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_message` TEXT NULL AFTER `ai_last_status`',
-        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_at` DATETIME NULL AFTER `ai_last_message`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_message_id` VARCHAR(191) NULL AFTER `ai_last_message`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `ai_last_at` DATETIME NULL AFTER `ai_last_message_id`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `last_message_preview` VARCHAR(260) NULL AFTER `ai_last_at`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `last_message_direction` ENUM("in", "out") NULL AFTER `last_message_preview`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `last_message_at` DATETIME NULL AFTER `last_message_direction`',
@@ -2731,6 +2733,9 @@ function studio_update_whatsapp_conversation(array $studio, array $data): void
     $needsHuman = !empty($data['needs_human']) ? 1 : 0;
     $score = max(0, min(10, (int)($data['lead_score'] ?? 0)));
     $aiStatus = trim((string)($data['ai_last_status'] ?? ''));
+    $aiMessage = trim((string)($data['ai_last_message'] ?? ''));
+    $aiMessageId = trim((string)($data['ai_last_message_id'] ?? ''));
+    $aiLastAt = trim((string)($data['ai_last_at'] ?? ''));
     if ($aiStatus === '' && $mode === 'human') {
         $aiStatus = 'IA inativa';
     } elseif ($aiStatus === '' && $mode === 'bot') {
@@ -2739,10 +2744,10 @@ function studio_update_whatsapp_conversation(array $studio, array $data): void
 
     $stmt = studio_db($studio)->prepare(
         'UPDATE whatsapp_conversations
-         SET attendance_mode = ?, needs_human = ?, lead_score = ?, ai_last_status = NULLIF(?, ""), updated_at = NOW()
+         SET attendance_mode = ?, needs_human = ?, lead_score = ?, ai_last_status = NULLIF(?, ""), ai_last_message = NULLIF(?, ""), ai_last_message_id = NULLIF(?, ""), ai_last_at = NULLIF(?, ""), updated_at = NOW()
          WHERE id = ?'
     );
-    $stmt->execute([$mode, $needsHuman, $score, $aiStatus, $id]);
+    $stmt->execute([$mode, $needsHuman, $score, $aiStatus, $aiMessage, $aiMessageId, $aiLastAt, $id]);
 }
 
 function studio_update_whatsapp_profile(array $studio, array $data): array
@@ -3710,6 +3715,46 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
         'ai_enabled' => $assistantEnabled,
         'attendance_mode' => (string)($conversation['attendance_mode'] ?? 'human'),
     ];
+}
+
+function studio_whatsapp_ai_guardrail_reason(string $text): ?string
+{
+    $text = trim(mb_strtolower($text, 'UTF-8'));
+    if ($text === '') {
+        return null;
+    }
+
+    foreach ([
+        '/\bhumano\b/u',
+        '/\batendente\b/u',
+        '/\bpessoa\b/u',
+        '/falar com algu[eé]m/u',
+        '/falar com o daniel/u',
+        '/\bdesconto\b/u',
+        '/reclama[cç][aã]o/u',
+        '/\bproblema\b/u',
+        '/\berrado\b/u',
+        '/\bpaguei\b/u',
+        '/\bcomprovante\b/u',
+        '/\bpix\b/u',
+        '/\bsinal\b/u',
+        '/\breembolso\b/u',
+        '/\bdor\b/u',
+        '/\binflamou\b/u',
+        '/\binfec[cç][aã]o\b/u',
+        '/\balergia\b/u',
+        '/\bsangue\b/u',
+        '/cobertura complexa/u',
+        '/cobrir tatuagem/u',
+        '/or[cç]amento fechado/u',
+        '/fechar agora/u',
+    ] as $pattern) {
+        if (preg_match($pattern, $text)) {
+            return 'IA pausada: precisa de humano';
+        }
+    }
+
+    return null;
 }
 
 function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, array $messages = []): array
@@ -5397,13 +5442,52 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if (!empty($newMessage['from_me']) || (string)($newMessage['direction'] ?? '') === 'out') {
         return ['ok' => false, 'error' => 'Mensagem de saida nao gera resposta.'];
     }
+    $incomingMessageId = trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? $newMessage['wamid'] ?? ''));
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        $status = 'IA nao respondeu: provedor WhatsApp nao esta como API oficial.';
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'ai_last_status' => $status,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId];
+    }
 
     $config = studio_openai_config($studio);
     if ($config['api_key'] === '') {
         return ['ok' => false, 'error' => 'Configure a chave da OpenAI nas configuracoes do estudio.'];
     }
+    if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
+        return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
+    }
 
     $pdo = studio_db($studio);
+    $stmt = $pdo->prepare(
+        'SELECT message_id, direction, sender_type
+         FROM whatsapp_messages
+         WHERE conversation_id = ?
+         ORDER BY id DESC
+         LIMIT 1'
+    );
+    $stmt->execute([(int)$conversation['id']]);
+    $latestMessage = $stmt->fetch();
+    if (is_array($latestMessage)) {
+        $latestDirection = (string)($latestMessage['direction'] ?? '');
+        $latestSenderType = (string)($latestMessage['sender_type'] ?? '');
+        $latestMessageId = trim((string)($latestMessage['message_id'] ?? ''));
+        if ($latestDirection === 'out' || $latestSenderType === 'bot' || ($incomingMessageId !== '' && $latestMessageId !== '' && $incomingMessageId === $latestMessageId)) {
+            $status = 'IA pausada: ultima mensagem ja foi respondida.';
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'ai_last_status' => $status,
+                'ai_last_message_id' => $incomingMessageId !== '' ? $incomingMessageId : $latestMessageId,
+                'ai_last_at' => date('Y-m-d H:i:s'),
+            ]);
+            return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId !== '' ? $incomingMessageId : $latestMessageId];
+        }
+    }
+
     $stmt = $pdo->prepare(
         'SELECT direction, sender_type, body, message_type, media_mime, media_file_name, sent_at
          FROM whatsapp_messages
@@ -5437,6 +5521,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $latestMessages = implode("\n- ", array_slice($historyLines, -6));
     $availability = studio_schedule_available_slots($studio, 14);
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
+    $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
+    if ($guardrailReason !== null) {
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'needs_human' => 1,
+            'ai_last_status' => $guardrailReason,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return ['ok' => false, 'error' => $guardrailReason, 'needs_human' => true, 'ai_last_status' => $guardrailReason, 'ai_last_message_id' => $incomingMessageId];
+    }
     $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
     $availableNotes = [];
     $occupiedNotes = [];
@@ -5554,12 +5649,34 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
 
-    $reply = studio_send_whatsapp_message($studio, [
-        'conversation_id' => (int)$conversation['id'],
-        'phone' => (string)($conversation['phone'] ?? ''),
-        'message' => $replyText,
-        'senderType' => 'bot',
-    ]);
+    if (trim((string)($conversation['phone'] ?? '')) === '') {
+        $status = 'IA sem resposta: conversa sem telefone.';
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'ai_last_status' => $status,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId];
+    }
+
+    try {
+        $reply = studio_send_whatsapp_message($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'phone' => (string)($conversation['phone'] ?? ''),
+            'message' => $replyText,
+            'senderType' => 'bot',
+        ]);
+    } catch (Throwable $e) {
+        $status = 'IA sem resposta: ' . mb_substr($e->getMessage(), 0, 120);
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'ai_last_status' => $status,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId];
+    }
 
     $currentScore = (int)($conversation['lead_score'] ?? 0);
     $scoreDelta = max(0, (int)($result['lead_score_delta'] ?? 0));
@@ -5572,6 +5689,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'needs_human' => !empty($result['needs_human']) ? 1 : 0,
         'lead_score' => $newScore,
         'ai_last_status' => $aiStatus,
+        'ai_last_message' => $replyText,
+        'ai_last_message_id' => $incomingMessageId,
+        'ai_last_at' => date('Y-m-d H:i:s'),
     ]);
 
     return [
@@ -5579,6 +5699,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'reply' => $reply,
         'ai_last_status' => $aiStatus,
         'needs_human' => !empty($result['needs_human']),
+        'ai_last_message_id' => $incomingMessageId,
     ];
 }
 

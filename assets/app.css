@@ -3593,6 +3593,35 @@ textarea {
     color: #ffffff;
 }
 
+.wa-web-ai-toggle {
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid rgba(134, 150, 160, .18);
+    border-radius: 999px;
+    background: #202c33;
+    color: #d6fff6;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .03);
+}
+
+.wa-web-ai-toggle i {
+    font-size: 1.08rem;
+}
+
+.wa-web-ai-toggle.is-active {
+    border-color: rgba(0, 168, 132, .32);
+    background: linear-gradient(180deg, rgba(0, 168, 132, .22) 0%, rgba(0, 92, 75, .5) 100%);
+    color: #effffb;
+}
+
+.wa-web-ai-toggle:hover {
+    background: #25343d;
+    color: #ffffff;
+}
+
 .crm-modal-panel.ai-modal-panel {
     background: linear-gradient(180deg, #15232a 0%, #111b21 100%) !important;
     color: #e9edef !important;
