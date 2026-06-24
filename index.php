@@ -1090,6 +1090,26 @@ if ($action === 'studio_login') {
             redirect_to('studio_whatsapp');
         }
 
+        if ($action === 'whatsapp_ai_suggestions') {
+            $studio = require_studio();
+            csrf_verify();
+            $conversationId = (int)($_POST['conversation_id'] ?? 0);
+            $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+            $currentUser = current_studio_user();
+            if (!$conversation || !$currentUser || !studio_can_send_whatsapp_conversation($studio, $conversation, $currentUser)) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => false, 'error' => 'Conversa indisponivel para seu usuario.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+
+            $messages = studio_whatsapp_messages($studio, $conversationId, 12, $conversation);
+            $payload = studio_whatsapp_ai_suggestions($studio, $conversation, $messages);
+
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         if ($action === 'mark_whatsapp_read' || $action === 'mark_whatsapp_unread') {
             $studio = require_studio();
             $conversationId = (int)($_POST['conversation_id'] ?? 0);
@@ -1171,8 +1191,15 @@ if ($action === 'studio_login') {
 
         if ($action === 'update_whatsapp_profile') {
             $studio = require_studio();
-            studio_update_whatsapp_profile($studio, $_POST);
+            $result = studio_update_whatsapp_profile($studio, $_POST);
             flash_set('success', 'Cadastro, lead e conversa atualizados.');
+            $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
+            if ($expectsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
             if (!empty($_POST['return_to_mobile2'])) {
                 redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
@@ -2195,7 +2222,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $displayName = $labelForConversation($conversation);
         echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
         echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">WhatsApp</a><i class="fa-solid fa-angle-right"></i><span>Mobile</span></div>';
-        echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button>';
+        echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-sparkles"></i></button>';
         echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
         echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
         if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
@@ -2249,6 +2276,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '</div>';
         echo '<div class="m2-attachment hidden" id="m2AttachmentPreview"></div>';
         $mobileWindow = studio_whatsapp_customer_service_window($studio, $conversationId);
+        $mobileAiSnapshot = studio_whatsapp_ai_suggestions_snapshot($studio, $conversation, $assistantInsights, $messages);
         if (!empty($mobileWindow['applies']) && empty($mobileWindow['open'])) {
             echo '<div class="m2-card"><strong>Janela oficial encerrada</strong><small>Use um template aprovado para reabrir esta conversa fora das 24h.</small></div>';
         }
@@ -2275,15 +2303,6 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         } else {
             echo '<p>Vincule ou crie um lead para liberar o link publico de cadastro.</p>';
         }
-        echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Assistente IA</h3><span>' . h($assistantAutofillEnabled ? 'Ligado' : 'Desligado') . '</span></div>';
-        if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
-            if (!empty($assistantInsights['suggested_name'])) echo '<p><strong>Nome:</strong> ' . h((string)$assistantInsights['suggested_name']) . '</p>';
-            if (!empty($assistantInsights['suggested_interest'])) echo '<p><strong>Interesse:</strong> ' . h((string)$assistantInsights['suggested_interest']) . '</p>';
-            if (!empty($assistantInsights['suggested_notes'])) echo '<p><strong>Resumo:</strong> ' . h((string)$assistantInsights['suggested_notes']) . '</p>';
-            if (!empty($assistantInsights['schedule_reason'])) echo '<p><strong>Agenda:</strong> ' . h((string)$assistantInsights['schedule_reason']) . '</p>';
-        } else {
-            echo '<p>Ainda nao houve leitura suficiente para uma sugestao util.</p>';
-        }
         echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Respostas rapidas</h3><span>' . h((string)count($quickReplies)) . '</span></div>';
         if ($quickReplies) {
             echo '<div class="m2-quick-list">';
@@ -2300,9 +2319,12 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '</select></label><label>Data<input type="date" name="appointment_date" value="' . h((string)($scheduleSuggestion['date'] ?? date('Y-m-d'))) . '" required></label><label>Inicio<input type="time" name="start_time" value="' . h((string)($scheduleSuggestion['time'] ?? '09:00')) . '" required></label><label>Fim<input type="time" name="end_time" value="' . h((string)($scheduleSuggestion['end_time'] ?? '10:00')) . '" required></label><label>Status<select name="status">';
         render_options(appointment_status_options(), 'pre_agendado');
         echo '</select></label><label>Valor<input name="price" placeholder="0,00"></label><label>Sinal<input name="deposit_amount" placeholder="0,00"></label><label class="wide">Descricao<textarea name="description">' . h((string)($scheduleSuggestion['description'] ?? $scheduleSuggestion['reason'] ?? '')) . '</textarea></label><button type="submit">Salvar agendamento</button></form></div></div>';
+        echo '<div class="crm-modal hidden" id="m2AiOverlay"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Sugestoes da IA</h3><p class="muted" style="margin:4px 0 0">Copiloto silencioso para leitura, resumo e apoio ao atendimento.</p></div><button type="button" id="closeM2AiOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="m2AiOverlayBody" class="p-4"></div></div></div>';
+        echo '<script type="application/json" id="m2AiInitialData">' . json_encode($mobileAiSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
     }
     echo '</section></main>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';
+    echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_ai_overlay.js')) . '?v=' . h(app_build_version()) . '"></script>';
     echo '</body></html>';
     exit;
 }
@@ -4132,7 +4154,7 @@ if ($page === 'studio_whatsapp_workspace') {
             }
         }
         echo '</div></div>';
-        echo '<div class="wa-web-main-actions"><button class="wa-web-action-pill" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button>';
+        echo '<div class="wa-web-main-actions"><button class="wa-web-action-pill" type="button" id="openAppointmentModalButton" aria-label="Agendar"><i class="fa-regular fa-calendar"></i><span>Agendar</span></button><button class="wa-web-ai-trigger" type="button" id="openWorkspaceAiButton" aria-label="Sugestoes da IA" title="Sugestoes da IA"><i class="fa-solid fa-sparkles"></i></button>';
             if ($publicUpdateUrl !== '') {
                 echo '<a class="wa-web-action-pill" href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" aria-label="Cadastro"><i class="fa-regular fa-address-card"></i><span>Cadastro</span></a>';
             }
@@ -4179,6 +4201,7 @@ if ($page === 'studio_whatsapp_workspace') {
             if ($notesFieldValue === '' && !empty($assistantInsights['suggested_notes'])) {
                 $notesFieldValue = (string)$assistantInsights['suggested_notes'];
             }
+            $workspaceAiSnapshot = studio_whatsapp_ai_suggestions_snapshot($studio, $conversation, $assistantInsights, $messages);
 
             ob_start();
             echo '<div class="wa-web-tools-card">';
@@ -4239,28 +4262,6 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '</div>';
 
             echo '<div class="wa-web-tools-card">';
-            echo '<div class="wa-web-tools-head"><h3>Assistente de IA</h3><span class="badge ' . ($assistantAutofillEnabled ? 'ok' : 'warn') . '">' . h($assistantAutofillEnabled ? 'Ligado' : 'Desligado') . '</span></div>';
-            if (!empty($assistantInsights['suggested_name']) || !empty($assistantInsights['suggested_interest']) || !empty($assistantInsights['suggested_notes']) || !empty($assistantInsights['schedule_reason'])) {
-                echo '<div class="stack-list">';
-                if (!empty($assistantInsights['suggested_name'])) {
-                    echo '<div class="drilldown-card compact"><strong>Nome sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_name']) . '</div></div>';
-                }
-                if (!empty($assistantInsights['suggested_interest'])) {
-                    echo '<div class="drilldown-card compact"><strong>Interesse sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_interest']) . '</div></div>';
-                }
-                if (!empty($assistantInsights['suggested_notes'])) {
-                    echo '<div class="drilldown-card compact"><strong>Resumo sugerido</strong><div class="muted">' . h((string)$assistantInsights['suggested_notes']) . '</div></div>';
-                }
-                if (!empty($assistantInsights['schedule_reason'])) {
-                    echo '<div class="drilldown-card compact"><strong>Sugestao de agenda</strong><div class="muted">' . h((string)$assistantInsights['schedule_reason']) . '</div></div>';
-                }
-                echo '</div>';
-            } else {
-                echo '<p class="muted">Ainda nao houve leitura suficiente para a IA sugerir algo util.</p>';
-            }
-            echo '</div>';
-
-            echo '<div class="wa-web-tools-card">';
             echo '<div class="wa-web-tools-head"><h3>Respostas rapidas</h3><span class="badge">' . h((string)count($quickReplies)) . '</span></div>';
             if ($quickReplies) {
                 echo '<div class="quick-reply-list">';
@@ -4275,6 +4276,8 @@ if ($page === 'studio_whatsapp_workspace') {
             $workspaceToolsMarkup = (string)ob_get_clean();
             echo '<template id="workspaceToolsMarkup">' . $workspaceToolsMarkup . '</template>';
             echo '<div id="workspaceToolsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,900px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um overlay sem ocupar a lateral fixa.</p></div><button type="button" id="closeWorkspaceToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceToolsOverlayBody"></div></div></div>';
+            echo '<div id="workspaceAiOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,960px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Sugestoes da IA</h3><p class="muted" style="margin:4px 0 0">Copiloto silencioso para leitura, resumo e apoio ao atendimento.</p></div><button type="button" id="closeWorkspaceAiOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceAiOverlayBody"></div></div></div>';
+            echo '<script type="application/json" id="workspaceAiInitialData">' . json_encode($workspaceAiSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
 
             echo '<div id="appointmentModal" class="crm-modal hidden">';
             echo '<div class="crm-modal-panel" style="max-width:min(96vw,860px)">';
@@ -4337,6 +4340,7 @@ echo 'scrollChatToLatest(true);';
             echo 'document.addEventListener("keydown",(event)=>{ if(event.key==="Escape"){ mediaOverlay?.classList.add("hidden"); appointmentModal?.classList.add("hidden"); toolsOverlay?.classList.add("hidden"); }});';
             echo '})();';
             echo '</script>';
+            echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_ai_overlay.js')) . '?v=' . h(app_build_version()) . '"></script>';
         }
         echo '<script>';
         echo '(function(){';

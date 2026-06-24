@@ -3613,6 +3613,148 @@ function studio_apply_whatsapp_assistant_enrichment(array $studio, array $conver
     }
 }
 
+function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversation, array $insights = [], array $messages = []): array
+{
+    $assistantEnabled = !empty(studio_settings($studio)['ai_enabled']);
+    $source = (string)($insights['source'] ?? 'heuristic');
+    $summary = trim((string)($insights['summary'] ?? ''));
+    if ($summary === '') {
+        $preview = trim((string)($conversation['last_message_preview'] ?? ''));
+        if ($preview !== '') {
+            $summary = $preview;
+        } elseif (!empty($messages)) {
+            $snippets = [];
+            foreach (array_slice(array_reverse($messages), 0, 3) as $message) {
+                $body = trim((string)($message['body'] ?? ''));
+                if ($body !== '') {
+                    $snippets[] = $body;
+                }
+            }
+            $summary = $snippets ? implode(' | ', array_reverse($snippets)) : '';
+        }
+    }
+
+    return [
+        'ok' => true,
+        'source' => $source,
+        'confidence' => max(0, min(10, (int)($insights['confidence'] ?? 0))),
+        'conversation_id' => (int)($conversation['id'] ?? 0),
+        'customer_id' => (int)($conversation['customer_id'] ?? 0),
+        'lead_id' => (int)($conversation['lead_id'] ?? 0),
+        'phone' => trim((string)($conversation['phone'] ?? '')),
+        'email' => trim((string)($conversation['customer_email'] ?? '')),
+        'instagram' => trim((string)($conversation['customer_instagram'] ?? '')),
+        'current_name' => trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? '')),
+        'current_interest' => trim((string)($conversation['lead_interest'] ?? '')),
+        'current_notes' => trim((string)($conversation['customer_notes'] ?? '')),
+        'lead_score' => (int)($conversation['lead_score'] ?? 0),
+        'lead_status' => trim((string)($conversation['lead_status'] ?? 'em_conversa')),
+        'lead_pipeline_stage' => trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')),
+        'lead_estimated_value' => trim((string)($conversation['lead_estimated_value'] ?? '')),
+        'suggested_name' => trim((string)($insights['suggested_name'] ?? '')),
+        'suggested_interest' => trim((string)($insights['suggested_interest'] ?? '')),
+        'suggested_notes' => trim((string)($insights['suggested_notes'] ?? '')),
+        'suggested_date' => trim((string)($insights['suggested_date'] ?? '')),
+        'suggested_time' => trim((string)($insights['suggested_time'] ?? '')),
+        'schedule_reason' => trim((string)($insights['schedule_reason'] ?? '')),
+        'summary' => $summary,
+        'needs_human' => !empty($insights['needs_human']) || !empty($conversation['needs_human']),
+        'suggested_reply' => '',
+        'ai_enabled' => $assistantEnabled,
+        'attendance_mode' => (string)($conversation['attendance_mode'] ?? 'human'),
+    ];
+}
+
+function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, array $messages = []): array
+{
+    $settings = studio_settings($studio);
+    if (empty($settings['ai_enabled'])) {
+        return ['ok' => false, 'error' => 'IA desativada nas configuracoes.'];
+    }
+
+    $config = studio_openai_config($studio);
+    if ($config['api_key'] === '') {
+        return ['ok' => false, 'error' => 'Configure a chave da OpenAI nas configuracoes do estudio.'];
+    }
+
+    $history = array_slice(array_reverse($messages), 0, 8);
+    $historyLines = [];
+    foreach ($history as $item) {
+        $role = (string)($item['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
+        $text = trim((string)($item['body'] ?? ''));
+        if ($text === '') {
+            $text = '[' . (string)($item['message_type'] ?? 'texto') . ']';
+        }
+        $historyLines[] = $role . ': ' . $text;
+    }
+
+    $studioName = (string)($studio['name'] ?? 'Estudio');
+    $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
+    $customerPhone = trim((string)($conversation['phone'] ?? ''));
+    $currentInterest = trim((string)($conversation['lead_interest'] ?? ''));
+    $currentNotes = trim((string)($conversation['customer_notes'] ?? ''));
+    $prompt = "Voce gera uma resposta curta e util para um atendimento de WhatsApp de estúdio de tatuagem.\n"
+        . "Nao envie mensagem. Nao use markdown. Nao adicione emojis se nao forem naturais.\n"
+        . "Responda somente com JSON valido contendo: reply_text, needs_human.\n"
+        . "Use no maximo 2 frases curtas.\n"
+        . "Se faltar contexto, faça uma unica pergunta curta.\n"
+        . "Se a conversa pedir humano, sinalize needs_human=true.\n"
+        . "Contexto do estúdio: " . $studioName . "\n"
+        . "Nome atual: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
+        . "Telefone: " . $customerPhone . "\n"
+        . "Interesse atual: " . ($currentInterest !== '' ? $currentInterest : 'sem interesse definido') . "\n"
+        . "Observacoes atuais: " . ($currentNotes !== '' ? $currentNotes : 'sem observacoes') . "\n"
+        . "Historico recente:\n- " . (!empty($historyLines) ? implode("\n- ", $historyLines) : 'Sem historico recente.') . "\n";
+    $result = studio_openai_text($config['api_key'], $config['model'], $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'), 30);
+    if (empty($result['ok'])) {
+        return ['ok' => false, 'error' => (string)($result['error'] ?? 'Nao foi possivel gerar a resposta sugerida.')];
+    }
+
+    $replyText = trim((string)($result['reply_text'] ?? ''));
+    if ($replyText === '') {
+        return ['ok' => false, 'error' => 'A IA retornou resposta vazia.'];
+    }
+
+    $decoded = json_decode($replyText, true);
+    if (!is_array($decoded) && preg_match('/\{.*\}/s', $replyText, $matches)) {
+        $decoded = json_decode((string)($matches[0] ?? ''), true);
+    }
+    if (is_array($decoded)) {
+        $replyText = trim((string)($decoded['reply_text'] ?? $decoded['reply'] ?? ''));
+        $needsHuman = !empty($decoded['needs_human']);
+    } else {
+        $needsHuman = false;
+    }
+
+    $replyText = preg_replace('/\s+/', ' ', $replyText) ?? $replyText;
+    if (mb_strlen($replyText) > 220) {
+        $replyText = mb_substr($replyText, 0, 220);
+    }
+
+    return [
+        'ok' => true,
+        'source' => 'ai',
+        'reply_text' => $replyText,
+        'needs_human' => !empty($needsHuman),
+    ];
+}
+
+function studio_whatsapp_ai_suggestions(array $studio, array $conversation, array $messages = []): array
+{
+    $insights = studio_whatsapp_assistant_insights($studio, $conversation, $messages);
+    $snapshot = studio_whatsapp_ai_suggestions_snapshot($studio, $conversation, $insights, $messages);
+    $reply = studio_whatsapp_ai_suggest_reply($studio, $conversation, $messages);
+    if (!empty($reply['ok'])) {
+        $snapshot['suggested_reply'] = (string)($reply['reply_text'] ?? '');
+        if (!empty($reply['needs_human'])) {
+            $snapshot['needs_human'] = true;
+        }
+        $snapshot['source'] = 'ai';
+    }
+
+    return $snapshot;
+}
+
 function studio_whatsapp_extract_date_context(string $text, array $studio): ?array
 {
     $text = strtolower(trim($text));
