@@ -4724,6 +4724,12 @@ function studio_openai_config(array $studio): array
     if ($provider === 'openai') {
         $looksLikeLocalOllama = $baseUrl === '' || (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
         $baseUrl = $looksLikeLocalOllama ? 'https://api.openai.com/v1' : rtrim($baseUrl, '/');
+        $looksLikeOllamaModel = $model === ''
+            || preg_match('/[:]/', $model)
+            || preg_match('/^(llama|qwen|mistral|gemma|phi|orca|deepseek|codellama)/i', $model);
+        if ($looksLikeOllamaModel) {
+            $model = 'gpt-4o-mini';
+        }
     }
     $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
     if ($systemPrompt === '') {
@@ -4774,6 +4780,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     }
 
     $isOllama = (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
+    $fallbackModel = $model;
+    if (preg_match('/[:]/', $fallbackModel) || preg_match('/^(llama|qwen|mistral|gemma|phi|orca|deepseek|codellama)/i', $fallbackModel)) {
+        $fallbackModel = 'gpt-4o-mini';
+    }
     $responseText = '';
     if ($isOllama) {
         $body = [
@@ -4822,7 +4832,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
 
     if ($errno || $raw === false) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
-            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+            return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
         return ['ok' => false, 'error' => $error ?: 'Falha na chamada da IA.'];
     }
@@ -4830,13 +4840,13 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     $json = json_decode((string)$raw, true);
     if (!is_array($json)) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
-            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+            return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
         return ['ok' => false, 'error' => 'Resposta invalida da IA.'];
     }
     if ($status >= 400) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
-            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+            return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
         return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))];
     }
@@ -4849,7 +4859,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     $content = $responseText;
     if ($content === '') {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
-            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+            return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
         return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
     }
@@ -4859,7 +4869,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     }
     if (!is_array($decoded)) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
-            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+            return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
         return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA: ' . mb_substr($content, 0, 120)];
     }
