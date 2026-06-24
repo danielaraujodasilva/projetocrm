@@ -78,24 +78,6 @@ body {
     gap: 8px;
 }
 
-.m2-manage-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 36px;
-    padding: 0 12px;
-    border: 0;
-    border-radius: 999px;
-    background: rgba(0, 168, 132, .16);
-    color: #d6fff6;
-    font: inherit;
-    font-weight: 700;
-}
-
-.m2-manage-toggle i {
-    font-size: .95rem;
-}
-
 .m2-icon,
 .m2-composer button,
 .m2-emoji button,
@@ -135,6 +117,16 @@ body {
 .m2-composer button:hover {
     background: #2b3b44;
     color: #fff;
+}
+
+.m2-manage-toggle {
+    background: rgba(0, 168, 132, .16);
+    color: #d6fff6;
+}
+
+.m2-manage-toggle.is-active {
+    background: rgba(241, 92, 109, .18);
+    color: #ffe8ec;
 }
 
 .m2-icon:focus-visible,
@@ -225,11 +217,6 @@ body {
 
 .m2-shell.m2-manage-mode .m2-bulk-bar {
     display: flex;
-}
-
-.m2-manage-toggle.is-active {
-    background: rgba(241, 92, 109, .18);
-    color: #ffe8ec;
 }
 
 .m2-select-all {

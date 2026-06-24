@@ -2100,7 +2100,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
 
     echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '">';
     echo '<aside class="m2-list" id="m2ListPanel">';
-    echo '<header class="m2-top"><strong>WhatsApp</strong>' . ($isAdmin ? '<span class="badge ok">ADM</span><button class="m2-manage-toggle" type="button" id="m2ManageToggle"><i class="fa-solid fa-user-gear"></i><span>Gerenciar</span></button>' : '') . '<span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button><a class="m2-icon" href="' . h(app_url('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : [])) . '" aria-label="Workspace" title="Abrir desktop"><i class="fa-solid fa-display"></i></a></span></header>';
+    echo '<header class="m2-top"><strong>WhatsApp</strong>' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . '<span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button>' . ($isAdmin ? '<button class="m2-icon m2-manage-toggle" type="button" id="m2ManageToggle" aria-label="Gerenciar" title="Gerenciar"><i class="fa-solid fa-user-gear"></i></button>' : '') . '</span></header>';
     echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
     echo '<div class="m2-filter-strip">';
     $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];

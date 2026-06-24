@@ -56,9 +56,9 @@
     }
     if (manageToggle) {
       manageToggle.classList.toggle('is-active', !!enabled);
-      var label = manageToggle.querySelector('span');
-      if (label) label.textContent = enabled ? 'Gerenciando' : 'Gerenciar';
       manageToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      manageToggle.setAttribute('title', enabled ? 'Gerenciando' : 'Gerenciar');
+      manageToggle.setAttribute('aria-label', enabled ? 'Gerenciando' : 'Gerenciar');
     }
     updateBulkSelectionUi();
   }
