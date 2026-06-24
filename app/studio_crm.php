@@ -4711,7 +4711,7 @@ function studio_openai_config(array $studio): array
     if ($provider !== 'openai' && $provider !== 'ollama') {
         $provider = 'ollama';
     }
-    $apiKey = trim((string)($settings['openai_api_key'] ?? getenv('OPENAI_API_KEY') ?: ''));
+    $apiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
     $model = trim((string)($settings['openai_model'] ?? $settings['ai_model'] ?? 'llama3.2:3b'));
     $model = $model !== '' ? $model : 'llama3.2:3b';
     $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
@@ -4722,7 +4722,8 @@ function studio_openai_config(array $studio): array
         }
     }
     if ($provider === 'openai') {
-        $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'https://api.openai.com/v1';
+        $looksLikeLocalOllama = $baseUrl === '' || (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
+        $baseUrl = $looksLikeLocalOllama ? 'https://api.openai.com/v1' : rtrim($baseUrl, '/');
     }
     $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
     if ($systemPrompt === '') {
@@ -4750,6 +4751,20 @@ TXT;
         'base_url' => $baseUrl,
         'system_prompt' => $systemPrompt,
     ];
+}
+
+function studio_setting_secret(array $settings, string $key, string $envKey = ''): string
+{
+    $value = trim((string)($settings[$key] ?? ''));
+    if ($value !== '') {
+        return $value;
+    }
+
+    if ($envKey !== '') {
+        return trim((string)(getenv($envKey) ?: ''));
+    }
+
+    return '';
 }
 
 function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1', ?int $timeoutSeconds = null): array
@@ -7935,6 +7950,9 @@ function studio_save_settings(array $studio, array $data): void
     $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
     $assistantAutofillEnabled = !empty($data['assistant_autofill_enabled']) ? 1 : 0;
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
+    if ($openAiKey === '') {
+        $openAiKey = trim((string)($studio['openai_api_key'] ?? ''));
+    }
     $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
     $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
     $aiProvider = (string)($data['ai_provider'] ?? 'ollama');
