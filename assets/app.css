@@ -3575,6 +3575,54 @@ textarea {
     text-decoration: none;
 }
 
+.wa-web-ai-trigger {
+    min-height: 40px;
+    width: 40px;
+    padding: 0;
+    border: 1px solid rgba(0, 168, 132, .28);
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(0, 168, 132, .24) 0%, rgba(0, 92, 75, .5) 100%);
+    color: #d6fff6;
+    display: inline-grid;
+    place-items: center;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
+}
+
+.wa-web-ai-trigger:hover {
+    background: linear-gradient(180deg, rgba(0, 168, 132, .36) 0%, rgba(0, 92, 75, .72) 100%);
+    color: #ffffff;
+}
+
+.ai-modal-panel {
+    background: linear-gradient(180deg, #15232a 0%, #111b21 100%);
+    border: 1px solid rgba(134, 150, 160, .2);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .5);
+}
+
+.ai-modal-panel .crm-panel-header {
+    background: linear-gradient(180deg, rgba(19, 32, 39, .96) 0%, rgba(15, 25, 31, .98) 100%);
+    border-bottom: 1px solid rgba(0, 168, 132, .14);
+    color: #e9edef;
+}
+
+.ai-modal-panel .crm-panel-title {
+    color: #f3f6f7;
+}
+
+.ai-modal-panel .muted {
+    color: #9aa7af;
+}
+
+.ai-modal-panel > .p-4 {
+    background:
+        radial-gradient(circle at top right, rgba(0, 168, 132, .08), transparent 28%),
+        linear-gradient(180deg, rgba(17, 27, 33, .96) 0%, rgba(12, 19, 24, .98) 100%);
+}
+
+.ai-modal-panel .badge {
+    border: 1px solid rgba(255, 255, 255, .08);
+}
+
 .wa-web-tools-desktop {
     min-height: calc(100vh - 156px);
     overflow: auto;

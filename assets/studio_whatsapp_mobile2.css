@@ -595,6 +595,16 @@ body {
     color: #fff;
 }
 
+.m2-action-row #m2AiButton {
+    background: linear-gradient(180deg, rgba(0, 168, 132, .26) 0%, rgba(0, 92, 75, .52) 100%);
+    color: #d6fff6;
+    border-color: rgba(0, 168, 132, .34);
+}
+
+.m2-action-row #m2AiButton:hover {
+    background: linear-gradient(180deg, rgba(0, 168, 132, .38) 0%, rgba(0, 92, 75, .74) 100%);
+}
+
 .m2-menu {
     position: absolute;
     top: 70px;

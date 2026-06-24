@@ -113,7 +113,7 @@
                         <p>Leitura silenciosa da conversa, sem enviar mensagem automaticamente.</p>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                        ${renderBadge(source === "ai" ? "AI" : "Heuristica", source === "ai" ? "ok" : "warn")}
+                        ${renderBadge(source === "ai" ? "IA" : "Heuristica", source === "ai" ? "ok" : "warn")}
                         ${renderBadge(`${Math.max(0, Math.min(10, confidence))}/10`, "neutral")}
                         ${needsHuman ? renderBadge("Pede humano", "warn") : renderBadge("Sem alerta", "ok")}
                     </div>
