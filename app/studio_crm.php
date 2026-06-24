@@ -3618,15 +3618,18 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
     $assistantEnabled = !empty(studio_settings($studio)['ai_enabled']);
     $source = (string)($insights['source'] ?? 'heuristic');
     $summary = trim((string)($insights['summary'] ?? ''));
+    $isNonInformativePreview = static function (string $text): bool {
+        return $text !== '' && (bool)preg_match('/^(?:https?:\/\/|\/[^\\s]+|index\.php\?|\/projetocrm\/index\.php\?)/i', $text);
+    };
     if ($summary === '') {
         $preview = trim((string)($conversation['last_message_preview'] ?? ''));
-        if ($preview !== '') {
+        if ($preview !== '' && !$isNonInformativePreview($preview)) {
             $summary = $preview;
         } elseif (!empty($messages)) {
             $snippets = [];
             foreach (array_slice(array_reverse($messages), 0, 3) as $message) {
                 $body = trim((string)($message['body'] ?? ''));
-                if ($body !== '') {
+                if ($body !== '' && !$isNonInformativePreview($body)) {
                     $snippets[] = $body;
                 }
             }

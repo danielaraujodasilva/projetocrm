@@ -69,6 +69,7 @@
     function renderPanel(data, options) {
         const body = options.body;
         if (!body) return;
+        body.style.cssText = "display:grid;gap:14px;padding:20px;background:linear-gradient(180deg,rgba(17,27,33,.98) 0%,rgba(12,19,24,.99) 100%);color:#e9edef;border-radius:14px;box-sizing:border-box";
 
         const summary = String(data?.summary || "").trim();
         const suggestedReply = String(data?.suggested_reply || "").trim();
