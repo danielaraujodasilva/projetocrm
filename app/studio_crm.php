@@ -5461,32 +5461,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
         return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
     }
-
     $pdo = studio_db($studio);
-    $stmt = $pdo->prepare(
-        'SELECT message_id, direction, sender_type
-         FROM whatsapp_messages
-         WHERE conversation_id = ?
-         ORDER BY id DESC
-         LIMIT 1'
-    );
-    $stmt->execute([(int)$conversation['id']]);
-    $latestMessage = $stmt->fetch();
-    if (is_array($latestMessage)) {
-        $latestDirection = (string)($latestMessage['direction'] ?? '');
-        $latestSenderType = (string)($latestMessage['sender_type'] ?? '');
-        $latestMessageId = trim((string)($latestMessage['message_id'] ?? ''));
-        if ($latestDirection === 'out' || $latestSenderType === 'bot' || ($incomingMessageId !== '' && $latestMessageId !== '' && $incomingMessageId === $latestMessageId)) {
-            $status = 'IA pausada: ultima mensagem ja foi respondida.';
-            studio_update_whatsapp_conversation($studio, [
-                'conversation_id' => (int)$conversation['id'],
-                'ai_last_status' => $status,
-                'ai_last_message_id' => $incomingMessageId !== '' ? $incomingMessageId : $latestMessageId,
-                'ai_last_at' => date('Y-m-d H:i:s'),
-            ]);
-            return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId !== '' ? $incomingMessageId : $latestMessageId];
-        }
-    }
 
     $stmt = $pdo->prepare(
         'SELECT direction, sender_type, body, message_type, media_mime, media_file_name, sent_at
