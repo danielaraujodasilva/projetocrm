@@ -66,6 +66,10 @@
         return `<div class="ai-row"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(text || "Nao informado")}</span></div>`;
     }
 
+    function hasText(value) {
+        return String(value ?? "").trim() !== "";
+    }
+
     function renderPanel(data, options) {
         const body = options.body;
         if (!body) return;
@@ -77,11 +81,27 @@
         const confidence = Number(data?.confidence || 0);
         const source = String(data?.source || "heuristic");
         const needsHuman = !!data?.needs_human;
+        const signalCount = Number(data?.signal_count || 0);
+        const analysisStage = String(data?.analysis_stage || (aiEnabled ? "avaliando" : "desativada"));
+        const analysisLabel = String(data?.analysis_label || (aiEnabled ? "Avaliando conversa" : "IA desativada"));
+        const analysisDetail = String(data?.analysis_detail || "");
         const suggestedDate = String(data?.suggested_date || "").trim();
         const suggestedTime = String(data?.suggested_time || "").trim();
         const scheduleReason = String(data?.schedule_reason || "").trim();
         const contextLabel = [data?.current_name || data?.suggested_name || "", data?.phone || ""].filter(Boolean).join(" • ");
         const notice = String(options?.notice || "").trim();
+        const confidencePct = Math.max(0, Math.min(100, Math.round(confidence * 10)));
+        const statusTone = analysisStage === "pronta" ? "ok" : (analysisStage === "desativada" ? "warn" : "neutral");
+        const statusText = analysisStage === "pronta" ? "Pronta" : (analysisStage === "parcial" ? "Parcial" : (analysisStage === "sem_contexto" ? "Sem contexto" : (analysisStage === "desativada" ? "Desativada" : "Avaliando")));
+        const suggestionCards = [];
+        if (hasText(summary)) suggestionCards.push(`<div class="ai-box"><strong>Resumo</strong><p>${escapeHtml(summary)}</p></div>`);
+        if (hasText(data?.suggested_name)) suggestionCards.push(`<div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data.suggested_name)}</span></div>`);
+        if (hasText(data?.suggested_interest)) suggestionCards.push(`<div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data.suggested_interest)}</span></div>`);
+        if (hasText(suggestedDate) || hasText(suggestedTime)) suggestionCards.push(`<div class="ai-box"><strong>Data e hora sugeridas</strong><span>${escapeHtml([suggestedDate, suggestedTime].filter(Boolean).join(" ") || "Nao sugerido")}</span></div>`);
+        if (hasText(scheduleReason)) suggestionCards.push(`<div class="ai-box"><strong>Motivo do agendamento</strong><p>${escapeHtml(scheduleReason)}</p></div>`);
+        if (hasText(data?.suggested_notes)) suggestionCards.push(`<div class="ai-box"><strong>Observacoes sugeridas</strong><p>${escapeHtml(data.suggested_notes)}</p></div>`);
+        if (hasText(suggestedReply)) suggestionCards.push(`<div class="ai-box"><strong>Resposta sugerida</strong><div class="ai-reply">${escapeHtml(suggestedReply)}</div></div>`);
+        if (!suggestionCards.length) suggestionCards.push(`<div class="ai-box"><strong>Sem sinais fortes ainda</strong><p class="muted">A conversa ainda não entregou contexto suficiente para uma leitura confiável.</p></div>`);
 
         body.innerHTML = `
             <style>
@@ -89,6 +109,11 @@
                 .ai-hero{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:16px;border-radius:14px;background:rgba(13,22,28,.92);border:1px solid rgba(0,168,132,.16)}
                 .ai-hero h4{margin:0 0 6px;font-size:1rem}
                 .ai-hero p{margin:0;color:#9aa7af;line-height:1.4}
+                .ai-status{padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(0,168,132,.14);display:grid;gap:10px}
+                .ai-status-top{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+                .ai-status-top strong{font-size:.98rem}
+                .ai-progress{height:9px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+                .ai-progress > span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#00a884,#12b886);width:${confidencePct}%}
                 .ai-context{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#c9d4da;font-size:.92rem}
                 .ai-box{padding:14px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);min-width:0}
                 .ai-box strong{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;opacity:.78;margin-bottom:6px;color:#9fb0b8}
@@ -112,27 +137,24 @@
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         ${renderBadge(source === "ai" ? "IA" : "Heuristica", source === "ai" ? "ok" : "warn")}
+                        ${renderBadge(statusText, statusTone)}
                         ${renderBadge(`${Math.max(0, Math.min(10, confidence))}/10`, "neutral")}
                         ${needsHuman ? renderBadge("Pede humano", "warn") : renderBadge("Sem alerta", "ok")}
                     </div>
+                </div>
+                <div class="ai-status">
+                    <div class="ai-status-top">
+                        <strong>${escapeHtml(analysisLabel)}</strong>
+                        <span class="badge ${statusTone}">${escapeHtml(`${signalCount} sinais`)}</span>
+                    </div>
+                    <div class="ai-progress" aria-hidden="true"><span></span></div>
+                    <div class="muted" style="color:#9aa7af">${escapeHtml(analysisDetail || "A IA ainda está organizando o contexto dessa conversa.")}</div>
                 </div>
                 <div class="ai-context">Conversa atual: ${escapeHtml(contextLabel || String(data?.conversation_id || ""))}</div>
 
                 ${notice ? `<div class="ai-warning">${escapeHtml(notice)}</div>` : ""}
                 ${aiEnabled ? "" : `<div class="ai-warning">IA desativada nas configuracoes do estudio.</div>`}
-
-                <div class="ai-suggestions">
-                    <div class="ai-box"><strong>Resumo</strong><p>${escapeHtml(summary || "Sem resumo ainda.")}</p></div>
-                    <div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data?.suggested_name || data?.current_name || "Nao informado")}</span></div>
-                    <div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data?.suggested_interest || data?.current_interest || "Nao informado")}</span></div>
-                    <div class="ai-box"><strong>Data e hora sugeridas</strong><span>${escapeHtml([suggestedDate, suggestedTime].filter(Boolean).join(" ") || "Nao sugerido")}</span></div>
-                    <div class="ai-box"><strong>Motivo do agendamento</strong><p>${escapeHtml(scheduleReason || "Sem sugestao de agendamento.")}</p></div>
-                    <div class="ai-box"><strong>Observacoes sugeridas</strong><p>${escapeHtml(data?.suggested_notes || data?.current_notes || "Sem observacoes sugeridas.")}</p></div>
-                    <div class="ai-box">
-                        <strong>Resposta sugerida</strong>
-                        ${suggestedReply ? `<div class="ai-reply">${escapeHtml(suggestedReply)}</div>` : `<div class="ai-empty">Nenhuma resposta pronta no momento.</div>`}
-                    </div>
-                </div>
+                <div class="ai-suggestions">${suggestionCards.join("")}</div>
 
                 <div class="ai-actions">
                     <button type="button" class="primary" data-ai-action="refresh">Atualizar sugestoes</button>

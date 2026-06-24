@@ -3637,10 +3637,54 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
         }
     }
 
+    $signalCount = 0;
+    foreach ([
+        $summary,
+        (string)($insights['suggested_name'] ?? ''),
+        (string)($insights['suggested_interest'] ?? ''),
+        (string)($insights['suggested_notes'] ?? ''),
+        (string)($insights['suggested_date'] ?? ''),
+        (string)($insights['suggested_time'] ?? ''),
+        (string)($insights['schedule_reason'] ?? ''),
+    ] as $signal) {
+        if (trim((string)$signal) !== '') {
+            $signalCount++;
+        }
+    }
+
+    $analysisStage = 'avaliando';
+    $analysisLabel = 'Avaliando conversa';
+    $analysisDetail = 'A IA ainda está montando contexto útil.';
+    if (!$assistantEnabled) {
+        $analysisStage = 'desativada';
+        $analysisLabel = 'IA desativada';
+        $analysisDetail = 'Ative a IA nas configuracoes do estudio para gerar leitura automática.';
+    } elseif (($source === 'ai' && trim((string)($insights['suggested_name'] ?? '')) !== '') || trim((string)($insights['suggested_reply'] ?? '')) !== '') {
+        $analysisStage = 'pronta';
+        $analysisLabel = 'Sugestoes prontas';
+        $analysisDetail = 'A IA já encontrou um contexto confiavel para essa conversa.';
+    } elseif ($signalCount >= 4 || (int)($insights['confidence'] ?? 0) >= 6) {
+        $analysisStage = 'parcial';
+        $analysisLabel = 'Leitura parcial';
+        $analysisDetail = 'Há sinais suficientes para sugerir, mas ainda pode faltar contexto.';
+    } elseif ($signalCount === 0) {
+        $analysisStage = 'sem_contexto';
+        $analysisLabel = 'Pouco contexto';
+        $analysisDetail = 'Ainda não apareceu texto suficiente para a IA formar uma leitura boa.';
+    } elseif ($signalCount <= 2) {
+        $analysisStage = 'avaliando';
+        $analysisLabel = 'Avaliando conversa';
+        $analysisDetail = 'Já existem alguns sinais, mas a leitura ainda é inicial.';
+    }
+
     return [
         'ok' => true,
         'source' => $source,
         'confidence' => max(0, min(10, (int)($insights['confidence'] ?? 0))),
+        'signal_count' => $signalCount,
+        'analysis_stage' => $analysisStage,
+        'analysis_label' => $analysisLabel,
+        'analysis_detail' => $analysisDetail,
         'conversation_id' => (int)($conversation['id'] ?? 0),
         'customer_id' => (int)($conversation['customer_id'] ?? 0),
         'lead_id' => (int)($conversation['lead_id'] ?? 0),
