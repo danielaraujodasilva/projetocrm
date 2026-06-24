@@ -170,20 +170,6 @@ body {
 }
 
 .m2-filter-menu > summary {
-    list-style: none;
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 12px;
-    border-radius: 12px;
-    background: #202c33;
-    color: var(--m2-text);
-    cursor: pointer;
-    user-select: none;
-}
-
-.m2-filter-menu > summary::-webkit-details-marker {
     display: none;
 }
 
@@ -205,17 +191,10 @@ body {
     font-size: .72rem;
 }
 
-.m2-filter-menu[open] > summary {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-}
-
 .m2-filter-panel {
     padding: 12px;
     border: 1px solid var(--m2-border);
-    border-top: 0;
-    border-bottom-left-radius: 12px;
-    border-bottom-right-radius: 12px;
+    border-radius: 12px;
     background: var(--m2-panel-2);
     display: grid;
     gap: 12px;
