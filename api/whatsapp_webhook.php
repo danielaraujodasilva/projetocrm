@@ -139,12 +139,11 @@ function find_official_whatsapp_studio_by_verify_token(string $verifyToken): ?ar
                 continue;
             }
             try {
-                $settings = studio_settings($studio);
+                if (studio_whatsapp_provider($studio) === 'official') {
+                    return $studio;
+                }
             } catch (Throwable) {
                 continue;
-            }
-            if ((string)($settings['whatsapp_provider'] ?? 'baileys') === 'official') {
-                return $studio;
             }
         }
     }
@@ -236,12 +235,12 @@ function whatsapp_official_record_status(array $studio, array $status): void
         return;
     }
     try {
-        $result = studio_record_whatsapp_message($studio, [
+        $result = studio_record_whatsapp_message($studio, studio_normalize_whatsapp_message_payload([
             'statusUpdate' => true,
             'messageId' => $messageId,
             'remoteJid' => $recipientId,
             'status' => $state,
-        ]);
+        ]));
         studio_whatsapp_event_log($studio, [
             'provider' => 'official',
             'event_type' => 'official_webhook_status',
@@ -498,7 +497,7 @@ function whatsapp_official_record_message(array $studio, array $message, array $
     }
 
     $messageId = (string)($message['id'] ?? '');
-    $messageType = $type !== '' ? $type : 'texto';
+    $messageType = strtolower($type !== '' ? $type : 'texto');
     $mediaPayload = in_array($messageType, ['audio', 'image', 'video', 'document', 'sticker'], true)
         ? whatsapp_official_download_media($studio, $message, $messageType)
         : [];
@@ -512,17 +511,25 @@ function whatsapp_official_record_message(array $studio, array $message, array $
         'studio_id' => (int)$studio['id'],
     ]);
     try {
-        $recordPayload = [
+        $recordPayload = studio_normalize_whatsapp_message_payload([
+            'phone_number_id' => (string)($message['phone_number_id'] ?? ''),
+            'wa_id' => $from,
+            'from' => $from,
             'numero' => $from,
             'name' => $name,
-            'mensagem' => $body !== '' ? $body : '[' . $messageType . ']',
-            'fromMe' => false,
-            'senderType' => 'customer',
-            'messageId' => $messageId,
-            'remoteJid' => $from,
+            'body' => $body,
+            'message_id' => $messageId,
+            'remote_jid' => $from,
+            'from_me' => false,
+            'sender_type' => 'customer',
             'timestamp' => (int)($message['timestamp'] ?? time()),
-            'tipoMensagem' => $messageType,
-        ];
+            'message_type' => $messageType,
+            'media_base64' => (string)($mediaPayload['mediaBase64'] ?? ''),
+            'media_mime' => (string)($mediaPayload['mediaMime'] ?? ''),
+            'media_file_name' => (string)($mediaPayload['mediaFileName'] ?? ''),
+            'media_file_path' => (string)($mediaPayload['mediaFilePath'] ?? ''),
+            'media_url' => (string)($mediaPayload['mediaUrl'] ?? ''),
+        ]);
         if (!empty($mediaPayload)) {
             $recordPayload += $mediaPayload;
         }
@@ -665,6 +672,7 @@ if ($studioSessionKey !== '' || $webhookToken !== '') {
         whatsapp_webhook_respond_ok();
     }
 
+    // TODO(migration): this branch still accepts the legacy Baileys-shaped payload for older collectors.
     $numero = trim((string)($payload['numero'] ?? $payload['phone'] ?? ''));
     $mensagem = trim((string)($payload['mensagem'] ?? $payload['message'] ?? $payload['body'] ?? ''));
     $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));

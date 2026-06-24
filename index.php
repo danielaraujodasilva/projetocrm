@@ -5464,7 +5464,7 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft settings-group">';
         echo '<h3 style="margin-top:0">Entrada do WhatsApp</h3>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Motor principal</label><select name="whatsapp_provider"><option value="baileys"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'baileys') ? ' selected' : '') . '>Baileys</option><option value="official"' . (((string)($settings['whatsapp_provider'] ?? 'baileys') === 'official') ? ' selected' : '') . '>API oficial da Meta</option></select><small class="muted">Escolha aqui qual conexão fica como principal neste estúdio.</small></div>';
+        echo '<div class="field"><label>Motor principal</label><select name="whatsapp_provider"><option value="baileys"' . (studio_whatsapp_provider($studio) === 'baileys' ? ' selected' : '') . '>Baileys</option><option value="official"' . (studio_whatsapp_provider($studio) === 'official' ? ' selected' : '') . '>API oficial da Meta</option></select><small class="muted">Escolha aqui qual conexão fica como principal neste estúdio.</small></div>';
         echo '<div class="field"><label>Padrão das novas conversas</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select><small class="muted">Define quem assume as conversas que entram agora.</small></div>';

@@ -398,8 +398,8 @@ function studio_whatsapp_service_url(array $studio): string
 function studio_whatsapp_provider(array $studio): string
 {
     $settings = studio_settings($studio);
-    $provider = strtolower(trim((string)($settings['whatsapp_provider'] ?? 'baileys')));
-    return in_array($provider, ['baileys', 'official'], true) ? $provider : 'baileys';
+    $provider = strtolower(trim((string)($settings['whatsapp_provider'] ?? 'official')));
+    return in_array($provider, ['baileys', 'official'], true) ? $provider : 'official';
 }
 
 function studio_whatsapp_official_configured(array $studio): bool
@@ -3700,19 +3700,150 @@ function studio_whatsapp_extract_date_context(string $text, array $studio): ?arr
     ];
 }
 
+function studio_normalize_whatsapp_message_payload(array $payload): array
+{
+    $pick = static function (array $source, array $keys, string $default = ''): string {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $source) || $source[$key] === null) {
+                continue;
+            }
+            $value = trim((string)$source[$key]);
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return $default;
+    };
+
+    $toBool = static function ($value): bool {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return ((int)$value) !== 0;
+        }
+
+        $value = strtolower(trim((string)$value));
+        if ($value === '' || in_array($value, ['0', 'false', 'no', 'off', 'null'], true)) {
+            return false;
+        }
+
+        return true;
+    };
+
+    $messageId = $pick($payload, ['message_id', 'messageId', 'messageID', 'wamid']);
+    $phoneNumberId = $pick($payload, ['phone_number_id', 'phoneNumberId']);
+    $phone = normalize_phone($pick($payload, ['phone', 'numero', 'wa_id', 'waId', 'from']));
+    $waId = $pick($payload, ['wa_id', 'waId', 'phone', 'numero', 'from']);
+    $remoteJid = $pick($payload, ['remote_jid', 'remoteJid', 'jidCompleto']);
+    $from = $pick($payload, ['from', 'wa_id', 'waId', 'phone', 'numero']);
+    $body = $pick($payload, ['body', 'mensagem', 'message']);
+    $messageType = strtolower($pick($payload, ['message_type', 'messageType', 'tipoMensagem'], 'texto'));
+    $mediaMime = $pick($payload, ['media_mime', 'mediaMime', 'mime']);
+    $mediaUrl = $pick($payload, ['media_url', 'mediaUrl']);
+    $mediaFileName = $pick($payload, ['media_file_name', 'mediaFileName']);
+    $mediaFilePath = $pick($payload, ['media_file_path', 'mediaFilePath']);
+    $mediaBase64 = trim((string)($payload['media_base64'] ?? $payload['mediaBase64'] ?? ''));
+    $status = strtolower($pick($payload, ['status'], ''));
+    $senderType = strtolower($pick($payload, ['sender_type', 'senderType']));
+    $fromMe = $toBool($payload['from_me'] ?? $payload['fromMe'] ?? false);
+    $statusUpdate = $toBool($payload['status_update'] ?? $payload['statusUpdate'] ?? false);
+    $timestamp = (int)($payload['timestamp'] ?? time());
+    $recipientId = $pick($payload, ['recipient_id', 'recipientId']);
+
+    if ($timestamp > 2000000000) {
+        $timestamp = (int)floor($timestamp / 1000);
+    }
+    if ($remoteJid === '' && $from !== '') {
+        $remoteJid = $from;
+    }
+    if ($phone === '' && $waId !== '') {
+        $phone = normalize_phone($waId);
+    }
+    if ($phone === '' && $remoteJid !== '') {
+        $phone = normalize_phone($remoteJid);
+    }
+    if ($waId === '' && $phone !== '') {
+        $waId = $phone;
+    }
+    if ($from === '') {
+        $from = $waId !== '' ? $waId : $phone;
+    }
+    if (!in_array($senderType, ['customer', 'human', 'bot', 'system'], true)) {
+        $senderType = $fromMe ? 'human' : 'customer';
+    }
+    if ($messageType === 'texto' && $mediaMime !== '') {
+        if (str_starts_with($mediaMime, 'image/')) {
+            $messageType = 'image';
+        } elseif (str_starts_with($mediaMime, 'video/')) {
+            $messageType = 'video';
+        } elseif (str_starts_with($mediaMime, 'audio/')) {
+            $messageType = 'audio';
+        } else {
+            $messageType = 'document';
+        }
+    }
+
+    // TODO(migration): remove the legacy aliases below once all webhook and UI payloads emit only the canonical keys.
+    $normalized = $payload;
+    $normalized['message_id'] = $messageId;
+    $normalized['messageId'] = $messageId;
+    $normalized['wamid'] = $messageId;
+    $normalized['phone_number_id'] = $phoneNumberId;
+    $normalized['phoneNumberId'] = $phoneNumberId;
+    $normalized['phone'] = $phone;
+    $normalized['numero'] = $phone;
+    $normalized['wa_id'] = $waId;
+    $normalized['waId'] = $waId;
+    $normalized['from'] = $from;
+    $normalized['remote_jid'] = $remoteJid;
+    $normalized['remoteJid'] = $remoteJid;
+    $normalized['jidCompleto'] = $remoteJid;
+    $normalized['body'] = $body;
+    $normalized['mensagem'] = $body;
+    $normalized['message'] = $body;
+    $normalized['message_type'] = $messageType;
+    $normalized['messageType'] = $messageType;
+    $normalized['tipoMensagem'] = $messageType;
+    $normalized['media_mime'] = $mediaMime;
+    $normalized['mediaMime'] = $mediaMime;
+    $normalized['media_url'] = $mediaUrl;
+    $normalized['mediaUrl'] = $mediaUrl;
+    $normalized['media_file_name'] = $mediaFileName;
+    $normalized['mediaFileName'] = $mediaFileName;
+    $normalized['media_file_path'] = $mediaFilePath;
+    $normalized['mediaFilePath'] = $mediaFilePath;
+    $normalized['media_base64'] = $mediaBase64;
+    $normalized['mediaBase64'] = $mediaBase64;
+    $normalized['status'] = $status;
+    $normalized['sender_type'] = $senderType;
+    $normalized['senderType'] = $senderType;
+    $normalized['from_me'] = $fromMe ? 1 : 0;
+    $normalized['fromMe'] = $fromMe;
+    $normalized['status_update'] = $statusUpdate;
+    $normalized['statusUpdate'] = $statusUpdate;
+    $normalized['timestamp'] = $timestamp;
+    $normalized['recipient_id'] = $recipientId;
+    $normalized['recipientId'] = $recipientId;
+
+    return $normalized;
+}
+
 function studio_upsert_whatsapp_conversation(array $studio, array $payload): array
 {
+    $payload = studio_normalize_whatsapp_message_payload($payload);
     $pdo = studio_db($studio);
-    $phone = normalize_phone((string)($payload['numero'] ?? $payload['phone'] ?? ''));
+    $phone = normalize_phone((string)($payload['phone'] ?? $payload['numero'] ?? ''));
     if ($phone === '') {
         throw new RuntimeException('Telefone do WhatsApp nao informado.');
     }
 
-    $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));
-    $fromMe = !empty($payload['fromMe']);
-    $text = trim((string)($payload['mensagem'] ?? $payload['body'] ?? ''));
-    $messageType = trim((string)($payload['tipoMensagem'] ?? $payload['messageType'] ?? 'texto')) ?: 'texto';
-    $hasMedia = !empty($payload['mediaBase64']) || !empty($payload['mediaUrl']);
+    $remoteJid = trim((string)($payload['remote_jid'] ?? ''));
+    $fromMe = !empty($payload['from_me']);
+    $text = trim((string)($payload['body'] ?? ''));
+    $messageType = trim((string)($payload['message_type'] ?? 'texto')) ?: 'texto';
+    $hasMedia = !empty($payload['media_base64']) || !empty($payload['media_url']);
     $score = studio_whatsapp_lead_score($text, $hasMedia);
     $needsHuman = studio_whatsapp_needs_human($text);
 
@@ -3767,9 +3898,10 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
 
 function studio_whatsapp_update_message_status(array $studio, array $payload): array
 {
+    $payload = studio_normalize_whatsapp_message_payload($payload);
     $pdo = studio_db($studio);
-    $messageId = trim((string)($payload['messageId'] ?? ''));
-    $remoteJid = trim((string)($payload['remoteJid'] ?? ''));
+    $messageId = trim((string)($payload['message_id'] ?? ''));
+    $remoteJid = trim((string)($payload['remote_jid'] ?? ''));
     $status = trim((string)($payload['status'] ?? ''));
     if ($messageId === '' || $status === '') {
         return ['ok' => false, 'error' => 'Status sem messageId ou estado.'];
@@ -3787,8 +3919,9 @@ function studio_whatsapp_update_message_status(array $studio, array $payload): a
 
 function studio_record_whatsapp_message(array $studio, array $payload): array
 {
+    $payload = studio_normalize_whatsapp_message_payload($payload);
     studio_ensure_whatsapp_assignment_schema($studio);
-    if (!empty($payload['statusUpdate'])) {
+    if (!empty($payload['status_update'])) {
         return studio_whatsapp_update_message_status($studio, $payload);
     }
 
@@ -3798,7 +3931,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         throw new RuntimeException('Nao foi possivel abrir conversa WhatsApp.');
     }
 
-    $messageId = trim((string)($payload['messageId'] ?? ''));
+    $messageId = trim((string)($payload['message_id'] ?? ''));
     if ($messageId !== '') {
         $stmt = $pdo->prepare('SELECT id FROM whatsapp_messages WHERE message_id = ? LIMIT 1');
         $stmt->execute([$messageId]);
@@ -3807,15 +3940,15 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         }
     }
 
-    $fromMe = !empty($payload['fromMe']);
+    $fromMe = !empty($payload['from_me']);
     $direction = $fromMe ? 'out' : 'in';
-    $senderType = trim((string)($payload['senderType'] ?? ''));
+    $senderType = trim((string)($payload['sender_type'] ?? ''));
     if (!in_array($senderType, ['customer', 'human', 'bot', 'system'], true)) {
         $senderType = $fromMe ? 'human' : 'customer';
     }
-    $body = trim((string)($payload['mensagem'] ?? $payload['body'] ?? ''));
-    $messageType = trim((string)($payload['tipoMensagem'] ?? $payload['messageType'] ?? 'texto')) ?: 'texto';
-    $mediaMime = trim((string)($payload['mediaMime'] ?? $payload['media_mime'] ?? ''));
+    $body = trim((string)($payload['body'] ?? ''));
+    $messageType = trim((string)($payload['message_type'] ?? 'texto')) ?: 'texto';
+    $mediaMime = trim((string)($payload['media_mime'] ?? ''));
     if ($messageType === 'texto' && $mediaMime !== '') {
         if (str_starts_with($mediaMime, 'image/')) {
             $messageType = 'image';
@@ -3832,21 +3965,21 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         $timestamp = (int)floor($timestamp / 1000);
     }
     $sentAt = date('Y-m-d H:i:s', $timestamp > 0 ? $timestamp : time());
-    $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));
+    $remoteJid = trim((string)($payload['remote_jid'] ?? ''));
     $needsHuman = studio_whatsapp_needs_human($body);
-    $hasMedia = !empty($payload['mediaBase64']) || !empty($payload['mediaUrl']);
+    $hasMedia = !empty($payload['media_base64']) || !empty($payload['media_url']);
     $score = studio_whatsapp_lead_score($body, $hasMedia);
-    $mediaUrl = trim((string)($payload['mediaUrl'] ?? ''));
-    $mediaFileName = trim((string)($payload['mediaFileName'] ?? $payload['media_file_name'] ?? ''));
-    $mediaFilePath = trim((string)($payload['mediaFilePath'] ?? $payload['media_file_path'] ?? ''));
-    if ($mediaUrl === '' && !empty($payload['mediaBase64'])) {
+    $mediaUrl = trim((string)($payload['media_url'] ?? ''));
+    $mediaFileName = trim((string)($payload['media_file_name'] ?? ''));
+    $mediaFilePath = trim((string)($payload['media_file_path'] ?? ''));
+    if ($mediaUrl === '' && !empty($payload['media_base64'])) {
         $storedMedia = studio_store_whatsapp_media(
             $studio,
             (int)$conversation['id'],
-            (string)$payload['mediaBase64'],
+            (string)$payload['media_base64'],
             $mediaMime,
             $messageType,
-            trim((string)($payload['mediaFileName'] ?? ''))
+            trim((string)($payload['media_file_name'] ?? ''))
         );
         $mediaUrl = $storedMedia['relativePath'];
         $mediaFilePath = $storedMedia['relativePath'];
@@ -7511,9 +7644,9 @@ function studio_save_settings(array $studio, array $data): void
     $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
     $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
-    $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'baileys')));
+    $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'official')));
     if (!in_array($whatsappProvider, ['baileys', 'official'], true)) {
-        $whatsappProvider = 'baileys';
+        $whatsappProvider = 'official';
     }
     $whatsappOfficialMode = strtolower(trim((string)($data['whatsapp_official_mode'] ?? 'production')));
     if (!in_array($whatsappOfficialMode, ['production', 'sandbox'], true)) {
@@ -7581,7 +7714,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
-        'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "baileys"',
+        'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "official"',
         'whatsapp_official_mode' => 'VARCHAR(16) NOT NULL DEFAULT "production"',
         'meta_ads_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'meta_ads_app_id' => 'VARCHAR(40) NULL',
