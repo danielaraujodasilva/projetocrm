@@ -29,6 +29,7 @@
   var deleteSelectedConversations = document.getElementById('m2DeleteSelectedConversations');
   var bulkCount = document.getElementById('m2BulkCount');
   var csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+  var sidebarRefreshInFlight = false;
   var recordedFile = null;
   var recorder = null;
   var stream = null;
@@ -107,6 +108,15 @@
 
   function conversationCheckboxes() {
     return Array.prototype.slice.call(document.querySelectorAll('.m2-conversation-checkbox'));
+  }
+
+  function applySidebarSearchFilter() {
+    if (!search) return;
+    var query = normalize(search.value);
+    document.querySelectorAll('.m2-item').forEach(function (item) {
+      var haystack = normalize(item.getAttribute('data-search'));
+      item.hidden = query !== '' && haystack.indexOf(query) === -1;
+    });
   }
 
   function updateBulkSelectionUi() {
@@ -423,8 +433,10 @@
       clearAttachment();
       form.setAttribute('data-sending', '0');
       await refreshMessages(true);
+      await refreshConversationList(true);
       window.setTimeout(function () {
         refreshMessages(true);
+        refreshConversationList(true);
       }, 900);
     } catch (error) {
       alert(error.message || 'Nao foi possivel enviar.');
@@ -623,6 +635,51 @@
     } catch (ignore) {}
   }
 
+  async function refreshConversationList(force) {
+    var list = document.getElementById('m2Items');
+    if (!list || document.hidden || sidebarRefreshInFlight) return;
+    sidebarRefreshInFlight = true;
+
+    var previousScrollTop = list.scrollTop;
+    var preservedChecks = new Set();
+    if (manageModeEnabled()) {
+      conversationCheckboxes().forEach(function (box) {
+        if (box.checked) preservedChecks.add(String(box.value || ''));
+      });
+    }
+
+    try {
+      var response = await fetch(window.location.pathname + window.location.search, {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'text/html',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      if (!response.ok) return;
+      var html = await response.text();
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var freshList = doc.getElementById('m2Items');
+      if (!freshList || !freshList.innerHTML) return;
+
+      if (!force && list.innerHTML === freshList.innerHTML) return;
+
+      list.innerHTML = freshList.innerHTML;
+      list.scrollTop = previousScrollTop;
+      applySidebarSearchFilter();
+
+      if (manageModeEnabled() && preservedChecks.size > 0) {
+        conversationCheckboxes().forEach(function (box) {
+          box.checked = preservedChecks.has(String(box.value || ''));
+        });
+      }
+      updateBulkSelectionUi();
+    } catch (ignore) {
+    } finally {
+      sidebarRefreshInFlight = false;
+    }
+  }
+
   async function postConversationUpdate(payload, message) {
     var body = new URLSearchParams();
     body.set('csrf_token', csrfToken);
@@ -736,9 +793,11 @@
   scheduleScroll();
   window.setTimeout(function () {
     refreshMessages(true);
+    refreshConversationList(true);
   }, 1200);
   window.setInterval(function () {
     refreshMessages(false);
+    refreshConversationList(false);
   }, 5000);
 
   if (messages) {
@@ -757,11 +816,7 @@
 
   if (search) {
     search.addEventListener('input', function () {
-      var query = normalize(search.value);
-      document.querySelectorAll('.m2-item').forEach(function (item) {
-        var haystack = normalize(item.getAttribute('data-search'));
-        item.hidden = query !== '' && haystack.indexOf(query) === -1;
-      });
+      applySidebarSearchFilter();
       updateBulkSelectionUi();
     });
   }
