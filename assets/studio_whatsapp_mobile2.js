@@ -23,6 +23,7 @@
   var openAppointmentButton = document.getElementById('m2OpenAppointment');
   var appointmentPanel = document.getElementById('m2AppointmentPanel');
   var openAppointmentFromTools = document.getElementById('m2OpenAppointmentFromTools');
+  var manageToggle = document.getElementById('m2ManageToggle');
   var bulkDeleteForm = document.getElementById('m2BulkDeleteForm');
   var selectAllConversations = document.getElementById('m2SelectAllConversations');
   var deleteSelectedConversations = document.getElementById('m2DeleteSelectedConversations');
@@ -36,6 +37,30 @@
 
   if (conversationId > 0) {
     shell.classList.add('has-chat');
+  }
+
+  function manageModeEnabled() {
+    return !!(shell && shell.classList.contains('m2-manage-mode'));
+  }
+
+  function setManageMode(enabled) {
+    if (!shell) return;
+    shell.classList.toggle('m2-manage-mode', !!enabled);
+    try {
+      window.localStorage.setItem('m2ManageMode', enabled ? '1' : '0');
+    } catch (ignore) {}
+    if (!enabled) {
+      conversationCheckboxes().forEach(function (box) {
+        box.checked = false;
+      });
+    }
+    if (manageToggle) {
+      manageToggle.classList.toggle('is-active', !!enabled);
+      var label = manageToggle.querySelector('span');
+      if (label) label.textContent = enabled ? 'Gerenciando' : 'Gerenciar';
+      manageToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    }
+    updateBulkSelectionUi();
   }
 
   function stop(event) {
@@ -86,6 +111,15 @@
 
   function updateBulkSelectionUi() {
     if (!selectAllConversations && !deleteSelectedConversations && !bulkCount) return;
+    if (!manageModeEnabled()) {
+      if (bulkCount) bulkCount.textContent = '0 selecionadas';
+      if (deleteSelectedConversations) deleteSelectedConversations.disabled = true;
+      if (selectAllConversations) {
+        selectAllConversations.checked = false;
+        selectAllConversations.indeterminate = false;
+      }
+      return;
+    }
     var boxes = conversationCheckboxes();
     var checked = boxes.filter(function (box) { return box.checked; });
     var visibleBoxes = boxes.filter(function (box) {
@@ -834,6 +868,10 @@
 
   if (bulkDeleteForm) {
     bulkDeleteForm.addEventListener('submit', function (event) {
+      if (!manageModeEnabled()) {
+        stop(event);
+        return;
+      }
       var selected = conversationCheckboxes().filter(function (box) { return box.checked; });
       if (!selected.length) {
         stop(event);
@@ -849,6 +887,10 @@
 
   if (selectAllConversations) {
     selectAllConversations.addEventListener('change', function () {
+      if (!manageModeEnabled()) {
+        selectAllConversations.checked = false;
+        return;
+      }
       var boxes = conversationCheckboxes();
       boxes.forEach(function (box) {
         var item = box.closest('.m2-item');
@@ -857,6 +899,23 @@
       });
       updateBulkSelectionUi();
     });
+  }
+
+  if (manageToggle) {
+    manageToggle.addEventListener('click', function (event) {
+      stop(event);
+      setManageMode(!manageModeEnabled());
+    });
+  }
+
+  try {
+    if (window.localStorage.getItem('m2ManageMode') === '1' && manageToggle) {
+      setManageMode(true);
+    } else {
+      setManageMode(false);
+    }
+  } catch (ignore) {
+    setManageMode(false);
   }
 
   document.addEventListener('change', function (event) {
