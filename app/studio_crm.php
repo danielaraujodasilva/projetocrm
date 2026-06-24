@@ -150,6 +150,40 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
         } catch (Throwable) {
         }
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS `whatsapp_event_log` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `provider` VARCHAR(30) NOT NULL DEFAULT "official",
+            `event_type` VARCHAR(80) NOT NULL,
+            `direction` ENUM("in", "out", "system") NOT NULL DEFAULT "system",
+            `phone` VARCHAR(40) NULL,
+            `message_id` VARCHAR(180) NULL,
+            `conversation_id` BIGINT UNSIGNED NULL,
+            `status` VARCHAR(80) NULL,
+            `error` TEXT NULL,
+            `payload_json` MEDIUMTEXT NULL,
+            `created_at` DATETIME NOT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_whatsapp_event_created` (`created_at`),
+            KEY `idx_whatsapp_event_type` (`provider`, `event_type`),
+            KEY `idx_whatsapp_event_message` (`message_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    foreach ([
+        'ALTER TABLE `whatsapp_event_log` ADD COLUMN IF NOT EXISTS `provider` VARCHAR(30) NOT NULL DEFAULT "official" AFTER `id`',
+        'ALTER TABLE `whatsapp_event_log` ADD COLUMN IF NOT EXISTS `direction` ENUM("in", "out", "system") NOT NULL DEFAULT "system" AFTER `event_type`',
+        'ALTER TABLE `whatsapp_event_log` ADD COLUMN IF NOT EXISTS `conversation_id` BIGINT UNSIGNED NULL AFTER `message_id`',
+        'ALTER TABLE `whatsapp_event_log` ADD INDEX IF NOT EXISTS `idx_whatsapp_event_created` (`created_at`)',
+        'ALTER TABLE `whatsapp_event_log` ADD INDEX IF NOT EXISTS `idx_whatsapp_event_type` (`provider`, `event_type`)',
+        'ALTER TABLE `whatsapp_event_log` ADD INDEX IF NOT EXISTS `idx_whatsapp_event_message` (`message_id`)',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable) {
+        }
+    }
 }
 
 function studio_db_status_for(array $studio): array
@@ -592,6 +626,199 @@ function studio_whatsapp_official_status(array $studio): array
         'score' => $score,
         'total' => count($checks),
         'checks' => $checks,
+    ];
+}
+
+function studio_whatsapp_redact_for_log($value)
+{
+    if (is_array($value)) {
+        $redacted = [];
+        foreach ($value as $key => $item) {
+            $keyText = strtolower((string)$key);
+            if (str_contains($keyText, 'token')
+                || str_contains($keyText, 'secret')
+                || str_contains($keyText, 'authorization')
+                || str_contains($keyText, 'password')
+            ) {
+                $redacted[$key] = '[redacted]';
+                continue;
+            }
+            $redacted[$key] = studio_whatsapp_redact_for_log($item);
+        }
+        return $redacted;
+    }
+
+    if (is_string($value) && mb_strlen($value) > 1500) {
+        return mb_substr($value, 0, 1500) . '...[truncated]';
+    }
+
+    return $value;
+}
+
+function studio_whatsapp_event_log(array $studio, array $event): void
+{
+    try {
+        $provider = strtolower(trim((string)($event['provider'] ?? studio_whatsapp_provider($studio))));
+        if (!in_array($provider, ['official', 'baileys', 'system'], true)) {
+            $provider = 'official';
+        }
+        $direction = strtolower(trim((string)($event['direction'] ?? 'system')));
+        if (!in_array($direction, ['in', 'out', 'system'], true)) {
+            $direction = 'system';
+        }
+        $payload = $event['payload'] ?? [];
+        $payloadJson = '';
+        if ($payload !== [] && $payload !== null) {
+            $payloadJson = json_encode(studio_whatsapp_redact_for_log($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            if (!is_string($payloadJson)) {
+                $payloadJson = '';
+            }
+            if (mb_strlen($payloadJson) > 12000) {
+                $payloadJson = mb_substr($payloadJson, 0, 12000) . '...[truncated]';
+            }
+        }
+
+        $stmt = studio_db($studio)->prepare(
+            'INSERT INTO whatsapp_event_log
+                (provider, event_type, direction, phone, message_id, conversation_id, status, error, payload_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+        );
+        $stmt->execute([
+            $provider,
+            trim((string)($event['event_type'] ?? 'event')) ?: 'event',
+            $direction,
+            preg_replace('/\D+/', '', (string)($event['phone'] ?? '')) ?: null,
+            trim((string)($event['message_id'] ?? '')) ?: null,
+            (int)($event['conversation_id'] ?? 0) > 0 ? (int)$event['conversation_id'] : null,
+            trim((string)($event['status'] ?? '')) ?: null,
+            trim((string)($event['error'] ?? '')) ?: null,
+            $payloadJson !== '' ? $payloadJson : null,
+        ]);
+    } catch (Throwable) {
+    }
+}
+
+function studio_whatsapp_recent_diagnostics(array $studio, int $limit = 20): array
+{
+    try {
+        $limit = max(1, min(100, $limit));
+        $stmt = studio_db($studio)->query(
+            'SELECT id, provider, event_type, direction, phone, message_id, conversation_id, status, error, payload_json, created_at
+             FROM whatsapp_event_log
+             ORDER BY id DESC
+             LIMIT ' . $limit
+        );
+        return $stmt->fetchAll() ?: [];
+    } catch (Throwable) {
+        return [];
+    }
+}
+
+function studio_whatsapp_customer_service_window(array $studio, int $conversationId): array
+{
+    if ($conversationId <= 0 || studio_whatsapp_provider($studio) !== 'official') {
+        return ['applies' => false, 'open' => true, 'last_inbound_at' => '', 'expires_at' => ''];
+    }
+
+    try {
+        $stmt = studio_db($studio)->prepare(
+            'SELECT sent_at
+             FROM whatsapp_messages
+             WHERE conversation_id = ? AND direction = "in"
+             ORDER BY sent_at DESC, id DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$conversationId]);
+        $lastInboundAt = (string)($stmt->fetchColumn() ?: '');
+        if ($lastInboundAt === '') {
+            return ['applies' => true, 'open' => false, 'last_inbound_at' => '', 'expires_at' => '', 'remaining_minutes' => 0];
+        }
+
+        $timezone = new DateTimeZone('America/Sao_Paulo');
+        $lastInbound = new DateTimeImmutable($lastInboundAt, $timezone);
+        $expiresAt = $lastInbound->modify('+24 hours');
+        $now = new DateTimeImmutable('now', $timezone);
+        $remainingMinutes = max(0, (int)floor(($expiresAt->getTimestamp() - $now->getTimestamp()) / 60));
+
+        return [
+            'applies' => true,
+            'open' => $remainingMinutes > 0,
+            'last_inbound_at' => $lastInbound->format('Y-m-d H:i:s'),
+            'expires_at' => $expiresAt->format('Y-m-d H:i:s'),
+            'remaining_minutes' => $remainingMinutes,
+        ];
+    } catch (Throwable) {
+        return ['applies' => true, 'open' => true, 'last_inbound_at' => '', 'expires_at' => '', 'remaining_minutes' => 0];
+    }
+}
+
+function studio_whatsapp_official_health(array $studio): array
+{
+    $status = studio_whatsapp_official_status($studio);
+    $settings = studio_settings($studio);
+    $recent = studio_whatsapp_recent_diagnostics($studio, 24);
+    $lastWebhookAt = '';
+    $lastInboundAt = '';
+    $lastOutboundAt = '';
+    $lastError = '';
+
+    foreach ($recent as $event) {
+        $eventType = (string)($event['event_type'] ?? '');
+        $direction = (string)($event['direction'] ?? '');
+        $createdAt = (string)($event['created_at'] ?? '');
+        if ($lastWebhookAt === '' && str_starts_with($eventType, 'official_webhook')) {
+            $lastWebhookAt = $createdAt;
+        }
+        if ($lastInboundAt === '' && $direction === 'in') {
+            $lastInboundAt = $createdAt;
+        }
+        if ($lastOutboundAt === '' && $direction === 'out') {
+            $lastOutboundAt = $createdAt;
+        }
+        if ($lastError === '' && trim((string)($event['error'] ?? '')) !== '') {
+            $lastError = (string)$event['error'];
+        }
+    }
+
+    $webhookLogPath = APP_BASE_PATH . '/storage/whatsapp_webhook_events.log';
+    if ($lastWebhookAt === '' && is_file($webhookLogPath)) {
+        $mtime = @filemtime($webhookLogPath);
+        if (is_int($mtime) && $mtime > 0) {
+            $lastWebhookAt = date('Y-m-d H:i:s', $mtime);
+        }
+    }
+
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
+    $ready = !empty($status['ready']);
+    $displayNumber = trim((string)($settings['whatsapp_official_display_number'] ?? ''));
+    if ($displayNumber === '') {
+        $displayNumber = trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+    }
+
+    return [
+        'ok' => true,
+        'provider' => 'official',
+        'status' => $ready ? 'connected' : 'error',
+        'ready' => $ready,
+        'phone' => $displayNumber,
+        'mode' => (string)($settings['whatsapp_official_mode'] ?? 'production'),
+        'checks' => $status['checks'] ?? [],
+        'score' => (int)($status['score'] ?? 0),
+        'total' => (int)($status['total'] ?? 0),
+        'service_health' => [
+            'ok' => $ready,
+            'provider' => 'official',
+            'ffmpeg' => $ffmpeg !== '' ? $ffmpeg : '',
+            'webhook_log_path' => is_file($webhookLogPath) ? $webhookLogPath : '',
+        ],
+        'service_version' => 'Meta Cloud API',
+        'expected_service_version' => 'Meta Cloud API',
+        'service_stale' => false,
+        'last_webhook_at' => $lastWebhookAt,
+        'last_inbound_at' => $lastInboundAt,
+        'last_outbound_at' => $lastOutboundAt,
+        'lastError' => $lastError,
+        'recent_events' => $recent,
     ];
 }
 
@@ -1316,6 +1543,10 @@ function studio_restart_whatsapp_service(array $studio): array
 
 function studio_whatsapp_service_status(array $studio, int $timeout = 2): array
 {
+    if (studio_whatsapp_provider($studio) === 'official') {
+        return studio_whatsapp_official_health($studio);
+    }
+
     $sessionKey = studio_session_key($studio);
     $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], $timeout);
     $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
@@ -3836,6 +4067,14 @@ function studio_attempt_whatsapp_audio_transcription(array $studio, string $mess
 
 function studio_send_whatsapp_message(array $studio, array $data): array
 {
+    if (studio_whatsapp_provider($studio) === 'official') {
+        $result = studio_send_whatsapp_official_message($studio, $data);
+        if (empty($result['ok'])) {
+            throw new RuntimeException(studio_whatsapp_send_error_message($result));
+        }
+        return $result;
+    }
+
     $phone = normalize_phone((string)($data['phone'] ?? $data['numero'] ?? ''));
     $conversationId = (int)($data['conversation_id'] ?? 0);
     if ($phone === '' && $conversationId > 0) {
@@ -3886,6 +4125,152 @@ function studio_send_whatsapp_message(array $studio, array $data): array
     ]);
 
     return $result;
+}
+
+function studio_whatsapp_send_error_message(array $result): string
+{
+    $error = trim((string)($result['error'] ?? $result['erro'] ?? 'Nao foi possivel enviar pelo WhatsApp.'));
+    if (!empty($result['status'])) {
+        $error .= ' | HTTP ' . (string)$result['status'];
+    }
+    if (!empty($result['json']['error']['message'])) {
+        $error .= ' | ' . (string)$result['json']['error']['message'];
+    }
+    if (!empty($result['json']['error']['error_data']['details'])) {
+        $error .= ' | ' . (string)$result['json']['error']['error_data']['details'];
+    }
+    if (!empty($result['diagnostic']) && is_array($result['diagnostic'])) {
+        $diag = $result['diagnostic'];
+        $phoneNumberId = (string)($diag['zap_local_config']['phone_number_id'] ?? $diag['crm']['phone_number_id'] ?? $diag['phone_number_id'] ?? '');
+        $source = (string)($diag['source'] ?? '');
+        if ($source !== '') {
+            $error .= ' | source: ' . $source;
+        }
+        if ($phoneNumberId !== '') {
+            $error .= ' | phone_number_id: ' . $phoneNumberId;
+        }
+        if (!empty($diag['send']['to_phone'])) {
+            $error .= ' | to_phone: ' . (string)$diag['send']['to_phone'];
+        } elseif (!empty($diag['to_phone'])) {
+            $error .= ' | to_phone: ' . (string)$diag['to_phone'];
+        }
+    }
+
+    return $error;
+}
+
+function studio_send_whatsapp_official_message(array $studio, array $data): array
+{
+    if (function_exists('crm_whatsapp_official_apply_defaults')) {
+        crm_whatsapp_official_apply_defaults($studio);
+    }
+
+    $conversationId = (int)($data['conversation_id'] ?? $_GET['id'] ?? 0);
+    $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+    $phone = normalize_phone((string)(
+        $data['to_phone']
+        ?? $data['phone']
+        ?? $data['numero']
+        ?? $data['recipient_number']
+        ?? ''
+    ));
+    if ($phone === '' && is_array($conversation)) {
+        $phone = normalize_phone((string)($conversation['phone'] ?? ''));
+    }
+
+    if (!empty($data['enforce_assignment']) && is_array($conversation)) {
+        $user = studio_current_user();
+        if (!$user) {
+            return ['ok' => false, 'error' => 'Voce precisa estar autenticado para enviar mensagem.'];
+        }
+        if (!studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
+            return ['ok' => false, 'error' => 'Esta conversa esta atribuida a outro atendente.'];
+        }
+    }
+
+    $message = trim((string)(
+        $data['message']
+        ?? $data['mensagem']
+        ?? $data['body']
+        ?? $data['text']
+        ?? $data['message_text']
+        ?? ''
+    ));
+    $senderType = trim((string)($data['senderType'] ?? $data['sender_type'] ?? 'human'));
+    if (!in_array($senderType, ['human', 'bot', 'system'], true)) {
+        $senderType = 'human';
+    }
+    $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
+    if ($phone === '' || ($message === '' && empty($upload['base64']))) {
+        return [
+            'ok' => false,
+            'error' => 'Faltou telefone, mensagem ou anexo para enviar pela API oficial.',
+            'diagnostic' => [
+                'conversation_id' => $conversationId,
+                'phone' => $phone,
+                'message_length' => strlen($message),
+                'has_upload' => !empty($upload['base64']),
+                'post_keys' => array_keys($data),
+            ],
+        ];
+    }
+
+    $result = !empty($upload['base64'])
+        ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
+        : studio_whatsapp_official_send_text($studio, $phone, $message);
+
+    if (empty($result['ok'])) {
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_send_failed',
+            'direction' => 'out',
+            'phone' => $phone,
+            'conversation_id' => $conversationId,
+            'status' => (string)($result['status'] ?? ''),
+            'error' => studio_whatsapp_send_error_message($result),
+            'payload' => [
+                'message_length' => strlen($message),
+                'upload_kind' => (string)($upload['kind'] ?? ''),
+                'result' => $result,
+            ],
+        ]);
+        return $result;
+    }
+
+    $json = is_array($result['json'] ?? null) ? $result['json'] : [];
+    $messageId = (string)($json['messages'][0]['id'] ?? '');
+    $record = studio_record_whatsapp_message($studio, [
+        'numero' => $phone,
+        'mensagem' => $message,
+        'fromMe' => true,
+        'senderType' => $senderType,
+        'messageId' => $messageId,
+        'remoteJid' => $phone,
+        'timestamp' => time(),
+        'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
+        'mediaUrl' => $upload['relativePath'] ?? '',
+        'mediaMime' => $upload['mime'] ?? '',
+        'mediaFileName' => $upload['fileName'] ?? '',
+    ]);
+
+    $conversationId = (int)($record['conversation_id'] ?? $conversationId);
+    studio_whatsapp_event_log($studio, [
+        'provider' => 'official',
+        'event_type' => 'official_send_ok',
+        'direction' => 'out',
+        'phone' => $phone,
+        'message_id' => $messageId,
+        'conversation_id' => $conversationId,
+        'status' => 'sent',
+        'payload' => [
+            'message_length' => strlen($message),
+            'sender_type' => $senderType,
+            'upload_kind' => (string)($upload['kind'] ?? ''),
+            'media_mime' => (string)($upload['mime'] ?? ''),
+        ],
+    ]);
+
+    return $result + ['messageId' => $messageId, 'conversation_id' => $conversationId];
 }
 
 function studio_openai_config(array $studio): array
@@ -4235,6 +4620,154 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     }
 
     return $result;
+}
+
+function studio_whatsapp_official_send_template(array $studio, string $toPhone, string $templateName, string $language = 'pt_BR', array $bodyParameters = []): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'O provedor ativo nao e a API oficial.'];
+    }
+
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $crmVersion = trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $crmPhoneNumberId = trim((string)($settings['whatsapp_official_phone_number_id'] ?? '1186818641175044'));
+    $zapConfig = studio_whatsapp_zap_local_config();
+    $useZapLocalConfig = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['api_version'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+
+    $accessToken = $useZapLocalConfig ? trim((string)$zapConfig['access_token']) : $crmAccessToken;
+    $version = $useZapLocalConfig ? trim((string)$zapConfig['api_version']) : $crmVersion;
+    $phoneNumberId = $useZapLocalConfig ? trim((string)$zapConfig['phone_number_id']) : $crmPhoneNumberId;
+    $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $templateName = trim($templateName);
+    $language = trim($language) !== '' ? trim($language) : 'pt_BR';
+
+    $diagnostic = [
+        'source' => $useZapLocalConfig ? 'zap_local_config' : 'crm_settings',
+        'phone_number_id' => $phoneNumberId,
+        'to_phone' => $toPhone,
+        'template' => $templateName,
+        'language' => $language,
+        'parameters_count' => count($bodyParameters),
+    ];
+
+    if ($phoneNumberId === '' || $accessToken === '' || $toPhone === '' || $templateName === '') {
+        return ['ok' => false, 'error' => 'Faltam dados para enviar o template oficial.', 'diagnostic' => $diagnostic];
+    }
+
+    $parameters = [];
+    foreach ($bodyParameters as $parameter) {
+        $text = trim((string)$parameter);
+        if ($text === '') {
+            continue;
+        }
+        $parameters[] = ['type' => 'text', 'text' => $text];
+    }
+
+    $template = [
+        'name' => $templateName,
+        'language' => ['code' => $language],
+    ];
+    if ($parameters) {
+        $template['components'] = [
+            [
+                'type' => 'body',
+                'parameters' => $parameters,
+            ],
+        ];
+    }
+
+    $payload = [
+        'messaging_product' => 'whatsapp',
+        'to' => $toPhone,
+        'type' => 'template',
+        'template' => $template,
+    ];
+
+    $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload, 60);
+    $result['diagnostic'] = $diagnostic;
+    return $result;
+}
+
+function studio_send_whatsapp_official_template_message(array $studio, array $data): array
+{
+    if (function_exists('crm_whatsapp_official_apply_defaults')) {
+        crm_whatsapp_official_apply_defaults($studio);
+    }
+
+    $conversationId = (int)($data['conversation_id'] ?? $_GET['id'] ?? 0);
+    $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+    $phone = normalize_phone((string)($data['to_phone'] ?? $data['phone'] ?? $data['numero'] ?? ''));
+    if ($phone === '' && is_array($conversation)) {
+        $phone = normalize_phone((string)($conversation['phone'] ?? ''));
+    }
+
+    if (!empty($data['enforce_assignment']) && is_array($conversation)) {
+        $user = studio_current_user();
+        if (!$user) {
+            return ['ok' => false, 'error' => 'Voce precisa estar autenticado para enviar template.'];
+        }
+        if (!studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
+            return ['ok' => false, 'error' => 'Esta conversa esta atribuida a outro atendente.'];
+        }
+    }
+
+    $templateName = trim((string)($data['template_name'] ?? ''));
+    $language = trim((string)($data['template_language'] ?? 'pt_BR')) ?: 'pt_BR';
+    $rawParameters = $data['template_parameters'] ?? [];
+    if (is_string($rawParameters)) {
+        $rawParameters = preg_split('/\r\n|\r|\n|,/', $rawParameters) ?: [];
+    }
+    $parameters = array_values(array_filter(array_map(static fn($value): string => trim((string)$value), (array)$rawParameters), static fn(string $value): bool => $value !== ''));
+
+    $result = studio_whatsapp_official_send_template($studio, $phone, $templateName, $language, $parameters);
+    if (empty($result['ok'])) {
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_template_failed',
+            'direction' => 'out',
+            'phone' => $phone,
+            'conversation_id' => $conversationId,
+            'status' => (string)($result['status'] ?? ''),
+            'error' => studio_whatsapp_send_error_message($result),
+            'payload' => ['template' => $templateName, 'language' => $language, 'result' => $result],
+        ]);
+        return $result;
+    }
+
+    $json = is_array($result['json'] ?? null) ? $result['json'] : [];
+    $messageId = (string)($json['messages'][0]['id'] ?? '');
+    $body = '[template:' . $templateName . ']';
+    if ($parameters) {
+        $body .= ' ' . implode(' | ', $parameters);
+    }
+    $record = studio_record_whatsapp_message($studio, [
+        'numero' => $phone,
+        'mensagem' => $body,
+        'fromMe' => true,
+        'senderType' => 'human',
+        'messageId' => $messageId,
+        'remoteJid' => $phone,
+        'timestamp' => time(),
+        'tipoMensagem' => 'template',
+    ]);
+    $conversationId = (int)($record['conversation_id'] ?? $conversationId);
+
+    studio_whatsapp_event_log($studio, [
+        'provider' => 'official',
+        'event_type' => 'official_template_ok',
+        'direction' => 'out',
+        'phone' => $phone,
+        'message_id' => $messageId,
+        'conversation_id' => $conversationId,
+        'status' => 'sent',
+        'payload' => ['template' => $templateName, 'language' => $language, 'parameters_count' => count($parameters)],
+    ]);
+
+    return $result + ['messageId' => $messageId, 'conversation_id' => $conversationId];
 }
 
 function studio_whatsapp_official_prepare_audio_upload(array $upload): array
@@ -4639,6 +5172,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'conversation_id' => (int)$conversation['id'],
         'phone' => (string)($conversation['phone'] ?? ''),
         'message' => $replyText,
+        'senderType' => 'bot',
     ]);
 
     $currentScore = (int)($conversation['lead_score'] ?? 0);

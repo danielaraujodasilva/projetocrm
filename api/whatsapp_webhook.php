@@ -97,7 +97,7 @@ function whatsapp_webhook_capture_request(): array
         'user_agent' => (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
         'remote_addr' => (string)($_SERVER['REMOTE_ADDR'] ?? ''),
         'headers' => $normalizedHeaders,
-        'payload' => $payload,
+        'payload' => function_exists('studio_whatsapp_redact_for_log') ? studio_whatsapp_redact_for_log($payload) : $payload,
     ]);
 
     return $payload;
@@ -236,14 +236,33 @@ function whatsapp_official_record_status(array $studio, array $status): void
         return;
     }
     try {
-        studio_record_whatsapp_message($studio, [
+        $result = studio_record_whatsapp_message($studio, [
             'statusUpdate' => true,
             'messageId' => $messageId,
             'remoteJid' => $recipientId,
             'status' => $state,
         ]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_webhook_status',
+            'direction' => 'system',
+            'phone' => $recipientId,
+            'message_id' => $messageId,
+            'status' => $state,
+            'payload' => ['status' => $status, 'updated' => (int)($result['updated'] ?? 0)],
+        ]);
     } catch (Throwable $e) {
         whatsapp_webhook_log(['type' => 'crm_record_status_error', 'error' => $e->getMessage(), 'message_id' => $messageId]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_webhook_status_error',
+            'direction' => 'system',
+            'phone' => $recipientId,
+            'message_id' => $messageId,
+            'status' => $state,
+            'error' => $e->getMessage(),
+            'payload' => ['status' => $status],
+        ]);
     }
 }
 
@@ -300,6 +319,15 @@ function whatsapp_official_download_media(array $studio, array $message, string 
     $version = (string)$config['api_version'];
     if ($token === '') {
         whatsapp_webhook_log(['type' => 'official_media_download_skip', 'reason' => 'missing_access_token', 'media_id' => $mediaId, 'message_type' => $messageType]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_media_download_error',
+            'direction' => 'in',
+            'message_id' => (string)($message['id'] ?? ''),
+            'status' => 'missing_access_token',
+            'error' => 'Access token ausente para baixar midia oficial.',
+            'payload' => ['media_id' => $mediaId, 'message_type' => $messageType],
+        ]);
         return [];
     }
 
@@ -324,6 +352,15 @@ function whatsapp_official_download_media(array $studio, array $message, string 
             'message_type' => $messageType,
             'status' => $metaStatus,
             'error' => $metaError ?: (string)($meta['error']['message'] ?? 'metadata_url_missing'),
+        ]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_media_download_error',
+            'direction' => 'in',
+            'message_id' => (string)($message['id'] ?? ''),
+            'status' => (string)$metaStatus,
+            'error' => $metaError ?: (string)($meta['error']['message'] ?? 'metadata_url_missing'),
+            'payload' => ['media_id' => $mediaId, 'message_type' => $messageType, 'step' => 'metadata'],
         ]);
         return [];
     }
@@ -351,6 +388,15 @@ function whatsapp_official_download_media(array $studio, array $message, string 
             'status' => $downloadStatus,
             'error' => $downloadError ?: 'empty_media_download',
         ]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_media_download_error',
+            'direction' => 'in',
+            'message_id' => (string)($message['id'] ?? ''),
+            'status' => (string)$downloadStatus,
+            'error' => $downloadError ?: 'empty_media_download',
+            'payload' => ['media_id' => $mediaId, 'message_type' => $messageType, 'step' => 'binary'],
+        ]);
         return [];
     }
 
@@ -371,6 +417,14 @@ function whatsapp_official_download_media(array $studio, array $message, string 
         'mime' => $mime,
         'bytes' => strlen((string)$binary),
         'source' => (string)$config['source'],
+    ]);
+    studio_whatsapp_event_log($studio, [
+        'provider' => 'official',
+        'event_type' => 'official_media_download_ok',
+        'direction' => 'in',
+        'message_id' => (string)($message['id'] ?? ''),
+        'status' => 'ok',
+        'payload' => ['media_id' => $mediaId, 'message_type' => $messageType, 'mime' => $mime, 'bytes' => strlen((string)$binary)],
     ]);
 
     return [
@@ -476,6 +530,21 @@ function whatsapp_official_record_message(array $studio, array $message, array $
         if (!empty($result['duplicate']) && !empty($mediaPayload['mediaBase64'])) {
             whatsapp_official_update_duplicate_media($studio, $messageId, $mediaPayload, $messageType);
         }
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_webhook_message',
+            'direction' => 'in',
+            'phone' => $from,
+            'message_id' => $messageId,
+            'conversation_id' => (int)($result['conversation_id'] ?? 0),
+            'status' => !empty($result['duplicate']) ? 'duplicate' : 'received',
+            'payload' => [
+                'message_type' => $messageType,
+                'media_downloaded' => !empty($mediaPayload['mediaBase64']),
+                'has_text' => $body !== '',
+                'contact_name' => $name,
+            ],
+        ]);
         whatsapp_webhook_log([
             'type' => 'crm_record_message_ok',
             'conversation_id' => (int)($result['conversation_id'] ?? 0),
@@ -494,6 +563,20 @@ function whatsapp_official_record_message(array $studio, array $message, array $
             'message_id' => $messageId,
             'message_type' => $messageType,
             'studio_id' => (int)$studio['id'],
+        ]);
+        studio_whatsapp_event_log($studio, [
+            'provider' => 'official',
+            'event_type' => 'official_webhook_message_error',
+            'direction' => 'in',
+            'phone' => $from,
+            'message_id' => $messageId,
+            'status' => 'error',
+            'error' => $e->getMessage(),
+            'payload' => [
+                'message_type' => $messageType,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ],
         ]);
     }
 }
@@ -519,6 +602,13 @@ if ($method === 'GET') {
     }
 
     studio_event((int)$studio['id'], 'whatsapp_official_webhook_verified', 'Webhook oficial validado com sucesso pela Meta.');
+    studio_whatsapp_event_log($studio, [
+        'provider' => 'official',
+        'event_type' => 'official_webhook_verified',
+        'direction' => 'system',
+        'status' => 'ok',
+        'payload' => ['mode' => $mode, 'challenge_length' => strlen($challenge)],
+    ]);
     whatsapp_webhook_log([
         'type' => 'verification',
         'mode' => $mode,

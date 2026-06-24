@@ -108,6 +108,7 @@ function crm_whatsapp_official_should_autoconfigure(): bool
     return $page === 'studio_settings'
         || $page === 'studio_whatsapp'
         || $page === 'studio_whatsapp_workspace'
+        || $page === 'studio_whatsapp_mobile'
         || $tab === 'whatsapp'
         || in_array($action, ['save_studio_settings', 'send_whatsapp_message', 'test_whatsapp_official', 'send_whatsapp_official_test_message'], true);
 }
@@ -115,48 +116,7 @@ function crm_whatsapp_official_should_autoconfigure(): bool
 function crm_whatsapp_official_send_from_crm(array $studio, array $data): array
 {
     crm_whatsapp_official_apply_defaults($studio);
-
-    $phone = normalize_phone((string)($data['phone'] ?? $data['numero'] ?? ''));
-    $conversationId = (int)($data['conversation_id'] ?? 0);
-    $conversation = null;
-    if ($phone === '' && $conversationId > 0) {
-        $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
-        $phone = normalize_phone((string)($conversation['phone'] ?? ''));
-    }
-    if (!$conversation && $conversationId > 0) {
-        $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
-    }
-
-    $message = trim((string)($data['message'] ?? $data['mensagem'] ?? ''));
-    $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
-    if ($phone === '' || ($message === '' && empty($upload['base64']))) {
-        return ['ok' => false, 'error' => 'Informe telefone, mensagem ou anexo.'];
-    }
-
-    $result = !empty($upload['base64'])
-        ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
-        : studio_whatsapp_official_send_text($studio, $phone, $message);
-    if (empty($result['ok'])) {
-        return $result;
-    }
-
-    $json = is_array($result['json'] ?? null) ? $result['json'] : [];
-    $messageId = (string)($json['messages'][0]['id'] ?? '');
-    studio_record_whatsapp_message($studio, [
-        'numero' => $phone,
-        'mensagem' => $message,
-        'fromMe' => true,
-        'senderType' => 'human',
-        'messageId' => $messageId,
-        'remoteJid' => $phone,
-        'timestamp' => time(),
-        'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
-        'mediaUrl' => $upload['relativePath'] ?? '',
-        'mediaMime' => $upload['mime'] ?? '',
-        'mediaFileName' => $upload['fileName'] ?? '',
-    ]);
-
-    return $result + ['messageId' => $messageId];
+    return studio_send_whatsapp_official_message($studio, $data);
 }
 
 function crm_whatsapp_official_intercept_send(): void
@@ -275,7 +235,7 @@ if ($__crm_whatsapp_studio && crm_whatsapp_official_should_autoconfigure()) {
 }
 unset($__crm_whatsapp_studio);
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?? '') === 'send_whatsapp_message') {
+if (false && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && (string)($_POST['action'] ?? '') === 'send_whatsapp_message') {
     $studio = crm_whatsapp_official_current_studio();
     if ($studio && (string)(studio_settings($studio)['whatsapp_provider'] ?? 'official') === 'official') {
         csrf_verify();

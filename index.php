@@ -878,6 +878,31 @@ if ($action === 'studio_login') {
             redirect_to('studio_whatsapp');
         }
 
+        if ($action === 'send_whatsapp_template') {
+            $studio = require_studio();
+            if (function_exists('crm_whatsapp_official_apply_defaults')) {
+                crm_whatsapp_official_apply_defaults($studio);
+            }
+            $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
+            $templatePost = $_POST;
+            $templatePost['enforce_assignment'] = true;
+            $result = studio_send_whatsapp_official_template_message($studio, $templatePost);
+            if (empty($result['ok'])) {
+                $error = studio_whatsapp_send_error_message($result);
+                flash_set('error', $error);
+            } else {
+                $messageId = (string)($result['messageId'] ?? '');
+                flash_set('success', 'Template enviado pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
+            }
+            if (!empty($_POST['return_to_workspace'])) {
+                redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+            }
+            if ($conversationId > 0) {
+                redirect_to('studio_whatsapp_conversation', ['id' => $conversationId]);
+            }
+            redirect_to('studio_whatsapp');
+        }
+
         if ($action === 'send_whatsapp_message') {
             $studio = require_studio();
             $wantsWhatsappJson = !empty($_POST['return_to_mobile'])
@@ -892,6 +917,42 @@ if ($action === 'studio_login') {
             $provider = (string)($settings['whatsapp_provider'] ?? 'official');
 
             if ($provider === 'official') {
+                $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
+                $officialPost = $_POST;
+                $officialPost['enforce_assignment'] = true;
+                $result = studio_send_whatsapp_official_message($studio, $officialPost);
+                if (empty($result['ok'])) {
+                    $error = studio_whatsapp_send_error_message($result);
+                    flash_set('error', $error);
+                    if ($wantsWhatsappJson) {
+                        header('Content-Type: application/json; charset=utf-8');
+                        echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        exit;
+                    }
+                    if (!empty($_POST['return_to_mobile']) || !empty($_POST['return_to_mobile2'])) {
+                        redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
+                    }
+                    if (!empty($_POST['return_to_workspace'])) {
+                        redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+                    }
+                    redirect_to($conversationId > 0 ? 'studio_whatsapp_conversation' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
+                }
+
+                $messageId = (string)($result['messageId'] ?? '');
+                flash_set('success', 'Mensagem enviada pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
+                if ($wantsWhatsappJson) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['ok' => true, 'message_id' => $messageId, 'conversation_id' => (int)($result['conversation_id'] ?? $conversationId)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    exit;
+                }
+                if (!empty($_POST['return_to_mobile']) || !empty($_POST['return_to_mobile2'])) {
+                    redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
+                }
+                if (!empty($_POST['return_to_workspace'])) {
+                    redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+                }
+                redirect_to($conversationId > 0 ? 'studio_whatsapp_conversation' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
+
                 $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
                 $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
 
@@ -2124,6 +2185,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) echo '<button type="button" data-emoji="' . h($emoji) . '">' . h($emoji) . '</button>';
         echo '</div>';
         echo '<div class="m2-attachment hidden" id="m2AttachmentPreview"></div>';
+        $mobileWindow = studio_whatsapp_customer_service_window($studio, $conversationId);
+        if (!empty($mobileWindow['applies']) && empty($mobileWindow['open'])) {
+            echo '<div class="m2-card"><strong>Janela oficial encerrada</strong><small>Use um template aprovado para reabrir esta conversa fora das 24h.</small></div>';
+        }
         echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
         if (!$canSend) {
             echo '<div class="m2-notice">Voce pode visualizar, mas precisa assumir a conversa para responder.</div>';
@@ -3511,6 +3576,8 @@ if ($page === 'studio_whatsapp') {
             return;
         }
         $settings = studio_settings($studio);
+        $whatsappProvider = studio_whatsapp_provider($studio);
+        $isOfficialWhatsApp = $whatsappProvider === 'official';
         $sessionKey = studio_session_key($studio);
         $serviceStatus = studio_whatsapp_service_status($studio);
         $summary = studio_whatsapp_summary($studio);
@@ -3538,7 +3605,11 @@ if ($page === 'studio_whatsapp') {
         $hasMoreConversations = count(studio_list_whatsapp_conversations($studio, array_merge($filters, ['offset' => $nextConversationOffset]), $conversationPageSize)) > 0;
         $conversationPageSize = 30;
         $serviceState = (string)($serviceStatus['status'] ?? 'offline');
-        $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
+        if ($isOfficialWhatsApp) {
+            $serviceStateLabel = !empty($serviceStatus['ready']) ? 'API oficial ativa' : 'Configuracao incompleta';
+        } else {
+            $serviceStateLabel = $serviceState === 'connected' ? 'Conectado' : ($serviceState === 'waiting_qr' ? 'Aguardando codigo' : ($serviceState === 'starting' ? 'Iniciando' : 'Nao conectado'));
+        }
         $firstConversationHref = !empty($conversations[0]['id']) ? app_url('studio_whatsapp_conversation', ['id' => (int)$conversations[0]['id']]) : app_url('studio_whatsapp');
         $conversationsPage = max(1, (int)($_GET['wa_page'] ?? 1));
         $conversationsPerPage = 12;
@@ -3548,9 +3619,18 @@ if ($page === 'studio_whatsapp') {
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="panel whatsapp-hero">';
-        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estúdio</div><h2>Central de conversas, conexão e resposta operacional</h2><p class="muted">Acompanhe a sessão Baileys, abra o workspace da conversa e atue sobre os contatos sem sair do CRM.</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace')) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
+        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estudio</div><h2>Central de conversas e API oficial</h2><p class="muted">' . h($isOfficialWhatsApp ? 'Acompanhe a saude da Meta Cloud API, webhooks, envios e conversas do CRM em um unico lugar.' : 'Acompanhe a sessao Baileys, abra o workspace da conversa e atue sobre os contatos sem sair do CRM.') . '</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace')) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
         echo '<div class="whatsapp-hero-sidebar">';
-        echo '<div class="whatsapp-session-summary-card"><span class="badge ' . h($serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger')) . '">' . h($serviceStateLabel) . '</span><strong>' . h($serviceState === 'connected' ? ('Conectado no numero ' . preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''))) : ($serviceState === 'waiting_qr' ? 'Codigo pronto para parear' : ($serviceState === 'starting' ? 'Solicitando o codigo de pareamento' : ($serviceState === 'disconnected' ? 'Sessao desconectada' : 'Nao conectado')))) . '</strong><span class="muted">' . h(!empty($serviceStatus['pairingCode']) ? 'Use o código abaixo para parear o WhatsApp.' : ($serviceState === 'connected' ? 'A sessão está pronta para receber e responder mensagens.' : 'Use as ações abaixo para iniciar ou recuperar a sessão.')) . '</span></div>';
+        if ($isOfficialWhatsApp) {
+            $statusBadgeClass = !empty($serviceStatus['ready']) ? 'ok' : 'danger';
+            $statusSummary = !empty($serviceStatus['ready']) ? 'Meta Cloud API pronta para envio e webhook' : 'Complete as credenciais da API oficial';
+            $statusHint = 'Ultimo webhook: ' . ((string)($serviceStatus['last_webhook_at'] ?? '') !== '' ? (string)$serviceStatus['last_webhook_at'] : 'ainda sem registro') . '. FFMPEG: ' . (!empty($serviceStatus['service_health']['ffmpeg']) ? 'encontrado' : 'nao encontrado');
+        } else {
+            $statusBadgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
+            $statusSummary = $serviceState === 'connected' ? ('Conectado no numero ' . preg_replace('/\D+/', '', (string)($serviceStatus['phone'] ?? ''))) : ($serviceState === 'waiting_qr' ? 'Codigo pronto para parear' : ($serviceState === 'starting' ? 'Solicitando o codigo de pareamento' : ($serviceState === 'disconnected' ? 'Sessao desconectada' : 'Nao conectado')));
+            $statusHint = !empty($serviceStatus['pairingCode']) ? 'Use o codigo abaixo para parear o WhatsApp.' : ($serviceState === 'connected' ? 'A sessao esta pronta para receber e responder mensagens.' : 'Use as acoes abaixo para iniciar ou recuperar a sessao.');
+        }
+        echo '<div class="whatsapp-session-summary-card"><span class="badge ' . h($statusBadgeClass) . '">' . h($serviceStateLabel) . '</span><strong>' . h($statusSummary) . '</strong><span class="muted">' . h($statusHint) . '</span></div>';
         if (!empty($serviceStatus['pairingCode'])) {
             echo '<div class="wa-pairing-code-inline">' . h((string)$serviceStatus['pairingCode']) . '</div>';
         }
@@ -3561,12 +3641,39 @@ if ($page === 'studio_whatsapp') {
         echo '</div></section>';
         echo '<section class="quick-actions-grid whatsapp-quick-links row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
         echo '<a class="panel quick-action-card h-100 text-start" href="' . h(app_url('studio_whatsapp_workspace')) . '"><strong>Abrir workspace</strong><span>' . h((string)$summary['human']) . ' em humano</span><small>Visual tipo WhatsApp Web com CRM embutido</small></a>';
-        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>Status e pareamento</span><small>Ver conexão, pareamento e ações</small></button>';
+        echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppStatusOverlay"><strong>' . h($serviceStateLabel) . '</strong><span>' . h($isOfficialWhatsApp ? 'Saude da API oficial' : 'Status e pareamento') . '</span><small>' . h($isOfficialWhatsApp ? 'Ver webhook, envios, erros e credenciais' : 'Ver conexao, pareamento e acoes') . '</small></button>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
         echo '</section>';
-        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Conexão, pareamento e ações rápidas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">' . h($isOfficialWhatsApp ? 'Saude da API oficial, webhook, envios e falhas.' : 'Conexao, pareamento e acoes rapidas.') . '</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
+        if ($isOfficialWhatsApp) {
+            echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>API oficial do WhatsApp</h2><span id="waStatusBadge" class="badge ' . h(!empty($serviceStatus['ready']) ? 'ok' : 'danger') . '">' . h($serviceStateLabel) . '</span></div>';
+            echo '<div class="mini-metrics"><span><strong>' . h((string)($serviceStatus['score'] ?? 0)) . '/' . h((string)($serviceStatus['total'] ?? 0)) . '</strong><small>Checks</small></span><span><strong>' . h((string)($serviceStatus['last_webhook_at'] ?? '-') ?: '-') . '</strong><small>Ultimo webhook</small></span><span><strong>' . h((string)($serviceStatus['last_outbound_at'] ?? '-') ?: '-') . '</strong><small>Ultimo envio</small></span></div>';
+            if (!empty($serviceStatus['lastError'])) {
+                echo '<div class="whatsapp-hero-error"><strong>Ultimo erro</strong><span class="muted">' . h((string)$serviceStatus['lastError']) . '</span></div>';
+            }
+            echo '<div class="grid cols-2">';
+            foreach (($serviceStatus['checks'] ?? []) as $check) {
+                if (!is_array($check)) {
+                    continue;
+                }
+                echo '<div class="drilldown-card compact"><span class="badge ' . h(!empty($check['ok']) ? 'ok' : 'danger') . '">' . h(!empty($check['ok']) ? 'OK' : 'Pendente') . '</span><strong>' . h((string)($check['label'] ?? 'Check')) . '</strong><div class="muted">' . h((string)($check['value'] ?? '')) . '</div></div>';
+            }
+            echo '</div>';
+            echo '<div class="panel soft" style="margin-top:14px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h3 style="margin:0">Eventos recentes</h3><p class="muted" style="margin:4px 0 0">Envios, webhooks, status da Meta e falhas ficam registrados aqui.</p></div><a class="btn tiny secondary" href="' . h(app_url('studio_settings', ['tab' => 'whatsapp'])) . '#settings-whatsapp">Configurar API</a></div>';
+            $recentEvents = is_array($serviceStatus['recent_events'] ?? null) ? $serviceStatus['recent_events'] : [];
+            if (!$recentEvents) {
+                echo '<p class="muted">Ainda nao ha eventos oficiais registrados nesta tabela.</p>';
+            } else {
+                echo '<div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Quando</th><th>Tipo</th><th>Direcao</th><th>Status</th><th>Erro</th></tr></thead><tbody>';
+                foreach (array_slice($recentEvents, 0, 10) as $event) {
+                    echo '<tr><td>' . h((string)($event['created_at'] ?? '')) . '</td><td>' . h((string)($event['event_type'] ?? '')) . '</td><td>' . h((string)($event['direction'] ?? '')) . '</td><td>' . h((string)($event['status'] ?? '')) . '</td><td>' . h(mb_substr((string)($event['error'] ?? ''), 0, 120)) . '</td></tr>';
+                }
+                echo '</tbody></table></div>';
+            }
+            echo '</div></div>';
+        } else {
         echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>Sessão do WhatsApp</h2>';
         $badgeClass = $serviceState === 'connected' ? 'ok' : ($serviceState === 'waiting_qr' ? 'warn' : 'danger');
         echo '<span id="waStatusBadge" class="badge ' . h($badgeClass) . '">' . h($serviceStateLabel) . '</span></div>';
@@ -3625,6 +3732,7 @@ if ($page === 'studio_whatsapp') {
         echo '<button class="btn secondary" type="submit">Gerar c?digo</button>';
         echo '</form>';
         echo '</div>';
+        }
         echo '</div>';
         echo '<div id="whatsappManualOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,860px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Enviar mensagem manual</h3><p class="muted" style="margin:4px 0 0">Envio direto sem poluir a tela principal.</p></div><button type="button" id="closeManualMessageOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="manualMessageOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="manualMessageSource" hidden><form class="form panel" method="post">';
@@ -3634,11 +3742,23 @@ if ($page === 'studio_whatsapp') {
         echo '<div class="field"><label>Telefone</label><input name="phone" placeholder="5511999999999"></div>';
         echo '<div class="field"><label>Mensagem</label><textarea name="message" placeholder="Escreva uma mensagem curta para o cliente"></textarea></div>';
         echo '<button class="btn" type="submit">Enviar WhatsApp</button>';
-        echo '</form></div>';
+        echo '</form>';
+        if ($isOfficialWhatsApp) {
+            echo '<form class="form panel" method="post" style="margin-top:14px">';
+            echo csrf_field();
+            echo '<input type="hidden" name="action" value="send_whatsapp_template">';
+            echo '<h2>Enviar template aprovado</h2>';
+            echo '<p class="muted">Use quando a conversa estiver fora da janela de 24h da API oficial.</p>';
+            echo '<div class="grid cols-2"><div class="field"><label>Telefone</label><input name="phone" placeholder="5511999999999"></div><div class="field"><label>Nome do template</label><input name="template_name" placeholder="confirmacao_agendamento"></div></div>';
+            echo '<div class="grid cols-2"><div class="field"><label>Idioma</label><input name="template_language" value="pt_BR"></div><div class="field"><label>Parametros</label><textarea name="template_parameters" placeholder="Um parametro por linha ou separado por virgula"></textarea></div></div>';
+            echo '<button class="btn secondary" type="submit">Enviar template</button>';
+            echo '</form>';
+        }
+        echo '</div>';
         echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rápida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota média</small></span></div><p class="muted">As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
+        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota media</small></span></div><p class="muted">' . h($isOfficialWhatsApp ? 'As mensagens recebidas pela API oficial entram aqui e criam lead automaticamente quando o telefone ainda nao existir.' : 'As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.') . '</p></div></div>';
         echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">Página ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Conversas importadas</h2><p class="muted">Filtre por urgência, IA, humano e vínculos.</p></div><span class="badge">Baileys multi-estudio</span></div>';
+        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Conversas importadas</h2><p class="muted">Filtre por urgencia, IA, humano e vinculos.</p></div><span class="badge">' . h($isOfficialWhatsApp ? 'API oficial' : 'Baileys multi-estudio') . '</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
@@ -3956,6 +4076,10 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<a class="wa-web-action-pill" href="' . h(app_url('studio_whatsapp_mobile')) . '" target="_blank" rel="noopener" aria-label="Abrir no celular"><i class="fa-solid fa-mobile-screen-button"></i><span>Celular</span></a>';
             echo '<button class="wa-web-tools-toggle" type="button" id="openWorkspaceToolsButton" aria-label="Ferramentas"><i class="fa-solid fa-sliders"></i><span>Painel</span></button></div></div>';
             render_chat_messages($messages);
+            $workspaceWindow = studio_whatsapp_customer_service_window($studio, $conversationId);
+            if (!empty($workspaceWindow['applies']) && empty($workspaceWindow['open'])) {
+                echo '<div class="panel soft" style="margin:10px 0"><strong>Janela oficial de 24h encerrada.</strong><p class="muted" style="margin:4px 0 0">Use um template aprovado da Meta para reabrir a conversa. O formulario de template fica em WhatsApp > Mensagem manual.</p></div>';
+            }
             echo '<form class="form wa-web-composer" method="post" enctype="multipart/form-data" id="chatComposer">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_workspace" value="1">';
