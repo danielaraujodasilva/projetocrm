@@ -2102,41 +2102,56 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     echo '<aside class="m2-list" id="m2ListPanel">';
     echo '<header class="m2-top"><strong>WhatsApp</strong>' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . '<span class="m2-top-actions"><button class="m2-icon" type="button" id="m2RefreshButton" aria-label="Atualizar" title="Atualizar"><i class="fa-solid fa-rotate"></i></button>' . ($isAdmin ? '<button class="m2-icon m2-manage-toggle" type="button" id="m2ManageToggle" aria-label="Gerenciar" title="Gerenciar"><i class="fa-solid fa-user-gear"></i></button>' : '') . '</span></header>';
     echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
-    echo '<div class="m2-filter-strip">';
-    $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
-    foreach ($visibilityPills as $visibilityKey => $label) {
-        $href = app_url($mobileRoute, array_filter([
-            'visibility' => $filters['visibility'] === $visibilityKey ? null : $visibilityKey,
+    $mobileFilterHref = static function (array $patch = []) use ($mobileRoute, $filters): string {
+        $params = [
+            'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
             'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
             'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
             'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
             'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
             'q' => $filters['q'] !== '' ? $filters['q'] : null,
-        ], static fn($value) => $value !== null && $value !== ''));
-        echo '<a class="' . h($filters['visibility'] === $visibilityKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
+        ];
+        foreach ($patch as $key => $value) {
+            $params[$key] = $value;
+        }
+        return app_url($mobileRoute, array_filter($params, static fn($value) => $value !== null && $value !== ''));
+    };
+    $mobileFilterActive = ($filters['visibility'] !== '' && $filters['visibility'] !== 'all')
+        || ($filters['filter'] !== '' && $filters['filter'] !== 'all')
+        || $filters['date_filter'] !== ''
+        || $filters['date_from'] !== ''
+        || $filters['date_to'] !== ''
+        || $filters['q'] !== '';
+    echo '<details class="m2-filter-menu"' . ($mobileFilterActive ? ' open' : '') . '><summary class="m2-filter-toggle"><i class="fa-solid fa-sliders"></i><span>Filtros</span>' . ($mobileFilterActive ? '<b>Ativo</b>' : '') . '</summary><div class="m2-filter-panel">';
+    $visibilityPills = $isAdmin ? ['all' => 'Todas', 'mine' => 'Minhas', 'free' => 'Livres'] : ['mine' => 'Minhas'];
+    echo '<div class="m2-filter-group"><strong>Visibilidade</strong><div class="m2-filter-chip-row">';
+    foreach ($visibilityPills as $visibilityKey => $label) {
+        $href = $mobileFilterHref([
+            'visibility' => $filters['visibility'] === $visibilityKey ? null : $visibilityKey,
+        ]);
+        echo '<a class="m2-filter-chip' . h($filters['visibility'] === $visibilityKey ? ' active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
     }
+    echo '</div></div>';
+    echo '<div class="m2-filter-group"><strong>Status</strong><div class="m2-filter-chip-row">';
     foreach (['all' => 'Tudo', 'unreplied' => 'Nao lidas', 'needs_human' => 'Humano', 'bot' => 'IA'] as $filterKey => $label) {
-        $href = app_url($mobileRoute, array_filter([
-            'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
+        $href = $mobileFilterHref([
             'filter' => $filters['filter'] === $filterKey ? null : $filterKey,
-            'date_filter' => $filters['date_filter'] !== '' ? $filters['date_filter'] : null,
-            'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
-            'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
-            'q' => $filters['q'] !== '' ? $filters['q'] : null,
-        ], static fn($value) => $value !== null && $value !== ''));
-        echo '<a class="' . h($filters['filter'] === $filterKey ? 'active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
+        ]);
+        echo '<a class="m2-filter-chip' . h($filters['filter'] === $filterKey ? ' active' : '') . '" href="' . h($href) . '">' . h($label) . '</a>';
     }
-    $todayActive = $filters['date_filter'] === 'today';
-    $todayHref = app_url($mobileRoute, array_filter([
-        'visibility' => $filters['visibility'] !== '' ? $filters['visibility'] : null,
-        'filter' => $filters['filter'] !== '' ? $filters['filter'] : null,
-        'date_filter' => $todayActive ? null : 'today',
-        'date_from' => $filters['date_from'] !== '' ? $filters['date_from'] : null,
-        'date_to' => $filters['date_to'] !== '' ? $filters['date_to'] : null,
-        'q' => $filters['q'] !== '' ? $filters['q'] : null,
-    ], static fn($value) => $value !== null && $value !== ''));
-    echo '<a class="' . h($todayActive ? 'active' : '') . '" href="' . h($todayHref) . '">Hoje</a>';
-    echo '</div>';
+    echo '</div></div>';
+    echo '<div class="m2-filter-group"><strong>Periodo exato</strong>';
+    echo '<form class="m2-range-form" method="get">';
+    echo '<input type="hidden" name="page" value="' . h($mobileRoute) . '">';
+    echo '<input type="hidden" name="visibility" value="' . h($filters['visibility']) . '">';
+    echo '<input type="hidden" name="filter" value="' . h($filters['filter']) . '">';
+    echo '<input type="hidden" name="q" value="' . h($filters['q']) . '">';
+    echo '<div class="m2-range-grid"><label><span>De</span><input type="date" name="date_from" value="' . h($filters['date_from']) . '"></label><label><span>Ate</span><input type="date" name="date_to" value="' . h($filters['date_to']) . '"></label></div>';
+    echo '<small class="m2-range-help">Escolha as duas datas para limitar as conversas ao intervalo desejado.</small>';
+    echo '<input type="hidden" name="date_filter" value="range">';
+    echo '<div class="m2-range-actions"><button class="m2-range-apply" type="submit">Aplicar periodo</button><a class="m2-range-clear" href="' . h($mobileFilterHref(['date_filter' => null, 'date_from' => null, 'date_to' => null])) . '">Limpar</a></div>';
+    echo '</form></div>';
+    echo '</div></details>';
     if ($isAdmin) {
         echo '<form id="m2BulkDeleteForm" class="m2-bulk-form" method="post">';
         echo csrf_field();
