@@ -712,26 +712,29 @@ textarea {
 .app-build-badge-input {
     all: unset;
     position: fixed;
-    left: 8px;
-    bottom: 8px;
+    top: 10px;
+    right: 10px;
+    left: auto;
+    bottom: auto;
     z-index: 10000;
     display: inline-flex;
     align-items: center;
     box-sizing: border-box;
     width: auto;
-    padding: 2px 6px;
+    max-width: min(70vw, 320px);
+    padding: 6px 10px;
     border-radius: 999px;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1;
-    color: rgba(38, 49, 64, .56);
-    background: rgba(255, 255, 255, .66);
-    border: 1px solid rgba(141, 158, 175, .18);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
-    cursor: text;
+    color: rgba(38, 49, 64, .72);
+    background: rgba(255, 255, 255, .80);
+    border: 1px solid rgba(141, 158, 175, .20);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+    cursor: pointer;
     user-select: text;
     -webkit-user-select: text;
     caret-color: transparent;
-    opacity: .55;
+    opacity: .78;
     transition: opacity .12s ease, transform .12s ease, box-shadow .12s ease;
 }
 
@@ -739,6 +742,7 @@ textarea {
     outline: 2px solid rgba(45, 137, 146, .35);
     outline-offset: 1px;
     opacity: 1;
+    transform: translateY(-1px);
 }
 
 .app-build-badge-input:active {
@@ -746,9 +750,9 @@ textarea {
 }
 
 .app-build-badge-input:hover {
-    opacity: .95;
+    opacity: 1;
     transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(0, 0, 0, .06);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, .09);
 }
 
 .hidden {
@@ -4160,6 +4164,17 @@ textarea {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.15);
     color: #fff;
+}
+
+.mobile-workspace .app-build-badge-input {
+    top: calc(env(safe-area-inset-top) + 72px);
+    right: 10px;
+    left: auto;
+    bottom: auto;
+    max-width: calc(100vw - 20px);
+    font-size: 10px;
+    padding: 5px 9px;
+    opacity: .82;
 }
 
 .public-page-wrap {

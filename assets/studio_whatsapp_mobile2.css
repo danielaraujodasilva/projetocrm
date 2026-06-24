@@ -24,10 +24,6 @@ body {
     font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
-.app-build-badge-input {
-    display: none !important;
-}
-
 .m2-shell {
     display: grid;
     grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);

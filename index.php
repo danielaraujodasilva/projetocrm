@@ -1508,6 +1508,7 @@ function render_head(string $title): void
     $viewport = in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)
         ? 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
         : 'width=device-width, initial-scale=1';
+    $bodyClass = in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true) ? ' class="mobile-workspace"' : '';
     echo '<meta name="viewport" content="' . h($viewport) . '">';
     echo '<title>' . h($title) . '</title>';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
@@ -1516,8 +1517,8 @@ function render_head(string $title): void
         echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
         echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
     }
-    echo '</head><body>';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-metaads-v2') . '" value="' . h(app_build_version() . '-metaads-v2') . '" title="Clique para selecionar a versao">';
+    echo '</head><body' . $bodyClass . '>';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
 function render_public_head(string $title, string $description): void
@@ -1529,7 +1530,7 @@ function render_public_head(string $title, string $description): void
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISV5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
     echo '</head><body class="public-page">';
-    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version() . '-metaads-v2') . '" value="' . h(app_build_version() . '-metaads-v2') . '" title="Clique para selecionar a versao">';
+    echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
 function render_flash(?array $flash): void
@@ -1663,8 +1664,12 @@ document.addEventListener("click", async function (event) {
     if (!badge) return;
     var version = badge.getAttribute("data-build-version") || badge.textContent || "";
     try {
-        badge.select();
-        badge.setSelectionRange(0, version.length);
+        if (typeof badge.select === "function") {
+            badge.select();
+            if (typeof badge.setSelectionRange === "function") {
+                badge.setSelectionRange(0, version.length);
+            }
+        }
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(version).catch(function () {});
         }
