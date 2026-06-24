@@ -79,38 +79,35 @@
         const suggestedDate = String(data?.suggested_date || "").trim();
         const suggestedTime = String(data?.suggested_time || "").trim();
         const scheduleReason = String(data?.schedule_reason || "").trim();
+        const contextLabel = [data?.current_name || data?.suggested_name || "", data?.phone || ""].filter(Boolean).join(" • ");
         const notice = String(options?.notice || "").trim();
 
         body.innerHTML = `
             <style>
-                .ai-shell{display:grid;gap:14px}
-                .ai-hero{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:14px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+                .ai-shell{display:grid;gap:14px;color:#e9edef}
+                .ai-hero{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:16px;border-radius:14px;background:rgba(13,22,28,.92);border:1px solid rgba(0,168,132,.16)}
                 .ai-hero h4{margin:0 0 6px;font-size:1rem}
-                .ai-hero p{margin:0;color:var(--muted,#aab4bf);line-height:1.4}
-                .ai-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-                .ai-box{padding:12px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);min-width:0}
-                .ai-box strong{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;opacity:.75;margin-bottom:6px}
-                .ai-box span,.ai-box p{display:block;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
-                .ai-box .muted{color:var(--muted,#aab4bf)}
+                .ai-hero p{margin:0;color:#9aa7af;line-height:1.4}
+                .ai-context{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#c9d4da;font-size:.92rem}
+                .ai-box{padding:14px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);min-width:0}
+                .ai-box strong{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;opacity:.78;margin-bottom:6px;color:#9fb0b8}
+                .ai-box span,.ai-box p{display:block;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:#e9edef}
+                .ai-box .muted{color:#9aa7af}
                 .ai-actions{display:flex;gap:8px;flex-wrap:wrap}
                 .ai-actions button{border:0;border-radius:999px;padding:10px 14px;font-weight:600;cursor:pointer}
                 .ai-actions .primary{background:#12b886;color:#08131d}
                 .ai-actions .secondary{background:rgba(255,255,255,.08);color:inherit}
                 .ai-actions .ghost{background:transparent;border:1px solid rgba(255,255,255,.12);color:inherit}
-                .ai-warning{padding:12px 14px;border-radius:10px;background:rgba(255,193,7,.12);border:1px solid rgba(255,193,7,.24);color:#ffd87a}
+                .ai-warning{padding:12px 14px;border-radius:12px;background:rgba(255,193,7,.12);border:1px solid rgba(255,193,7,.24);color:#ffd87a}
                 .ai-suggestions{display:grid;gap:10px}
-                .ai-row{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
-                .ai-row strong{font-size:.82rem;white-space:nowrap}
-                .ai-row span{color:var(--muted,#aab4bf);text-align:right;white-space:pre-wrap;overflow-wrap:anywhere}
-                .ai-reply{padding:14px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);white-space:pre-wrap;overflow-wrap:anywhere}
-                .ai-empty{padding:18px;border-radius:10px;border:1px dashed rgba(255,255,255,.18);color:var(--muted,#aab4bf)}
-                @media (max-width:720px){.ai-grid{grid-template-columns:1fr}.ai-row{flex-direction:column}.ai-row span{text-align:left}}
+                .ai-reply{padding:14px;border-radius:14px;background:rgba(6,13,17,.78);border:1px solid rgba(0,168,132,.14);white-space:pre-wrap;overflow-wrap:anywhere}
+                .ai-empty{padding:18px;border-radius:14px;border:1px dashed rgba(255,255,255,.18);color:#9aa7af}
             </style>
             <div class="ai-shell">
                 <div class="ai-hero">
                     <div>
                         <h4>Sugestoes da IA</h4>
-                        <p>Leitura silenciosa da conversa, sem enviar mensagem automaticamente.</p>
+                        <p>Leitura silenciosa da conversa atual, sem enviar mensagem automaticamente.</p>
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         ${renderBadge(source === "ai" ? "IA" : "Heuristica", source === "ai" ? "ok" : "warn")}
@@ -118,27 +115,16 @@
                         ${needsHuman ? renderBadge("Pede humano", "warn") : renderBadge("Sem alerta", "ok")}
                     </div>
                 </div>
+                <div class="ai-context">Conversa atual: ${escapeHtml(contextLabel || String(data?.conversation_id || ""))}</div>
 
                 ${notice ? `<div class="ai-warning">${escapeHtml(notice)}</div>` : ""}
                 ${aiEnabled ? "" : `<div class="ai-warning">IA desativada nas configuracoes do estudio.</div>`}
 
-                <div class="ai-grid">
-                    ${renderRow("Conversa", data?.conversation_id || "")}
-                    ${renderRow("Cliente", data?.current_name || data?.suggested_name || "")}
-                    ${renderRow("Telefone", data?.phone || "")}
-                    ${renderRow("Email", data?.email || "")}
-                    ${renderRow("Instagram", data?.instagram || "")}
-                    ${renderRow("Score", data?.lead_score || 0)}
-                </div>
-
                 <div class="ai-suggestions">
                     <div class="ai-box"><strong>Resumo</strong><p>${escapeHtml(summary || "Sem resumo ainda.")}</p></div>
-                    <div class="ai-grid">
-                        <div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data?.suggested_name || data?.current_name || "Nao informado")}</span></div>
-                        <div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data?.suggested_interest || data?.current_interest || "Nao informado")}</span></div>
-                        <div class="ai-box"><strong>Data</strong><span>${escapeHtml(suggestedDate || "Nao sugerido")}</span></div>
-                        <div class="ai-box"><strong>Hora</strong><span>${escapeHtml(suggestedTime || "Nao sugerido")}</span></div>
-                    </div>
+                    <div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data?.suggested_name || data?.current_name || "Nao informado")}</span></div>
+                    <div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data?.suggested_interest || data?.current_interest || "Nao informado")}</span></div>
+                    <div class="ai-box"><strong>Data e hora sugeridas</strong><span>${escapeHtml([suggestedDate, suggestedTime].filter(Boolean).join(" ") || "Nao sugerido")}</span></div>
                     <div class="ai-box"><strong>Motivo do agendamento</strong><p>${escapeHtml(scheduleReason || "Sem sugestao de agendamento.")}</p></div>
                     <div class="ai-box"><strong>Observacoes sugeridas</strong><p>${escapeHtml(data?.suggested_notes || data?.current_notes || "Sem observacoes sugeridas.")}</p></div>
                     <div class="ai-box">

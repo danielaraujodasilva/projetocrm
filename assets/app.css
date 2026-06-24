@@ -3593,34 +3593,45 @@ textarea {
     color: #ffffff;
 }
 
-.ai-modal-panel {
-    background: linear-gradient(180deg, #15232a 0%, #111b21 100%);
-    border: 1px solid rgba(134, 150, 160, .2);
-    box-shadow: 0 30px 90px rgba(0, 0, 0, .5);
+.crm-modal-panel.ai-modal-panel {
+    background: linear-gradient(180deg, #15232a 0%, #111b21 100%) !important;
+    color: #e9edef !important;
+    border: 1px solid rgba(134, 150, 160, .22) !important;
+    box-shadow: 0 30px 90px rgba(0, 0, 0, .55) !important;
 }
 
-.ai-modal-panel .crm-panel-header {
-    background: linear-gradient(180deg, rgba(19, 32, 39, .96) 0%, rgba(15, 25, 31, .98) 100%);
-    border-bottom: 1px solid rgba(0, 168, 132, .14);
-    color: #e9edef;
+.crm-modal-panel.ai-modal-panel .crm-panel-header {
+    background: linear-gradient(180deg, rgba(19, 32, 39, .98) 0%, rgba(15, 25, 31, .98) 100%) !important;
+    border-bottom: 1px solid rgba(0, 168, 132, .16) !important;
+    color: #e9edef !important;
 }
 
-.ai-modal-panel .crm-panel-title {
-    color: #f3f6f7;
+.crm-modal-panel.ai-modal-panel .crm-panel-title {
+    color: #f3f6f7 !important;
 }
 
-.ai-modal-panel .muted {
-    color: #9aa7af;
+.crm-modal-panel.ai-modal-panel .muted {
+    color: #9aa7af !important;
 }
 
-.ai-modal-panel > .p-4 {
+.crm-modal-panel.ai-modal-panel > .p-4 {
     background:
-        radial-gradient(circle at top right, rgba(0, 168, 132, .08), transparent 28%),
-        linear-gradient(180deg, rgba(17, 27, 33, .96) 0%, rgba(12, 19, 24, .98) 100%);
+        radial-gradient(circle at top right, rgba(0, 168, 132, .1), transparent 28%),
+        linear-gradient(180deg, rgba(17, 27, 33, .98) 0%, rgba(12, 19, 24, .99) 100%) !important;
 }
 
-.ai-modal-panel .badge {
+.crm-modal-panel.ai-modal-panel .badge {
     border: 1px solid rgba(255, 255, 255, .08);
+}
+
+.crm-modal-panel.ai-modal-panel .crm-icon-button {
+    color: #e9edef;
+    border-color: rgba(255, 255, 255, .1);
+    background: rgba(255, 255, 255, .04);
+}
+
+.crm-modal-panel.ai-modal-panel .crm-icon-button:hover {
+    background: rgba(255, 255, 255, .08);
 }
 
 .wa-web-tools-desktop {
