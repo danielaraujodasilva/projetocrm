@@ -88,12 +88,21 @@
         const suggestedDate = String(data?.suggested_date || "").trim();
         const suggestedTime = String(data?.suggested_time || "").trim();
         const scheduleReason = String(data?.schedule_reason || "").trim();
+        const nextBestAction = String(data?.next_best_action || "").trim();
+        const missingFields = Array.isArray(data?.missing_fields) ? data.missing_fields : [];
+        const commercialSignals = Array.isArray(data?.commercial_signals) ? data.commercial_signals : [];
+        const riskFlags = Array.isArray(data?.risk_flags) ? data.risk_flags : [];
+        const customerMood = String(data?.customer_mood || "neutro");
+        const audioCount = Number(data?.audio_count || 0);
+        const transcribedAudioCount = Number(data?.transcribed_audio_count || 0);
+        const messageCount = Number(data?.message_count || 0);
         const contextLabel = [data?.current_name || data?.suggested_name || "", data?.phone || ""].filter(Boolean).join(" • ");
         const notice = String(options?.notice || "").trim();
         const confidencePct = Math.max(0, Math.min(100, Math.round(confidence * 10)));
         const statusTone = analysisStage === "pronta" ? "ok" : (analysisStage === "desativada" ? "warn" : "neutral");
         const statusText = analysisStage === "pronta" ? "Pronta" : (analysisStage === "parcial" ? "Parcial" : (analysisStage === "sem_contexto" ? "Sem contexto" : (analysisStage === "desativada" ? "Desativada" : "Avaliando")));
         const suggestionCards = [];
+        if (hasText(nextBestAction)) suggestionCards.push(`<div class="ai-box ai-box-action"><strong>Proxima melhor acao</strong><p>${escapeHtml(nextBestAction)}</p></div>`);
         if (hasText(summary)) suggestionCards.push(`<div class="ai-box"><strong>Resumo</strong><p>${escapeHtml(summary)}</p></div>`);
         if (hasText(data?.suggested_name)) suggestionCards.push(`<div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data.suggested_name)}</span></div>`);
         if (hasText(data?.suggested_interest)) suggestionCards.push(`<div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data.suggested_interest)}</span></div>`);
@@ -116,9 +125,15 @@
                 .ai-progress > span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#00a884,#12b886);width:${confidencePct}%}
                 .ai-context{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#c9d4da;font-size:.92rem}
                 .ai-box{padding:14px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);min-width:0}
+                .ai-box-action{background:rgba(18,184,134,.10);border-color:rgba(18,184,134,.28)}
                 .ai-box strong{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;opacity:.78;margin-bottom:6px;color:#9fb0b8}
                 .ai-box span,.ai-box p{display:block;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:#e9edef}
                 .ai-box .muted{color:#9aa7af}
+                .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+                .ai-chip-list{display:flex;flex-wrap:wrap;gap:8px}
+                .ai-chip{display:inline-flex;align-items:center;min-height:28px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.09);font-size:.84rem;color:#d7dee2}
+                .ai-chip.warn{background:rgba(255,193,7,.12);border-color:rgba(255,193,7,.22);color:#ffe08a}
+                .ai-chip.ok{background:rgba(18,184,134,.10);border-color:rgba(18,184,134,.22);color:#a7f3d0}
                 .ai-actions{display:flex;gap:8px;flex-wrap:wrap}
                 .ai-actions button{border:0;border-radius:999px;padding:10px 14px;font-weight:600;cursor:pointer}
                 .ai-actions .primary{background:#12b886;color:#08131d}
@@ -151,6 +166,23 @@
                     <div class="muted" style="color:#9aa7af">${escapeHtml(analysisDetail || "A IA ainda está organizando o contexto dessa conversa.")}</div>
                 </div>
                 <div class="ai-context">Conversa atual: ${escapeHtml(contextLabel || String(data?.conversation_id || ""))}</div>
+                <div class="ai-grid">
+                    <div class="ai-box"><strong>Humor</strong><span>${escapeHtml(customerMood)}</span></div>
+                    <div class="ai-box"><strong>Mensagens</strong><span>${escapeHtml(String(messageCount))}</span></div>
+                    <div class="ai-box"><strong>Audios transcritos</strong><span>${escapeHtml(`${transcribedAudioCount}/${audioCount}`)}</span></div>
+                </div>
+                <div class="ai-box">
+                    <strong>Sinais comerciais</strong>
+                    <div class="ai-chip-list">${commercialSignals.length ? commercialSignals.map((item) => `<span class="ai-chip ok">${escapeHtml(item)}</span>`).join("") : `<span class="muted">Nenhum sinal comercial forte ainda.</span>`}</div>
+                </div>
+                <div class="ai-box">
+                    <strong>Campos faltando</strong>
+                    <div class="ai-chip-list">${missingFields.length ? missingFields.map((item) => `<span class="ai-chip">${escapeHtml(item)}</span>`).join("") : `<span class="muted">Cadastro e contexto principais parecem suficientes.</span>`}</div>
+                </div>
+                <div class="ai-box">
+                    <strong>Alertas</strong>
+                    <div class="ai-chip-list">${riskFlags.length ? riskFlags.map((item) => `<span class="ai-chip warn">${escapeHtml(item)}</span>`).join("") : `<span class="muted">Sem alerta sensivel detectado.</span>`}</div>
+                </div>
 
                 ${notice ? `<div class="ai-warning">${escapeHtml(notice)}</div>` : ""}
                 ${aiEnabled ? "" : `<div class="ai-warning">IA desativada nas configuracoes do estudio.</div>`}

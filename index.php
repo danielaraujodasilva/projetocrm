@@ -771,11 +771,37 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_quick_reply') {
             $studio = require_studio();
-            studio_save_quick_reply($studio, $_POST);
+            $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
+            $id = studio_save_quick_reply($studio, $_POST);
+            if ($expectsJson) {
+                $user = current_studio_user();
+                $replies = studio_list_quick_replies($studio, (int)($user['id'] ?? 0));
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => true, 'id' => $id, 'quick_replies' => studio_quick_replies_payload($replies)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
             flash_set('success', 'Resposta rapida salva.');
             if (!empty($_POST['return_to_settings'])) {
                 redirect_to('studio_settings', ['tab' => (string)($_POST['settings_tab'] ?? 'quick_replies')]);
             }
+            redirect_to('studio_quick_replies');
+        }
+
+        if ($action === 'delete_quick_reply') {
+            $studio = require_studio();
+            csrf_verify();
+            $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
+            studio_delete_quick_reply($studio, (int)($_POST['id'] ?? 0));
+            if ($expectsJson) {
+                $user = current_studio_user();
+                $replies = studio_list_quick_replies($studio, (int)($user['id'] ?? 0));
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => true, 'quick_replies' => studio_quick_replies_payload($replies)], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            flash_set('success', 'Resposta rapida excluida.');
             redirect_to('studio_quick_replies');
         }
 
@@ -2417,9 +2443,11 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '</select></label><label>Valor<input name="price" placeholder="0,00"></label><label>Sinal<input name="deposit_amount" placeholder="0,00"></label><label class="wide">Descricao<textarea name="description">' . h((string)($scheduleSuggestion['description'] ?? $scheduleSuggestion['reason'] ?? '')) . '</textarea></label><button type="submit">Salvar agendamento</button></form></div></div>';
         echo '<div class="crm-modal hidden" id="m2AiOverlay"><div class="crm-modal-panel ai-modal-panel" style="max-width:min(96vw,760px);background:linear-gradient(180deg,#15232a 0%,#111b21 100%);color:#e9edef;border:1px solid rgba(134,150,160,.22);box-shadow:0 30px 90px rgba(0,0,0,.55)"><div class="crm-panel-header" style="background:linear-gradient(180deg,rgba(19,32,39,.98) 0%,rgba(15,25,31,.98) 100%);border-bottom:1px solid rgba(0,168,132,.16);color:#e9edef"><div><h3 class="crm-panel-title" style="color:#f3f6f7">Sugestoes da IA</h3><p class="muted" style="margin:4px 0 0;color:#9aa7af">Copiloto silencioso para leitura, resumo e apoio ao atendimento.</p></div><button type="button" id="closeM2AiOverlay" class="crm-button crm-icon-button" style="color:#e9edef;border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04)"><i class="fa-solid fa-xmark"></i></button></div><div id="m2AiOverlayBody" class="p-4" style="padding:20px;background:linear-gradient(180deg,rgba(17,27,33,.98) 0%,rgba(12,19,24,.99) 100%);color:#e9edef"></div></div></div>';
         echo '<script type="application/json" id="m2AiInitialData">' . json_encode($mobileAiSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
+        echo '<script type="application/json" id="m2QuickRepliesData">' . json_encode(studio_quick_replies_payload($quickReplies), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
     }
     echo '</section></main>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';
+    echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_quick_replies.js')) . '?v=' . h(app_build_version()) . '"></script>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_ai_overlay.js')) . '?v=' . h(app_build_version()) . '"></script>';
     echo '</body></html>';
     exit;
@@ -4375,6 +4403,7 @@ if ($page === 'studio_whatsapp_workspace') {
             echo '<div id="workspaceToolsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,900px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um overlay sem ocupar a lateral fixa.</p></div><button type="button" id="closeWorkspaceToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceToolsOverlayBody"></div></div></div>';
             echo '<div id="workspaceAiOverlay" class="crm-modal hidden"><div class="crm-modal-panel ai-modal-panel" style="max-width:min(96vw,960px);background:linear-gradient(180deg,#15232a 0%,#111b21 100%);color:#e9edef;border:1px solid rgba(134,150,160,.22);box-shadow:0 30px 90px rgba(0,0,0,.55)"><div class="crm-panel-header" style="background:linear-gradient(180deg,rgba(19,32,39,.98) 0%,rgba(15,25,31,.98) 100%);border-bottom:1px solid rgba(0,168,132,.16);color:#e9edef"><div><h3 class="crm-panel-title" style="color:#f3f6f7">Sugestoes da IA</h3><p class="muted" style="margin:4px 0 0;color:#9aa7af">Copiloto silencioso para leitura, resumo e apoio ao atendimento.</p></div><button type="button" id="closeWorkspaceAiOverlay" class="crm-button crm-icon-button" style="color:#e9edef;border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04)"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceAiOverlayBody" style="padding:20px;background:linear-gradient(180deg,rgba(17,27,33,.98) 0%,rgba(12,19,24,.99) 100%);color:#e9edef"></div></div></div>';
             echo '<script type="application/json" id="workspaceAiInitialData">' . json_encode($workspaceAiSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
+            echo '<script type="application/json" id="workspaceQuickRepliesData">' . json_encode(studio_quick_replies_payload($quickReplies), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
 
             echo '<div id="appointmentModal" class="crm-modal hidden">';
             echo '<div class="crm-modal-panel" style="max-width:min(96vw,860px)">';
@@ -4440,6 +4469,7 @@ echo 'scrollChatToLatest(true);';
             echo '})();';
             echo '</script>';
             echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_ai_overlay.js')) . '?v=' . h(app_build_version()) . '"></script>';
+            echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_quick_replies.js')) . '?v=' . h(app_build_version()) . '"></script>';
         }
         echo '<script>';
         echo '(function(){';
@@ -7351,11 +7381,12 @@ function render_quick_replies_table(array $replies): void
         echo '<p class="muted">Nenhuma resposta rapida cadastrada.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Resposta</th><th>Categoria</th><th>Status</th></tr></thead><tbody>';
+    echo '<table class="table"><thead><tr><th>Resposta</th><th>Categoria</th><th>Escopo</th><th>Status</th></tr></thead><tbody>';
     foreach ($replies as $reply) {
         echo '<tr>';
         echo '<td><strong>' . h($reply['title']) . '</strong><br><span class="muted">' . h($reply['shortcut'] ?: '-') . '</span><br>' . h($reply['body']) . '</td>';
         echo '<td><span class="badge">' . h($reply['category']) . '</span></td>';
+        echo '<td><span class="badge">' . h(((string)($reply['scope'] ?? '') === 'personal' || !empty($reply['studio_user_id'])) ? 'pessoal' : 'estudio') . '</span></td>';
         echo '<td><span class="badge ' . (!empty($reply['is_active']) ? 'ok' : 'warn') . '">' . (!empty($reply['is_active']) ? 'ativa' : 'inativa') . '</span></td>';
         echo '</tr>';
     }

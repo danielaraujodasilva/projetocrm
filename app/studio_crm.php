@@ -2359,17 +2359,79 @@ function studio_save_expense(array $studio, array $data): int
     return (int)$pdo->lastInsertId();
 }
 
-function studio_list_quick_replies(array $studio): array
+function studio_ensure_quick_replies_schema(PDO $pdo): void
 {
-    return studio_db($studio)->query('SELECT * FROM quick_replies ORDER BY is_active DESC, category ASC, title ASC LIMIT 120')->fetchAll() ?: [];
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS `quick_replies` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `studio_user_id` BIGINT UNSIGNED NULL,
+            `created_by_user_id` BIGINT UNSIGNED NULL,
+            `title` VARCHAR(140) NOT NULL,
+            `shortcut` VARCHAR(80) NULL,
+            `category` VARCHAR(80) NOT NULL DEFAULT "Geral",
+            `body` TEXT NOT NULL,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` DATETIME NOT NULL,
+            `updated_at` DATETIME NOT NULL,
+            PRIMARY KEY (`id`),
+            KEY `idx_quick_replies_user` (`studio_user_id`, `is_active`),
+            KEY `idx_quick_replies_category` (`category`, `is_active`),
+            KEY `idx_quick_replies_shortcut` (`shortcut`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    foreach ([
+        'ALTER TABLE `quick_replies` ADD COLUMN IF NOT EXISTS `studio_user_id` BIGINT UNSIGNED NULL AFTER `id`',
+        'ALTER TABLE `quick_replies` ADD COLUMN IF NOT EXISTS `created_by_user_id` BIGINT UNSIGNED NULL AFTER `studio_user_id`',
+        'ALTER TABLE `quick_replies` ADD INDEX IF NOT EXISTS `idx_quick_replies_user` (`studio_user_id`, `is_active`)',
+        'ALTER TABLE `quick_replies` ADD INDEX IF NOT EXISTS `idx_quick_replies_shortcut` (`shortcut`)',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable) {
+        }
+    }
+    try {
+        $pdo->exec('ALTER TABLE `quick_replies` DROP INDEX `uk_quick_replies_shortcut`');
+    } catch (Throwable) {
+    }
+}
+
+function studio_list_quick_replies(array $studio, ?int $studioUserId = null, bool $includeInactive = false): array
+{
+    $pdo = studio_db($studio);
+    studio_ensure_quick_replies_schema($pdo);
+    $currentUser = current_studio_user();
+    $userId = $studioUserId ?? (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    $where = ['(studio_user_id IS NULL' . ($userId > 0 ? ' OR studio_user_id = ?' : '') . ')'];
+    $params = [];
+    if ($userId > 0) {
+        $params[] = $userId;
+    }
+    if (!$includeInactive) {
+        $where[] = 'is_active = 1';
+    }
+    $stmt = $pdo->prepare('SELECT *, CASE WHEN studio_user_id IS NULL THEN "studio" ELSE "personal" END AS scope FROM quick_replies WHERE ' . implode(' AND ', $where) . ' ORDER BY is_active DESC, scope DESC, category ASC, title ASC LIMIT 160');
+    $stmt->execute($params);
+    return $stmt->fetchAll() ?: [];
 }
 
 function studio_save_quick_reply(array $studio, array $data): int
 {
     $pdo = studio_db($studio);
+    studio_ensure_quick_replies_schema($pdo);
     $id = (int)($data['id'] ?? 0);
     $shortcut = trim((string)($data['shortcut'] ?? ''));
+    if ($shortcut !== '' && $shortcut[0] !== '/') {
+        $shortcut = '/' . $shortcut;
+    }
+    $currentUser = current_studio_user();
+    $currentUserId = (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    $isAdmin = studio_current_user_is_admin();
+    $scope = (string)($data['scope'] ?? $data['quick_reply_scope'] ?? 'personal');
+    $ownerId = ($scope === 'studio' && $isAdmin) ? null : ($currentUserId > 0 ? $currentUserId : null);
     $values = [
+        $ownerId,
+        $currentUserId > 0 ? $currentUserId : null,
         trim((string)($data['title'] ?? '')),
         $shortcut !== '' ? $shortcut : null,
         trim((string)($data['category'] ?? 'Geral')) ?: 'Geral',
@@ -2377,20 +2439,72 @@ function studio_save_quick_reply(array $studio, array $data): int
         !empty($data['is_active']) ? 1 : 0,
     ];
 
-    if ($values[0] === '' || $values[3] === '') {
+    if ($values[2] === '' || $values[5] === '') {
         throw new RuntimeException('Informe titulo e texto da resposta rapida.');
     }
 
     if ($id > 0) {
-        $stmt = $pdo->prepare('UPDATE quick_replies SET title = ?, shortcut = ?, category = ?, body = ?, is_active = ?, updated_at = NOW() WHERE id = ?');
+        $stmt = $pdo->prepare('SELECT studio_user_id FROM quick_replies WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $existing = $stmt->fetch();
+        if (!$existing) {
+            throw new RuntimeException('Resposta rapida nao encontrada.');
+        }
+        $existingOwner = isset($existing['studio_user_id']) ? (int)$existing['studio_user_id'] : 0;
+        if (!array_key_exists('scope', $data) && !array_key_exists('quick_reply_scope', $data)) {
+            $values[0] = $existing['studio_user_id'] !== null ? $existingOwner : null;
+        }
+        if (!$isAdmin && $existingOwner !== $currentUserId) {
+            throw new RuntimeException('Voce só pode editar suas proprias respostas rapidas.');
+        }
+        $stmt = $pdo->prepare('UPDATE quick_replies SET studio_user_id = ?, created_by_user_id = COALESCE(created_by_user_id, ?), title = ?, shortcut = ?, category = ?, body = ?, is_active = ?, updated_at = NOW() WHERE id = ?');
         $stmt->execute([...$values, $id]);
         return $id;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO quick_replies (title, shortcut, category, body, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
+    $stmt = $pdo->prepare('INSERT INTO quick_replies (studio_user_id, created_by_user_id, title, shortcut, category, body, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
     $stmt->execute($values);
 
     return (int)$pdo->lastInsertId();
+}
+
+function studio_delete_quick_reply(array $studio, int $id): void
+{
+    if ($id <= 0) {
+        throw new RuntimeException('Resposta rapida invalida.');
+    }
+    $pdo = studio_db($studio);
+    studio_ensure_quick_replies_schema($pdo);
+    $currentUser = current_studio_user();
+    $currentUserId = (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    $isAdmin = studio_current_user_is_admin();
+    $stmt = $pdo->prepare('SELECT studio_user_id FROM quick_replies WHERE id = ? LIMIT 1');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Resposta rapida nao encontrada.');
+    }
+    $ownerId = isset($row['studio_user_id']) ? (int)$row['studio_user_id'] : 0;
+    if (!$isAdmin && $ownerId !== $currentUserId) {
+        throw new RuntimeException('Voce só pode excluir suas proprias respostas rapidas.');
+    }
+    $pdo->prepare('DELETE FROM quick_replies WHERE id = ?')->execute([$id]);
+}
+
+function studio_quick_replies_payload(array $replies): array
+{
+    return array_values(array_map(static function (array $reply): array {
+        return [
+            'id' => (int)($reply['id'] ?? 0),
+            'title' => (string)($reply['title'] ?? ''),
+            'shortcut' => (string)($reply['shortcut'] ?? ''),
+            'category' => (string)($reply['category'] ?? 'Geral'),
+            'body' => (string)($reply['body'] ?? ''),
+            'is_active' => !empty($reply['is_active']),
+            'scope' => (string)($reply['scope'] ?? (empty($reply['studio_user_id']) ? 'studio' : 'personal')),
+            'editable' => !empty($reply['studio_user_id']) || studio_current_user_is_admin(),
+        ];
+    }, $replies));
 }
 
 function studio_whatsapp_summary(array $studio): array
@@ -3638,6 +3752,26 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
     $assistantEnabled = !empty(studio_settings($studio)['ai_enabled']);
     $source = (string)($insights['source'] ?? 'heuristic');
     $summary = trim((string)($insights['summary'] ?? ''));
+    $recentText = [];
+    $audioCount = 0;
+    $transcribedAudioCount = 0;
+    foreach ($messages as $message) {
+        $body = trim((string)($message['body'] ?? ''));
+        $transcript = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
+        if ($body !== '') {
+            $recentText[] = $body;
+        }
+        if ($transcript !== '') {
+            $recentText[] = $transcript;
+        }
+        if ((string)($message['message_type'] ?? '') === 'audio' || str_starts_with((string)($message['media_mime'] ?? ''), 'audio/')) {
+            $audioCount++;
+            if ($transcript !== '') {
+                $transcribedAudioCount++;
+            }
+        }
+    }
+    $recentBlob = mb_strtolower(implode("\n", array_slice($recentText, -12)), 'UTF-8');
     $isNonInformativePreview = static function (string $text): bool {
         return $text !== '' && (bool)preg_match('/^(?:https?:\/\/|\/[^\\s]+|index\.php\?|\/projetocrm\/index\.php\?)/i', $text);
     };
@@ -3657,6 +3791,63 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
         }
     }
 
+    $missingFields = [];
+    if (trim((string)($conversation['customer_name'] ?? $conversation['lead_name'] ?? $conversation['name'] ?? '')) === '' || in_array(mb_strtolower(trim((string)($conversation['name'] ?? '')), 'UTF-8'), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true)) {
+        $missingFields[] = 'nome';
+    }
+    if (trim((string)($conversation['lead_interest'] ?? '')) === '' && trim((string)($insights['suggested_interest'] ?? '')) === '') {
+        $missingFields[] = 'ideia da tatuagem';
+    }
+    if (trim((string)($conversation['customer_notes'] ?? '')) === '' && trim((string)($insights['suggested_notes'] ?? '')) === '') {
+        $missingFields[] = 'observacoes';
+    }
+    if (trim((string)($conversation['lead_estimated_value'] ?? '')) === '') {
+        $missingFields[] = 'valor estimado';
+    }
+
+    $commercialSignals = [];
+    foreach ([
+        'agendamento' => '/\b(agendar|agenda|hor[aá]rio|disponibilidade|data)\b/u',
+        'orcamento' => '/\b(valor|pre[cç]o|or[cç]amento|quanto|custa)\b/u',
+        'referencia' => '/\b(refer[eê]ncia|foto|imagem|desenho|arte)\b/u',
+        'sinal' => '/\b(sinal|pix|entrada|reserva)\b/u',
+        'local_corpo' => '/\b(bra[cç]o|perna|costela|m[aã]o|pesco[cç]o|peito|costas|ombro)\b/u',
+    ] as $label => $pattern) {
+        if (preg_match($pattern, $recentBlob)) {
+            $commercialSignals[] = $label;
+        }
+    }
+
+    $riskFlags = [];
+    foreach ([
+        'quer humano' => '/\b(humano|atendente|pessoa|daniel)\b/u',
+        'preco sensivel' => '/\b(desconto|caro|barato|parcel|negocia)\b/u',
+        'saude/cicatrizacao' => '/\b(dor|inflam|alerg|sangue|casquinha|pomada|cicatriz)\b/u',
+        'pagamento' => '/\b(paguei|comprovante|pix|reembolso)\b/u',
+    ] as $label => $pattern) {
+        if (preg_match($pattern, $recentBlob)) {
+            $riskFlags[] = $label;
+        }
+    }
+
+    $customerMood = 'neutro';
+    if (preg_match('/\b(obrigad|perfeito|fechado|amei|top|show)\b/u', $recentBlob)) {
+        $customerMood = 'positivo';
+    } elseif (preg_match('/\b(urgente|demora|problema|reclama|chatead|ruim)\b/u', $recentBlob)) {
+        $customerMood = 'sensivel';
+    }
+
+    $nextBestAction = 'Pedir uma referencia, local do corpo e tamanho aproximado.';
+    if (in_array('agendamento', $commercialSignals, true) || trim((string)($insights['suggested_date'] ?? '')) !== '') {
+        $nextBestAction = 'Confirmar melhor data/horario e orientar sobre sinal de reserva.';
+    } elseif (in_array('orcamento', $commercialSignals, true)) {
+        $nextBestAction = 'Pedir referencia, tamanho em cm e local do corpo antes de falar valor.';
+    } elseif ($riskFlags) {
+        $nextBestAction = 'Passar para atendimento humano antes de responder detalhes sensiveis.';
+    } elseif (trim((string)($insights['suggested_name'] ?? '')) !== '' && trim((string)($conversation['lead_interest'] ?? '')) !== '') {
+        $nextBestAction = 'Usar o contexto salvo e conduzir para o proximo passo comercial.';
+    }
+
     $signalCount = 0;
     foreach ([
         $summary,
@@ -3666,6 +3857,8 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
         (string)($insights['suggested_date'] ?? ''),
         (string)($insights['suggested_time'] ?? ''),
         (string)($insights['schedule_reason'] ?? ''),
+        implode(',', $commercialSignals),
+        implode(',', $riskFlags),
     ] as $signal) {
         if (trim((string)$signal) !== '') {
             $signalCount++;
@@ -3729,6 +3922,15 @@ function studio_whatsapp_ai_suggestions_snapshot(array $studio, array $conversat
         'suggested_reply' => '',
         'ai_enabled' => $assistantEnabled,
         'attendance_mode' => (string)($conversation['attendance_mode'] ?? 'human'),
+        'next_best_action' => $nextBestAction,
+        'missing_fields' => $missingFields,
+        'commercial_signals' => $commercialSignals,
+        'risk_flags' => $riskFlags,
+        'customer_mood' => $customerMood,
+        'audio_count' => $audioCount,
+        'transcribed_audio_count' => $transcribedAudioCount,
+        'message_count' => count($messages),
+        'last_incoming_at' => trim((string)($conversation['last_message_at'] ?? '')),
     ];
 }
 
@@ -3857,6 +4059,10 @@ function studio_whatsapp_ai_suggestions(array $studio, array $conversation, arra
             $snapshot['needs_human'] = true;
         }
         $snapshot['source'] = 'ai';
+        $snapshot['analysis_stage'] = 'pronta';
+        $snapshot['analysis_label'] = 'Sugestoes prontas';
+        $snapshot['analysis_detail'] = 'A IA gerou leitura, proxima acao e uma resposta sugerida para o atendimento.';
+        $snapshot['signal_count'] = max((int)($snapshot['signal_count'] ?? 0), 5);
     }
 
     return $snapshot;

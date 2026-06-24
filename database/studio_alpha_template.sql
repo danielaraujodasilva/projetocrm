@@ -289,6 +289,8 @@ CREATE TABLE IF NOT EXISTS `expenses` (
 
 CREATE TABLE IF NOT EXISTS `quick_replies` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `studio_user_id` BIGINT UNSIGNED NULL,
+  `created_by_user_id` BIGINT UNSIGNED NULL,
   `title` VARCHAR(140) NOT NULL,
   `shortcut` VARCHAR(80) NULL,
   `category` VARCHAR(80) NOT NULL DEFAULT 'Geral',
@@ -297,7 +299,8 @@ CREATE TABLE IF NOT EXISTS `quick_replies` (
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_quick_replies_shortcut` (`shortcut`),
+  KEY `idx_quick_replies_user` (`studio_user_id`, `is_active`),
+  KEY `idx_quick_replies_shortcut` (`shortcut`),
   KEY `idx_quick_replies_category` (`category`, `is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
