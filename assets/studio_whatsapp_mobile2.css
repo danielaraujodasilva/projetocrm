@@ -483,6 +483,50 @@ body {
     color: #ffd08a;
 }
 
+.m2-item-badges b.ok {
+    background: rgba(0, 168, 132, .18);
+    color: #8df3dd;
+}
+
+.m2-item-badges b.danger {
+    background: rgba(255, 92, 92, .18);
+    color: #ffb0b0;
+}
+
+.m2-item-badges b.neutral {
+    background: rgba(134, 150, 160, .14);
+    color: #c7d1d7;
+}
+
+.m2-ai-mini-bar {
+    display: block;
+    height: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .08);
+}
+
+.m2-ai-mini-bar i {
+    display: block;
+    height: 100%;
+    min-width: 8px;
+    border-radius: inherit;
+    background: #8696a0;
+}
+
+.m2-ai-mini-bar.ok i {
+    background: #00a884;
+}
+
+.m2-ai-mini-bar.warn i {
+    background: #ffb84c;
+}
+
+.m2-ai-mini-bar.danger i {
+    background: #ff5c5c;
+}
+
 .m2-item em {
     align-self: start;
     margin-top: 4px;
@@ -550,6 +594,79 @@ body {
 
 .m2-breadcrumb a:hover {
     color: var(--m2-text);
+}
+
+.m2-ai-status {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px 12px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--m2-border);
+    background: #142128;
+}
+
+.m2-ai-status strong {
+    display: block;
+    color: var(--m2-text);
+    font-size: .86rem;
+}
+
+.m2-ai-status small {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--m2-muted);
+    font-size: .74rem;
+    margin-top: 2px;
+}
+
+.m2-ai-status span {
+    font-size: .76rem;
+    font-weight: 800;
+    color: #c7d1d7;
+}
+
+.m2-ai-status b {
+    grid-column: 1 / -1;
+    display: block;
+    height: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .08);
+}
+
+.m2-ai-status b i {
+    display: block;
+    height: 100%;
+    min-width: 10px;
+    border-radius: inherit;
+    background: #8696a0;
+}
+
+.m2-ai-status.ok b i {
+    background: #00a884;
+}
+
+.m2-ai-status.ok span {
+    color: #8df3dd;
+}
+
+.m2-ai-status.warn b i {
+    background: #ffb84c;
+}
+
+.m2-ai-status.warn span {
+    color: #ffd08a;
+}
+
+.m2-ai-status.danger b i {
+    background: #ff5c5c;
+}
+
+.m2-ai-status.danger span {
+    color: #ffb0b0;
 }
 
 .m2-action-row {

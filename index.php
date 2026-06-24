@@ -2161,6 +2161,44 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         }
         return $name;
     };
+    $mobileAiStateFor = static function (array $row, int $confidence = 0): array {
+        $mode = (string)($row['attendance_mode'] ?? 'human');
+        $rawStatus = trim((string)($row['ai_last_status'] ?? ''));
+        $status = $rawStatus !== '' ? $rawStatus : ($mode === 'bot' ? 'IA pronta' : 'IA inativa');
+        $lower = mb_strtolower($status);
+        $tone = 'neutral';
+        $label = $mode === 'bot' ? 'IA ativa' : 'Humano';
+        $progress = $mode === 'bot' ? 72 : 18;
+        if ($mode === 'bot') {
+            $tone = 'ok';
+            $progress = max($progress, 72);
+        }
+        if (str_contains($lower, 'analis')) {
+            $tone = 'warn';
+            $label = 'Analisando';
+            $progress = 46;
+        } elseif (str_contains($lower, 'erro') || str_contains($lower, 'falha') || str_contains($lower, 'sem resposta') || str_contains($lower, 'indispon')) {
+            $tone = 'danger';
+            $label = 'Atenção IA';
+            $progress = 28;
+        } elseif (str_contains($lower, 'respond') || str_contains($lower, 'enviad')) {
+            $tone = 'ok';
+            $label = 'IA respondeu';
+            $progress = 100;
+        } elseif (str_contains($lower, 'pronta') || str_contains($lower, 'ativad')) {
+            $tone = 'ok';
+            $label = 'IA pronta';
+            $progress = 82;
+        } elseif (str_contains($lower, 'inativa') || str_contains($lower, 'desativ')) {
+            $tone = 'neutral';
+            $label = 'IA inativa';
+            $progress = 12;
+        }
+        if ($confidence > 0 && $tone !== 'danger') {
+            $progress = max($progress, min(100, $confidence));
+        }
+        return ['label' => $label, 'status' => $status, 'tone' => $tone, 'progress' => max(0, min(100, $progress))];
+    };
     $inferMediaType = static function (string $mime, string $mediaUrl, string $type): string {
         $mime = strtolower(trim($mime));
         $type = strtolower(trim($type));
@@ -2251,11 +2289,12 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
         $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
         $rowMode = ((string)($row['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano';
+        $rowAiState = $mobileAiStateFor($row);
         $searchText = strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview);
         if ($isAdmin) {
-            echo '<div class="m2-item m2-item-admin' . h($active) . '" data-conversation-id="' . h((string)$rowId) . '" data-search="' . h($searchText) . '"><label class="m2-select-row"><input class="m2-conversation-checkbox" type="checkbox" name="conversation_ids[]" value="' . h((string)$rowId) . '"><span></span></label><a class="m2-item-link" href="' . h($href) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a></div>';
+            echo '<div class="m2-item m2-item-admin' . h($active) . '" data-conversation-id="' . h((string)$rowId) . '" data-search="' . h($searchText) . '"><label class="m2-select-row"><input class="m2-conversation-checkbox" type="checkbox" name="conversation_ids[]" value="' . h((string)$rowId) . '"><span></span></label><a class="m2-item-link" href="' . h($href) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowMode) . '</b><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a></div>';
         } else {
-            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b>' . h($rowMode) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small></span><em>' . h($assignmentLabel) . '</em></a>';
+            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowMode) . '</b><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . (!empty($row['needs_human']) ? '<b class="warn">Humano</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a>';
         }
     }
     echo '</nav>';
@@ -2270,7 +2309,9 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     } else {
         $displayName = $labelForConversation($conversation);
         echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
-        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">WhatsApp</a><i class="fa-solid fa-angle-right"></i><span>Mobile</span></div>';
+        $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
+        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">WhatsApp</a><i class="fa-solid fa-angle-right"></i><span>' . h($mobileAiState['label']) . '</span></div>';
+        echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
         $mobileAiModeActive = ((string)($conversation['attendance_mode'] ?? 'human') === 'bot');
         echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" id="m2AiModeButton" class="' . ($mobileAiModeActive ? 'is-active' : '') . '" title="' . h($mobileAiModeActive ? 'IA ligada nesta conversa' : 'IA desligada nesta conversa') . '" aria-label="' . h($mobileAiModeActive ? 'IA ligada' : 'IA desligada') . '" data-next-mode="' . h($mobileAiModeActive ? 'human' : 'bot') . '"><i class="fa-solid ' . h($mobileAiModeActive ? 'fa-toggle-on' : 'fa-toggle-off') . '"></i></button>';
         echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
