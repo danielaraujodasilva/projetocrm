@@ -1208,7 +1208,7 @@ if ($action === 'studio_login') {
                 if (!in_array($nextMode, ['human', 'bot'], true)) {
                     $nextMode = $currentMode === 'bot' ? 'human' : 'bot';
                 }
-                $status = $nextMode === 'bot' ? 'IA ativada para esta conversa' : 'IA desativada para esta conversa';
+                $status = $nextMode === 'bot' ? 'IA pronta para responder' : 'IA desativada para esta conversa';
                 studio_update_whatsapp_conversation($studio, [
                     'conversation_id' => $conversationId,
                     'attendance_mode' => $nextMode,
@@ -2164,10 +2164,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     $mobileAiStateFor = static function (array $row, int $confidence = 0): array {
         $mode = (string)($row['attendance_mode'] ?? 'human');
         $rawStatus = trim((string)($row['ai_last_status'] ?? ''));
-        $status = $rawStatus !== '' ? $rawStatus : ($mode === 'bot' ? 'IA pronta' : 'IA inativa');
+        $status = $rawStatus !== '' ? $rawStatus : ($mode === 'bot' ? 'IA pronta para responder' : 'IA inativa');
         $lower = mb_strtolower($status);
         $tone = 'neutral';
-        $label = $mode === 'bot' ? 'IA ativa' : 'Humano';
+        $label = $mode === 'bot' ? 'IA pronta' : 'Humano';
         $progress = $mode === 'bot' ? 72 : 18;
         if ($mode === 'bot') {
             $tone = 'ok';
@@ -4954,7 +4954,7 @@ if ($page === 'studio_whatsapp_conversation') {
         echo 'function refreshUnreadButtonLabel(){ const toggleUnreadButton = document.getElementById("toggleUnreadButton"); if (toggleUnreadButton) toggleUnreadButton.textContent = conversationMarkedUnread ? "Marcar lida" : "Marcar nao lida"; }';
         echo 'async function loadConversationReadState(){ try { const response = await fetch("api/whatsapp_read_state.php", { cache: "no-store", headers: { "Accept": "application/json" } }); const data = await response.json().catch(() => null); conversationMarkedUnread = !(data?.ok && data.read && data.read[String(conversationId)]); refreshUnreadButtonLabel(); } catch (error) {} }';
         echo 'async function setConversationReadState(mode = "read"){ try { await fetch("api/whatsapp_read_state.php", { method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify({ id: conversationId, mode }) }); conversationMarkedUnread = mode === "unread"; refreshUnreadButtonLabel(); } catch (error) {} }';
-        echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button => button.addEventListener("click", async () => { try { const isBot = button.dataset.modeToggle === "bot"; const payload = { action: "update_whatsapp_profile", attendance_mode: isBot ? "bot" : "human", needs_human: isBot ? 0 : 1, ai_last_status: isBot ? "IA pronta" : "IA inativa" }; await postConversationUpdate(payload, "Nao foi possivel atualizar o atendimento."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o atendimento."); } }));';
+        echo 'document.querySelectorAll("[data-mode-toggle]").forEach(button => button.addEventListener("click", async () => { try { const isBot = button.dataset.modeToggle === "bot"; const payload = { action: "update_whatsapp_profile", attendance_mode: isBot ? "bot" : "human", needs_human: isBot ? 0 : 1, ai_last_status: isBot ? "IA pronta para responder" : "IA inativa" }; await postConversationUpdate(payload, "Nao foi possivel atualizar o atendimento."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o atendimento."); } }));';
         echo 'document.querySelectorAll("[data-status-set]").forEach(button => button.addEventListener("click", async () => { try { const payload = { action: "update_whatsapp_profile", status: button.dataset.statusSet || "novo", create_lead: 1 }; await postConversationUpdate(payload, "Nao foi possivel atualizar o status."); syncConversationUI(payload); } catch (error) { alert(error.message || "Nao foi possivel atualizar o status."); } }));';
         echo 'async function toggleMobileAiMode(nextMode){ const payload = { action: "toggle_whatsapp_ai_mode", attendance_mode: nextMode }; await postConversationUpdate(payload, "Nao foi possivel alternar a IA."); location.reload(); }';
         echo 'document.getElementById("m2AiModeButton")?.addEventListener("click", async () => { try { const button = document.getElementById("m2AiModeButton"); const nextMode = button?.dataset.nextMode || "bot"; if (nextMode === "bot" && !confirm("Ativar IA automatica para esta conversa? Ela podera responder novas mensagens.")) { return; } await toggleMobileAiMode(nextMode); } catch (error) { alert(error.message || "Nao foi possivel alternar a IA."); } });';

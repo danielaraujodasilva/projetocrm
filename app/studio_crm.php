@@ -4806,14 +4806,23 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     curl_close($ch);
 
     if ($errno || $raw === false) {
+        if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
+            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
         return ['ok' => false, 'error' => $error ?: 'Falha na chamada da IA.'];
     }
 
     $json = json_decode((string)$raw, true);
     if (!is_array($json)) {
+        if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
+            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
         return ['ok' => false, 'error' => 'Resposta invalida da IA.'];
     }
     if ($status >= 400) {
+        if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
+            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
         return ['ok' => false, 'error' => (string)($json['error']['message'] ?? ('Erro HTTP ' . $status))];
     }
 
@@ -4824,6 +4833,9 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     }
     $content = $responseText;
     if ($content === '') {
+        if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
+            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
         return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
     }
     $decoded = json_decode($content, true);
@@ -4831,6 +4843,9 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         $decoded = json_decode($matches[0], true);
     }
     if (!is_array($decoded)) {
+        if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
+            return studio_openai_text($apiKey, $model, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
         return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA: ' . mb_substr($content, 0, 120)];
     }
 
