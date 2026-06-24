@@ -987,7 +987,9 @@ function studio_whatsapp_ai_timeout(array $studio): int
 
 function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
-    if (!plan_allows('ai')) {
+    $plan = resolve_studio_plan($studio);
+    $planAllowsAi = $plan ? !empty($plan['allow_ai']) : strtolower(trim((string)($studio['plan_name'] ?? ''))) === 'avancado';
+    if (!$planAllowsAi) {
         try {
             studio_update_whatsapp_conversation($studio, [
                 'conversation_id' => (int)$conversation['id'],
@@ -3098,7 +3100,7 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
 function studio_whatsapp_assistant_insights(array $studio, array $conversation, array $messages = []): array
 {
     $settings = studio_settings($studio);
-    $enabled = !empty($settings['ai_enabled']) && !empty($settings['assistant_autofill_enabled']);
+    $enabled = !empty($settings['assistant_autofill_enabled']);
     $history = array_slice(array_reverse($messages), 0, 8);
     $currentName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
     $currentInterest = trim((string)($conversation['lead_interest'] ?? ''));
@@ -3201,11 +3203,18 @@ function studio_whatsapp_assistant_insights(array $studio, array $conversation, 
         try {
             $config = studio_openai_config($studio);
             if ($config['api_key'] !== '') {
-                $aiResult = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $userPrompt, $config['base_url'], 40);
-                if (!empty($aiResult['ok']) && !empty($aiResult['reply_text'])) {
-                    $decoded = json_decode((string)$aiResult['reply_text'], true);
-                    if (!is_array($decoded) && preg_match('/\{.*\}/s', (string)$aiResult['reply_text'], $matches)) {
-                        $decoded = json_decode($matches[0], true);
+                $schema = 'Responda somente com JSON valido neste formato: {"suggested_name":"","suggested_interest":"","suggested_notes":"","suggested_date":"","suggested_time":"","schedule_reason":"","confidence":0}.';
+                $aiResult = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $userPrompt, $config['base_url'], 40, $schema);
+                if (!empty($aiResult['ok'])) {
+                    $decoded = $aiResult;
+                    if (!empty($aiResult['reply_text'])) {
+                        $replyDecoded = json_decode((string)$aiResult['reply_text'], true);
+                        if (!is_array($replyDecoded) && preg_match('/\{.*\}/s', (string)$aiResult['reply_text'], $matches)) {
+                            $replyDecoded = json_decode($matches[0], true);
+                        }
+                        if (is_array($replyDecoded)) {
+                            $decoded = $replyDecoded + $decoded;
+                        }
                     }
                     if (is_array($decoded)) {
                         foreach (['suggested_name', 'suggested_interest', 'suggested_notes', 'suggested_date', 'suggested_time', 'schedule_reason'] as $key) {
@@ -3600,11 +3609,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
 
     if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
         try {
-            studio_update_whatsapp_conversation($studio, [
-                'conversation_id' => (int)$conversation['id'],
-                'ai_last_status' => 'Analisando com IA...',
-            ]);
-            $aiResult = studio_whatsapp_ai_reply($studio, $conversation, [
+            $aiResult = studio_queue_whatsapp_ai_reply($studio, $conversation, [
                 'body' => $body,
                 'mensagem' => $body,
                 'from_me' => $fromMe,
@@ -3616,6 +3621,11 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
                 studio_update_whatsapp_conversation($studio, [
                     'conversation_id' => (int)$conversation['id'],
                     'ai_last_status' => 'IA sem resposta: ' . mb_substr((string)($aiResult['error'] ?? 'erro'), 0, 120),
+                ]);
+            } elseif (!empty($aiResult['queued'])) {
+                studio_update_whatsapp_conversation($studio, [
+                    'conversation_id' => (int)$conversation['id'],
+                    'ai_last_status' => 'IA na fila de resposta...',
                 ]);
             }
         } catch (Throwable $e) {
@@ -3910,7 +3920,7 @@ TXT;
     ];
 }
 
-function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1', ?int $timeoutSeconds = null): array
+function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1', ?int $timeoutSeconds = null, string $responseSchemaInstruction = ''): array
 {
     if ($apiKey === '') {
         return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
@@ -3918,6 +3928,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
 
     $isOllama = (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
     $responseText = '';
+    $schemaInstruction = trim($responseSchemaInstruction);
+    if ($schemaInstruction === '') {
+        $schemaInstruction = 'Responda somente com JSON valido neste formato: {"reply_text":"...","needs_human":false,"lead_score_delta":0,"summary":"..."}';
+    }
     if ($isOllama) {
         $body = [
             'model' => $model,
@@ -3928,7 +3942,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
                 'repeat_penalty' => 1.15,
             ],
             'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
+                ['role' => 'system', 'content' => $systemPrompt . "\n\n" . $schemaInstruction],
                 ['role' => 'user', 'content' => $userPrompt],
             ],
         ];
@@ -3941,7 +3955,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
             'presence_penalty' => 0.2,
             'frequency_penalty' => 0.35,
             'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
+                ['role' => 'system', 'content' => $systemPrompt . "\n\n" . $schemaInstruction],
                 ['role' => 'user', 'content' => $userPrompt],
             ],
         ];
@@ -3994,11 +4008,11 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
 
     return [
         'ok' => true,
-        'reply_text' => trim((string)($decoded['reply_text'] ?? '')),
+        'reply_text' => trim((string)($decoded['reply_text'] ?? $decoded['response_text'] ?? $decoded['resposta'] ?? $decoded['message'] ?? $decoded['text'] ?? '')),
         'needs_human' => !empty($decoded['needs_human']),
         'lead_score_delta' => (int)($decoded['lead_score_delta'] ?? 0),
         'summary' => trim((string)($decoded['summary'] ?? '')),
-    ];
+    ] + $decoded;
 }
 
 function studio_meta_ads_request(string $version, string $path, string $accessToken, array $query = [], string $method = 'GET', ?array $body = null, ?int $timeoutSeconds = null): array
