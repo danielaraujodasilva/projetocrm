@@ -58,6 +58,10 @@ try {
         'from_me' => false,
         'direction' => 'in',
         'message_type' => (string)($message['message_type'] ?? 'texto'),
+        'media_mime' => (string)($message['media_mime'] ?? ''),
+        'media_url' => (string)($message['media_url'] ?? ''),
+        'media_file_path' => (string)($message['media_file_path'] ?? ''),
+        'media_file_name' => (string)($message['media_file_name'] ?? ''),
         'message_id' => $messageId,
     ]);
     if (!empty($result['ok'])) {
