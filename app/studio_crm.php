@@ -457,6 +457,8 @@ function studio_ensure_whatsapp_assignment_schema(array $studio): void
             'assigned_by_user_id' => 'BIGINT UNSIGNED NULL',
             'released_at' => 'DATETIME NULL',
             'locked_at' => 'DATETIME NULL',
+            'ai_memory' => 'MEDIUMTEXT NULL',
+            'ai_memory_updated_at' => 'DATETIME NULL',
         ] as $column => $definition) {
             try {
                 $pdo->exec('ALTER TABLE whatsapp_conversations ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -2507,6 +2509,142 @@ function studio_quick_replies_payload(array $replies): array
     }, $replies));
 }
 
+function studio_ensure_whatsapp_tags_schema(array $studio): void
+{
+    $pdo = studio_db($studio);
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS whatsapp_tags (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            studio_user_id BIGINT UNSIGNED NULL,
+            created_by_user_id BIGINT UNSIGNED NULL,
+            name VARCHAR(80) NOT NULL,
+            color VARCHAR(20) NOT NULL DEFAULT "#6b7280",
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY idx_whatsapp_tags_user (studio_user_id, name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS whatsapp_conversation_tags (
+            conversation_id BIGINT UNSIGNED NOT NULL,
+            tag_id BIGINT UNSIGNED NOT NULL,
+            assigned_by_user_id BIGINT UNSIGNED NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (conversation_id, tag_id),
+            KEY idx_whatsapp_conversation_tags_tag (tag_id),
+            CONSTRAINT fk_whatsapp_conversation_tags_conversation FOREIGN KEY (conversation_id) REFERENCES whatsapp_conversations (id) ON DELETE CASCADE,
+            CONSTRAINT fk_whatsapp_conversation_tags_tag FOREIGN KEY (tag_id) REFERENCES whatsapp_tags (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function studio_list_whatsapp_tags(array $studio, ?int $studioUserId = null): array
+{
+    studio_ensure_whatsapp_tags_schema($studio);
+    $currentUser = current_studio_user();
+    $userId = $studioUserId ?? (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    $sql = 'SELECT *, CASE WHEN studio_user_id IS NULL THEN "studio" ELSE "personal" END AS scope
+            FROM whatsapp_tags
+            WHERE studio_user_id IS NULL' . ($userId > 0 ? ' OR studio_user_id = ?' : '') . '
+            ORDER BY scope ASC, name ASC';
+    $stmt = studio_db($studio)->prepare($sql);
+    $stmt->execute($userId > 0 ? [$userId] : []);
+    return $stmt->fetchAll() ?: [];
+}
+
+function studio_save_whatsapp_tag(array $studio, array $data): int
+{
+    studio_ensure_whatsapp_tags_schema($studio);
+    $pdo = studio_db($studio);
+    $currentUser = current_studio_user();
+    $currentUserId = (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    if ($currentUserId <= 0 && !studio_current_user_is_admin()) {
+        throw new RuntimeException('Faça login para criar uma tag.');
+    }
+    $isAdmin = studio_current_user_is_admin();
+    $name = trim((string)($data['name'] ?? ''));
+    $color = trim((string)($data['color'] ?? '#6b7280'));
+    if ($name === '') {
+        throw new RuntimeException('Informe o nome da tag.');
+    }
+    if (!preg_match('/^#[0-9a-f]{6}$/i', $color)) {
+        $color = '#6b7280';
+    }
+    $scope = (string)($data['scope'] ?? 'personal');
+    $ownerId = ($scope === 'studio' && $isAdmin) ? null : ($currentUserId > 0 ? $currentUserId : null);
+    $stmt = $pdo->prepare('SELECT id FROM whatsapp_tags WHERE name = ? AND ' . ($ownerId === null ? 'studio_user_id IS NULL' : 'studio_user_id = ?') . ' LIMIT 1');
+    $stmt->execute($ownerId === null ? [$name] : [$name, $ownerId]);
+    $existingId = (int)($stmt->fetchColumn() ?: 0);
+    if ($existingId > 0) {
+        $pdo->prepare('UPDATE whatsapp_tags SET color = ?, updated_at = NOW() WHERE id = ?')->execute([$color, $existingId]);
+        return $existingId;
+    }
+    $stmt = $pdo->prepare('INSERT INTO whatsapp_tags (studio_user_id, created_by_user_id, name, color, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())');
+    $stmt->execute([$ownerId, $currentUserId > 0 ? $currentUserId : null, mb_substr($name, 0, 80), $color]);
+    return (int)$pdo->lastInsertId();
+}
+
+function studio_delete_whatsapp_tag(array $studio, int $tagId): void
+{
+    studio_ensure_whatsapp_tags_schema($studio);
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('SELECT studio_user_id FROM whatsapp_tags WHERE id = ? LIMIT 1');
+    $stmt->execute([$tagId]);
+    $tag = $stmt->fetch();
+    if (!$tag) {
+        throw new RuntimeException('Tag não encontrada.');
+    }
+    $currentUser = current_studio_user();
+    $currentUserId = (int)(is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
+    if (!studio_current_user_is_admin() && (int)($tag['studio_user_id'] ?? 0) !== $currentUserId) {
+        throw new RuntimeException('Você só pode excluir suas próprias tags.');
+    }
+    $pdo->prepare('DELETE FROM whatsapp_tags WHERE id = ?')->execute([$tagId]);
+}
+
+function studio_whatsapp_conversation_tags(array $studio, int $conversationId): array
+{
+    studio_ensure_whatsapp_tags_schema($studio);
+    $visibleTags = studio_list_whatsapp_tags($studio);
+    $visibleIds = array_map(static fn(array $tag): int => (int)$tag['id'], $visibleTags);
+    if (!$visibleIds) {
+        return [];
+    }
+    $placeholders = implode(',', array_fill(0, count($visibleIds), '?'));
+    $stmt = studio_db($studio)->prepare(
+        'SELECT wt.*, CASE WHEN wt.studio_user_id IS NULL THEN "studio" ELSE "personal" END AS scope
+         FROM whatsapp_conversation_tags wct
+         JOIN whatsapp_tags wt ON wt.id = wct.tag_id
+         WHERE wct.conversation_id = ? AND wt.id IN (' . $placeholders . ')
+         ORDER BY scope ASC, wt.name ASC'
+    );
+    $stmt->execute([$conversationId, ...$visibleIds]);
+    return $stmt->fetchAll() ?: [];
+}
+
+function studio_toggle_whatsapp_conversation_tag(array $studio, int $conversationId, int $tagId): bool
+{
+    if ($conversationId <= 0) {
+        throw new RuntimeException('Conversa inválida.');
+    }
+    $visibleIds = array_map(static fn(array $tag): int => (int)$tag['id'], studio_list_whatsapp_tags($studio));
+    if (!in_array($tagId, $visibleIds, true)) {
+        throw new RuntimeException('Tag indisponível para este atendente.');
+    }
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('SELECT 1 FROM whatsapp_conversation_tags WHERE conversation_id = ? AND tag_id = ?');
+    $stmt->execute([$conversationId, $tagId]);
+    if ($stmt->fetchColumn()) {
+        $pdo->prepare('DELETE FROM whatsapp_conversation_tags WHERE conversation_id = ? AND tag_id = ?')->execute([$conversationId, $tagId]);
+        return false;
+    }
+    $user = current_studio_user();
+    $pdo->prepare('INSERT INTO whatsapp_conversation_tags (conversation_id, tag_id, assigned_by_user_id, created_at) VALUES (?, ?, ?, NOW())')
+        ->execute([$conversationId, $tagId, (int)(is_array($user) ? ($user['id'] ?? 0) : 0) ?: null]);
+    return true;
+}
+
 function studio_whatsapp_summary(array $studio): array
 {
     $pdo = studio_db($studio);
@@ -2534,6 +2672,7 @@ function studio_whatsapp_summary(array $studio): array
 function studio_list_whatsapp_conversations(array $studio, array $filters = [], int $limit = 160): array
 {
     studio_ensure_whatsapp_assignment_schema($studio);
+    studio_ensure_whatsapp_tags_schema($studio);
     $where = [];
     $params = [];
     $currentUser = studio_current_user();
@@ -2574,6 +2713,14 @@ function studio_list_whatsapp_conversations(array $studio, array $filters = [], 
     }
     if (!empty($filters['needs_human'])) {
         $where[] = 'wc.needs_human = 1';
+    }
+    $tagId = (int)($filters['tag_id'] ?? 0);
+    if ($tagId > 0) {
+        $visibleTagIds = array_map(static fn(array $tag): int => (int)$tag['id'], studio_list_whatsapp_tags($studio));
+        if (in_array($tagId, $visibleTagIds, true)) {
+            $where[] = 'EXISTS (SELECT 1 FROM whatsapp_conversation_tags wct_filter WHERE wct_filter.conversation_id = wc.id AND wct_filter.tag_id = ?)';
+            $params[] = $tagId;
+        }
     }
     $minScore = (int)($filters['min_score'] ?? 0);
     if ($minScore > 0) {
@@ -5173,8 +5320,9 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
     if (!in_array($senderType, ['human', 'bot', 'system'], true)) {
         $senderType = 'human';
     }
+    $interactiveType = strtolower(trim((string)($data['interactive_type'] ?? '')));
     $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
-    if ($phone === '' || ($message === '' && empty($upload['base64']))) {
+    if ($phone === '' || ($message === '' && empty($upload['base64']) && $interactiveType === '')) {
         return [
             'ok' => false,
             'error' => 'Faltou telefone, mensagem ou anexo para enviar pela API oficial.',
@@ -5188,9 +5336,11 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
         ];
     }
 
-    $result = !empty($upload['base64'])
-        ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
-        : studio_whatsapp_official_send_text($studio, $phone, $message);
+    $result = $interactiveType !== ''
+        ? studio_whatsapp_official_send_interactive($studio, $phone, $interactiveType, $message, $data)
+        : (!empty($upload['base64'])
+            ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
+            : studio_whatsapp_official_send_text($studio, $phone, $message));
 
     if (empty($result['ok'])) {
         studio_whatsapp_event_log($studio, [
@@ -5203,7 +5353,7 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
             'error' => studio_whatsapp_send_error_message($result),
             'payload' => [
                 'message_length' => strlen($message),
-                'upload_kind' => (string)($upload['kind'] ?? ''),
+                'upload_kind' => $interactiveType !== '' ? 'interactive_' . $interactiveType : (string)($upload['kind'] ?? ''),
                 'result' => $result,
             ],
         ]);
@@ -5220,7 +5370,7 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
         'messageId' => $messageId,
         'remoteJid' => $phone,
         'timestamp' => time(),
-        'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
+        'tipoMensagem' => $interactiveType !== '' ? 'interactive_' . $interactiveType : (!empty($upload['kind']) ? $upload['kind'] : 'texto'),
         'mediaUrl' => $upload['relativePath'] ?? '',
         'mediaMime' => $upload['mime'] ?? '',
         'mediaFileName' => $upload['fileName'] ?? '',
@@ -5354,6 +5504,8 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
                 'temperature' => 0.1,
                 'top_p' => 0.9,
                 'repeat_penalty' => 1.15,
+                'num_ctx' => 8192,
+                'num_predict' => 350,
             ],
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
@@ -5658,6 +5810,85 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     }
 
     return $result;
+}
+
+function studio_whatsapp_official_send_interactive(array $studio, string $toPhone, string $type, string $message, array $data = []): array
+{
+    $settings = studio_settings($studio);
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return ['ok' => false, 'error' => 'Mensagens interativas exigem a API oficial.'];
+    }
+    $zapConfig = studio_whatsapp_zap_local_config();
+    $useZap = !empty($zapConfig)
+        && trim((string)($zapConfig['access_token'] ?? '')) !== ''
+        && trim((string)($zapConfig['phone_number_id'] ?? '')) !== '';
+    $accessToken = $useZap ? trim((string)$zapConfig['access_token']) : trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $version = $useZap ? trim((string)($zapConfig['api_version'] ?? 'v23.0')) : trim((string)($settings['whatsapp_official_api_version'] ?? 'v23.0'));
+    $phoneNumberId = $useZap ? trim((string)$zapConfig['phone_number_id']) : trim((string)($settings['whatsapp_official_phone_number_id'] ?? ''));
+    $toPhone = preg_replace('/\D+/', '', $toPhone) ?: '';
+    $type = strtolower(trim($type));
+    $message = trim($message);
+    if ($accessToken === '' || $phoneNumberId === '' || $toPhone === '') {
+        return ['ok' => false, 'error' => 'Faltam credenciais ou telefone para a mensagem interativa.'];
+    }
+
+    $interactive = ['type' => $type, 'body' => ['text' => $message !== '' ? mb_substr($message, 0, 1024) : 'Escolha uma opção:']];
+    if ($type === 'button') {
+        $rawOptions = $data['interactive_options'] ?? [];
+        if (is_string($rawOptions)) {
+            $rawOptions = preg_split('/\r\n|\r|\n/', $rawOptions) ?: [];
+        }
+        $options = array_values(array_filter(array_map(static fn($value): string => trim((string)$value), (array)$rawOptions)));
+        $options = array_slice($options, 0, 3);
+        if (!$options) {
+            return ['ok' => false, 'error' => 'Informe de 1 a 3 opções para os botões.'];
+        }
+        $interactive['action'] = ['buttons' => []];
+        foreach ($options as $index => $option) {
+            $interactive['action']['buttons'][] = [
+                'type' => 'reply',
+                'reply' => ['id' => 'crm_btn_' . ($index + 1) . '_' . substr(hash('sha256', $option), 0, 10), 'title' => mb_substr($option, 0, 20)],
+            ];
+        }
+    } elseif ($type === 'list') {
+        $rawOptions = $data['interactive_options'] ?? [];
+        if (is_string($rawOptions)) {
+            $rawOptions = preg_split('/\r\n|\r|\n/', $rawOptions) ?: [];
+        }
+        $options = array_slice(array_values(array_filter(array_map(static fn($value): string => trim((string)$value), (array)$rawOptions))), 0, 10);
+        if (!$options) {
+            return ['ok' => false, 'error' => 'Informe as opções da lista.'];
+        }
+        $rows = [];
+        foreach ($options as $index => $option) {
+            $rows[] = ['id' => 'crm_list_' . ($index + 1) . '_' . substr(hash('sha256', $option), 0, 10), 'title' => mb_substr($option, 0, 24)];
+        }
+        $interactive['action'] = [
+            'button' => mb_substr(trim((string)($data['interactive_button_text'] ?? 'Ver opções')) ?: 'Ver opções', 0, 20),
+            'sections' => [['title' => mb_substr(trim((string)($data['interactive_section_title'] ?? 'Opções')) ?: 'Opções', 0, 24), 'rows' => $rows]],
+        ];
+    } elseif ($type === 'flow') {
+        $flowId = trim((string)($data['flow_id'] ?? $settings['whatsapp_flow_id'] ?? ''));
+        if ($flowId === '') {
+            return ['ok' => false, 'error' => 'Configure o Flow ID publicado na Meta.'];
+        }
+        $interactive['action'] = [
+            'name' => 'flow',
+            'parameters' => [
+                'flow_message_version' => '3',
+                'flow_token' => 'crm_' . bin2hex(random_bytes(8)),
+                'flow_id' => $flowId,
+                'flow_cta' => mb_substr(trim((string)($data['flow_cta'] ?? $settings['whatsapp_flow_cta'] ?? 'Preencher')) ?: 'Preencher', 0, 20),
+                'flow_action' => 'navigate',
+                'flow_action_payload' => ['screen' => trim((string)($data['flow_screen'] ?? $settings['whatsapp_flow_screen'] ?? 'FIRST_ENTRY_SCREEN')) ?: 'FIRST_ENTRY_SCREEN'],
+            ],
+        ];
+    } else {
+        return ['ok' => false, 'error' => 'Tipo interativo inválido. Use button, list ou flow.'];
+    }
+
+    $payload = ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $toPhone, 'type' => 'interactive', 'interactive' => $interactive];
+    return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
 }
 
 function studio_whatsapp_official_send_template(array $studio, string $toPhone, string $templateName, string $language = 'pt_BR', array $bodyParameters = []): array
@@ -6076,7 +6307,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
-         LIMIT 6'
+         LIMIT 50'
     );
     $stmt->execute([(int)$conversation['id']]);
     $history = array_reverse($stmt->fetchAll() ?: []);
@@ -6121,7 +6352,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $leadId = (int)($conversation['lead_id'] ?? 0);
     $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
     $leadData = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
-    $latestMessages = implode("\n- ", array_slice($historyLines, -6));
+    $latestMessages = implode("\n- ", array_slice($historyLines, -40));
+    if (mb_strlen($latestMessages, 'UTF-8') > 18000) {
+        $latestMessages = mb_substr($latestMessages, -18000, null, 'UTF-8');
+        $latestMessages = '[início antigo resumido na memória acumulada]' . "\n" . $latestMessages;
+    }
+    $conversationMemory = trim((string)($conversation['ai_memory'] ?? ''));
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
@@ -6275,10 +6511,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
         . "Status comercial: " . trim((string)($conversation['lead_status'] ?? 'em_conversa')) . ' / ' . trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')) . "\n"
         . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
+        . "Memoria acumulada da conversa (combinados, preferencias e pendencias): " . ($conversationMemory !== '' ? $conversationMemory : 'Ainda sem memoria acumulada.') . "\n"
         . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
         . "Historico recente (somente contexto; nunca responda uma pergunta antiga no lugar da atual):\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Regras de resposta:\n"
         . "- A ultima mensagem e a unica pergunta que deve ser respondida agora.\n"
+        . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
         . "- Nao repita nenhuma resposta anterior do atendente.\n"
         . $scheduleRules
         . "- Responda como atendente de tatuagem, sem soar robotico.\n"
@@ -6309,6 +6547,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "  * Cliente: 'quero agendar' -> Resposta: 'Perfeito. Qual data você prefere?'\n"
         . "  * Cliente com imagem: 'quanto custa?' -> Resposta: reconheca a imagem e pergunte tamanho ou cobertura que ainda falta.\n\n"
         . "- Evite listar varias vagas, varios nomes ou varios detalhes. Entregue só o proximo passo mais util.\n"
+        . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
     if ($studioRules === '' && $currentIntent === 'quote_ready') {
@@ -6394,12 +6633,25 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
 
     try {
-        $reply = studio_send_whatsapp_message($studio, [
+        $sendData = [
             'conversation_id' => (int)$conversation['id'],
             'phone' => (string)($conversation['phone'] ?? ''),
             'message' => $replyText,
             'senderType' => 'bot',
-        ]);
+        ];
+        if (in_array($currentIntent, ['image_price', 'image_price_style'], true)) {
+            $sendData['interactive_type'] = 'button';
+            $sendData['interactive_options'] = ['Área inteira', 'Apenas uma parte'];
+        } elseif ($currentIntent === 'schedule' && is_array($dateContext)) {
+            $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
+            if ($freeSlots) {
+                $sendData['interactive_type'] = count($freeSlots) <= 3 ? 'button' : 'list';
+                $sendData['interactive_options'] = array_slice($freeSlots, 0, 10);
+                $sendData['interactive_button_text'] = 'Ver horários';
+                $sendData['interactive_section_title'] = 'Horários livres';
+            }
+        }
+        $reply = studio_send_whatsapp_message($studio, $sendData);
     } catch (Throwable $e) {
         $status = 'IA sem resposta: ' . mb_substr($e->getMessage(), 0, 120);
         studio_update_whatsapp_conversation($studio, [
@@ -6426,6 +6678,21 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'ai_last_message_id' => $incomingMessageId,
         'ai_last_at' => date('Y-m-d H:i:s'),
     ]);
+    $updatedMemory = trim((string)($result['summary'] ?? ''));
+    if ($updatedMemory !== '') {
+        if ($conversationMemory !== '') {
+            $memoryLead = mb_substr(mb_strtolower($conversationMemory, 'UTF-8'), 0, 100, 'UTF-8');
+            if ($memoryLead !== '' && !str_contains(mb_strtolower($updatedMemory, 'UTF-8'), $memoryLead)) {
+                $updatedMemory = mb_substr($conversationMemory, 0, 2800, 'UTF-8') . "\nAtualização: " . $updatedMemory;
+            }
+        }
+        try {
+            studio_ensure_whatsapp_assignment_schema($studio);
+            $pdo->prepare('UPDATE whatsapp_conversations SET ai_memory = ?, ai_memory_updated_at = NOW() WHERE id = ?')
+                ->execute([mb_substr($updatedMemory, 0, 4000, 'UTF-8'), (int)$conversation['id']]);
+        } catch (Throwable) {
+        }
+    }
 
     return [
         'ok' => true,
@@ -8719,6 +8986,9 @@ function studio_save_settings(array $studio, array $data): void
     $whatsappOfficialApiVersion = trim((string)($data['whatsapp_official_api_version'] ?? 'v22.0'));
     $whatsappOfficialWebhookSecret = trim((string)($data['whatsapp_official_webhook_secret'] ?? ''));
     $whatsappOfficialNotes = trim((string)($data['whatsapp_official_notes'] ?? ''));
+    $whatsappFlowId = trim((string)($data['whatsapp_flow_id'] ?? ''));
+    $whatsappFlowCta = trim((string)($data['whatsapp_flow_cta'] ?? 'Preencher'));
+    $whatsappFlowScreen = trim((string)($data['whatsapp_flow_screen'] ?? 'FIRST_ENTRY_SCREEN'));
     $appointmentWorkDaysRaw = $data['appointment_work_days'] ?? '1,2,3,4,5';
     $appointmentWorkDays = is_array($appointmentWorkDaysRaw)
         ? implode(',', array_values(array_filter(array_map('trim', $appointmentWorkDaysRaw), static fn($value) => $value !== '')))
@@ -8792,6 +9062,9 @@ function studio_save_settings(array $studio, array $data): void
         'whatsapp_official_api_version' => 'VARCHAR(20) NOT NULL DEFAULT "v22.0"',
         'whatsapp_official_webhook_secret' => 'VARCHAR(120) NULL',
         'whatsapp_official_notes' => 'TEXT NULL',
+        'whatsapp_flow_id' => 'VARCHAR(80) NULL',
+        'whatsapp_flow_cta' => 'VARCHAR(20) NULL',
+        'whatsapp_flow_screen' => 'VARCHAR(80) NULL',
     ] as $column => $definition) {
         try {
             $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
@@ -8802,7 +9075,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -8851,6 +9124,9 @@ function studio_save_settings(array $studio, array $data): void
         $whatsappOfficialApiVersion !== '' ? $whatsappOfficialApiVersion : 'v22.0',
         $whatsappOfficialWebhookSecret !== '' ? $whatsappOfficialWebhookSecret : ($settings['whatsapp_official_webhook_secret'] ?? ''),
         $whatsappOfficialNotes !== '' ? $whatsappOfficialNotes : ($settings['whatsapp_official_notes'] ?? ''),
+        $whatsappFlowId,
+        $whatsappFlowCta !== '' ? mb_substr($whatsappFlowCta, 0, 20) : 'Preencher',
+        $whatsappFlowScreen !== '' ? $whatsappFlowScreen : 'FIRST_ENTRY_SCREEN',
     ]);
 
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');

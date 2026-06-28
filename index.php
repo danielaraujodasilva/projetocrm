@@ -805,6 +805,27 @@ if ($action === 'studio_login') {
             redirect_to('studio_quick_replies');
         }
 
+        if ($action === 'save_whatsapp_tag') {
+            $studio = require_studio();
+            studio_save_whatsapp_tag($studio, $_POST);
+            flash_set('success', 'Tag salva.');
+            redirect_to('studio_whatsapp_tags');
+        }
+
+        if ($action === 'delete_whatsapp_tag') {
+            $studio = require_studio();
+            studio_delete_whatsapp_tag($studio, (int)($_POST['id'] ?? 0));
+            flash_set('success', 'Tag excluída.');
+            redirect_to('studio_whatsapp_tags');
+        }
+
+        if ($action === 'toggle_whatsapp_conversation_tag') {
+            $studio = require_studio();
+            $conversationId = (int)($_POST['conversation_id'] ?? 0);
+            studio_toggle_whatsapp_conversation_tag($studio, $conversationId, (int)($_POST['tag_id'] ?? 0));
+            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
+        }
+
         if ($action === 'start_whatsapp_session') {
             $studio = require_studio();
             $result = studio_start_whatsapp_session($studio);
@@ -927,6 +948,20 @@ if ($action === 'studio_login') {
                 redirect_to('studio_whatsapp_conversation', ['id' => $conversationId]);
             }
             redirect_to('studio_whatsapp');
+        }
+
+        if ($action === 'send_whatsapp_interactive') {
+            $studio = require_studio();
+            $conversationId = (int)($_POST['conversation_id'] ?? 0);
+            $payload = $_POST;
+            $payload['enforce_assignment'] = true;
+            $result = studio_send_whatsapp_official_message($studio, $payload);
+            if (empty($result['ok'])) {
+                flash_set('error', studio_whatsapp_send_error_message($result));
+            } else {
+                flash_set('success', 'Mensagem interativa enviada pela API oficial.');
+            }
+            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
         }
 
         if ($action === 'send_whatsapp_message') {
@@ -2096,7 +2131,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     redirect_to('studio_login');
 }
@@ -3803,6 +3838,7 @@ if ($page === 'studio_whatsapp') {
             'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
+            'tag_id' => (int)($_GET['tag_id'] ?? 0),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         if ($filters['visibility'] === '') {
@@ -4104,6 +4140,8 @@ if ($page === 'studio_whatsapp_workspace') {
         $leads = $conversation ? studio_list_leads($studio) : [];
         $artists = $conversation ? studio_list_artists($studio) : [];
         $quickReplies = $conversation ? array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active']))) : [];
+        $availableTags = studio_list_whatsapp_tags($studio);
+        $conversationTags = $conversation ? studio_whatsapp_conversation_tags($studio, $conversationId) : [];
         $assistantAutofillEnabled = !empty(studio_settings($studio)['assistant_autofill_enabled']);
         $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
         $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
@@ -4159,6 +4197,11 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<input type="hidden" name="date_from" value="' . h($filters['date_from']) . '">';
         echo '<input type="hidden" name="date_to" value="' . h($filters['date_to']) . '">';
         echo '<input type="text" name="q" id="waWorkspaceSearchInput" placeholder="Pesquisar texto, áudio transcrito ou contato" value="' . h($filters['q']) . '">';
+        echo '<select name="tag_id" aria-label="Filtrar por tag" onchange="this.form.submit()"><option value="">Todas as tags</option>';
+        foreach ($availableTags as $tag) {
+            echo '<option value="' . h((string)$tag['id']) . '"' . ((int)$filters['tag_id'] === (int)$tag['id'] ? ' selected' : '') . '>' . h((string)$tag['name']) . '</option>';
+        }
+        echo '</select>';
         echo '<div class="wa-web-search-suggestions hidden" id="waWorkspaceSearchSuggestions"></div>';
         echo '</form>';
         echo '<div class="wa-web-filter-row">';
@@ -4211,6 +4254,7 @@ if ($page === 'studio_whatsapp_workspace') {
                     'id' => $rowId,
                     'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
                     'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                    'tag_id' => $filters['tag_id'] > 0 ? $filters['tag_id'] : null,
                 ], static fn($value) => $value !== null && $value !== ''));
                 $rowActive = $rowId === $conversationId ? ' active' : '';
                 echo '<a class="wa-web-chat-item' . h($rowActive) . '" href="' . h($rowHref) . '" data-search-name="' . h($rowName) . '" data-search-phone="' . h((string)($row['phone'] ?? '')) . '" data-search-preview="' . h($rowPreview) . '">';
@@ -4239,6 +4283,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 'id' => $conversationId > 0 ? $conversationId : null,
                 'filter' => $filters['filter'] !== 'all' ? $filters['filter'] : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
+                'tag_id' => $filters['tag_id'] > 0 ? $filters['tag_id'] : null,
                 'conv_offset' => $nextConversationOffset,
             ], static fn($value) => $value !== null && $value !== ''));
             echo '<a class="wa-web-load-more" id="waLoadMoreLink" data-next-offset="' . h((string)$nextConversationOffset) . '" href="' . h($loadMoreHref) . '">Carregar mais conversas</a>';
@@ -4256,7 +4301,11 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '</div>';
         } else {
         echo '<div class="wa-web-main-header">';
-        echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span></div></div></div>';
+        echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA' : 'Humano') . '</span><span>•</span><span>' . h((string)($conversation['lead_status'] ?: 'em_conversa')) . '</span>';
+        foreach ($conversationTags as $tag) {
+            echo '<span class="badge" style="border-color:' . h((string)$tag['color']) . ';color:' . h((string)$tag['color']) . '">' . h((string)$tag['name']) . '</span>';
+        }
+        echo '</div></div></div>';
         echo '<div class="wa-web-assignment-bar">';
         if ($assignedUserId > 0) {
             echo '<span class="badge warn">Conversa assumida por: ' . h($assignedUserName !== '' ? $assignedUserName : ('Atendente #' . $assignedUserId)) . '</span>';
@@ -4401,6 +4450,25 @@ if ($page === 'studio_whatsapp_workspace') {
                 echo '<p class="muted">Nenhuma resposta rapida ativa.</p>';
             }
             echo '</div>';
+            echo '<div class="wa-web-tools-card"><div class="wa-web-tools-head"><h3>Tags da conversa</h3><span class="badge">' . h((string)count($conversationTags)) . '</span></div>';
+            if ($availableTags) {
+                echo '<div class="quick-reply-list">';
+                $activeTagIds = array_map(static fn(array $tag): int => (int)$tag['id'], $conversationTags);
+                foreach ($availableTags as $tag) {
+                    $active = in_array((int)$tag['id'], $activeTagIds, true);
+                    echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="toggle_whatsapp_conversation_tag"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="tag_id" value="' . h((string)$tag['id']) . '"><input type="hidden" name="return_to_workspace" value="1"><button class="btn tiny ' . ($active ? '' : 'secondary') . '" type="submit" style="border-color:' . h((string)$tag['color']) . '">' . ($active ? '✓ ' : '+ ') . h((string)$tag['name']) . '</button></form>';
+                }
+                echo '</div>';
+            } else {
+                echo '<p class="muted">Crie tags em Configurações → Tags das conversas.</p>';
+            }
+            echo '</div>';
+            echo '<div class="wa-web-tools-card"><div class="wa-web-tools-head"><h3>Recursos oficiais do WhatsApp</h3><span class="badge ok">Cloud API</span></div>';
+            echo '<form class="form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_interactive"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_workspace" value="1">';
+            echo '<div class="field"><label>Formato</label><select name="interactive_type"><option value="button">Até 3 botões</option><option value="list">Lista de opções</option><option value="flow">Formulário Meta Flow</option></select></div>';
+            echo '<div class="field"><label>Mensagem</label><textarea name="message" required placeholder="Escolha uma opção para continuarmos:"></textarea></div>';
+            echo '<div class="field"><label>Opções</label><textarea name="interactive_options" placeholder="Uma opção por linha&#10;Ex.: Quero agendar&#10;Quero orçamento&#10;Falar com atendente"></textarea><small class="muted">Botões: até 3. Lista: até 10. Para Flow, as opções são ignoradas.</small></div>';
+            echo '<button class="btn" type="submit">Enviar interação</button></form></div>';
             $workspaceToolsMarkup = (string)ob_get_clean();
             echo '<template id="workspaceToolsMarkup">' . $workspaceToolsMarkup . '</template>';
             echo '<div id="workspaceToolsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,900px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Ferramentas da conversa</h3><p class="muted" style="margin:4px 0 0">Cadastro, IA e respostas rápidas em um overlay sem ocupar a lateral fixa.</p></div><button type="button" id="closeWorkspaceToolsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="workspaceToolsOverlayBody"></div></div></div>';
@@ -4648,6 +4716,8 @@ if ($page === 'studio_whatsapp_conversation') {
         $leads = studio_list_leads($studio);
         $artists = studio_list_artists($studio);
         $quickReplies = array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active'])));
+        $availableTags = studio_list_whatsapp_tags($studio);
+        $conversationTags = studio_whatsapp_conversation_tags($studio, $conversationId);
         $scheduleSuggestion = studio_whatsapp_schedule_suggestion($conversation, $messages, $artists);
         if (!empty($assistantInsights['suggested_date']) && !empty($assistantInsights['suggested_time'])) {
             $scheduleSuggestion['date'] = (string)$assistantInsights['suggested_date'];
@@ -4770,7 +4840,11 @@ if ($page === 'studio_whatsapp_conversation') {
         echo '<div class="conversation-header-main">';
         echo '<div class="conversation-avatar">' . h(strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', (string)$displayName) ?: 'W', 0, 1))) . '</div>';
         echo '<div class="conversation-header-text">';
-        echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p><span class="conversation-header-sub">Conta comercial</span></div></div>';
+        echo '<h2>' . h($displayName) . '</h2><p class="muted">' . h($conversation['phone']) . '</p><span class="conversation-header-sub">Conta comercial</span><div class="actions" style="gap:6px;margin-top:6px">';
+        foreach ($conversationTags as $tag) {
+            echo '<span class="badge" style="border-color:' . h((string)$tag['color']) . ';color:' . h((string)$tag['color']) . '">' . h((string)$tag['name']) . '</span>';
+        }
+        echo '</div></div></div>';
         echo '<div class="actions conversation-header-actions d-flex flex-wrap gap-2 justify-content-end"><button class="wa-web-icon-btn" type="button" id="openConversationToolsButton" aria-label="Etiqueta e ações"><i class="fa-regular fa-bookmark"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Chamada"><i class="fa-solid fa-video"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Pesquisar"><i class="fa-solid fa-magnifying-glass"></i></button><button class="wa-web-icon-btn" type="button" aria-label="Menu"><i class="fa-solid fa-ellipsis-vertical"></i></button></div>';
         echo '</div>';
         render_chat_messages($messages);
@@ -4841,6 +4915,16 @@ if ($page === 'studio_whatsapp_conversation') {
             echo '<p class="muted">Nenhuma sugestão clara detectada ainda.</p>';
         }
         echo '</div>';
+        echo '</div>';
+        echo '<div class="conversation-inline-tools row row-cols-1 row-cols-lg-2 g-3">';
+        echo '<div class="conversation-inline-group"><strong>Tags</strong><div class="quick-reply-list">';
+        $activeTagIds = array_map(static fn(array $tag): int => (int)$tag['id'], $conversationTags);
+        foreach ($availableTags as $tag) {
+            $active = in_array((int)$tag['id'], $activeTagIds, true);
+            echo '<form method="post" class="inline-form">' . csrf_field() . '<input type="hidden" name="action" value="toggle_whatsapp_conversation_tag"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="tag_id" value="' . h((string)$tag['id']) . '"><button class="btn tiny ' . ($active ? '' : 'secondary') . '" type="submit">' . ($active ? '✓ ' : '+ ') . h((string)$tag['name']) . '</button></form>';
+        }
+        echo '</div></div>';
+        echo '<div class="conversation-inline-group"><strong>Mensagem interativa</strong><form class="form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_interactive"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)$conversation['phone']) . '"><select name="interactive_type"><option value="button">Botões</option><option value="list">Lista</option><option value="flow">Formulário</option></select><textarea name="message" required placeholder="Escolha uma opção:"></textarea><textarea name="interactive_options" placeholder="Uma opção por linha"></textarea><button class="btn" type="submit">Enviar interação</button></form></div>';
         echo '</div>';
         echo '<form class="form" method="post">';
         echo csrf_field();
@@ -5481,6 +5565,41 @@ if ($page === 'studio_data_assistant') {
     exit;
 }
 
+if ($page === 'studio_whatsapp_tags') {
+    $studio = require_studio();
+    render_studio_shell('Tags das conversas', 'Organize o atendimento com tags oficiais do estúdio e tags pessoais de cada atendente.', 'settings', function () use ($studio) {
+        $tags = studio_list_whatsapp_tags($studio);
+        $user = current_studio_user();
+        $userId = (int)($user['id'] ?? 0);
+        $isAdmin = studio_current_user_is_admin();
+        echo '<div class="grid cols-2">';
+        echo '<section class="panel"><h2>Nova tag</h2><p class="muted">Tags oficiais aparecem para toda a equipe. Tags pessoais aparecem apenas para quem criou.</p>';
+        echo '<form class="form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="save_whatsapp_tag">';
+        echo '<div class="field"><label>Nome</label><input name="name" maxlength="80" required placeholder="Ex.: Orçamento enviado"></div>';
+        echo '<div class="field"><label>Cor</label><input type="color" name="color" value="#6b7280"></div>';
+        if ($isAdmin) {
+            echo '<div class="field"><label>Visibilidade</label><select name="scope"><option value="studio">Oficial do estúdio — toda a equipe</option><option value="personal">Pessoal — somente eu</option></select></div>';
+        } else {
+            echo '<input type="hidden" name="scope" value="personal">';
+        }
+        echo '<button class="btn" type="submit">Criar tag</button></form></section>';
+        echo '<section class="panel"><h2>Tags disponíveis</h2><div class="stack-list">';
+        if (!$tags) {
+            echo '<p class="muted">Nenhuma tag criada ainda.</p>';
+        }
+        foreach ($tags as $tag) {
+            $isOwner = (int)($tag['studio_user_id'] ?? 0) === $userId;
+            echo '<div class="drilldown-card compact"><div class="actions" style="justify-content:space-between;align-items:center"><span class="badge" style="border-color:' . h((string)$tag['color']) . ';color:' . h((string)$tag['color']) . '">' . h((string)$tag['name']) . '</span><span class="muted">' . ((string)$tag['scope'] === 'studio' ? 'Oficial' : 'Pessoal') . '</span></div>';
+            if ($isAdmin || $isOwner) {
+                echo '<form method="post" style="margin-top:8px">' . csrf_field() . '<input type="hidden" name="action" value="delete_whatsapp_tag"><input type="hidden" name="id" value="' . h((string)$tag['id']) . '"><button class="btn tiny danger" type="submit">Excluir</button></form>';
+            }
+            echo '</div>';
+        }
+        echo '</div></section></div><div class="actions"><a class="btn secondary" href="' . h(app_url('studio_settings')) . '">Voltar às configurações</a></div>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_settings') {
     $studio = require_studio();
     $activeSettingsTab = (string)($_GET['tab'] ?? 'studio');
@@ -5537,8 +5656,13 @@ if ($page === 'studio_settings') {
             'meta_ads' => ['Meta Ads', 'Integração com a API de anúncios'],
             'quick_replies' => ['Respostas rápidas', 'Biblioteca do atendimento'],
             'rules' => ['Treinamento da IA', 'Informações que valem em todas as conversas'],
+            'tags' => ['Tags das conversas', 'Oficiais do estúdio e pessoais'],
         ];
         foreach ($settingsCards as $key => [$title, $subtitle]) {
+            if ($key === 'tags') {
+                echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp_tags')) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Gerenciar tags</span></a>';
+                continue;
+            }
             echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div>';
@@ -5648,6 +5772,11 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Webhook Secret</label><input name="whatsapp_official_webhook_secret" type="password" value="" placeholder="Opcional, se usar assinatura de eventos"><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['whatsapp_official_webhook_secret'] ?? ''))) . '</small></div>';
         echo '</div>';
         echo '<div class="field"><label>Observações do WhatsApp oficial</label><textarea name="whatsapp_official_notes" placeholder="Ex.: número principal, horário de atendimento, observações do webhook, etc.">' . h($settings['whatsapp_official_notes'] ?? '') . '</textarea><small class="muted">Anotações importantes para a futura ativação da API oficial.</small></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Formulário Meta Flow</h3><p class="muted">Cadastre aqui um Flow já criado e publicado no WhatsApp Manager. Depois ele poderá ser enviado diretamente nas conversas.</p><div class="grid cols-3">';
+        echo '<div class="field"><label>Flow ID</label><input name="whatsapp_flow_id" value="' . h($settings['whatsapp_flow_id'] ?? '') . '" placeholder="1234567890"></div>';
+        echo '<div class="field"><label>Texto do botão</label><input name="whatsapp_flow_cta" maxlength="20" value="' . h($settings['whatsapp_flow_cta'] ?? 'Preencher') . '" placeholder="Preencher"></div>';
+        echo '<div class="field"><label>Tela inicial</label><input name="whatsapp_flow_screen" value="' . h($settings['whatsapp_flow_screen'] ?? 'FIRST_ENTRY_SCREEN') . '" placeholder="FIRST_ENTRY_SCREEN"></div>';
+        echo '</div></div>';
         echo '<div class="settings-save-row"><div class="muted">Os campos acima são salvos junto com o botão do bloco e com o botão final da página.</div><button class="btn" type="submit" data-settings-submit="whatsapp">Salvar ajustes do WhatsApp</button></div>';
         echo '</div>';
         echo '</div>';

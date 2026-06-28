@@ -37,7 +37,10 @@ ALTER TABLE `studio_settings`
   ADD COLUMN IF NOT EXISTS `appointment_overwrite_message` TEXT NULL AFTER `appointment_duration_minutes`,
   ADD COLUMN IF NOT EXISTS `meta_campaign_phrases` TEXT NULL AFTER `appointment_overwrite_message`,
   ADD COLUMN IF NOT EXISTS `pomada_unit_price` DECIMAL(10,2) NOT NULL DEFAULT 100.00 AFTER `meta_campaign_phrases`,
-  ADD COLUMN IF NOT EXISTS `whatsapp_webhook_token` VARCHAR(120) NULL AFTER `whatsapp_service_url`;
+  ADD COLUMN IF NOT EXISTS `whatsapp_webhook_token` VARCHAR(120) NULL AFTER `whatsapp_service_url`,
+  ADD COLUMN IF NOT EXISTS `whatsapp_flow_id` VARCHAR(80) NULL,
+  ADD COLUMN IF NOT EXISTS `whatsapp_flow_cta` VARCHAR(20) NULL,
+  ADD COLUMN IF NOT EXISTS `whatsapp_flow_screen` VARCHAR(80) NULL;
 
 INSERT INTO `studio_settings`
   (`id`, `studio_name`, `studio_slug`, `business_rules`, `ai_model`, `created_at`, `updated_at`)
@@ -328,6 +331,8 @@ CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
   `ai_last_status` VARCHAR(80) NULL,
   `ai_last_message` TEXT NULL,
   `ai_last_at` DATETIME NULL,
+  `ai_memory` MEDIUMTEXT NULL,
+  `ai_memory_updated_at` DATETIME NULL,
   `last_message_preview` VARCHAR(260) NULL,
   `last_message_direction` ENUM('in', 'out') NULL,
   `last_message_at` DATETIME NULL,
@@ -348,6 +353,8 @@ ALTER TABLE `whatsapp_conversations`
   ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `name`,
   ADD COLUMN IF NOT EXISTS `needs_human` TINYINT(1) NOT NULL DEFAULT 0 AFTER `attendance_mode`,
   ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`,
+  ADD COLUMN IF NOT EXISTS `ai_memory` MEDIUMTEXT NULL AFTER `ai_last_at`,
+  ADD COLUMN IF NOT EXISTS `ai_memory_updated_at` DATETIME NULL AFTER `ai_memory`,
   ADD COLUMN IF NOT EXISTS `last_message_preview` VARCHAR(260) NULL AFTER `ai_last_at`,
   ADD COLUMN IF NOT EXISTS `last_message_direction` ENUM('in', 'out') NULL AFTER `last_message_preview`,
   ADD COLUMN IF NOT EXISTS `last_message_at` DATETIME NULL AFTER `last_message_direction`,
@@ -382,3 +389,26 @@ ALTER TABLE `whatsapp_messages`
   ADD COLUMN IF NOT EXISTS `from_me` TINYINT(1) NOT NULL DEFAULT 0 AFTER `remote_jid`,
   ADD COLUMN IF NOT EXISTS `status` VARCHAR(40) NULL AFTER `from_me`,
   ADD INDEX IF NOT EXISTS `idx_whatsapp_messages_message_id` (`message_id`);
+
+CREATE TABLE IF NOT EXISTS `whatsapp_tags` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `studio_user_id` BIGINT UNSIGNED NULL,
+  `created_by_user_id` BIGINT UNSIGNED NULL,
+  `name` VARCHAR(80) NOT NULL,
+  `color` VARCHAR(20) NOT NULL DEFAULT '#6b7280',
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_whatsapp_tags_user` (`studio_user_id`, `name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `whatsapp_conversation_tags` (
+  `conversation_id` BIGINT UNSIGNED NOT NULL,
+  `tag_id` BIGINT UNSIGNED NOT NULL,
+  `assigned_by_user_id` BIGINT UNSIGNED NULL,
+  `created_at` DATETIME NOT NULL,
+  PRIMARY KEY (`conversation_id`, `tag_id`),
+  KEY `idx_whatsapp_conversation_tags_tag` (`tag_id`),
+  CONSTRAINT `fk_whatsapp_conversation_tags_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `whatsapp_conversations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_whatsapp_conversation_tags_tag` FOREIGN KEY (`tag_id`) REFERENCES `whatsapp_tags` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

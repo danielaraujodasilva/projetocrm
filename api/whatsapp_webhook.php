@@ -492,6 +492,30 @@ function whatsapp_official_record_message(array $studio, array $message, array $
     $body = '';
     if ($type === 'text' && is_array($message['text'] ?? null)) {
         $body = (string)($message['text']['body'] ?? '');
+    } elseif ($type === 'interactive' && is_array($message['interactive'] ?? null)) {
+        $interactive = $message['interactive'];
+        $interactiveType = (string)($interactive['type'] ?? '');
+        if ($interactiveType === 'button_reply') {
+            $body = trim((string)($interactive['button_reply']['title'] ?? $interactive['button_reply']['id'] ?? ''));
+        } elseif ($interactiveType === 'list_reply') {
+            $body = trim((string)($interactive['list_reply']['title'] ?? $interactive['list_reply']['id'] ?? ''));
+        } elseif ($interactiveType === 'nfm_reply') {
+            $responseJson = (string)($interactive['nfm_reply']['response_json'] ?? '');
+            $response = json_decode($responseJson, true);
+            if (is_array($response)) {
+                $pairs = [];
+                foreach ($response as $key => $value) {
+                    if (is_scalar($value) && !str_starts_with((string)$key, 'flow_')) {
+                        $pairs[] = str_replace('_', ' ', (string)$key) . ': ' . (string)$value;
+                    }
+                }
+                $body = 'Formulário enviado' . ($pairs ? ': ' . implode(' | ', array_slice($pairs, 0, 12)) : '.');
+            } else {
+                $body = 'Formulário enviado.';
+            }
+        }
+    } elseif ($type === 'button' && is_array($message['button'] ?? null)) {
+        $body = trim((string)($message['button']['text'] ?? $message['button']['payload'] ?? ''));
     } elseif (is_array($message[$type] ?? null)) {
         $body = trim((string)($message[$type]['caption'] ?? ''));
     }
