@@ -5016,6 +5016,19 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         $body = [
             'model' => $model,
             'stream' => false,
+            'think' => false,
+            'keep_alive' => '30m',
+            'format' => [
+                'type' => 'object',
+                'properties' => [
+                    'reply_text' => ['type' => 'string'],
+                    'needs_human' => ['type' => 'boolean'],
+                    'lead_score_delta' => ['type' => 'integer'],
+                    'summary' => ['type' => 'string'],
+                ],
+                'required' => ['reply_text', 'needs_human', 'lead_score_delta', 'summary'],
+                'additionalProperties' => false,
+            ],
             'options' => [
                 'temperature' => 0.1,
                 'top_p' => 0.9,
@@ -5788,7 +5801,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $availableNotes[] = $day['date'] . ' => ' . implode(', ', array_slice($day['free_slots'], 0, 3));
         }
         if (!empty($day['booked'])) {
-            $occupiedNotes[] = $day['date'] . ' => ' . implode(', ', array_map(static fn(array $appt): string => $appt['time'] . ($appt['customer_name'] !== '' ? ' (' . $appt['customer_name'] . ')' : ''), array_slice($day['booked'], 0, 3)));
+            $occupiedNotes[] = $day['date'] . ' => ' . implode(', ', array_map(static fn(array $appt): string => (string)$appt['time'], array_slice($day['booked'], 0, 3)));
         }
     }
     $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
