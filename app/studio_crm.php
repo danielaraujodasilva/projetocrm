@@ -4126,7 +4126,7 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
     $text = trim(mb_strtolower($text, 'UTF-8'));
     $messageType = strtolower(trim($messageType));
     $asksPrice = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text) === 1;
-    $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem)/u', $text) === 1;
+    $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem|\bestilo\b|\belementos?\b|\bdescrev)/u', $text) === 1;
 
     if ($hasImage && $asksPrice && $asksStyle) {
         return 'image_price_style';
@@ -6313,7 +6313,6 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $history = array_reverse($stmt->fetchAll() ?: []);
     $historyLines = [];
     $recentBotReplies = [];
-    $historyHasImage = false;
     foreach ($history as $item) {
         $role = (string)($item['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
         $text = trim((string)($item['body'] ?? ''));
@@ -6325,12 +6324,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
         $sentAt = trim((string)($item['sent_at'] ?? ''));
         $historyLines[] = $role . ($sentAt !== '' ? ' (' . $sentAt . ')' : '') . ': ' . $text;
-        if ($role === 'Cliente' && (strtolower((string)($item['message_type'] ?? '')) === 'image'
-            || str_starts_with(strtolower((string)($item['media_mime'] ?? '')), 'image/'))) {
-            $historyHasImage = true;
-        }
         if ($role === 'Atendente' && $text !== '') {
             $recentBotReplies[] = $text;
+        }
+    }
+    $recentHistoryHasImage = false;
+    foreach (array_slice($history, -8) as $item) {
+        if ((string)($item['direction'] ?? 'in') === 'in'
+            && (strtolower((string)($item['message_type'] ?? '')) === 'image'
+                || str_starts_with(strtolower((string)($item['media_mime'] ?? '')), 'image/'))) {
+            $recentHistoryHasImage = true;
+            break;
         }
     }
 
@@ -6361,20 +6365,32 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
-    $conversationText = mb_strtolower(implode(' ', $historyLines) . ' ' . $messageText, 'UTF-8');
-    $hasReference = !empty($imageAnalysis['present']) || $historyHasImage
-        || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $conversationText);
-    $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $conversationText);
-    $hasFullCoverage = preg_match('/(costas?\s+(completa|inteira|toda)|fechamento\s+(completo\s+)?(de\s+)?costas)/u', $conversationText);
+    $stateText = mb_strtolower(implode(' ', array_slice($historyLines, -8)) . ' ' . $messageText, 'UTF-8');
+    $hasReference = !empty($imageAnalysis['present']) || $recentHistoryHasImage
+        || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $stateText);
+    $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $stateText);
+    $currentText = mb_strtolower($messageText, 'UTF-8');
+    $currentChoosesFullCoverage = preg_match('/(\b[aá]rea\s+inteira\b|costas?\s+(completa|inteira|toda)|fechamento\s+(completo\s+)?(de\s+)?costas)/u', $currentText);
+    $currentChoosesPartialCoverage = preg_match('/(\bapenas\s+uma\s+parte\b|\bs[oó]\s+uma\s+parte\b|\b[aá]rea\s+parcial\b)/u', $currentText);
     $desiredBodyArea = '';
     foreach (['costas', 'braço', 'perna', 'peito', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
-        if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', mb_strtolower($messageText, 'UTF-8'))) {
+        if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', $currentText)) {
             $desiredBodyArea = $bodyArea;
             break;
         }
     }
-    if ($currentIntent === 'tattoo_idea' && $hasReference && $pricingDiscussed && $hasFullCoverage && $desiredBodyArea !== '') {
+    if ($desiredBodyArea === '') {
+        foreach (['costas', 'braço', 'perna', 'peito', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
+            if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', $stateText)) {
+                $desiredBodyArea = $bodyArea;
+                break;
+            }
+        }
+    }
+    if ($currentIntent !== 'schedule' && $hasReference && $pricingDiscussed && $currentChoosesFullCoverage && $desiredBodyArea !== '') {
         $currentIntent = 'quote_ready';
+    } elseif ($currentIntent !== 'schedule' && $hasReference && $pricingDiscussed && $currentChoosesPartialCoverage && $desiredBodyArea !== '') {
+        $currentIntent = 'quote_partial';
     }
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
@@ -6489,6 +6505,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'price' => 'A pergunta atual e sobre preco. Nao invente valor; explique em uma frase curta de que dados o orcamento depende e peca somente a informacao que falta.',
         'image_reference' => 'A mensagem atual contem uma imagem. Demonstre que a viu citando um ou dois elementos concretos e faca apenas a proxima pergunta util.',
         'quote_ready' => 'Referencia, local e cobertura ja foram informados. Nao faca outra pergunta; confirme o pedido e encaminhe para orcamento humano.',
+        'quote_partial' => 'O cliente escolheu cobertura parcial. Nao pergunte novamente local, estilo ou elementos; pergunte somente o tamanho aproximado da parte.',
         'tattoo_idea' => 'Responda a ideia de tatuagem atual. Nao volte para agenda ou para perguntas antigas.',
         'audio_unavailable' => 'O audio nao tem transcricao confiavel. Peca para o cliente repetir em texto ou reenviar o audio.',
         default => 'Responda diretamente a ultima mensagem do cliente, usando o historico apenas para contexto.',
@@ -6557,6 +6574,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'needs_human' => true,
             'lead_score_delta' => 2,
             'summary' => 'Cliente pronto para orçamento de fechamento completo das costas.',
+        ];
+    } elseif ($studioRules === '' && $currentIntent === 'quote_partial') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Perfeito, então será apenas uma parte das costas. Qual tamanho aproximado em centímetros?',
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente quer adaptar a referência para apenas uma parte das costas; falta o tamanho aproximado.',
         ];
     } elseif ($studioRules === '' && $currentIntent === 'image_price_style' && $visualStyle !== '') {
         $visualDescription = $visualStyle;
@@ -6679,6 +6704,22 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'ai_last_at' => date('Y-m-d H:i:s'),
     ]);
     $updatedMemory = trim((string)($result['summary'] ?? ''));
+    if (!empty($imageAnalysis['ok'])) {
+        $visualMemoryParts = [];
+        if ($visualStyle !== '') {
+            $visualMemoryParts[] = 'estilo ' . $visualStyle;
+        }
+        if ($visualElements !== '') {
+            $visualMemoryParts[] = 'elementos ' . $visualElements;
+        }
+        if ($visualBodyArea !== '') {
+            $visualMemoryParts[] = 'local ' . $visualBodyArea;
+        }
+        if ($visualMemoryParts) {
+            $visualMemory = 'Referência visual: ' . implode('; ', $visualMemoryParts) . '.';
+            $updatedMemory = trim($updatedMemory . "\n" . $visualMemory);
+        }
+    }
     if ($updatedMemory !== '') {
         if ($conversationMemory !== '') {
             $memoryLead = mb_substr(mb_strtolower($conversationMemory, 'UTF-8'), 0, 100, 'UTF-8');
