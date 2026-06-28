@@ -3978,9 +3978,19 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
 {
     $text = trim(mb_strtolower($text, 'UTF-8'));
     $messageType = strtolower(trim($messageType));
+    $asksPrice = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text) === 1;
+    $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem)/u', $text) === 1;
 
-    if (preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text)) {
+    if ($hasImage && $asksPrice && $asksStyle) {
+        return 'image_price_style';
+    }
+
+    if ($asksPrice) {
         return $hasImage ? 'image_price' : 'price';
+    }
+
+    if ($hasImage && $asksStyle) {
+        return 'image_style';
     }
 
     if (preg_match('/\b(agenda|agendar|agendamento|hor[aá]rio|hora|vaga|dispon[ií]vel|encaixe|hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b/u', $text)
@@ -4002,6 +4012,57 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
     }
 
     return 'general';
+}
+
+function studio_whatsapp_ai_visual_text_pt(string $text): string
+{
+    $text = trim(mb_strtolower($text, 'UTF-8'));
+    if ($text === '') {
+        return '';
+    }
+
+    $translations = [
+        'black and grey' => 'preto e cinza',
+        'black and gray' => 'preto e cinza',
+        'fine line' => 'traço fino',
+        'body photo' => 'foto do corpo',
+        'back' => 'costas',
+        'arm' => 'braço',
+        'leg' => 'perna',
+        'chest' => 'peito',
+        'shoulder' => 'ombro',
+        'neck' => 'pescoço',
+        'hand' => 'mão',
+        'realistic' => 'realismo',
+        'realism' => 'realismo',
+        'traditional' => 'tradicional',
+        'palm tree' => 'folhagens',
+        'lion' => 'felino',
+        'leopard' => 'felino',
+        'jaguar' => 'felino',
+        'tiger' => 'felino',
+        'flower' => 'flores',
+        'flowers' => 'flores',
+        'word' => 'lettering',
+        'text' => 'lettering',
+        'name' => 'lettering',
+        'leaves' => 'folhagens',
+        'leaf' => 'folhagem',
+        'skull' => 'caveira',
+        'cross' => 'cruz',
+        'face' => 'rosto',
+    ];
+    uksort($translations, static fn(string $a, string $b): int => strlen($b) <=> strlen($a));
+    foreach ($translations as $english => $portuguese) {
+        $text = preg_replace('/\b' . preg_quote($english, '/') . '\b/ui', $portuguese, $text) ?? $text;
+    }
+
+    $items = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/u', $text) ?: [$text])));
+    if (count($items) > 1) {
+        $last = array_pop($items);
+        return implode(', ', $items) . ' e ' . $last;
+    }
+    return $text;
 }
 
 function studio_whatsapp_ai_reply_is_repetitive(string $reply, array $previousReplies): bool
@@ -4838,6 +4899,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         . 'standalone_art_or_logo_visible=true for a drawing, illustration, graphic or logo shown by itself rather than on skin. '
         . 'body_area must be empty when no human body is visible. '
         . 'Use Brazilian Portuguese for body_area, style and elements. '
+        . 'For big cats, distinguish lion (mane), tiger (stripes), and leopard or jaguar (spots). '
         . 'elements must contain at most 3 visible items separated by commas. '
         . 'Do not identify people, infer sensitive traits or make medical diagnoses. '
         . 'Return compact JSON only.';
@@ -6020,6 +6082,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $history = array_reverse($stmt->fetchAll() ?: []);
     $historyLines = [];
     $recentBotReplies = [];
+    $historyHasImage = false;
     foreach ($history as $item) {
         $role = (string)($item['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
         $text = trim((string)($item['body'] ?? ''));
@@ -6031,6 +6094,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
         $sentAt = trim((string)($item['sent_at'] ?? ''));
         $historyLines[] = $role . ($sentAt !== '' ? ' (' . $sentAt . ')' : '') . ': ' . $text;
+        if ($role === 'Cliente' && (strtolower((string)($item['message_type'] ?? '')) === 'image'
+            || str_starts_with(strtolower((string)($item['media_mime'] ?? '')), 'image/'))) {
+            $historyHasImage = true;
+        }
         if ($role === 'Atendente' && $text !== '') {
             $recentBotReplies[] = $text;
         }
@@ -6050,6 +6117,21 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
+    $conversationText = mb_strtolower(implode(' ', $historyLines) . ' ' . $messageText, 'UTF-8');
+    $hasReference = !empty($imageAnalysis['present']) || $historyHasImage
+        || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $conversationText);
+    $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $conversationText);
+    $hasFullCoverage = preg_match('/(costas?\s+(completa|inteira|toda)|fechamento\s+(completo\s+)?(de\s+)?costas)/u', $conversationText);
+    $desiredBodyArea = '';
+    foreach (['costas', 'braço', 'perna', 'peito', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
+        if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', mb_strtolower($messageText, 'UTF-8'))) {
+            $desiredBodyArea = $bodyArea;
+            break;
+        }
+    }
+    if ($currentIntent === 'tattoo_idea' && $hasReference && $pricingDiscussed && $hasFullCoverage && $desiredBodyArea !== '') {
+        $currentIntent = 'quote_ready';
+    }
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
         $guardrailReason = 'Imagem sinalizada para revisao humana.';
@@ -6065,8 +6147,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => $guardrailReason, 'needs_human' => true, 'ai_last_status' => $guardrailReason, 'ai_last_message_id' => $incomingMessageId];
     }
     $imageContext = 'Nenhuma imagem recebida nesta mensagem.';
+    $visualBodyArea = '';
+    $visualStyle = '';
+    $visualElements = '';
     if (!empty($imageAnalysis['present'])) {
         if (!empty($imageAnalysis['ok'])) {
+            $visualBodyArea = studio_whatsapp_ai_visual_text_pt((string)($imageAnalysis['body_area'] ?? ''));
+            $visualStyle = studio_whatsapp_ai_visual_text_pt((string)($imageAnalysis['style'] ?? ''));
+            $visualElements = studio_whatsapp_ai_visual_text_pt((string)($imageAnalysis['elements'] ?? ''));
             $visualTypeLabel = match ((string)$imageAnalysis['visual_type']) {
                 'tattoo_on_skin' => 'tatuagem aplicada na pele',
                 'artwork' => 'arte, desenho ou logo fora da pele',
@@ -6080,9 +6168,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 default => 'nao confirmado',
             };
             $imageContext = 'Analise visual local: ' . $visualTypeLabel
-                . '; area do corpo ' . ((string)$imageAnalysis['body_area'] !== '' ? (string)$imageAnalysis['body_area'] : 'nao identificada')
-                . '; estilo ' . ((string)$imageAnalysis['style'] !== '' ? (string)$imageAnalysis['style'] : 'nao identificado')
-                . '; elementos ' . ((string)$imageAnalysis['elements'] !== '' ? (string)$imageAnalysis['elements'] : 'nao identificados')
+                . '; area do corpo ' . ($visualBodyArea !== '' ? $visualBodyArea : 'nao identificada')
+                . '; estilo ' . ($visualStyle !== '' ? $visualStyle : 'nao identificado')
+                . '; elementos ' . ($visualElements !== '' ? $visualElements : 'nao identificados')
                 . '; cores ' . $colorModeLabel . '.';
         } else {
             $imageContext = 'Imagem recebida, mas a analise visual local nao ficou disponivel. Nao invente o conteudo da imagem.';
@@ -6151,9 +6239,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $intentInstruction = match ($currentIntent) {
         'schedule' => 'Responda somente a pergunta atual sobre agenda usando os horarios reais fornecidos.',
+        'image_price_style' => 'Responda qual e o estilo visto na imagem e avance o orcamento sem repetir dados ja informados.',
+        'image_style' => 'Diga em portugues qual e o estilo visto na imagem, citando no maximo dois elementos concretos.',
         'image_price' => 'A pergunta atual e sobre preco e inclui imagem. Reconheca elementos concretos da imagem, explique que o valor depende de tamanho, cobertura e adaptacao, e pergunte apenas o dado que ainda falta. Nao diga que faltou referencia.',
         'price' => 'A pergunta atual e sobre preco. Nao invente valor; explique em uma frase curta de que dados o orcamento depende e peca somente a informacao que falta.',
         'image_reference' => 'A mensagem atual contem uma imagem. Demonstre que a viu citando um ou dois elementos concretos e faca apenas a proxima pergunta util.',
+        'quote_ready' => 'Referencia, local e cobertura ja foram informados. Nao faca outra pergunta; confirme o pedido e encaminhe para orcamento humano.',
         'tattoo_idea' => 'Responda a ideia de tatuagem atual. Nao volte para agenda ou para perguntas antigas.',
         'audio_unavailable' => 'O audio nao tem transcricao confiavel. Peca para o cliente repetir em texto ou reenviar o audio.',
         default => 'Responda diretamente a ultima mensagem do cliente, usando o historico apenas para contexto.',
@@ -6212,7 +6303,32 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Evite listar varias vagas, varios nomes ou varios detalhes. Entregue só o proximo passo mais util.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
-    $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
+    if ($currentIntent === 'quote_ready') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Perfeito: fechamento completo das costas seguindo a referência. Já tenho as informações principais e vou encaminhar para calcular o orçamento exato.',
+            'needs_human' => true,
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente pronto para orçamento de fechamento completo das costas.',
+        ];
+    } elseif ($currentIntent === 'image_price_style' && $visualStyle !== '') {
+        $visualDescription = $visualStyle;
+        if ($visualElements !== '') {
+            $visualDescription .= ', com ' . $visualElements;
+        }
+        $coverageQuestion = $visualBodyArea === 'costas'
+            ? 'Para calcular o valor, você quer as costas inteiras ou apenas uma parte?'
+            : 'Para calcular o valor, qual área e cobertura você pretende tatuar?';
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Essa referência é no estilo ' . $visualDescription . '. ' . $coverageQuestion,
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente pediu identificação do estilo e orçamento de uma referência.',
+        ];
+    } else {
+        $result = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
+    }
     if (empty($result['ok'])) {
         return $result;
     }
