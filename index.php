@@ -4102,6 +4102,7 @@ if ($page === 'studio_whatsapp_workspace') {
             'date_filter' => (string)($_GET['date_filter'] ?? ''),
             'date_from' => (string)($_GET['date_from'] ?? ''),
             'date_to' => (string)($_GET['date_to'] ?? ''),
+            'tag_id' => (int)($_GET['tag_id'] ?? 0),
             'offset' => max(0, (int)($_GET['conv_offset'] ?? 0)),
         ];
         $conversationPageSize = 30;
