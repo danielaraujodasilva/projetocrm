@@ -51,10 +51,15 @@ try {
         exit(1);
     }
 
+    $messageBody = trim((string)($message['body'] ?? ''));
+    if ($messageBody === '') {
+        $messageBody = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
+    }
+
     worker_log('Iniciando IA', ['conversationId' => $conversationId, 'messageId' => $messageId]);
     $result = studio_whatsapp_ai_reply($studio, $conversation, [
-        'body' => (string)($message['body'] ?? ''),
-        'mensagem' => (string)($message['body'] ?? ''),
+        'body' => $messageBody,
+        'mensagem' => $messageBody,
         'from_me' => false,
         'direction' => 'in',
         'message_type' => (string)($message['message_type'] ?? 'texto'),
@@ -65,7 +70,13 @@ try {
         'message_id' => $messageId,
     ]);
     if (!empty($result['ok'])) {
-        worker_log('IA concluida', ['conversationId' => $conversationId, 'messageId' => $messageId, 'status' => $result['ai_last_status'] ?? '']);
+        worker_log('IA concluida', [
+            'conversationId' => $conversationId,
+            'messageId' => $messageId,
+            'status' => $result['ai_last_status'] ?? '',
+            'intent' => $result['intent'] ?? '',
+            'visualType' => $result['image_analysis']['visual_type'] ?? '',
+        ]);
     } else {
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => (int)$conversation['id'],
