@@ -4665,6 +4665,205 @@ function studio_whatsapp_media_absolute_path(string $mediaPath): ?string
     return ($candidate && is_file($candidate)) ? $candidate : null;
 }
 
+function studio_whatsapp_image_color_mode(string $binary): string
+{
+    if (!function_exists('imagecreatefromstring')) {
+        return 'unknown';
+    }
+
+    $image = @imagecreatefromstring($binary);
+    if (!$image) {
+        return 'unknown';
+    }
+
+    $width = imagesx($image);
+    $height = imagesy($image);
+    if ($width <= 0 || $height <= 0) {
+        imagedestroy($image);
+        return 'unknown';
+    }
+
+    $samples = 0;
+    $chromatic = 0;
+    $stepX = max(1, (int)floor($width / 40));
+    $stepY = max(1, (int)floor($height / 40));
+    for ($y = 0; $y < $height; $y += $stepY) {
+        for ($x = 0; $x < $width; $x += $stepX) {
+            $rgb = imagecolorat($image, $x, $y);
+            if (imageistruecolor($image)) {
+                $red = ($rgb >> 16) & 0xFF;
+                $green = ($rgb >> 8) & 0xFF;
+                $blue = $rgb & 0xFF;
+            } else {
+                $colors = imagecolorsforindex($image, $rgb);
+                $red = (int)($colors['red'] ?? 0);
+                $green = (int)($colors['green'] ?? 0);
+                $blue = (int)($colors['blue'] ?? 0);
+            }
+            $max = max($red, $green, $blue);
+            $min = min($red, $green, $blue);
+            $samples++;
+            if ($max > 40 && ($max - $min) >= 25) {
+                $chromatic++;
+            }
+        }
+    }
+    imagedestroy($image);
+
+    if ($samples === 0) {
+        return 'unknown';
+    }
+
+    return ($chromatic / $samples) >= 0.05 ? 'color' : 'black_and_grey';
+}
+
+function studio_whatsapp_analyze_image(array $studio, array $message): array
+{
+    $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
+    $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    if ($messageType !== 'image' && !str_starts_with($mediaMime, 'image/')) {
+        return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem imagem.'];
+    }
+
+    $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
+    $absolutePath = studio_whatsapp_media_absolute_path($mediaPath);
+    if (!$absolutePath) {
+        return ['ok' => false, 'present' => true, 'error' => 'Arquivo da imagem nao encontrado.'];
+    }
+
+    $fileSize = (int)(filesize($absolutePath) ?: 0);
+    if ($fileSize <= 0 || $fileSize > 8 * 1024 * 1024) {
+        return ['ok' => false, 'present' => true, 'error' => 'Imagem vazia ou maior que 8 MB.'];
+    }
+
+    $config = studio_openai_config($studio);
+    $baseUrl = (string)($config['base_url'] ?? '');
+    if ((string)($config['provider'] ?? '') !== 'ollama' || !preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl)) {
+        return ['ok' => false, 'present' => true, 'error' => 'Analise visual local indisponivel.'];
+    }
+
+    $binary = file_get_contents($absolutePath);
+    if ($binary === false || $binary === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Nao foi possivel ler a imagem.'];
+    }
+    $detectedColorMode = studio_whatsapp_image_color_mode($binary);
+
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'human_skin_visible' => ['type' => 'boolean'],
+            'tattoo_ink_on_skin_visible' => ['type' => 'boolean'],
+            'standalone_art_or_logo_visible' => ['type' => 'boolean'],
+            'body_area' => ['type' => 'string'],
+            'style' => ['type' => 'string'],
+            'elements' => ['type' => 'string'],
+            'color_mode' => ['type' => 'string', 'enum' => ['black_and_grey', 'color', 'unknown']],
+            'safety' => ['type' => 'string', 'enum' => ['safe', 'sensitive', 'unsafe']],
+        ],
+        'required' => [
+            'human_skin_visible',
+            'tattoo_ink_on_skin_visible',
+            'standalone_art_or_logo_visible',
+            'body_area',
+            'style',
+            'elements',
+            'color_mode',
+            'safety',
+        ],
+        'additionalProperties' => false,
+    ];
+    $prompt = 'Inspect only visible pixels. '
+        . 'human_skin_visible=true only when an actual human body or skin is visible. '
+        . 'tattoo_ink_on_skin_visible=true only when tattoo ink is visibly applied to skin. '
+        . 'standalone_art_or_logo_visible=true for a drawing, illustration, graphic or logo shown by itself rather than on skin. '
+        . 'body_area must be empty when no human body is visible. '
+        . 'Use Brazilian Portuguese for body_area, style and elements. '
+        . 'elements must contain at most 3 visible items separated by commas. '
+        . 'Do not identify people, infer sensitive traits or make medical diagnoses. '
+        . 'Return compact JSON only.';
+    $body = [
+        'model' => trim((string)(getenv('OLLAMA_VISION_MODEL') ?: 'llava-phi3')),
+        'stream' => false,
+        'think' => false,
+        'keep_alive' => '2m',
+        'format' => $schema,
+        'options' => [
+            'temperature' => 0,
+            'num_predict' => 220,
+            'num_ctx' => 2048,
+        ],
+        'messages' => [[
+            'role' => 'user',
+            'content' => $prompt,
+            'images' => [base64_encode($binary)],
+        ]],
+    ];
+
+    $endpoint = rtrim((string)preg_replace('#/v1/?$#', '', $baseUrl), '/') . '/api/chat';
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false || $status >= 400) {
+        return ['ok' => false, 'present' => true, 'error' => $error ?: ('Falha HTTP ' . $status . ' na analise visual.')];
+    }
+
+    $response = json_decode((string)$raw, true);
+    $content = trim((string)($response['message']['content'] ?? ''));
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded) && preg_match('/\{.*\}/s', $content, $matches)) {
+        $decoded = json_decode($matches[0], true);
+    }
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'present' => true, 'error' => 'Resposta visual invalida.'];
+    }
+
+    $humanSkin = !empty($decoded['human_skin_visible']);
+    $tattooInk = !empty($decoded['tattoo_ink_on_skin_visible']);
+    $standaloneArt = !empty($decoded['standalone_art_or_logo_visible']);
+    $bodyArea = mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 60);
+    $style = mb_substr(trim((string)($decoded['style'] ?? '')), 0, 60);
+    $elements = mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 160);
+    $safety = in_array((string)($decoded['safety'] ?? ''), ['safe', 'sensitive', 'unsafe'], true)
+        ? (string)$decoded['safety']
+        : 'sensitive';
+    $visualType = $safety === 'unsafe'
+        ? 'unsafe'
+        : (($tattooInk && ($humanSkin || $bodyArea !== ''))
+            ? 'tattoo_on_skin'
+            : ($standaloneArt || $tattooInk ? 'artwork' : ($humanSkin ? 'body_photo' : 'other')));
+    if (preg_match('/(black\s*(and|&)\s*(white|grey|gray)|preto\s+e\s+(branco|cinza)|blackwork)/i', $style)) {
+        $detectedColorMode = 'black_and_grey';
+    }
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'model' => (string)$body['model'],
+        'visual_type' => $visualType,
+        'body_area' => $bodyArea,
+        'style' => $style,
+        'elements' => $elements,
+        'color_mode' => $detectedColorMode !== 'unknown'
+            ? $detectedColorMode
+            : (in_array((string)($decoded['color_mode'] ?? ''), ['black_and_grey', 'color', 'unknown'], true)
+                ? (string)$decoded['color_mode']
+                : 'unknown'),
+        'safety' => $safety,
+    ];
+}
+
 function studio_attempt_whatsapp_audio_transcription(array $studio, string $messageId, string $mediaPath): void
 {
     $messageId = trim($messageId);
@@ -5748,6 +5947,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
     }
     $pdo = studio_db($studio);
+    $imageAnalysis = studio_whatsapp_analyze_image($studio, $newMessage);
 
     $stmt = $pdo->prepare(
         'SELECT direction, sender_type, body, message_type, media_mime, media_file_name, sent_at
@@ -5783,6 +5983,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $availability = studio_schedule_available_slots($studio, 14);
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
+    if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
+        $guardrailReason = 'Imagem sinalizada para revisao humana.';
+    }
     if ($guardrailReason !== null) {
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => (int)$conversation['id'],
@@ -5792,6 +5995,30 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'ai_last_at' => date('Y-m-d H:i:s'),
         ]);
         return ['ok' => false, 'error' => $guardrailReason, 'needs_human' => true, 'ai_last_status' => $guardrailReason, 'ai_last_message_id' => $incomingMessageId];
+    }
+    $imageContext = 'Nenhuma imagem recebida nesta mensagem.';
+    if (!empty($imageAnalysis['present'])) {
+        if (!empty($imageAnalysis['ok'])) {
+            $visualTypeLabel = match ((string)$imageAnalysis['visual_type']) {
+                'tattoo_on_skin' => 'tatuagem aplicada na pele',
+                'artwork' => 'arte, desenho ou logo fora da pele',
+                'body_photo' => 'foto de uma regiao do corpo sem tatuagem visivel',
+                'unsafe' => 'imagem que exige revisao humana',
+                default => 'imagem sem categoria visual confirmada',
+            };
+            $colorModeLabel = match ((string)$imageAnalysis['color_mode']) {
+                'black_and_grey' => 'preto e cinza',
+                'color' => 'colorida',
+                default => 'nao confirmado',
+            };
+            $imageContext = 'Analise visual local: ' . $visualTypeLabel
+                . '; area do corpo ' . ((string)$imageAnalysis['body_area'] !== '' ? (string)$imageAnalysis['body_area'] : 'nao identificada')
+                . '; estilo ' . ((string)$imageAnalysis['style'] !== '' ? (string)$imageAnalysis['style'] : 'nao identificado')
+                . '; elementos ' . ((string)$imageAnalysis['elements'] !== '' ? (string)$imageAnalysis['elements'] : 'nao identificados')
+                . '; cores ' . $colorModeLabel . '.';
+        } else {
+            $imageContext = 'Imagem recebida, mas a analise visual local nao ficou disponivel. Nao invente o conteudo da imagem.';
+        }
     }
     $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
     $availableNotes = [];
@@ -5856,6 +6083,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Status comercial: " . trim((string)($conversation['lead_status'] ?? 'em_conversa')) . ' / ' . trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')) . "\n"
         . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
         . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
+        . "Contexto da imagem atual: " . $imageContext . "\n"
         . "Ultima mensagem do cliente: " . trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '')) . "\n"
         . "Historico recente da conversa:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Regras de resposta:\n"
@@ -5874,6 +6102,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
         . "- Nunca diga que existe vaga em uma data que tenha vagas livres exatas vazias no contexto.\n"
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
+        . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
+        . "- Nao mencione analise visual, IA, nomes de modelos, campos internos nem rotulos tecnicos. Traduza qualquer termo estrangeiro antes de responder.\n"
+        . "- Se for tatuagem aplicada na pele, reconheca brevemente a referencia e pergunte tamanho ou local desejado se isso ainda faltar.\n"
+        . "- Se for arte, desenho ou logo fora da pele, trate como possivel referencia e pergunte se o cliente quer reproduzir ou adaptar.\n"
+        . "- Se for foto de uma regiao do corpo sem tatuagem visivel, pergunte qual tatuagem a pessoa pretende fazer nessa regiao.\n"
+        . "- Se a imagem estiver sem analise ou categoria confirmada, pergunte de forma curta o que o cliente quer considerar nela.\n"
+        . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
         . "- Quando responder sobre agendamento, se existir um proximo horario livre real, cite só ele.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
