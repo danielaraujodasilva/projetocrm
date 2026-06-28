@@ -3974,6 +3974,66 @@ function studio_whatsapp_ai_guardrail_reason(string $text): ?string
     return null;
 }
 
+function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, string $messageType = 'text'): string
+{
+    $text = trim(mb_strtolower($text, 'UTF-8'));
+    $messageType = strtolower(trim($messageType));
+
+    if (preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text)) {
+        return $hasImage ? 'image_price' : 'price';
+    }
+
+    if (preg_match('/\b(agenda|agendar|agendamento|hor[aá]rio|hora|vaga|dispon[ií]vel|encaixe|hoje|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b/u', $text)
+        || preg_match('/\bdia\s+\d{1,2}\b/u', $text)
+        || preg_match('/\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/u', $text)) {
+        return 'schedule';
+    }
+
+    if ($hasImage) {
+        return 'image_reference';
+    }
+
+    if ($messageType === 'audio' && $text === '') {
+        return 'audio_unavailable';
+    }
+
+    if (preg_match('/\b(tatuagem|tattoo|fechamento|le[aã]o|flor|drag[aã]o|nome|frase|desenho|refer[eê]ncia|costas|bra[cç]o|perna|peito)\b/u', $text)) {
+        return 'tattoo_idea';
+    }
+
+    return 'general';
+}
+
+function studio_whatsapp_ai_reply_is_repetitive(string $reply, array $previousReplies): bool
+{
+    $normalize = static function (string $text): string {
+        $text = mb_strtolower(trim($text), 'UTF-8');
+        $text = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $text) ?? $text;
+        return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+    };
+
+    $candidate = $normalize($reply);
+    if (mb_strlen($candidate, 'UTF-8') < 24) {
+        return false;
+    }
+
+    foreach ($previousReplies as $previousReply) {
+        $previous = $normalize((string)$previousReply);
+        if ($previous === '') {
+            continue;
+        }
+        if ($candidate === $previous) {
+            return true;
+        }
+        similar_text(mb_substr($candidate, 0, 240), mb_substr($previous, 0, 240), $similarity);
+        if ($similarity >= 84) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, array $messages = []): array
 {
     $settings = studio_settings($studio);
@@ -5950,7 +6010,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $imageAnalysis = studio_whatsapp_analyze_image($studio, $newMessage);
 
     $stmt = $pdo->prepare(
-        'SELECT direction, sender_type, body, message_type, media_mime, media_file_name, sent_at
+        'SELECT direction, sender_type, body, transcricao, transcript, message_type, media_mime, media_file_name, sent_at
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
@@ -5959,14 +6019,21 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $stmt->execute([(int)$conversation['id']]);
     $history = array_reverse($stmt->fetchAll() ?: []);
     $historyLines = [];
+    $recentBotReplies = [];
     foreach ($history as $item) {
         $role = (string)($item['direction'] ?? 'in') === 'out' ? 'Atendente' : 'Cliente';
         $text = trim((string)($item['body'] ?? ''));
+        if ($text === '') {
+            $text = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
+        }
         if ($text === '') {
             $text = '[' . (string)($item['message_type'] ?? 'texto') . ']';
         }
         $sentAt = trim((string)($item['sent_at'] ?? ''));
         $historyLines[] = $role . ($sentAt !== '' ? ' (' . $sentAt . ')' : '') . ': ' . $text;
+        if ($role === 'Atendente' && $text !== '') {
+            $recentBotReplies[] = $text;
+        }
     }
 
     $studioRules = trim((string)($settings['business_rules'] ?? ''));
@@ -5980,8 +6047,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
     $leadData = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
     $latestMessages = implode("\n- ", array_slice($historyLines, -6));
-    $availability = studio_schedule_available_slots($studio, 14);
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
+    $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
+    $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
         $guardrailReason = 'Imagem sinalizada para revisao humana.';
@@ -6020,32 +6088,44 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $imageContext = 'Imagem recebida, mas a analise visual local nao ficou disponivel. Nao invente o conteudo da imagem.';
         }
     }
-    $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
+    $dateContext = null;
     $availableNotes = [];
     $occupiedNotes = [];
-    foreach ($availability as $day) {
-        if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-            $availableNotes[] = $day['date'] . ' => ' . implode(', ', array_slice($day['free_slots'], 0, 3));
-        }
-        if (!empty($day['booked'])) {
-            $occupiedNotes[] = $day['date'] . ' => ' . implode(', ', array_map(static fn(array $appt): string => (string)$appt['time'], array_slice($day['booked'], 0, 3)));
-        }
-    }
-    $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
-    $occupiedPreview = $occupiedNotes ? implode("\n- ", array_slice($occupiedNotes, 0, 6)) : 'Sem ocupacoes no recorte rapido.';
-    $exactDateBlock = "Nao foi citada uma data especifica.";
+    $availabilityPreview = '';
+    $occupiedPreview = '';
+    $exactDateBlock = '';
     $nextAvailableHint = 'Sem vaga futura encontrada no recorte rapido.';
-    if (is_array($dateContext)) {
-        $freeSlots = array_values(array_map('strval', $dateContext['free_slots'] ?? []));
-        $bookedSlots = array_values(array_map(static fn(array $appt): string => trim((string)($appt['time'] ?? '')), $dateContext['booked'] ?? []));
-        $nextFreeSlot = $freeSlots[0] ?? '';
-        $nextAvailableHint = $nextFreeSlot !== '' ? ($dateContext['date'] . ' ' . $nextFreeSlot) : $nextAvailableHint;
-        $exactDateBlock = "Data citada pelo cliente: " . $dateContext['date'] . "\n"
-            . "Esta data esta " . (!empty($dateContext['allowed']) ? 'dentro' : 'fora') . " dos dias permitidos do estúdio.\n"
-            . "Vagas livres exatas nesse dia: " . ($freeSlots ? implode(', ', $freeSlots) : 'nenhuma') . "\n"
-            . "Proximo horario livre real no recorte: " . $nextAvailableHint . "\n"
-            . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', array_slice($bookedSlots, 0, 3)) : 'nenhum') . "\n"
-            . "Regra: se vagas livres exatas estiverem vazias, responda apenas que esse dia esta lotado e mostre o proximo horario livre real.";
+    $scheduleContextBlock = "A pergunta atual nao e sobre agenda. Nao mencione datas, vagas nem horarios nesta resposta.\n";
+    if ($currentIntent === 'schedule') {
+        $availability = studio_schedule_available_slots($studio, 14);
+        $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
+        foreach ($availability as $day) {
+            if (!empty($day['allowed']) && !empty($day['free_slots'])) {
+                $availableNotes[] = $day['date'] . ' => ' . implode(', ', array_slice($day['free_slots'], 0, 3));
+            }
+            if (!empty($day['booked'])) {
+                $occupiedNotes[] = $day['date'] . ' => ' . implode(', ', array_map(static fn(array $appt): string => (string)$appt['time'], array_slice($day['booked'], 0, 3)));
+            }
+        }
+        $availabilityPreview = $availableNotes ? implode("\n- ", array_slice($availableNotes, 0, 6)) : 'Sem vagas livres no recorte rapido.';
+        $occupiedPreview = $occupiedNotes ? implode("\n- ", array_slice($occupiedNotes, 0, 6)) : 'Sem ocupacoes no recorte rapido.';
+        $exactDateBlock = "Nao foi citada uma data especifica.";
+        if (is_array($dateContext)) {
+            $freeSlots = array_values(array_map('strval', $dateContext['free_slots'] ?? []));
+            $bookedSlots = array_values(array_map(static fn(array $appt): string => trim((string)($appt['time'] ?? '')), $dateContext['booked'] ?? []));
+            $nextFreeSlot = $freeSlots[0] ?? '';
+            $nextAvailableHint = $nextFreeSlot !== '' ? ($dateContext['date'] . ' ' . $nextFreeSlot) : $nextAvailableHint;
+            $exactDateBlock = "Data citada pelo cliente: " . $dateContext['date'] . "\n"
+                . "Esta data esta " . (!empty($dateContext['allowed']) ? 'dentro' : 'fora') . " dos dias permitidos do estúdio.\n"
+                . "Vagas livres exatas nesse dia: " . ($freeSlots ? implode(', ', $freeSlots) : 'nenhuma') . "\n"
+                . "Proximo horario livre real no recorte: " . $nextAvailableHint . "\n"
+                . "Horarios ocupados nesse dia: " . ($bookedSlots ? implode(', ', array_slice($bookedSlots, 0, 3)) : 'nenhum') . "\n"
+                . "Regra: se vagas livres exatas estiverem vazias, diga que esse dia esta lotado e mostre o proximo horario livre real.";
+        }
+        $scheduleContextBlock = "Agenda do estudio: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
+            . "Proximas vagas livres reais (data => horarios livres):\n- " . $availabilityPreview . "\n"
+            . "Proximos horarios ocupados reais:\n- " . $occupiedPreview . "\n"
+            . $exactDateBlock . "\n";
     }
     $customerContextLines = [];
     if ($customerId > 0) {
@@ -6069,24 +6149,39 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $customerContextLines[] = 'Valor estimado atual: ' . format_money((float)$leadData['estimated_value']);
         }
     }
+    $intentInstruction = match ($currentIntent) {
+        'schedule' => 'Responda somente a pergunta atual sobre agenda usando os horarios reais fornecidos.',
+        'image_price' => 'A pergunta atual e sobre preco e inclui imagem. Reconheca elementos concretos da imagem, explique que o valor depende de tamanho, cobertura e adaptacao, e pergunte apenas o dado que ainda falta. Nao diga que faltou referencia.',
+        'price' => 'A pergunta atual e sobre preco. Nao invente valor; explique em uma frase curta de que dados o orcamento depende e peca somente a informacao que falta.',
+        'image_reference' => 'A mensagem atual contem uma imagem. Demonstre que a viu citando um ou dois elementos concretos e faca apenas a proxima pergunta util.',
+        'tattoo_idea' => 'Responda a ideia de tatuagem atual. Nao volte para agenda ou para perguntas antigas.',
+        'audio_unavailable' => 'O audio nao tem transcricao confiavel. Peca para o cliente repetir em texto ou reenviar o audio.',
+        default => 'Responda diretamente a ultima mensagem do cliente, usando o historico apenas para contexto.',
+    };
+    $scheduleRules = $currentIntent === 'schedule'
+        ? "- Esta resposta e sobre agenda. Use somente as vagas reais do bloco acima e cite apenas o proximo passo util.\n"
+            . "- Nunca invente horario ou diga que existe vaga quando a lista exata estiver vazia.\n"
+        : "- Esta resposta nao e sobre agenda. E proibido mencionar datas, vagas, horarios ou disponibilidade.\n";
     $aiModel = $config['model'];
     $prompt = "Contexto do estudio:\n"
         . "Nome do estudio: " . $studioName . "\n"
         . "Regras do estudio: " . ($studioRules !== '' ? $studioRules : 'Sem regras extras.') . "\n"
-        . "Agenda do estudio: dias " . $scheduleDays . ' | horarios ' . $scheduleSlots . ' | duracao ' . $durationMinutes . " minutos\n"
-        . "Proximas vagas livres reais (data => horarios livres):\n- " . $availabilityPreview . "\n"
-        . "Proximos horarios ocupados reais:\n- " . $occupiedPreview . "\n"
-        . $exactDateBlock . "\n"
+        . "Intencao da mensagem atual: " . $currentIntent . "\n"
+        . "Instrucao principal: " . $intentInstruction . "\n"
+        . $scheduleContextBlock
+        . "Ultima mensagem do cliente (prioridade maxima): " . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n"
+        . "Contexto da imagem atual: " . $imageContext . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
         . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
         . "Status comercial: " . trim((string)($conversation['lead_status'] ?? 'em_conversa')) . ' / ' . trim((string)($conversation['lead_pipeline_stage'] ?? 'em_conversa')) . "\n"
         . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
         . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
-        . "Contexto da imagem atual: " . $imageContext . "\n"
-        . "Ultima mensagem do cliente: " . trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '')) . "\n"
-        . "Historico recente da conversa:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
+        . "Historico recente (somente contexto; nunca responda uma pergunta antiga no lugar da atual):\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Regras de resposta:\n"
+        . "- A ultima mensagem e a unica pergunta que deve ser respondida agora.\n"
+        . "- Nao repita nenhuma resposta anterior do atendente.\n"
+        . $scheduleRules
         . "- Responda como atendente de tatuagem, sem soar robotico.\n"
         . "- Seja direto, util e natural. Use no maximo 2 frases curtas.\n"
         . "- Nao repita a mesma saudacao ou frase de abertura.\n"
@@ -6095,12 +6190,6 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a ultima mensagem for curta demais, responda de forma curta e contextual, sem enrolar.\n"
         . "- Se a conversa ja teve saudacao, nao cumprimente de novo.\n"
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
-        . "- Se a pessoa perguntou de agendamento, puxe para data, horario e sinal.\n"
-        . "- Se perguntou disponibilidade, use somente os dias e horarios informados acima e as vagas livres reais listadas acima.\n"
-        . "- Se a ultima mensagem citar uma data especifica, consulte o bloco 'Data citada pelo cliente' e responda apenas com base nele.\n"
-        . "- Se a data citada estiver lotada, diga apenas que o dia esta lotado e ofereca o proximo horario livre real.\n"
-        . "- Nunca invente horario. Se o horario nao estiver na lista de vagas livres reais, nao o sugira.\n"
-        . "- Nunca diga que existe vaga em uma data que tenha vagas livres exatas vazias no contexto.\n"
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
         . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
         . "- Nao mencione analise visual, IA, nomes de modelos, campos internos nem rotulos tecnicos. Traduza qualquer termo estrangeiro antes de responder.\n"
@@ -6109,7 +6198,6 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se for foto de uma regiao do corpo sem tatuagem visivel, pergunte qual tatuagem a pessoa pretende fazer nessa regiao.\n"
         . "- Se a imagem estiver sem analise ou categoria confirmada, pergunte de forma curta o que o cliente quer considerar nela.\n"
         . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
-        . "- Quando responder sobre agendamento, se existir um proximo horario livre real, cite só ele.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
@@ -6119,11 +6207,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Use um tom de estúdio: direto, humano, profissional e levemente caloroso.\n"
         . "- Exemplos de estilo:\n"
         . "  * Cliente: 'oi' -> Resposta: 'Oi! Me conta o que você quer tatuar e eu te ajudo por aqui.'\n"
-        . "  * Cliente: 'quero agendar' -> Resposta: 'Perfeito. Me manda a referência e a data que você prefere, que eu vejo os próximos passos.'\n"
-        . "  * Cliente: 'qual o valor?' -> Resposta: 'Me manda a ideia ou a referência da tattoo que eu te passo o melhor caminho.'\n\n"
-        . "- Quando falar de disponibilidade, use este formato mental:\n"
-        . "  * se houver vaga: 'Tem vaga sim. O proximo horario livre real é DD/MM às HH:MM.'\n"
-        . "  * se nao houver vaga: 'Nao tem vaga nesse dia. O proximo horario livre real é DD/MM às HH:MM.'\n"
+        . "  * Cliente: 'quero agendar' -> Resposta: 'Perfeito. Qual data você prefere?'\n"
+        . "  * Cliente com imagem: 'quanto custa?' -> Resposta: reconheca a imagem e pergunte tamanho ou cobertura que ainda falta.\n\n"
         . "- Evite listar varias vagas, varios nomes ou varios detalhes. Entregue só o proximo passo mais util.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
@@ -6137,6 +6222,34 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
     }
     $replyText = preg_replace('/\s+/', ' ', $replyText) ?? $replyText;
+    if (studio_whatsapp_ai_reply_is_repetitive($replyText, $recentBotReplies)) {
+        $retryPrompt = $prompt . "\n\n"
+            . "A primeira resposta candidata foi rejeitada porque repetiu uma resposta anterior: " . $replyText . "\n"
+            . "Gere outra resposta que trate exclusivamente da ultima mensagem. Nao reutilize a frase rejeitada.";
+        $retryResult = studio_openai_text($config['api_key'], $aiModel, $config['system_prompt'], $retryPrompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'));
+        $retryText = !empty($retryResult['ok']) ? trim((string)($retryResult['reply_text'] ?? '')) : '';
+        if ($retryText !== '' && !studio_whatsapp_ai_reply_is_repetitive($retryText, $recentBotReplies)) {
+            $result = $retryResult;
+            $replyText = preg_replace('/\s+/', ' ', $retryText) ?? $retryText;
+        } else {
+            $imageArea = strtolower(trim((string)($imageAnalysis['body_area'] ?? '')));
+            $imageArea = match ($imageArea) {
+                'back' => 'costas',
+                'arm' => 'braco',
+                'leg' => 'perna',
+                'chest' => 'peito',
+                default => $imageArea,
+            };
+            $replyText = match ($currentIntent) {
+                'image_price' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Para calcular o valor, voce quer cobrir a area inteira ou apenas uma parte?',
+                'price' => 'O valor depende do tamanho, local e nivel de detalhe. Qual seria o tamanho aproximado em centimetros?',
+                'image_reference' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Voce quer reproduzir esse desenho ou adaptar algum detalhe?',
+                'tattoo_idea' => 'Entendi a ideia. Qual tamanho aproximado e estilo voce imagina para essa tatuagem?',
+                'audio_unavailable' => 'Nao consegui entender o audio. Pode me mandar por texto ou reenviar o audio?',
+                default => 'Entendi. Me diga qual e o proximo detalhe que voce quer definir.',
+            };
+        }
+    }
     if (mb_strlen($replyText) > 220) {
         $parts = preg_split('/(?<=[.!?])\s+/u', $replyText) ?: [$replyText];
         $replyText = trim(implode(' ', array_slice($parts, 0, 2)));
@@ -6196,6 +6309,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'ai_last_status' => $aiStatus,
         'needs_human' => !empty($result['needs_human']),
         'ai_last_message_id' => $incomingMessageId,
+        'intent' => $currentIntent,
+        'image_analysis' => !empty($imageAnalysis['ok']) ? [
+            'visual_type' => (string)($imageAnalysis['visual_type'] ?? ''),
+            'body_area' => (string)($imageAnalysis['body_area'] ?? ''),
+            'style' => (string)($imageAnalysis['style'] ?? ''),
+            'elements' => (string)($imageAnalysis['elements'] ?? ''),
+        ] : null,
     ];
 }
 
