@@ -131,7 +131,7 @@ function studio_tattoo_image_translate_strict(string $request): string
             ['role' => 'system', 'content' => 'Translate literally into a concise English image prompt. Preserve every subject, count, spatial relationship, split, side, camera angle and visual metaphor. Do not summarize, explain, add or remove anything. Output only the translated prompt.'],
             ['role' => 'user', 'content' => $request],
         ],
-        'options' => ['temperature' => 0, 'num_predict' => 220, 'num_gpu' => 0],
+        'options' => ['temperature' => 0, 'num_predict' => 220, 'num_gpu' => 99],
     ];
     $ch = curl_init('http://127.0.0.1:11434/api/chat');
     curl_setopt_array($ch, [
@@ -152,6 +152,105 @@ function studio_tattoo_image_translate_strict(string $request): string
         $translated = '';
     }
     return $status >= 200 && $status < 300 && $translated !== '' ? $translated : $request;
+}
+
+function studio_tattoo_image_plan_request(string $request, string $editPrompt = ''): array
+{
+    $cacheKey = sha1('planner-v3' . "\n" . $request . "\n" . $editPrompt);
+    $cache = $_SESSION['studio_tattoo_prompt_plans'] ?? [];
+    if (is_array($cache) && is_array($cache[$cacheKey] ?? null)) {
+        return $cache[$cacheKey];
+    }
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'subjects' => [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'name' => ['type' => 'string'],
+                        'count' => ['type' => 'integer'],
+                        'position' => ['type' => 'string'],
+                        'attributes' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    ],
+                    'required' => ['name', 'count', 'position', 'attributes'],
+                ],
+            ],
+            'composition' => ['type' => 'string'],
+            'mandatory_details' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'english_prompt' => ['type' => 'string'],
+        ],
+        'required' => ['subjects', 'composition', 'mandatory_details', 'english_prompt'],
+    ];
+    $userContent = $request . ($editPrompt !== '' ? "\nRequested edit: " . $editPrompt : '');
+    $body = [
+        'model' => trim((string)(getenv('LOCAL_IMAGE_PLANNER_MODEL') ?: 'qwen3:14b')),
+        'stream' => false,
+        'think' => false,
+        'keep_alive' => 0,
+        'format' => $schema,
+        'messages' => [
+            ['role' => 'system', 'content' => 'Parse the visual request literally into JSON. Write every JSON string value in English. Do not add defaults, inferred objects, lighting, camera, style or prohibitions. Preserve every subject, count, position, split, relationship, metaphor and mandatory detail. english_prompt must be a complete literal English rendering with the layout constraints first. Return JSON only.'],
+            ['role' => 'user', 'content' => '/no_think ' . $userContent],
+        ],
+        'options' => ['temperature' => 0, 'num_predict' => 700, 'num_gpu' => 20],
+    ];
+    $ch = curl_init('http://127.0.0.1:11434/api/chat');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 150,
+    ]);
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $json = is_string($raw) ? json_decode($raw, true) : null;
+    $content = is_array($json) ? json_decode((string)($json['message']['content'] ?? ''), true) : null;
+    if ($status < 200 || $status >= 300 || !is_array($content) || trim((string)($content['english_prompt'] ?? '')) === '') {
+        $content = [
+            'subjects' => [],
+            'composition' => '',
+            'mandatory_details' => array_values(array_filter([$request, $editPrompt])),
+            'english_prompt' => studio_tattoo_image_translate_strict($userContent),
+        ];
+    }
+    $plan = [
+        'subjects' => array_values(array_filter((array)($content['subjects'] ?? []), 'is_array')),
+        'composition' => trim((string)($content['composition'] ?? '')),
+        'mandatory_details' => array_values(array_filter(array_map('strval', (array)($content['mandatory_details'] ?? [])))),
+        'english_prompt' => trim((string)$content['english_prompt']),
+    ];
+    $cache = is_array($cache) ? $cache : [];
+    $cache[$cacheKey] = $plan;
+    $_SESSION['studio_tattoo_prompt_plans'] = array_slice($cache, -20, null, true);
+    return $plan;
+}
+
+function studio_tattoo_image_plan_requirements(array $plan): array
+{
+    $requirements = [];
+    foreach ((array)($plan['subjects'] ?? []) as $subject) {
+        if (!is_array($subject) || trim((string)($subject['name'] ?? '')) === '') {
+            continue;
+        }
+        $attributes = implode(', ', array_filter(array_map('strval', (array)($subject['attributes'] ?? []))));
+        $requirements[] = max(1, (int)($subject['count'] ?? 1)) . ' ' . trim((string)$subject['name'])
+            . ' positioned ' . (trim((string)($subject['position'] ?? '')) ?: 'as requested')
+            . ($attributes !== '' ? ', with ' . $attributes : '');
+    }
+    if (trim((string)($plan['composition'] ?? '')) !== '') {
+        $requirements[] = 'composition: ' . trim((string)$plan['composition']);
+    }
+    foreach ((array)($plan['mandatory_details'] ?? []) as $detail) {
+        if (trim((string)$detail) !== '') {
+            $requirements[] = trim((string)$detail);
+        }
+    }
+    return array_slice(array_values(array_unique($requirements)), 0, 10);
 }
 
 function studio_tattoo_image_absolute_from_relative(string $relative): string
@@ -189,7 +288,12 @@ function studio_tattoo_image_build_prompt(array $data): string
     $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical', 'square', 'wide'], 'vertical');
     $operation = studio_tattoo_image_choice((string)($data['operation'] ?? 'create'), ['create', 'edit', 'stencil', 'variation', 'final'], 'create');
     $guard = studio_tattoo_image_subject_guard($prompt);
-    $translated = studio_tattoo_image_translate_strict($prompt);
+    $plan = is_array($data['prompt_plan'] ?? null)
+        ? $data['prompt_plan']
+        : studio_tattoo_image_plan_request($prompt, trim((string)($data['edit_prompt'] ?? '')));
+    $translated = trim((string)($plan['english_prompt'] ?? '')) ?: studio_tattoo_image_translate_strict($prompt);
+    $requirements = studio_tattoo_image_plan_requirements($plan);
+    $planText = $requirements ? 'MANDATORY VISUAL SPEC: ' . implode(' | ', $requirements) . '. ' : '';
     $formatHint = match ($format) {
         'square' => 'balanced square composition',
         'wide' => 'horizontal extended composition',
@@ -204,7 +308,9 @@ function studio_tattoo_image_build_prompt(array $data): string
         default => 'Create a standalone tattoo design reference.',
     };
 
-    return $guard['lock'] . ' CORE REQUEST: ' . $translated . '. '
+    $correction = trim((string)($data['validation_correction'] ?? ''));
+    return ($correction !== '' ? 'AUTOMATIC QA CORRECTION: ' . $correction . '. ' : '')
+        . $planText . $guard['lock'] . ' CORE REQUEST: ' . $translated . '. '
         . $operationPrompt . ' '
         . studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. '
         . 'No user interface, caption, watermark, logo, frame or random typography. '
@@ -463,6 +569,7 @@ function studio_tattoo_image_start(array $studio, array $data): array
     }
     $mode = studio_tattoo_image_choice((string)($data['mode'] ?? 'fast'), ['fast', 'final'], 'fast');
     $operation = studio_tattoo_image_choice((string)($data['operation'] ?? 'create'), ['create', 'edit', 'stencil', 'variation', 'final'], 'create');
+    $data['prompt_plan'] = studio_tattoo_image_plan_request((string)($data['prompt'] ?? ''), trim((string)($data['edit_prompt'] ?? '')));
     $result = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', studio_tattoo_image_body($data, $mode), 120);
     if (empty($result['ok'])) {
         throw new RuntimeException((string)($result['error'] ?? 'Não foi possível iniciar a geração local.'));
@@ -492,6 +599,9 @@ function studio_tattoo_image_start(array $studio, array $data): array
         'source_image_path' => trim((string)($data['source_image_path'] ?? '')),
         'negative_prompt' => trim((string)($data['negative_prompt'] ?? '')),
         'operation' => $operation,
+        'strength' => (float)($data['strength'] ?? 0.28),
+        'prompt_plan' => $data['prompt_plan'],
+        'retry_count' => 0,
         'upscale' => !empty($data['upscale']),
         'upscale_factor' => max(2, min(4, (int)($data['upscale_factor'] ?? 4))),
         'favorite' => false,
@@ -500,6 +610,125 @@ function studio_tattoo_image_start(array $studio, array $data): array
         'expected_seconds' => (int)$config['expected'],
         'model' => 'RealVisXL 5.0 local',
     ];
+}
+
+function studio_tattoo_image_vision_base64(string $sourcePath): string
+{
+    if (!function_exists('imagecreatefromjpeg')) {
+        return base64_encode((string)@file_get_contents($sourcePath));
+    }
+    $source = @imagecreatefromjpeg($sourcePath);
+    if (!$source) {
+        return '';
+    }
+    $width = min(448, imagesx($source));
+    $height = max(1, (int)round(imagesy($source) * ($width / imagesx($source))));
+    $target = imagecreatetruecolor($width, $height);
+    imagecopyresampled($target, $source, 0, 0, 0, 0, $width, $height, imagesx($source), imagesy($source));
+    ob_start();
+    imagejpeg($target, null, 82);
+    $binary = (string)ob_get_clean();
+    imagedestroy($source);
+    imagedestroy($target);
+    return $binary !== '' ? base64_encode($binary) : '';
+}
+
+function studio_tattoo_image_validate_visual(string $sourcePath, array $job): array
+{
+    $requirements = studio_tattoo_image_plan_requirements((array)($job['prompt_plan'] ?? []));
+    $image = studio_tattoo_image_vision_base64($sourcePath);
+    if (!$requirements || $image === '') {
+        return ['available' => false, 'passed' => true, 'missing' => []];
+    }
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'requirements' => [
+                'type' => 'array',
+                'items' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'requirement' => ['type' => 'string'],
+                        'present' => ['type' => 'boolean'],
+                        'evidence' => ['type' => 'string'],
+                    ],
+                    'required' => ['requirement', 'present', 'evidence'],
+                ],
+            ],
+            'correction_prompt' => ['type' => 'string'],
+        ],
+        'required' => ['requirements', 'correction_prompt'],
+    ];
+    $body = [
+        'model' => trim((string)(getenv('LOCAL_IMAGE_VISION_MODEL') ?: 'qwen3-vl:4b')),
+        'stream' => false,
+        'think' => false,
+        'keep_alive' => 0,
+        'format' => $schema,
+        'messages' => [
+            ['role' => 'system', 'content' => 'Strict visual QA. Evaluate every listed requirement independently from the pixels. present must be false when absent or materially wrong. Do not reward beauty. correction_prompt must mention only failed requirements. Return JSON only.'],
+            ['role' => 'user', 'content' => "Requirements:\n- " . implode("\n- ", $requirements) . "\nInspect the attached generated image.", 'images' => [$image]],
+        ],
+        'options' => ['temperature' => 0, 'num_predict' => 650, 'num_gpu' => 99],
+    ];
+    $ch = curl_init('http://127.0.0.1:11434/api/chat');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 180,
+    ]);
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $json = is_string($raw) ? json_decode($raw, true) : null;
+    $inspection = is_array($json) ? json_decode((string)($json['message']['content'] ?? ''), true) : null;
+    $checks = is_array($inspection) ? array_values(array_filter((array)($inspection['requirements'] ?? []), 'is_array')) : [];
+    if ($status < 200 || $status >= 300 || count($checks) < min(2, count($requirements))) {
+        return ['available' => false, 'passed' => true, 'missing' => []];
+    }
+    $missing = [];
+    foreach ($checks as $check) {
+        if (empty($check['present'])) {
+            $missing[] = trim((string)($check['requirement'] ?? 'mandatory detail'));
+        }
+    }
+    return [
+        'available' => true,
+        'passed' => !$missing,
+        'missing' => $missing,
+        'correction_prompt' => trim((string)($inspection['correction_prompt'] ?? implode('; ', $missing))),
+    ];
+}
+
+function studio_tattoo_image_retry_after_validation(array $job, string $correction): ?array
+{
+    $data = [
+        'prompt' => (string)($job['prompt'] ?? ''),
+        'edit_prompt' => (string)($job['edit_prompt'] ?? ''),
+        'style' => (string)($job['style'] ?? 'realistic'),
+        'mode' => (string)($job['mode'] ?? 'fast'),
+        'format' => (string)($job['format'] ?? 'vertical'),
+        'source_image_path' => (string)($job['source_image_path'] ?? ''),
+        'negative_prompt' => (string)($job['negative_prompt'] ?? ''),
+        'operation' => (string)($job['operation'] ?? 'create'),
+        'strength' => min(0.7, max(0.38, (float)($job['strength'] ?? 0.28) + 0.12)),
+        'prompt_plan' => (array)($job['prompt_plan'] ?? []),
+        'validation_correction' => $correction,
+    ];
+    $response = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', studio_tattoo_image_body($data, (string)$data['mode']), 120);
+    $id = trim((string)($response['json']['id'] ?? ''));
+    if (empty($response['ok']) || !preg_match('/^[a-zA-Z0-9_-]{8,100}$/', $id)) {
+        return null;
+    }
+    $job['id'] = $id;
+    $job['retry_count'] = (int)($job['retry_count'] ?? 0) + 1;
+    $job['started_at'] = date('Y-m-d H:i:s');
+    $job['validation_correction'] = $correction;
+    $job['strength'] = $data['strength'];
+    return $job;
 }
 
 function studio_tattoo_image_poll(array $studio, array $job): array
@@ -541,6 +770,19 @@ function studio_tattoo_image_poll(array $studio, array $job): array
     if (!empty($job['apply_torn_seam'])) {
         studio_tattoo_image_apply_torn_seam($absolutePath);
     }
+    $qualityCheck = studio_tattoo_image_validate_visual($absolutePath, $job);
+    if (!empty($qualityCheck['available']) && empty($qualityCheck['passed']) && (int)($job['retry_count'] ?? 0) < 1) {
+        $nextJob = studio_tattoo_image_retry_after_validation($job, (string)($qualityCheck['correction_prompt'] ?? ''));
+        if (is_array($nextJob)) {
+            @unlink($absolutePath);
+            return [
+                'status' => 'retrying',
+                'next_job' => $nextJob,
+                'missing' => $qualityCheck['missing'] ?? [],
+                'expected_seconds' => (int)($nextJob['expected_seconds'] ?? 300),
+            ];
+        }
+    }
     $upscaledFile = !empty($job['upscale']) ? studio_tattoo_image_upscale_jpeg($absolutePath, (int)($job['upscale_factor'] ?? 4)) : '';
     $payload = studio_tattoo_image_history_add([
         'history_id' => (string)($job['history_id'] ?? bin2hex(random_bytes(8))),
@@ -559,6 +801,7 @@ function studio_tattoo_image_poll(array $studio, array $job): array
         'upscaled_file_name' => $upscaledFile,
         'created_at' => date('Y-m-d H:i:s'),
         'favorite' => !empty($job['favorite']),
+        'quality_check' => $qualityCheck,
         'model' => 'RealVisXL 5.0 local',
     ]);
     return ['status' => 'completed', 'result' => $payload];
@@ -744,6 +987,8 @@ function studio_tattoo_image_handle_request(): void
         if (($poll['status'] ?? '') === 'completed' && is_array($poll['result'] ?? null)) {
             $_SESSION['studio_tattoo_image_result'] = $poll['result'];
             unset($_SESSION['studio_tattoo_image_job']);
+        } elseif (($poll['status'] ?? '') === 'retrying' && is_array($poll['next_job'] ?? null)) {
+            $_SESSION['studio_tattoo_image_job'] = $poll['next_job'];
         } elseif (($poll['status'] ?? '') === 'failed') {
             unset($_SESSION['studio_tattoo_image_job']);
             flash_set('error', (string)($poll['error'] ?? 'A IA local não conseguiu concluir a imagem.'));
@@ -858,7 +1103,7 @@ CSS;
                 . ',startedAt=' . ((int)$startedTimestamp * 1000) . ',expected=' . (int)($job['expected_seconds'] ?? 300) . ';'
                 . 'const fill=document.getElementById("tattooProgressFill"),label=document.getElementById("tattooProgressLabel"),pctEl=document.getElementById("tattooProgressPercent"),timeEl=document.getElementById("tattooProgressTime");'
                 . 'function elapsed(){return Math.max(0,(Date.now()-startedAt)/1000)}function fmt(s){s=Math.floor(s);const m=Math.floor(s/60),r=s%60;return m?m+"min "+r+"s":r+"s"}'
-                . 'function paint(data){const e=elapsed();let pct=Math.min(96,Math.max(5,Math.floor(8+(e/expected)*87))),text="Renderizando detalhes…";if(data.status==="queued"){pct=Math.min(18,pct);text=data.queue_position>0?"Na fila · posição "+data.queue_position:"Na fila da IA local";}else if(e<25){text="Preparando modelo e composição…";}else if(pct>82){text="Finalizando textura e arquivo…";}fill.style.width=pct+"%";pctEl.textContent=pct+"%";label.textContent=text;timeEl.textContent=fmt(e);if(wait)wait.textContent=text;}'
+                . 'function paint(data){const e=elapsed();let pct=Math.min(96,Math.max(5,Math.floor(8+(e/expected)*87))),text="Renderizando detalhes…";if(data.status==="retrying"){pct=18;text="A visão encontrou diferenças. Corrigindo automaticamente…";}else if(data.status==="queued"){pct=Math.min(18,pct);text=data.queue_position>0?"Na fila · posição "+data.queue_position:"Na fila da IA local";}else if(e<25){text="Preparando modelo e composição…";}else if(pct>82){text="Conferindo fidelidade visual…";}fill.style.width=pct+"%";pctEl.textContent=pct+"%";label.textContent=text;timeEl.textContent=fmt(e);if(wait)wait.textContent=text;}'
                 . 'async function poll(){try{const response=await fetch(statusUrl,{credentials:"same-origin",cache:"no-store"}),data=await response.json();if(["completed","failed","idle"].includes(data.status)){fill.style.width="100%";pctEl.textContent="100%";location.reload();return;}paint(data);}catch(error){if(wait)wait.textContent="A geração continua. Tentando reconectar…";}setTimeout(poll,3000)}paint({status:"queued"});setTimeout(poll,1000);';
         }
         echo '})();</script></div>';
