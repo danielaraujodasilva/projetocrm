@@ -5680,7 +5680,97 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     ];
 }
 
-function studio_generate_tattoo_reference(array $studio, string $request): array
+function studio_local_image_ai_url(): string
+{
+    return rtrim(trim((string)(getenv('LOCAL_IMAGE_AI_URL') ?: 'http://127.0.0.1:7861')), '/');
+}
+
+function studio_local_image_ai_request(string $method, string $path, ?array $body = null, int $timeout = 10): array
+{
+    $ch = curl_init(studio_local_image_ai_url() . '/' . ltrim($path, '/'));
+    $options = [
+        CURLOPT_CUSTOMREQUEST => strtoupper($method),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+    ];
+    if ($body !== null) {
+        $options[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+    curl_setopt_array($ch, $options);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'status' => $status, 'error' => $error ?: 'A IA local de imagens não está respondendo.'];
+    }
+    $json = json_decode((string)$raw, true);
+    if (!is_array($json)) {
+        return ['ok' => false, 'status' => $status, 'error' => 'A IA local devolveu uma resposta inválida.'];
+    }
+    if ($status >= 400) {
+        $errorData = $json['error'] ?? null;
+        $message = is_array($errorData)
+            ? trim((string)($errorData['message'] ?? ''))
+            : (is_string($errorData) ? trim($errorData) : '');
+        return ['ok' => false, 'status' => $status, 'error' => $message ?: 'A IA local não conseguiu processar o pedido.'];
+    }
+    return ['ok' => true, 'status' => $status, 'json' => $json];
+}
+
+function studio_local_image_ai_status(): array
+{
+    $result = studio_local_image_ai_request('GET', '/v1/models', null, 3);
+    return [
+        'ok' => !empty($result['ok']),
+        'model' => !empty($result['ok']) ? 'RealVisXL 5.0 local' : '',
+        'error' => (string)($result['error'] ?? ''),
+    ];
+}
+
+function studio_translate_tattoo_image_prompt(string $request): string
+{
+    $body = [
+        'model' => trim((string)(getenv('LOCAL_IMAGE_PROMPT_MODEL') ?: 'llama3.2:3b')),
+        'stream' => false,
+        'think' => false,
+        'keep_alive' => 0,
+        'messages' => [
+            [
+                'role' => 'system',
+                'content' => 'Convert the user request into one concise, vivid English prompt for a photorealistic image generator. Preserve every requested subject, mood, angle and composition. Return only the final prompt in English, without quotes, labels, explanations or commentary.',
+            ],
+            ['role' => 'user', 'content' => $request],
+        ],
+        'options' => [
+            'temperature' => 0.2,
+            'num_predict' => 140,
+            'num_gpu' => 0,
+        ],
+    ];
+    $ch = curl_init('http://127.0.0.1:11434/api/chat');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $json = is_string($raw) ? json_decode($raw, true) : null;
+    $translated = is_array($json) ? trim((string)($json['message']['content'] ?? '')) : '';
+    $translated = trim((string)preg_replace('/<think>.*?<\/think>/is', '', $translated));
+    return ($status >= 200 && $status < 300 && $translated !== '') ? $translated : $request;
+}
+
+function studio_start_tattoo_reference_generation(array $studio, string $request): array
 {
     $request = trim($request);
     if (mb_strlen($request, 'UTF-8') < 4) {
@@ -5690,62 +5780,90 @@ function studio_generate_tattoo_reference(array $studio, string $request): array
         throw new RuntimeException('A descrição ficou muito longa. Resuma em até 4.000 caracteres.');
     }
 
-    $settings = studio_settings($studio);
-    $apiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
-    if ($apiKey === '') {
-        throw new RuntimeException('Configure a chave da OpenAI em Configurações > IA para gerar imagens.');
+    $localStatus = studio_local_image_ai_status();
+    if (empty($localStatus['ok'])) {
+        throw new RuntimeException('A IA local de imagens ainda está iniciando. Aguarde um pouco e tente novamente.');
     }
 
-    $prompt = "Crie uma única imagem de referência fotorrealista para um projeto de tatuagem.\n"
-        . "A imagem deve parecer uma fotografia profissional de alta definição, com iluminação cinematográfica, texturas naturais, profundidade, contraste e detalhes nítidos que funcionem bem como referência para um tatuador.\n"
-        . "Priorize uma composição vertical forte, assunto principal bem definido e fundo coerente sem roubar atenção.\n"
-        . "Não inclua moldura, interface, painel, legenda, marca-d'água, logotipo ou texto. Não mostre a arte aplicada na pele ou em um corpo, a menos que isso seja pedido explicitamente.\n"
-        . "Pedido do usuário: " . $request;
-
+    $translated = studio_translate_tattoo_image_prompt($request);
+    $prompt = 'RAW professional photograph, award-winning photorealism, ultra-detailed natural textures, '
+        . 'cinematic lighting, dimensional depth, sharp subject, rich tonal range, strong vertical composition, '
+        . 'a visually coherent standalone reference suitable for a premium tattoo design. '
+        . 'Do not show a user interface, frame, caption, watermark, logo or typography. '
+        . 'Do not place the artwork on skin or a human body unless the request explicitly asks for that. '
+        . 'User concept: ' . $translated;
     $body = [
-        'model' => 'gpt-image-2',
         'prompt' => $prompt,
-        'n' => 1,
-        'size' => '1024x1536',
-        'quality' => 'high',
-        'output_format' => 'jpeg',
-    ];
-    $ch = curl_init('https://api.openai.com/v1/images/generations');
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
+        'negative_prompt' => 'low quality, worst quality, blurry, flat lighting, oversaturated, cartoon, illustration, 3d render, '
+            . 'bad anatomy, bad hands, extra fingers, deformed, ugly, face asymmetry, eye asymmetry, duplicated subject, '
+            . 'text, letters, typography, watermark, signature, logo, border, frame, user interface',
+        'clip_skip' => -1,
+        'width' => 832,
+        'height' => 1216,
+        'seed' => -1,
+        'batch_count' => 1,
+        'sample_params' => [
+            'scheduler' => 'karras',
+            'sample_method' => 'dpm++2m',
+            'sample_steps' => 30,
+            'guidance' => [
+                'txt_cfg' => 5.0,
+                'distilled_guidance' => 3.5,
+            ],
         ],
-        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        CURLOPT_CONNECTTIMEOUT => 20,
-        CURLOPT_TIMEOUT => 240,
-    ]);
-    $raw = curl_exec($ch);
-    $errno = curl_errno($ch);
-    $curlError = curl_error($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-    curl_close($ch);
+        'vae_tiling_params' => [
+            'enabled' => true,
+            'tile_size_x' => 512,
+            'tile_size_y' => 512,
+            'target_overlap' => 0.25,
+        ],
+        'output_format' => 'jpeg',
+        'output_compression' => 94,
+    ];
+    $result = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', $body, 120);
+    if (empty($result['ok'])) {
+        throw new RuntimeException((string)($result['error'] ?? 'Não foi possível iniciar a geração local.'));
+    }
+    $jobId = trim((string)($result['json']['id'] ?? ''));
+    if ($jobId === '' || !preg_match('/^[a-zA-Z0-9_-]{8,100}$/', $jobId)) {
+        throw new RuntimeException('A IA local não devolveu um identificador válido para a imagem.');
+    }
+    return [
+        'id' => $jobId,
+        'prompt' => $request,
+        'translated_prompt' => $translated,
+        'status' => (string)($result['json']['status'] ?? 'queued'),
+        'started_at' => date('Y-m-d H:i:s'),
+        'model' => 'RealVisXL 5.0 local',
+    ];
+}
 
-    if ($errno || $raw === false) {
-        throw new RuntimeException($curlError !== '' ? $curlError : 'Não foi possível conectar ao gerador de imagens.');
+function studio_poll_tattoo_reference_generation(array $studio, array $job): array
+{
+    $jobId = trim((string)($job['id'] ?? ''));
+    if ($jobId === '' || !preg_match('/^[a-zA-Z0-9_-]{8,100}$/', $jobId)) {
+        return ['status' => 'failed', 'error' => 'Geração local inválida.'];
     }
-    $json = json_decode((string)$raw, true);
-    if (!is_array($json)) {
-        throw new RuntimeException('O gerador devolveu uma resposta inválida.');
+    $result = studio_local_image_ai_request('GET', '/sdcpp/v1/jobs/' . rawurlencode($jobId), null, 10);
+    if (empty($result['ok'])) {
+        return ['status' => 'waiting', 'error' => (string)($result['error'] ?? '')];
     }
-    if ($status >= 400) {
-        $apiError = is_array($json['error'] ?? null)
-            ? trim((string)($json['error']['message'] ?? ''))
-            : trim((string)($json['error'] ?? ''));
-        throw new RuntimeException($apiError !== '' ? $apiError : 'Não foi possível gerar a imagem agora.');
+    $json = (array)$result['json'];
+    $status = (string)($json['status'] ?? 'waiting');
+    if ($status !== 'completed') {
+        $errorData = $json['error'] ?? null;
+        $error = is_array($errorData) ? trim((string)($errorData['message'] ?? '')) : '';
+        return [
+            'status' => in_array($status, ['failed', 'cancelled'], true) ? 'failed' : $status,
+            'queue_position' => (int)($json['queue_position'] ?? 0),
+            'error' => $error,
+        ];
     }
 
-    $base64 = trim((string)($json['data'][0]['b64_json'] ?? ''));
+    $base64 = trim((string)($json['result']['images'][0]['b64_json'] ?? ''));
     $binary = $base64 !== '' ? base64_decode($base64, true) : false;
     if ($binary === false || $binary === '') {
-        throw new RuntimeException('A imagem foi gerada, mas não pôde ser lida.');
+        return ['status' => 'failed', 'error' => 'A imagem foi gerada, mas não pôde ser lida.'];
     }
 
     $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
@@ -5755,15 +5873,18 @@ function studio_generate_tattoo_reference(array $studio, string $request): array
     }
     $fileName = date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.jpg';
     if (file_put_contents($folder . '/' . $fileName, $binary) === false) {
-        throw new RuntimeException('Não foi possível salvar a imagem gerada.');
+        return ['status' => 'failed', 'error' => 'Não foi possível salvar a imagem gerada.'];
     }
 
     return [
-        'prompt' => $request,
-        'image_path' => 'storage/tattoo-images/' . $safeStudio . '/' . $fileName,
-        'file_name' => $fileName,
-        'generated_at' => date('Y-m-d H:i:s'),
-        'model' => 'gpt-image-2',
+        'status' => 'completed',
+        'result' => [
+            'prompt' => (string)($job['prompt'] ?? ''),
+            'image_path' => 'storage/tattoo-images/' . $safeStudio . '/' . $fileName,
+            'file_name' => $fileName,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'model' => 'RealVisXL 5.0 local',
+        ],
     ];
 }
 
