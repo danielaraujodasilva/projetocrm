@@ -1337,6 +1337,16 @@ if ($action === 'studio_login') {
             redirect_to('studio_data_assistant');
         }
 
+        if ($action === 'generate_tattoo_reference') {
+            $studio = require_studio();
+            $tattooImagePrompt = trim((string)($_POST['prompt'] ?? ''));
+            $_SESSION['studio_tattoo_image_prompt'] = $tattooImagePrompt;
+            $_SESSION['studio_tattoo_image_result'] = studio_generate_tattoo_reference($studio, $tattooImagePrompt);
+            unset($_SESSION['studio_tattoo_image_prompt']);
+            flash_set('success', 'Imagem criada.');
+            redirect_to('studio_tattoo_images');
+        }
+
         if ($action === 'save_studio_settings') {
             $studio = require_studio();
             studio_save_settings($studio, $_POST);
@@ -1838,6 +1848,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configurações</a>';
     echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatórios</a>';
     echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
+    echo '<a class="' . ($active === 'tattoo_images' ? 'active' : '') . '" href="' . h(app_url('studio_tattoo_images')) . '">Criar imagens</a>';
     echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
     echo '</nav></aside>';
     echo '<main class="main flex-grow-1 container-fluid py-3 py-lg-4">';
@@ -2152,7 +2163,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
@@ -5598,6 +5609,44 @@ if ($page === 'studio_data_assistant') {
             echo '<pre class="answer-box">' . h($result['answer']) . '</pre>';
         }
         echo '</section>';
+    }, $flash);
+    exit;
+}
+
+if ($page === 'studio_tattoo_images') {
+    $studio = require_studio();
+    render_studio_shell('Criar imagem', 'Transforme uma ideia em referência visual para tatuagem.', 'tattoo_images', function () use ($studio) {
+        $settings = studio_settings($studio);
+        $hasOpenAiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY') !== '';
+        $result = $_SESSION['studio_tattoo_image_result'] ?? null;
+        $prompt = trim((string)($_SESSION['studio_tattoo_image_prompt'] ?? $result['prompt'] ?? ''));
+        unset($_SESSION['studio_tattoo_image_prompt']);
+
+        echo '<div class="tattoo-image-studio">';
+        echo '<section class="tattoo-image-compose">';
+        echo '<div class="tattoo-image-intro"><span>IMAGEM REALISTA PARA TATUAGEM</span><h2>O que você quer criar?</h2><p>Descreva a cena do seu jeito. A IA cuida do realismo, iluminação, composição e detalhes.</p></div>';
+        if (!$hasOpenAiKey) {
+            echo '<div class="tattoo-image-key-note"><strong>Falta somente conectar a OpenAI.</strong><span>A chave ainda não está cadastrada.</span><a href="' . h(app_url('studio_settings', ['tab' => 'ia']) . '#settings-ia') . '">Configurar agora</a></div>';
+        }
+        echo '<form method="post" id="tattooImageForm" class="tattoo-image-form">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="generate_tattoo_reference">';
+        echo '<textarea name="prompt" rows="5" maxlength="4000" required placeholder="Ex: um leão de frente emergindo de uma floresta escura, luz lateral dramática, olhar intenso, muito realista...">' . h($prompt) . '</textarea>';
+        echo '<div class="tattoo-image-submit-row"><span id="tattooImageWait" hidden>Criando os detalhes da imagem… pode levar até 2 minutos.</span><button class="btn tattoo-image-generate" type="submit" ' . (!$hasOpenAiKey ? 'disabled' : '') . '>Gerar imagem</button></div>';
+        echo '</form>';
+        echo '</section>';
+
+        if (is_array($result) && !empty($result['image_path'])) {
+            $imageUrl = app_asset_url((string)$result['image_path']);
+            echo '<section class="tattoo-image-result">';
+            echo '<img src="' . h($imageUrl) . '" alt="Imagem realista gerada para referência de tatuagem">';
+            echo '<div><p>' . h((string)$result['prompt']) . '</p><a class="btn secondary" href="' . h($imageUrl) . '" download="' . h((string)($result['file_name'] ?? 'referencia-tattoo.jpg')) . '">Baixar imagem</a></div>';
+            echo '</section>';
+        } else {
+            echo '<section class="tattoo-image-empty"><div class="tattoo-image-orb"></div><p>Sua imagem vai aparecer aqui.</p></section>';
+        }
+        echo '</div>';
+        echo '<script>(function(){const form=document.getElementById("tattooImageForm");const wait=document.getElementById("tattooImageWait");if(!form)return;form.addEventListener("submit",()=>{const button=form.querySelector("button[type=submit]");if(button){button.disabled=true;button.textContent="Criando…";}if(wait)wait.hidden=false;});})();</script>';
     }, $flash);
     exit;
 }

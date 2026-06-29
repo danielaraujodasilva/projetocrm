@@ -5680,6 +5680,93 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     ];
 }
 
+function studio_generate_tattoo_reference(array $studio, string $request): array
+{
+    $request = trim($request);
+    if (mb_strlen($request, 'UTF-8') < 4) {
+        throw new RuntimeException('Descreva um pouco melhor a imagem que você quer criar.');
+    }
+    if (mb_strlen($request, 'UTF-8') > 4000) {
+        throw new RuntimeException('A descrição ficou muito longa. Resuma em até 4.000 caracteres.');
+    }
+
+    $settings = studio_settings($studio);
+    $apiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
+    if ($apiKey === '') {
+        throw new RuntimeException('Configure a chave da OpenAI em Configurações > IA para gerar imagens.');
+    }
+
+    $prompt = "Crie uma única imagem de referência fotorrealista para um projeto de tatuagem.\n"
+        . "A imagem deve parecer uma fotografia profissional de alta definição, com iluminação cinematográfica, texturas naturais, profundidade, contraste e detalhes nítidos que funcionem bem como referência para um tatuador.\n"
+        . "Priorize uma composição vertical forte, assunto principal bem definido e fundo coerente sem roubar atenção.\n"
+        . "Não inclua moldura, interface, painel, legenda, marca-d'água, logotipo ou texto. Não mostre a arte aplicada na pele ou em um corpo, a menos que isso seja pedido explicitamente.\n"
+        . "Pedido do usuário: " . $request;
+
+    $body = [
+        'model' => 'gpt-image-2',
+        'prompt' => $prompt,
+        'n' => 1,
+        'size' => '1024x1536',
+        'quality' => 'high',
+        'output_format' => 'jpeg',
+    ];
+    $ch = curl_init('https://api.openai.com/v1/images/generations');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 20,
+        CURLOPT_TIMEOUT => 240,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $curlError = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        throw new RuntimeException($curlError !== '' ? $curlError : 'Não foi possível conectar ao gerador de imagens.');
+    }
+    $json = json_decode((string)$raw, true);
+    if (!is_array($json)) {
+        throw new RuntimeException('O gerador devolveu uma resposta inválida.');
+    }
+    if ($status >= 400) {
+        $apiError = is_array($json['error'] ?? null)
+            ? trim((string)($json['error']['message'] ?? ''))
+            : trim((string)($json['error'] ?? ''));
+        throw new RuntimeException($apiError !== '' ? $apiError : 'Não foi possível gerar a imagem agora.');
+    }
+
+    $base64 = trim((string)($json['data'][0]['b64_json'] ?? ''));
+    $binary = $base64 !== '' ? base64_decode($base64, true) : false;
+    if ($binary === false || $binary === '') {
+        throw new RuntimeException('A imagem foi gerada, mas não pôde ser lida.');
+    }
+
+    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
+    $folder = APP_BASE_PATH . '/storage/tattoo-images/' . $safeStudio;
+    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) {
+        throw new RuntimeException('Não foi possível preparar a pasta das imagens.');
+    }
+    $fileName = date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.jpg';
+    if (file_put_contents($folder . '/' . $fileName, $binary) === false) {
+        throw new RuntimeException('Não foi possível salvar a imagem gerada.');
+    }
+
+    return [
+        'prompt' => $request,
+        'image_path' => 'storage/tattoo-images/' . $safeStudio . '/' . $fileName,
+        'file_name' => $fileName,
+        'generated_at' => date('Y-m-d H:i:s'),
+        'model' => 'gpt-image-2',
+    ];
+}
+
 function studio_meta_ads_request(string $version, string $path, string $accessToken, array $query = [], string $method = 'GET', ?array $body = null, ?int $timeoutSeconds = null): array
 {
     $version = trim($version) !== '' ? trim($version) : 'v22.0';
