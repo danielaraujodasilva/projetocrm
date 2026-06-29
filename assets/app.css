@@ -139,6 +139,23 @@
     font-weight: 700;
 }
 
+.tattoo-image-local-status {
+    align-items: center;
+    color: rgba(255, 255, 255, .7);
+    display: inline-flex;
+    font-size: 13px;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.tattoo-image-local-status i {
+    background: #58d68d;
+    border-radius: 50%;
+    box-shadow: 0 0 0 5px rgba(88, 214, 141, .12);
+    height: 8px;
+    width: 8px;
+}
+
 .tattoo-image-result {
     overflow: hidden;
     border-radius: 28px;

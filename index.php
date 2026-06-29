@@ -1341,9 +1341,9 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             $tattooImagePrompt = trim((string)($_POST['prompt'] ?? ''));
             $_SESSION['studio_tattoo_image_prompt'] = $tattooImagePrompt;
-            $_SESSION['studio_tattoo_image_result'] = studio_generate_tattoo_reference($studio, $tattooImagePrompt);
+            $_SESSION['studio_tattoo_image_job'] = studio_start_tattoo_reference_generation($studio, $tattooImagePrompt);
             unset($_SESSION['studio_tattoo_image_prompt']);
-            flash_set('success', 'Imagem criada.');
+            flash_set('success', 'A IA local começou a criar sua imagem.');
             redirect_to('studio_tattoo_images');
         }
 
@@ -2163,7 +2163,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
@@ -5613,26 +5613,49 @@ if ($page === 'studio_data_assistant') {
     exit;
 }
 
+if ($page === 'studio_tattoo_image_status') {
+    $studio = require_studio();
+    header('Content-Type: application/json; charset=utf-8');
+    $job = $_SESSION['studio_tattoo_image_job'] ?? null;
+    if (!is_array($job)) {
+        echo json_encode(['status' => 'idle'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    $poll = studio_poll_tattoo_reference_generation($studio, $job);
+    if (($poll['status'] ?? '') === 'completed' && is_array($poll['result'] ?? null)) {
+        $_SESSION['studio_tattoo_image_result'] = $poll['result'];
+        unset($_SESSION['studio_tattoo_image_job']);
+    } elseif (($poll['status'] ?? '') === 'failed') {
+        unset($_SESSION['studio_tattoo_image_job']);
+        flash_set('error', (string)($poll['error'] ?? 'A IA local não conseguiu concluir a imagem.'));
+    }
+    echo json_encode($poll, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 if ($page === 'studio_tattoo_images') {
     $studio = require_studio();
     render_studio_shell('Criar imagem', 'Transforme uma ideia em referência visual para tatuagem.', 'tattoo_images', function () use ($studio) {
-        $settings = studio_settings($studio);
-        $hasOpenAiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY') !== '';
+        $localAi = studio_local_image_ai_status();
+        $job = $_SESSION['studio_tattoo_image_job'] ?? null;
+        $isGenerating = is_array($job) && !empty($job['id']);
         $result = $_SESSION['studio_tattoo_image_result'] ?? null;
-        $prompt = trim((string)($_SESSION['studio_tattoo_image_prompt'] ?? $result['prompt'] ?? ''));
+        $prompt = trim((string)($_SESSION['studio_tattoo_image_prompt'] ?? $job['prompt'] ?? $result['prompt'] ?? ''));
         unset($_SESSION['studio_tattoo_image_prompt']);
 
         echo '<div class="tattoo-image-studio">';
         echo '<section class="tattoo-image-compose">';
         echo '<div class="tattoo-image-intro"><span>IMAGEM REALISTA PARA TATUAGEM</span><h2>O que você quer criar?</h2><p>Descreva a cena do seu jeito. A IA cuida do realismo, iluminação, composição e detalhes.</p></div>';
-        if (!$hasOpenAiKey) {
-            echo '<div class="tattoo-image-key-note"><strong>Falta somente conectar a OpenAI.</strong><span>A chave ainda não está cadastrada.</span><a href="' . h(app_url('studio_settings', ['tab' => 'ia']) . '#settings-ia') . '">Configurar agora</a></div>';
+        if (empty($localAi['ok'])) {
+            echo '<div class="tattoo-image-key-note"><strong>A IA local está iniciando.</strong><span>O modelo RealVisXL roda nesta máquina, sem API externa. Atualize a página em alguns instantes.</span></div>';
+        } else {
+            echo '<div class="tattoo-image-local-status"><i></i><span>RealVisXL 5.0 · rodando localmente</span></div>';
         }
         echo '<form method="post" id="tattooImageForm" class="tattoo-image-form">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="generate_tattoo_reference">';
-        echo '<textarea name="prompt" rows="5" maxlength="4000" required placeholder="Ex: um leão de frente emergindo de uma floresta escura, luz lateral dramática, olhar intenso, muito realista...">' . h($prompt) . '</textarea>';
-        echo '<div class="tattoo-image-submit-row"><span id="tattooImageWait" hidden>Criando os detalhes da imagem… pode levar até 2 minutos.</span><button class="btn tattoo-image-generate" type="submit" ' . (!$hasOpenAiKey ? 'disabled' : '') . '>Gerar imagem</button></div>';
+        echo '<textarea name="prompt" rows="5" maxlength="4000" required ' . ($isGenerating ? 'disabled' : '') . ' placeholder="Ex: um leão de frente emergindo de uma floresta escura, luz lateral dramática, olhar intenso, muito realista...">' . h($prompt) . '</textarea>';
+        echo '<div class="tattoo-image-submit-row"><span id="tattooImageWait" ' . ($isGenerating ? '' : 'hidden') . '>' . ($isGenerating ? 'A IA local está criando sua imagem… pode levar alguns minutos.' : 'Preparando a IA local…') . '</span><button class="btn tattoo-image-generate" type="submit" ' . (empty($localAi['ok']) || $isGenerating ? 'disabled' : '') . '>' . ($isGenerating ? 'Criando…' : 'Gerar imagem') . '</button></div>';
         echo '</form>';
         echo '</section>';
 
@@ -5646,7 +5669,11 @@ if ($page === 'studio_tattoo_images') {
             echo '<section class="tattoo-image-empty"><div class="tattoo-image-orb"></div><p>Sua imagem vai aparecer aqui.</p></section>';
         }
         echo '</div>';
-        echo '<script>(function(){const form=document.getElementById("tattooImageForm");const wait=document.getElementById("tattooImageWait");if(!form)return;form.addEventListener("submit",()=>{const button=form.querySelector("button[type=submit]");if(button){button.disabled=true;button.textContent="Criando…";}if(wait)wait.hidden=false;});})();</script>';
+        echo '<script>(function(){const form=document.getElementById("tattooImageForm");const wait=document.getElementById("tattooImageWait");if(form){form.addEventListener("submit",()=>{const button=form.querySelector("button[type=submit]");if(button){button.disabled=true;button.textContent="Preparando…";}if(wait){wait.hidden=false;wait.textContent="Preparando a IA local…";}});}';
+        if ($isGenerating) {
+            echo 'const statusUrl=' . json_encode(app_url('studio_tattoo_image_status'), JSON_UNESCAPED_SLASHES) . ';let failures=0;const poll=async()=>{try{const response=await fetch(statusUrl,{credentials:"same-origin",cache:"no-store"});const data=await response.json();failures=0;if(data.status==="completed"||data.status==="failed"||data.status==="idle"){location.reload();return;}if(wait){wait.textContent=data.status==="queued"?"Sua imagem está na fila da IA local…":"A IA local está criando sua imagem… pode levar alguns minutos.";}}catch(error){failures++;if(wait&&failures>2)wait.textContent="A geração continua localmente. Tentando reconectar…";}setTimeout(poll,5000);};setTimeout(poll,1500);';
+        }
+        echo '})();</script>';
     }, $flash);
     exit;
 }
