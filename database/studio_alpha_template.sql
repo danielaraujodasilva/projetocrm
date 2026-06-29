@@ -7,6 +7,7 @@ USE `{{DATABASE_NAME}}`;
 CREATE TABLE IF NOT EXISTS `studio_settings` (
   `id` TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `studio_name` VARCHAR(160) NOT NULL,
+  `studio_address` VARCHAR(300) NULL,
   `studio_slug` VARCHAR(90) NOT NULL,
   `business_rules` MEDIUMTEXT NULL,
   `ai_enabled` TINYINT(1) NOT NULL DEFAULT 0,
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE `studio_settings`
+  ADD COLUMN IF NOT EXISTS `studio_address` VARCHAR(300) NULL AFTER `studio_name`,
   ADD COLUMN IF NOT EXISTS `assistant_autofill_enabled` TINYINT(1) NOT NULL DEFAULT 0 AFTER `ai_enabled`,
   ADD COLUMN IF NOT EXISTS `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human' AFTER `whatsapp_enabled`,
   ADD COLUMN IF NOT EXISTS `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010' AFTER `whatsapp_default_mode`,
