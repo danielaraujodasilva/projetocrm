@@ -148,13 +148,51 @@ function redirect_to(string $page = 'dashboard', array $params = []): never
     exit;
 }
 
-function redirect_to_url(string $url): never
+function safe_local_return_url(string $url): string
 {
     $url = trim($url);
     if ($url === '') {
-        redirect_to('dashboard');
+        return '';
     }
-    if (!preg_match('#^/[A-Za-z0-9._~/?=&%+\-#]*$#', $url)) {
+
+    if (preg_match('#^https?://#i', $url)) {
+        $parts = parse_url($url);
+        $requestHost = strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? '')) ?? '');
+        $returnHost = strtolower((string)($parts['host'] ?? ''));
+        if ($requestHost === '' || $returnHost !== $requestHost) {
+            return '';
+        }
+        $url = (string)($parts['path'] ?? '/');
+        if (!empty($parts['query'])) {
+            $url .= '?' . $parts['query'];
+        }
+        if (!empty($parts['fragment'])) {
+            $url .= '#' . $parts['fragment'];
+        }
+    }
+
+    if (!preg_match('#^/[A-Za-z0-9._~/?=&%+\-\#]*$#', $url)) {
+        return '';
+    }
+
+    $appBase = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php'))), '/') . '/';
+    $returnPath = (string)(parse_url($url, PHP_URL_PATH) ?: '');
+    if ($appBase !== '/' && !str_starts_with($returnPath, $appBase)) {
+        return '';
+    }
+
+    parse_str((string)(parse_url($url, PHP_URL_QUERY) ?: ''), $query);
+    if (in_array((string)($query['page'] ?? ''), ['login', 'logout', 'studio_login', 'studio_logout'], true)) {
+        return '';
+    }
+
+    return $url;
+}
+
+function redirect_to_url(string $url): never
+{
+    $url = safe_local_return_url($url);
+    if ($url === '') {
         redirect_to('dashboard');
     }
     header('Location: ' . $url);
