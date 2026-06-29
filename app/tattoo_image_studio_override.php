@@ -45,6 +45,57 @@ function studio_tattoo_image_style_prompt(string $style): string
 function studio_tattoo_image_subject_guard(string $request): array
 {
     $text = studio_tattoo_image_norm($request);
+    $subjectMap = [
+        'mulher' => 'woman', 'woman' => 'woman', 'garota' => 'woman', 'girl' => 'woman',
+        'homem' => 'man', 'man' => 'man', 'rapaz' => 'man',
+        'jesus' => 'Jesus', 'cristo' => 'Jesus',
+        'caveira' => 'skull', 'skull' => 'skull',
+        'anjo' => 'angel', 'angel' => 'angel', 'dragao' => 'dragon', 'dragon' => 'dragon',
+        'rosa' => 'rose', 'rose' => 'rose', 'flor' => 'flower', 'flower' => 'flower',
+        'relogio' => 'clock', 'clock' => 'clock', 'bussola' => 'compass', 'compass' => 'compass',
+        'olho' => 'eye', 'eye' => 'eye',
+        'leao' => 'lion', 'lion' => 'lion', 'tigre' => 'tiger', 'tiger' => 'tiger',
+        'lobo' => 'wolf', 'wolf' => 'wolf', 'onca' => 'jaguar', 'jaguar' => 'jaguar',
+        'aguia' => 'eagle', 'eagle' => 'eagle', 'coruja' => 'owl', 'owl' => 'owl',
+        'cobra' => 'snake', 'snake' => 'snake', 'cachorro' => 'dog', 'dog' => 'dog',
+    ];
+    $detected = [];
+    foreach ($subjectMap as $needle => $subject) {
+        if (preg_match('/\b' . preg_quote($needle, '/') . 's?\b/u', $text, $match, PREG_OFFSET_CAPTURE)) {
+            $detected[$subject] = (int)$match[0][1];
+        }
+    }
+    asort($detected);
+    $subjects = array_keys($detected);
+    $isSplit = preg_match('/\b(metade|meio|dividid[oa]?|cortad[oa]?|rasgad[oa]?|hibrid[oa]?|half|split|torn|hybrid)\b/u', $text) === 1;
+    if ($isSplit && count($subjects) >= 2) {
+        $first = $subjects[0];
+        $second = $subjects[1];
+        $vertical = str_contains($text, 'vertical') ? ' The division must be perfectly vertical.' : '';
+        $torn = preg_match('/rasgad|torn|papel/u', $text) === 1
+            ? ' Add a narrow irregular white fibrous torn edge only along the central seam, like a photographic collage reveal. Both face halves must remain photorealistic, not drawn on paper.'
+            : '';
+        return [
+            'lock' => '((ONE single front-facing split face:1.35)), ((exactly 50% ' . $first . ' face and 50% ' . $second . ' face:1.5)). '
+                . 'Both halves are equally visible and share aligned eyes, nose/muzzle and mouth across one central seam. '
+                . 'Not two portraits and not a complete ' . $first . ' or ' . $second . '.'
+                . $vertical . $torn
+                . ' Tight face portrait only, no full body.',
+            'negative' => 'complete ' . $first . ', full ' . $first . ' face, only ' . $first . ', missing ' . $second
+                . ', complete ' . $second . ', full ' . $second . ' face, only ' . $second . ', missing ' . $first
+                . ', two separate faces, two portraits, side-by-side subjects, uneven split, missing half, clean straight divider, smooth center seam, simple split screen, sketch, drawing, engraving, parchment, paper background',
+        ];
+    }
+    if (count($subjects) >= 2) {
+        $required = implode(', ', array_slice($subjects, 0, 4));
+        return [
+            'lock' => 'CRITICAL MULTI-SUBJECT FIDELITY: include every requested subject with none omitted or replaced: ' . $required
+                . '. Preserve the exact spatial relationship, hierarchy, count and interaction stated by the user. '
+                . 'Do not turn this into a single-subject image.',
+            'negative' => implode(', ', array_map(static fn(string $subject): string => 'missing ' . $subject, array_slice($subjects, 0, 4)))
+                . ', omitted subject, replaced subject, single-subject composition',
+        ];
+    }
     $subjects = [
         'leao' => 'lion', 'lion' => 'lion', 'tigre' => 'tiger', 'tiger' => 'tiger',
         'lobo' => 'wolf', 'wolf' => 'wolf', 'onca' => 'jaguar', 'jaguar' => 'jaguar',
@@ -72,15 +123,15 @@ function studio_tattoo_image_translate_strict(string $request): string
         return '';
     }
     $body = [
-        'model' => trim((string)(getenv('LOCAL_IMAGE_PROMPT_MODEL') ?: 'llama3.2:3b')),
+        'model' => trim((string)(getenv('LOCAL_IMAGE_PROMPT_MODEL') ?: 'llama3:8b')),
         'stream' => false,
         'think' => false,
         'keep_alive' => 0,
         'messages' => [
-            ['role' => 'system', 'content' => 'Translate this tattoo image request into concise English. Do not invent or change subject, identity, species, count, pose, camera angle, expression, lighting or accessories. Return only the final English image prompt.'],
+            ['role' => 'system', 'content' => 'Translate literally into a concise English image prompt. Preserve every subject, count, spatial relationship, split, side, camera angle and visual metaphor. Do not summarize, explain, add or remove anything. Output only the translated prompt.'],
             ['role' => 'user', 'content' => $request],
         ],
-        'options' => ['temperature' => 0.05, 'num_predict' => 180, 'num_gpu' => 0],
+        'options' => ['temperature' => 0, 'num_predict' => 220, 'num_gpu' => 0],
     ];
     $ch = curl_init('http://127.0.0.1:11434/api/chat');
     curl_setopt_array($ch, [
@@ -97,6 +148,9 @@ function studio_tattoo_image_translate_strict(string $request): string
     $json = is_string($raw) ? json_decode($raw, true) : null;
     $translated = is_array($json) ? trim((string)($json['message']['content'] ?? '')) : '';
     $translated = trim((string)preg_replace('/<think>.*?<\/think>/is', '', $translated), " \n\r\t\"'");
+    if (preg_match('/\b(could not|couldn.t|cannot|can.t|unable|sorry)\b/i', $translated)) {
+        $translated = '';
+    }
     return $status >= 200 && $status < 300 && $translated !== '' ? $translated : $request;
 }
 
@@ -150,10 +204,11 @@ function studio_tattoo_image_build_prompt(array $data): string
         default => 'Create a standalone tattoo design reference.',
     };
 
-    return studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. '
-        . $guard['lock'] . ' ' . $operationPrompt . ' '
+    return $guard['lock'] . ' CORE REQUEST: ' . $translated . '. '
+        . $operationPrompt . ' '
+        . studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. '
         . 'No user interface, caption, watermark, logo, frame or random typography. '
-        . 'User concept: ' . $translated;
+        . 'Follow the core request literally; do not replace a composite subject with only one of its halves.';
 }
 
 function studio_tattoo_image_body(array $data, string $mode): array
@@ -162,6 +217,11 @@ function studio_tattoo_image_body(array $data, string $mode): array
     [$width, $height] = studio_tattoo_image_dimensions($mode, $format);
     $config = studio_tattoo_image_mode_config($mode);
     $guard = studio_tattoo_image_subject_guard((string)($data['prompt'] ?? ''));
+    $isComposite = str_starts_with((string)$guard['lock'], '((ONE single front-facing split face:1.35))');
+    if ($isComposite && $mode === 'fast') {
+        $config['steps'] = 14;
+        $config['cfg'] = 6.0;
+    }
     $negative = 'low quality, blurry, malformed anatomy, duplicated subject, altered identity, watermark, signature, text, logo, border, frame, user interface, ' . $guard['negative'];
     if (trim((string)($data['negative_prompt'] ?? '')) !== '') {
         $negative .= ', ' . trim((string)$data['negative_prompt']);
@@ -336,6 +396,63 @@ function studio_tattoo_image_upscale_jpeg(string $sourcePath, int $factor = 4): 
     return is_file($targetPath) ? basename($targetPath) : '';
 }
 
+function studio_tattoo_image_apply_torn_seam(string $sourcePath): bool
+{
+    if (!function_exists('imagecreatefromjpeg') || !is_file($sourcePath)) {
+        return false;
+    }
+    $image = @imagecreatefromjpeg($sourcePath);
+    if (!$image) {
+        return false;
+    }
+    $width = imagesx($image);
+    $height = imagesy($image);
+    if ($width < 200 || $height < 200) {
+        imagedestroy($image);
+        return false;
+    }
+
+    $center = (int)round($width / 2);
+    $halfBand = max(5, (int)round($width * 0.012));
+    $step = max(12, (int)round($height / 70));
+    $left = [];
+    $right = [];
+    for ($y = -$step; $y <= $height + $step; $y += $step) {
+        $noiseA = (int)round(sin($y * 0.071) * $halfBand * 0.65 + sin($y * 0.019) * $halfBand * 0.45);
+        $noiseB = (int)round(cos($y * 0.059) * $halfBand * 0.6 + sin($y * 0.031) * $halfBand * 0.4);
+        $left[] = [$center - $halfBand + $noiseA, $y];
+        $right[] = [$center + $halfBand + $noiseB, $y];
+    }
+    $polygon = [];
+    foreach ($left as $point) {
+        $polygon[] = $point[0];
+        $polygon[] = $point[1];
+    }
+    foreach (array_reverse($right) as $point) {
+        $polygon[] = $point[0];
+        $polygon[] = $point[1];
+    }
+
+    $paper = imagecolorallocate($image, 248, 246, 239);
+    $paperLight = imagecolorallocate($image, 255, 254, 250);
+    $edgeShadow = imagecolorallocate($image, 112, 104, 98);
+    imagefilledpolygon($image, $polygon, count($polygon) / 2, $paper);
+    for ($i = 1, $count = count($left); $i < $count; $i++) {
+        imageline($image, $left[$i - 1][0] - 2, $left[$i - 1][1], $left[$i][0] - 2, $left[$i][1], $edgeShadow);
+        imageline($image, $right[$i - 1][0] + 2, $right[$i - 1][1], $right[$i][0] + 2, $right[$i][1], $edgeShadow);
+        imageline($image, $left[$i - 1][0], $left[$i - 1][1], $left[$i][0], $left[$i][1], $paperLight);
+        imageline($image, $right[$i - 1][0], $right[$i - 1][1], $right[$i][0], $right[$i][1], $paperLight);
+        if ($i % 3 === 0) {
+            $fiber = max(3, (int)round($halfBand * (0.7 + (($i % 5) * 0.13))));
+            imageline($image, $left[$i][0], $left[$i][1], $left[$i][0] - $fiber, $left[$i][1] + ($i % 2 ? 3 : -3), $paperLight);
+            imageline($image, $right[$i][0], $right[$i][1], $right[$i][0] + $fiber, $right[$i][1] + ($i % 2 ? -3 : 3), $paperLight);
+        }
+    }
+    $saved = imagejpeg($image, $sourcePath, 95);
+    imagedestroy($image);
+    return $saved;
+}
+
 function studio_tattoo_image_start(array $studio, array $data): array
 {
     if (!empty($_SESSION['studio_tattoo_image_job'])) {
@@ -355,6 +472,12 @@ function studio_tattoo_image_start(array $studio, array $data): array
         throw new RuntimeException('A IA local não devolveu um identificador válido.');
     }
     $config = studio_tattoo_image_mode_config($mode);
+    $normalizedPrompt = studio_tattoo_image_norm((string)($data['prompt'] ?? ''));
+    $compositeGuard = studio_tattoo_image_subject_guard((string)($data['prompt'] ?? ''));
+    $isComposite = str_starts_with((string)$compositeGuard['lock'], '((ONE single front-facing split face:1.35))');
+    if ($mode === 'fast' && $isComposite) {
+        $config['expected'] = 210;
+    }
     return [
         'id' => $jobId,
         'history_id' => bin2hex(random_bytes(8)),
@@ -372,6 +495,7 @@ function studio_tattoo_image_start(array $studio, array $data): array
         'upscale' => !empty($data['upscale']),
         'upscale_factor' => max(2, min(4, (int)($data['upscale_factor'] ?? 4))),
         'favorite' => false,
+        'apply_torn_seam' => $isComposite && preg_match('/rasgad|papel|torn/u', $normalizedPrompt) === 1,
         'started_at' => date('Y-m-d H:i:s'),
         'expected_seconds' => (int)$config['expected'],
         'model' => 'RealVisXL 5.0 local',
@@ -414,6 +538,9 @@ function studio_tattoo_image_poll(array $studio, array $job): array
     if (file_put_contents($absolutePath, $binary) === false) {
         return ['status' => 'failed', 'error' => 'Não foi possível salvar a imagem.'];
     }
+    if (!empty($job['apply_torn_seam'])) {
+        studio_tattoo_image_apply_torn_seam($absolutePath);
+    }
     $upscaledFile = !empty($job['upscale']) ? studio_tattoo_image_upscale_jpeg($absolutePath, (int)($job['upscale_factor'] ?? 4)) : '';
     $payload = studio_tattoo_image_history_add([
         'history_id' => (string)($job['history_id'] ?? bin2hex(random_bytes(8))),
@@ -439,6 +566,7 @@ function studio_tattoo_image_poll(array $studio, array $job): array
 
 function studio_tattoo_image_derived_data(array $source, string $operation, array $post = []): array
 {
+    $editPrompt = trim((string)($post['edit_prompt'] ?? ''));
     $strength = match ($operation) {
         'final' => 0.18,
         'variation' => 0.32,
@@ -448,11 +576,16 @@ function studio_tattoo_image_derived_data(array $source, string $operation, arra
         },
         default => 0.28,
     };
+    if ($operation === 'edit' && str_starts_with(studio_tattoo_image_subject_guard($editPrompt)['lock'], '((ONE single front-facing split face:1.35))')) {
+        // Corrigir um sujeito inteiro para uma composição 50/50 exige liberdade
+        // estrutural maior que uma edição localizada comum.
+        $strength = max($strength, 0.58);
+    }
     return [
         'parent_id' => (string)$source['history_id'],
         'project_id' => (string)$source['project_id'],
         'prompt' => (string)$source['prompt'],
-        'edit_prompt' => trim((string)($post['edit_prompt'] ?? '')),
+        'edit_prompt' => $editPrompt,
         'style' => $operation === 'stencil' ? 'stencil' : (string)$source['style'],
         'mode' => $operation === 'variation' ? 'fast' : 'final',
         'format' => (string)$source['format'],
