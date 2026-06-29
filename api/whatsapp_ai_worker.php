@@ -36,13 +36,29 @@ try {
         exit(1);
     }
 
+    $pdo = studio_db($studio);
+    $lockName = 'crm_ai_' . (int)$studio['id'] . '_' . $conversationId;
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 180)');
+    $lockStmt->execute([$lockName]);
+    if ((int)$lockStmt->fetchColumn() !== 1) {
+        worker_log('Conversa ocupada; IA nao obteve a fila', ['conversationId' => $conversationId, 'messageId' => $messageId]);
+        exit(0);
+    }
+    usleep(3000000);
+    $latestStmt = $pdo->prepare('SELECT message_id FROM whatsapp_messages WHERE conversation_id = ? AND direction = "in" ORDER BY id DESC LIMIT 1');
+    $latestStmt->execute([$conversationId]);
+    $latestMessageId = trim((string)($latestStmt->fetchColumn() ?: ''));
+    if ($latestMessageId !== '' && $latestMessageId !== $messageId) {
+        worker_log('Mensagem agrupada em entrada mais recente', ['conversationId' => $conversationId, 'messageId' => $messageId, 'latestMessageId' => $latestMessageId]);
+        exit(0);
+    }
+
     $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
     if (!$conversation) {
         worker_log('Conversa nao encontrada', ['conversationId' => $conversationId]);
         exit(1);
     }
 
-    $pdo = studio_db($studio);
     $stmt = $pdo->prepare('SELECT * FROM whatsapp_messages WHERE conversation_id = ? AND message_id = ? LIMIT 1');
     $stmt->execute([$conversationId, $messageId]);
     $message = $stmt->fetch();
@@ -76,6 +92,11 @@ try {
             'status' => $result['ai_last_status'] ?? '',
             'intent' => $result['intent'] ?? '',
             'visualType' => $result['image_analysis']['visual_type'] ?? '',
+        ]);
+    } elseif (!empty($result['superseded'])) {
+        worker_log('Resposta descartada; cliente enviou mensagem mais recente', [
+            'conversationId' => $conversationId,
+            'messageId' => $messageId,
         ]);
     } else {
         studio_update_whatsapp_conversation($studio, [

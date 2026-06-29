@@ -4128,6 +4128,18 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
     $asksPrice = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text) === 1;
     $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem|\bestilo\b|\belementos?\b|\bdescrev)/u', $text) === 1;
 
+    if (preg_match('/(onde\s+fica|qual\s+(e\s+)?o\s+endere[cç]o|endere[cç]o\s+do\s+est[uú]dio|localiza[cç][aã]o)/u', $text)) {
+        return 'address';
+    }
+
+    if (preg_match('/(qual\s+(e\s+)?o\s+(nome\s+do\s+)?tatuador|nome\s+do\s+tatuador|com\s+qual\s+tatuador|quem\s+vai\s+tatuar)/u', $text)) {
+        return 'artist';
+    }
+
+    if (preg_match('/(deixa|pode|quero)\s+(reservad[oa]|marcad[oa])|faz(er)?\s+a\s+reserva|reserva\s+(pra|para)\s+mim/u', $text)) {
+        return 'reservation';
+    }
+
     if ($hasImage && $asksPrice && $asksStyle) {
         return 'image_price_style';
     }
@@ -4152,6 +4164,10 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
 
     if ($messageType === 'audio' && $text === '') {
         return 'audio_unavailable';
+    }
+
+    if (preg_match('/^(ok|okay|certo|beleza|blz|t[aá]\s*bom|combinado|perfeito|entendi)[!. ]*$/u', $text)) {
+        return 'acknowledgement';
     }
 
     if (preg_match('/\b(tatuagem|tattoo|fechamento|le[aã]o|flor|drag[aã]o|nome|frase|desenho|refer[eê]ncia|costas|bra[cç]o|perna|peito)\b/u', $text)) {
@@ -4193,6 +4209,7 @@ function studio_whatsapp_ai_visual_text_pt(string $text): string
         'word' => 'lettering',
         'text' => 'lettering',
         'name' => 'lettering',
+        'bears' => 'lettering',
         'leaves' => 'folhagens',
         'leaf' => 'folhagem',
         'skull' => 'caveira',
@@ -4240,6 +4257,66 @@ function studio_whatsapp_ai_reply_is_repetitive(string $reply, array $previousRe
     }
 
     return false;
+}
+
+function studio_whatsapp_ai_human_examples(array $studio, string $currentText, int $limit = 4): array
+{
+    $stmt = studio_db($studio)->query(
+        'SELECT wm.body AS human_reply,
+                (SELECT prev.body
+                 FROM whatsapp_messages prev
+                 WHERE prev.conversation_id = wm.conversation_id
+                   AND prev.id < wm.id
+                   AND prev.direction = "in"
+                   AND COALESCE(TRIM(prev.body), "") <> ""
+                 ORDER BY prev.id DESC
+                 LIMIT 1) AS customer_message
+         FROM whatsapp_messages wm
+         WHERE wm.direction = "out"
+           AND wm.sender_type = "human"
+           AND CHAR_LENGTH(TRIM(COALESCE(wm.body, ""))) BETWEEN 15 AND 500
+         ORDER BY wm.id DESC
+         LIMIT 250'
+    );
+    $rows = $stmt->fetchAll() ?: [];
+    $currentIntent = studio_whatsapp_ai_detect_intent($currentText);
+    $currentWords = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($currentText, 'UTF-8')) ?: [];
+    $stopWords = ['para', 'pra', 'com', 'uma', 'que', 'qual', 'como', 'isso', 'essa', 'esse', 'quero', 'voce', 'você', 'tem'];
+    $currentWords = array_values(array_unique(array_filter($currentWords, static fn(string $word): bool => mb_strlen($word, 'UTF-8') >= 4 && !in_array($word, $stopWords, true))));
+    $candidates = [];
+    foreach ($rows as $row) {
+        $customerMessage = trim((string)($row['customer_message'] ?? ''));
+        $humanReply = trim((string)($row['human_reply'] ?? ''));
+        $customerNormalized = mb_strtolower($customerMessage, 'UTF-8');
+        $normalized = mb_strtolower($customerMessage . ' ' . $humanReply, 'UTF-8');
+        if ($customerMessage === '' || preg_match('#(https?://|/projetocrm|\bteste\b|\btestado\b)#u', $normalized)) {
+            continue;
+        }
+        if (!preg_match('/(tatu|refer[eê]ncia|tamanho|agenda|hor[aá]rio|vaga|sinal|valor|pre[cç]o|quanto|or[cç]amento|atendimento|agendar|reserv|endere[cç]o|retoque|pagamento|est[uú]dio|pode\s+me|me\s+manda)/u', $customerNormalized)) {
+            continue;
+        }
+        $sameIntent = studio_whatsapp_ai_detect_intent($customerMessage) === $currentIntent;
+        $score = $sameIntent ? 8 : 0;
+        $matchingWords = 0;
+        foreach ($currentWords as $word) {
+            if (str_contains($customerNormalized, $word)) {
+                $score += 2;
+                $matchingWords++;
+            }
+        }
+        if (!$sameIntent && $matchingWords < 2) {
+            continue;
+        }
+        $candidates[] = ['score' => $score, 'customer' => $customerMessage, 'reply' => $humanReply];
+    }
+    usort($candidates, static fn(array $a, array $b): int => $b['score'] <=> $a['score']);
+    $examples = [];
+    foreach (array_slice($candidates, 0, max(1, min(8, $limit))) as $candidate) {
+        $customer = preg_replace('/\b\d{8,}\b/u', '[telefone]', (string)$candidate['customer']) ?? (string)$candidate['customer'];
+        $reply = preg_replace('/\b\d{8,}\b/u', '[telefone]', (string)$candidate['reply']) ?? (string)$candidate['reply'];
+        $examples[] = 'Cliente: ' . mb_substr($customer, 0, 240, 'UTF-8') . "\nHumano: " . mb_substr($reply, 0, 320, 'UTF-8');
+    }
+    return $examples;
 }
 
 function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, array $messages = []): array
@@ -5047,6 +5124,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         . 'body_area must be empty when no human body is visible. '
         . 'Use Brazilian Portuguese for body_area, style and elements. '
         . 'For big cats, distinguish lion (mane), tiger (stripes), and leopard or jaguar (spots). '
+        . 'Describe stylized words as lettering; do not guess an English object from decorative text. '
         . 'elements must contain at most 3 visible items separated by commas. '
         . 'Do not identify people, infer sensitive traits or make medical diagnoses. '
         . 'Return compact JSON only.';
@@ -6350,7 +6428,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $scheduleDays = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
     $scheduleSlots = trim((string)($settings['appointment_time_slots'] ?? '10:00,15:00'));
     $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
+    $studioAddress = trim((string)($settings['studio_address'] ?? ''));
     $studioName = (string)($studio['name'] ?? 'Estudio');
+    $activeArtists = array_values(array_filter(studio_list_artists($studio), static fn(array $artist): bool => !isset($artist['is_active']) || !empty($artist['is_active'])));
+    $artistNames = array_values(array_filter(array_map(static fn(array $artist): string => trim((string)($artist['name'] ?? '')), $activeArtists)));
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
     $customerId = (int)($conversation['customer_id'] ?? 0);
     $leadId = (int)($conversation['lead_id'] ?? 0);
@@ -6363,8 +6444,38 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $conversationMemory = trim((string)($conversation['ai_memory'] ?? ''));
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
+    $pendingCustomerTexts = [];
+    for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
+        $item = $history[$historyIndex];
+        if ((string)($item['direction'] ?? 'in') === 'out') {
+            break;
+        }
+        $pendingText = trim((string)($item['body'] ?? ''));
+        if ($pendingText === '') {
+            $pendingText = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
+        }
+        if ($pendingText !== '') {
+            array_unshift($pendingCustomerTexts, $pendingText);
+        }
+    }
+    if (count($pendingCustomerTexts) > 1) {
+        $messageText = implode("\n", $pendingCustomerTexts);
+    }
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
+    $pendingIntents = [];
+    foreach ($pendingCustomerTexts as $pendingText) {
+        $pendingIntent = studio_whatsapp_ai_detect_intent($pendingText, false, 'text');
+        if (!in_array($pendingIntent, ['general', 'acknowledgement'], true)) {
+            $pendingIntents[] = $pendingIntent;
+        }
+    }
+    $pendingIntents = array_values(array_unique($pendingIntents));
+    if (count($pendingIntents) > 1) {
+        $currentIntent = 'multi_request';
+    }
+    $needsScheduleContext = $currentIntent === 'schedule' || in_array('schedule', $pendingIntents, true)
+        || in_array('artist', $pendingIntents, true) || in_array('reservation', $pendingIntents, true);
     $stateText = mb_strtolower(implode(' ', array_slice($historyLines, -8)) . ' ' . $messageText, 'UTF-8');
     $hasReference = !empty($imageAnalysis['present']) || $recentHistoryHasImage
         || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $stateText);
@@ -6391,6 +6502,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $currentIntent = 'quote_ready';
     } elseif ($currentIntent !== 'schedule' && $hasReference && $pricingDiscussed && $currentChoosesPartialCoverage && $desiredBodyArea !== '') {
         $currentIntent = 'quote_partial';
+    }
+    $memoryState = mb_strtolower($conversationMemory . ' ' . $stateText, 'UTF-8');
+    $quoteHasEnoughContext = preg_match('/(cobertura\s*:\s*(completa|[aá]rea inteira)|costas\s+completa|fechamento\s+completo)/u', $memoryState)
+        && preg_match('/(refer[eê]ncia|foto|estilo\s+realismo)/u', $memoryState);
+    if ($currentIntent === 'price' && $quoteHasEnoughContext) {
+        $currentIntent = 'quote_status';
+    } elseif ($currentIntent === 'general' && $quoteHasEnoughContext && preg_match('/(igual|mesm[oa])\s+(a|à|da)?\s*(foto|refer[eê]ncia)/u', $currentText)) {
+        $currentIntent = 'quote_status';
+    } elseif ($currentIntent === 'acknowledgement' && $quoteHasEnoughContext) {
+        $currentIntent = 'quote_acknowledgement';
     }
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
@@ -6437,6 +6558,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
     $dateContext = null;
+    $availability = [];
     $availableNotes = [];
     $occupiedNotes = [];
     $availabilityPreview = '';
@@ -6444,7 +6566,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $exactDateBlock = '';
     $nextAvailableHint = 'Sem vaga futura encontrada no recorte rapido.';
     $scheduleContextBlock = "A pergunta atual nao e sobre agenda. Nao mencione datas, vagas nem horarios nesta resposta.\n";
-    if ($currentIntent === 'schedule') {
+    if ($needsScheduleContext) {
         $availability = studio_schedule_available_slots($studio, 14);
         $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
         foreach ($availability as $day) {
@@ -6497,8 +6619,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $customerContextLines[] = 'Valor estimado atual: ' . format_money((float)$leadData['estimated_value']);
         }
     }
+    $humanExamples = studio_whatsapp_ai_human_examples($studio, $messageText, 4);
+    $humanExamplesBlock = $humanExamples
+        ? implode("\n\n", $humanExamples)
+        : 'Ainda não há exemplos humanos confiáveis e semelhantes.';
     $intentInstruction = match ($currentIntent) {
         'schedule' => 'Responda somente a pergunta atual sobre agenda usando os horarios reais fornecidos.',
+        'multi_request' => 'O cliente enviou várias mensagens antes da resposta. Responda todos os pedidos pendentes em uma única mensagem curta, sem ignorar nenhum.',
+        'address' => $studioAddress !== '' ? 'Informe diretamente o endereço oficial cadastrado.' : 'O endereço não está cadastrado. Não invente nem use placeholder; encaminhe para uma pessoa.',
+        'artist' => 'A agenda mostra horários, mas não associa automaticamente um tatuador. Não invente um nome; encaminhe a confirmação para a equipe.',
+        'reservation' => 'Não confirme reserva automaticamente. Explique que a equipe precisa validar tatuador e sinal e encaminhe para humano.',
         'image_price_style' => 'Responda qual e o estilo visto na imagem e avance o orcamento sem repetir dados ja informados.',
         'image_style' => 'Diga em portugues qual e o estilo visto na imagem, citando no maximo dois elementos concretos.',
         'image_price' => 'A pergunta atual e sobre preco e inclui imagem. Reconheca elementos concretos da imagem, explique que o valor depende de tamanho, cobertura e adaptacao, e pergunte apenas o dado que ainda falta. Nao diga que faltou referencia.',
@@ -6506,11 +6636,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'image_reference' => 'A mensagem atual contem uma imagem. Demonstre que a viu citando um ou dois elementos concretos e faca apenas a proxima pergunta util.',
         'quote_ready' => 'Referencia, local e cobertura ja foram informados. Nao faca outra pergunta; confirme o pedido e encaminhe para orcamento humano.',
         'quote_partial' => 'O cliente escolheu cobertura parcial. Nao pergunte novamente local, estilo ou elementos; pergunte somente o tamanho aproximado da parte.',
+        'quote_status' => 'Os dados principais do orçamento já foram reunidos. Não prometa calcular preço; diga que o Daniel precisa definir o valor e encaminhe.',
+        'quote_acknowledgement' => 'Confirme brevemente que o pedido já está encaminhado ao Daniel. Não peça outro detalhe.',
         'tattoo_idea' => 'Responda a ideia de tatuagem atual. Nao volte para agenda ou para perguntas antigas.',
         'audio_unavailable' => 'O audio nao tem transcricao confiavel. Peca para o cliente repetir em texto ou reenviar o audio.',
         default => 'Responda diretamente a ultima mensagem do cliente, usando o historico apenas para contexto.',
     };
-    $scheduleRules = $currentIntent === 'schedule'
+    $scheduleRules = $needsScheduleContext
         ? "- Esta resposta e sobre agenda. Use somente as vagas reais do bloco acima e cite apenas o proximo passo util.\n"
             . "- Nunca invente horario ou diga que existe vaga quando a lista exata estiver vazia.\n"
         : "- Esta resposta nao e sobre agenda. E proibido mencionar datas, vagas, horarios ou disponibilidade.\n";
@@ -6521,8 +6653,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Intencao da mensagem atual: " . $currentIntent . "\n"
         . "Instrucao principal: " . $intentInstruction . "\n"
         . $scheduleContextBlock
-        . "Ultima mensagem do cliente (prioridade maxima): " . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n"
+        . "Mensagens pendentes do cliente (prioridade maxima; responda todas): " . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n"
         . "Contexto da imagem atual: " . $imageContext . "\n"
+        . "Endereco oficial cadastrado: " . ($studioAddress !== '' ? $studioAddress : 'NAO CADASTRADO') . "\n"
+        . "Tatuadores ativos cadastrados: " . ($artistNames ? implode(', ', $artistNames) : 'Nenhum cadastrado') . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
         . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
@@ -6531,8 +6665,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Memoria acumulada da conversa (combinados, preferencias e pendencias): " . ($conversationMemory !== '' ? $conversationMemory : 'Ainda sem memoria acumulada.') . "\n"
         . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
         . "Historico recente (somente contexto; nunca responda uma pergunta antiga no lugar da atual):\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
+        . "Exemplos reais de atendimento humano em casos parecidos (copie apenas o jeito de falar e conduzir; nunca trate nomes, preços, datas ou fatos destes exemplos como atuais):\n"
+        . $humanExamplesBlock . "\n\n"
         . "Regras de resposta:\n"
-        . "- A ultima mensagem e a unica pergunta que deve ser respondida agora.\n"
+        . "- Responda todas as mensagens pendentes enviadas desde a última resposta do atendente.\n"
         . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
         . "- Nao repita nenhuma resposta anterior do atendente.\n"
         . $scheduleRules
@@ -6544,6 +6680,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a ultima mensagem for curta demais, responda de forma curta e contextual, sem enrolar.\n"
         . "- Se a conversa ja teve saudacao, nao cumprimente de novo.\n"
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
+        . "- Aprenda o tom e a condução dos exemplos humanos, mas use somente os fatos oficiais do contexto atual.\n"
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
         . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
         . "- Nao mencione analise visual, IA, nomes de modelos, campos internos nem rotulos tecnicos. Traduza qualquer termo estrangeiro antes de responder.\n"
@@ -6555,6 +6692,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
+        . "- Nunca escreva placeholders como [endereço], [nome] ou campos entre colchetes.\n"
+        . "- Nunca diga que vai calcular um orçamento se não houver uma tabela ou valor cadastrado; encaminhe ao Daniel.\n"
         . "- Fale como estúdio de tatuagem do Brasil, nao como central de suporte.\n"
         . "- Se o cliente disser que quer tatuar, abra caminho para orçamento, referencia ou agenda.\n"
         . "- Se o cliente perguntar nome, valor ou prazo, responda com o dado disponível ou pergunte de forma curta.\n"
@@ -6567,13 +6706,102 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
-    if ($studioRules === '' && $currentIntent === 'quote_ready') {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText): string {
+        if (is_array($dateContext)) {
+            $date = (string)($dateContext['date'] ?? '');
+            $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
+            $lowerMessage = mb_strtolower($messageText, 'UTF-8');
+            $dateLabel = str_contains($lowerMessage, 'amanhã') || str_contains($lowerMessage, 'amanha')
+                ? 'amanhã'
+                : (str_contains($lowerMessage, 'hoje') ? 'hoje' : ($date !== '' ? format_date_pt($date) : 'nessa data'));
+            if ($freeSlots) {
+                return 'Tenho ' . implode(' e ', array_slice($freeSlots, 0, 3)) . ' livres ' . $dateLabel . '.';
+            }
+            foreach ($availability as $day) {
+                if (!empty($day['allowed']) && !empty($day['free_slots'])) {
+                    return 'Não tenho vaga ' . $dateLabel . '. O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '.';
+                }
+            }
+            return 'Não encontrei vaga livre nessa data nem no período consultado.';
+        }
+        foreach ($availability as $day) {
+            if (!empty($day['allowed']) && !empty($day['free_slots'])) {
+                return 'O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '.';
+            }
+        }
+        return 'Não encontrei vaga livre no período consultado.';
+    };
+
+    if ($currentIntent === 'multi_request') {
+        $parts = [];
+        if ($needsScheduleContext) {
+            $parts[] = $scheduleReply();
+        }
+        if (in_array('artist', $pendingIntents, true)) {
+            $parts[] = 'A agenda não informa qual tatuador está vinculado ao horário; preciso confirmar isso com a equipe.';
+        }
+        if (in_array('reservation', $pendingIntents, true)) {
+            $parts[] = 'Deixei o pedido de reserva sinalizado, mas ela só fica confirmada depois da validação do tatuador e do sinal.';
+        }
+        if (in_array('address', $pendingIntents, true)) {
+            $parts[] = $studioAddress !== '' ? 'O estúdio fica em ' . $studioAddress . '.' : 'O endereço ainda não está cadastrado aqui; a equipe precisa te passar certinho.';
+        }
+        $needsHuman = in_array('artist', $pendingIntents, true) || in_array('reservation', $pendingIntents, true)
+            || (in_array('address', $pendingIntents, true) && $studioAddress === '');
         $result = [
             'ok' => true,
-            'reply_text' => 'Perfeito: fechamento completo das costas seguindo a referência. Já tenho as informações principais e vou encaminhar para calcular o orçamento exato.',
+            'reply_text' => implode(' ', $parts ?: ['Recebi suas mensagens e vou encaminhar para a equipe continuar sem repetir perguntas.']),
+            'needs_human' => $needsHuman,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente enviou pedidos combinados: ' . implode(', ', $pendingIntents) . '.',
+        ];
+    } elseif ($currentIntent === 'schedule') {
+        $result = [
+            'ok' => true,
+            'reply_text' => $scheduleReply(),
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente consultou disponibilidade real da agenda.',
+        ];
+    } elseif ($currentIntent === 'artist') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'A agenda confirma o horário livre, mas não informa qual tatuador está vinculado a ele. Vou pedir para a equipe confirmar antes da reserva.',
+            'needs_human' => true,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente quer confirmar o tatuador de um horário; precisa de validação humana.',
+        ];
+    } elseif ($currentIntent === 'reservation') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Deixei seu pedido de reserva sinalizado. A equipe vai confirmar o tatuador e a regra do sinal antes de garantir a vaga.',
             'needs_human' => true,
             'lead_score_delta' => 2,
-            'summary' => 'Cliente pronto para orçamento de fechamento completo das costas.',
+            'summary' => 'Cliente pediu reserva; aguarda confirmação humana de tatuador e sinal.',
+        ];
+    } elseif ($currentIntent === 'address') {
+        $result = [
+            'ok' => true,
+            'reply_text' => $studioAddress !== '' ? 'O estúdio fica em ' . $studioAddress . '.' : 'O endereço ainda não está cadastrado aqui. Vou pedir para a equipe te passar certinho.',
+            'needs_human' => $studioAddress === '',
+            'lead_score_delta' => 0,
+            'summary' => $studioAddress !== '' ? 'Cliente recebeu o endereço do estúdio.' : 'Cliente pediu o endereço; informação ainda não cadastrada.',
+        ];
+    } elseif ($currentIntent === 'quote_status' || $currentIntent === 'quote_ready') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Já tenho a referência e a cobertura das costas completas. O valor precisa ser definido pelo Daniel; deixei seu pedido sinalizado para ele te responder.',
+            'needs_human' => true,
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente pronto para orçamento de fechamento completo das costas; aguarda valor do Daniel.',
+        ];
+    } elseif ($currentIntent === 'quote_acknowledgement') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Perfeito. Seu pedido já está sinalizado para o Daniel continuar com o valor.',
+            'needs_human' => true,
+            'lead_score_delta' => 0,
+            'summary' => 'Cliente confirmou o encaminhamento do orçamento ao Daniel.',
         ];
     } elseif ($studioRules === '' && $currentIntent === 'quote_partial') {
         $result = [
@@ -6610,7 +6838,19 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
     }
     $replyText = preg_replace('/\s+/', ' ', $replyText) ?? $replyText;
-    if (studio_whatsapp_ai_reply_is_repetitive($replyText, $recentBotReplies)) {
+    if (preg_match('/\[[^\]]*(endere[cç]o|nome|valor|pre[cç]o|est[uú]dio)[^\]]*\]/ui', $replyText)) {
+        $replyText = 'Essa informação ainda não está cadastrada aqui. Vou pedir para a equipe te responder certinho.';
+        $result['needs_human'] = true;
+    }
+    if (preg_match('/\b(vou|vamos)\s+calcular\s+(o\s+)?or[cç]amento\s+exato/ui', $replyText)) {
+        $replyText = 'Já reuni as informações do pedido. O valor precisa ser definido pelo Daniel, então deixei a conversa sinalizada para ele continuar.';
+        $result['needs_human'] = true;
+    }
+    $deterministicIntent = in_array($currentIntent, [
+        'multi_request', 'schedule', 'artist', 'reservation', 'address', 'quote_status',
+        'quote_ready', 'quote_acknowledgement', 'quote_partial', 'image_price_style',
+    ], true);
+    if (!$deterministicIntent && studio_whatsapp_ai_reply_is_repetitive($replyText, $recentBotReplies)) {
         $retryPrompt = $prompt . "\n\n"
             . "A primeira resposta candidata foi rejeitada porque repetiu uma resposta anterior: " . $replyText . "\n"
             . "Gere outra resposta que trate exclusivamente da ultima mensagem. Nao reutilize a frase rejeitada.";
@@ -6634,15 +6874,30 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'image_reference' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Voce quer reproduzir esse desenho ou adaptar algum detalhe?',
                 'tattoo_idea' => 'Entendi a ideia. Qual tamanho aproximado e estilo voce imagina para essa tatuagem?',
                 'audio_unavailable' => 'Nao consegui entender o audio. Pode me mandar por texto ou reenviar o audio?',
-                default => 'Entendi. Me diga qual e o proximo detalhe que voce quer definir.',
+                default => 'Não quero repetir perguntas nem te passar algo errado. Vou pedir para a equipe continuar por aqui.',
             };
+            $result['needs_human'] = true;
         }
     }
-    if (mb_strlen($replyText) > 220) {
+    if (mb_strlen($replyText) > 480) {
         $parts = preg_split('/(?<=[.!?])\s+/u', $replyText) ?: [$replyText];
-        $replyText = trim(implode(' ', array_slice($parts, 0, 2)));
-        if (mb_strlen($replyText) > 220) {
-            $replyText = mb_substr($replyText, 0, 220);
+        $replyText = trim(implode(' ', array_slice($parts, 0, 4)));
+        if (mb_strlen($replyText) > 480) {
+            $replyText = mb_substr($replyText, 0, 480);
+        }
+    }
+
+    if ($incomingMessageId !== '') {
+        $latestIncomingStmt = $pdo->prepare('SELECT message_id FROM whatsapp_messages WHERE conversation_id = ? AND direction = "in" ORDER BY id DESC LIMIT 1');
+        $latestIncomingStmt->execute([(int)$conversation['id']]);
+        $latestIncomingMessageId = trim((string)($latestIncomingStmt->fetchColumn() ?: ''));
+        if ($latestIncomingMessageId !== '' && $latestIncomingMessageId !== $incomingMessageId) {
+            return [
+                'ok' => false,
+                'superseded' => true,
+                'error' => 'Mensagem agrupada com uma entrada mais recente.',
+                'ai_last_message_id' => $incomingMessageId,
+            ];
         }
     }
 
@@ -6695,7 +6950,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 
     studio_update_whatsapp_conversation($studio, [
         'conversation_id' => (int)$conversation['id'],
-        'attendance_mode' => 'bot',
+        'attendance_mode' => !empty($result['needs_human']) ? 'human' : 'bot',
         'needs_human' => !empty($result['needs_human']) ? 1 : 0,
         'lead_score' => $newScore,
         'ai_last_status' => $aiStatus,
@@ -6721,12 +6976,34 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
     if ($updatedMemory !== '') {
-        if ($conversationMemory !== '') {
-            $memoryLead = mb_substr(mb_strtolower($conversationMemory, 'UTF-8'), 0, 100, 'UTF-8');
-            if ($memoryLead !== '' && !str_contains(mb_strtolower($updatedMemory, 'UTF-8'), $memoryLead)) {
-                $updatedMemory = mb_substr($conversationMemory, 0, 2800, 'UTF-8') . "\nAtualização: " . $updatedMemory;
+        $memoryLines = [];
+        foreach (preg_split('/\R+|\\\\n/u', $conversationMemory) ?: [] as $memoryLine) {
+            $memoryLine = trim($memoryLine);
+            if ($memoryLine !== '' && !preg_match('/^atualiza[cç][aã]o\s*:/ui', $memoryLine)) {
+                $memoryLines[] = $memoryLine;
             }
         }
+        foreach (preg_split('/\R+|\\\\n/u', $updatedMemory) ?: [] as $memoryLine) {
+            $memoryLine = trim($memoryLine);
+            if ($memoryLine !== '') {
+                $memoryLines[] = $memoryLine;
+            }
+        }
+        $uniqueMemoryLines = [];
+        $seenMemoryLines = [];
+        foreach ($memoryLines as $memoryLine) {
+            $memoryKey = preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($memoryLine, 'UTF-8')) ?? $memoryLine;
+            $memoryKey = trim($memoryKey);
+            if ($memoryKey === '' || isset($seenMemoryLines[$memoryKey])) {
+                continue;
+            }
+            $seenMemoryLines[$memoryKey] = true;
+            $uniqueMemoryLines[] = $memoryLine;
+        }
+        if (count($uniqueMemoryLines) > 8) {
+            $uniqueMemoryLines = array_merge(array_slice($uniqueMemoryLines, 0, 2), array_slice($uniqueMemoryLines, -6));
+        }
+        $updatedMemory = implode("\n", $uniqueMemoryLines);
         try {
             studio_ensure_whatsapp_assignment_schema($studio);
             $pdo->prepare('UPDATE whatsapp_conversations SET ai_memory = ?, ai_memory_updated_at = NOW() WHERE id = ?')
@@ -8988,6 +9265,7 @@ function studio_settings(array $studio): array
 function studio_save_settings(array $studio, array $data): void
 {
     $studioName = trim((string)($data['studio_name'] ?? $studio['name']));
+    $studioAddress = trim((string)($data['studio_address'] ?? ''));
     $businessRules = trim((string)($data['business_rules'] ?? ''));
     $aiModel = trim((string)($data['ai_model'] ?? 'llama3:8b'));
     $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
@@ -9065,6 +9343,7 @@ function studio_save_settings(array $studio, array $data): void
 
     $pdo = studio_db($studio);
     foreach ([
+        'studio_address' => 'VARCHAR(300) NULL',
         'appointment_work_days' => 'VARCHAR(40) NOT NULL DEFAULT "1,2,3,4,5"',
         'appointment_time_slots' => 'VARCHAR(80) NOT NULL DEFAULT "10:00,15:00"',
         'appointment_duration_minutes' => 'INT NOT NULL DEFAULT 300',
@@ -9115,12 +9394,13 @@ function studio_save_settings(array $studio, array $data): void
 
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
-         SET studio_name = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
+         SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
              whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
         $studioName,
+        $studioAddress,
         $businessRules,
         $aiEnabled,
         $assistantAutofillEnabled,
