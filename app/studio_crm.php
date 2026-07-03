@@ -9693,6 +9693,13 @@ function studio_save_settings(array $studio, array $data): void
     $metaAdsApiVersion = trim((string)($data['meta_ads_api_version'] ?? 'v22.0'));
     $metaAdsRedirectUri = trim((string)($data['meta_ads_redirect_uri'] ?? ''));
     $metaAdsNotes = trim((string)($data['meta_ads_notes'] ?? ''));
+    $metaAdsBusinessId = $metaAdsBusinessId !== '' ? $metaAdsBusinessId : (string)($settings['meta_ads_business_id'] ?? '');
+    $metaAdsAdAccountId = $metaAdsAdAccountId !== '' ? $metaAdsAdAccountId : (string)($settings['meta_ads_ad_account_id'] ?? '');
+    $metaAdsPixelId = $metaAdsPixelId !== '' ? $metaAdsPixelId : (string)($settings['meta_ads_pixel_id'] ?? '');
+    $metaAdsLeadFormId = $metaAdsLeadFormId !== '' ? $metaAdsLeadFormId : (string)($settings['meta_ads_lead_form_id'] ?? '');
+    $metaAdsApiVersion = $metaAdsApiVersion !== '' ? $metaAdsApiVersion : (string)($settings['meta_ads_api_version'] ?? 'v22.0');
+    $metaAdsRedirectUri = $metaAdsRedirectUri !== '' ? $metaAdsRedirectUri : (string)($settings['meta_ads_redirect_uri'] ?? '');
+    $metaAdsNotes = $metaAdsNotes !== '' ? $metaAdsNotes : (string)($settings['meta_ads_notes'] ?? '');
     if ($appointmentDurationMinutes <= 0) {
         $appointmentDurationMinutes = 300;
     }
