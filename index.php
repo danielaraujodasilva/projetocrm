@@ -6098,6 +6098,8 @@ if ($page === 'studio_meta_ads') {
         $accountId = trim((string)($settings['meta_ads_ad_account_id'] ?? ''));
         $accountId = preg_replace('/^act_/', '', $accountId);
         $leadFormId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_lead_form_id'] ?? '')));
+        $metaAdsAccessToken = trim((string)($settings['meta_ads_access_token'] ?? ''));
+        $metaAdsAuthReady = $metaAdsAccessToken !== '' && $accountId !== '';
         $baseGraphUrl = 'https://graph.facebook.com/' . rawurlencode($apiVersion);
         $accountRef = $accountId !== '' ? 'act_' . $accountId : '{ad_account_id}';
         $performanceEnd = trim((string)($_GET['meta_ads_until'] ?? date('Y-m-d')));
@@ -6114,7 +6116,7 @@ if ($page === 'studio_meta_ads') {
             'until' => $performanceEnd,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $performanceSummary = null;
-        if (!empty($settings['meta_ads_access_token']) && !empty($settings['meta_ads_ad_account_id'])) {
+        if ($metaAdsAuthReady) {
             try {
                 $apiPerformanceResponse = studio_meta_ads_request($apiVersion, '/act_' . preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? ''))) . '/insights', trim((string)$settings['meta_ads_access_token']), [
                     'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
@@ -6154,8 +6156,20 @@ if ($page === 'studio_meta_ads') {
         $adsError = null;
         $audiencesError = null;
         $leadsError = null;
-        if (!empty($settings['meta_ads_access_token']) && $accountId !== '') {
-            $campaignsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/campaigns', trim((string)$settings['meta_ads_access_token']), [
+        if ($enabled && !$metaAdsAuthReady) {
+            $missingParts = [];
+            if ($accountId === '') {
+                $missingParts[] = 'ID da conta de anúncio';
+            }
+            if ($metaAdsAccessToken === '') {
+                $missingParts[] = 'Access Token';
+            }
+            $campaignsError = 'Configure ' . implode(' e ', $missingParts) . ' para carregar campanhas desta conta.';
+            $adsetsError = $campaignsError;
+            $adsError = $campaignsError;
+            $audiencesError = $campaignsError;
+        } elseif ($metaAdsAuthReady) {
+            $campaignsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/campaigns', $metaAdsAccessToken, [
                 'fields' => 'id,name,status,objective,created_time,updated_time,buying_type,effective_status',
                 'limit' => 12,
             ]);
@@ -6169,7 +6183,7 @@ if ($page === 'studio_meta_ads') {
                     if ($campaignId === '') {
                         continue;
                     }
-                    $campaignInsight = studio_meta_ads_request($apiVersion, '/' . $campaignId . '/insights', trim((string)$settings['meta_ads_access_token']), [
+                    $campaignInsight = studio_meta_ads_request($apiVersion, '/' . $campaignId . '/insights', $metaAdsAccessToken, [
                         'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
                         'time_range' => $performanceTimeRange,
                         'limit' => 1,
@@ -6191,7 +6205,7 @@ if ($page === 'studio_meta_ads') {
             } else {
                 $campaignsError = (string)($campaignsResponse['error'] ?? 'Erro ao carregar campanhas.');
             }
-            $adsetsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/adsets', trim((string)$settings['meta_ads_access_token']), [
+            $adsetsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/adsets', $metaAdsAccessToken, [
                 'fields' => 'id,name,status,effective_status,campaign_id,optimization_goal,billing_event,created_time,updated_time',
                 'limit' => 12,
             ]);
@@ -6200,7 +6214,7 @@ if ($page === 'studio_meta_ads') {
             } else {
                 $adsetsError = (string)($adsetsResponse['error'] ?? 'Erro ao carregar conjuntos de anúncios.');
             }
-            $adsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/ads', trim((string)$settings['meta_ads_access_token']), [
+            $adsResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/ads', $metaAdsAccessToken, [
                 'fields' => 'id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time',
                 'limit' => 12,
             ]);
@@ -6214,7 +6228,7 @@ if ($page === 'studio_meta_ads') {
                     if ($adId === '') {
                         continue;
                     }
-                    $adInsightsResponse = studio_meta_ads_request($apiVersion, '/' . $adId . '/insights', trim((string)$settings['meta_ads_access_token']), [
+                    $adInsightsResponse = studio_meta_ads_request($apiVersion, '/' . $adId . '/insights', $metaAdsAccessToken, [
                         'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,outbound_clicks,unique_clicks,unique_inline_link_clicks,unique_outbound_clicks,actions',
                         'time_range' => $performanceTimeRange,
                         'limit' => 1,
@@ -6229,7 +6243,7 @@ if ($page === 'studio_meta_ads') {
             } else {
                 $adsError = (string)($adsResponse['error'] ?? 'Erro ao carregar anuncios.');
             }
-            $audiencesResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/customaudiences', trim((string)$settings['meta_ads_access_token']), [
+            $audiencesResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/customaudiences', $metaAdsAccessToken, [
                 'fields' => 'id,name,description,operation_status,subtype,delivery_status,lookalike_spec',
                 'limit' => 12,
             ]);
@@ -6239,8 +6253,8 @@ if ($page === 'studio_meta_ads') {
                 $audiencesError = (string)($audiencesResponse['error'] ?? 'Erro ao carregar públicos.');
             }
         }
-        if (!empty($settings['meta_ads_access_token']) && $leadFormId !== '') {
-            $leadsResponse = studio_meta_ads_request($apiVersion, '/' . $leadFormId . '/leads', trim((string)$settings['meta_ads_access_token']), [
+        if ($metaAdsAccessToken !== '' && $leadFormId !== '') {
+            $leadsResponse = studio_meta_ads_request($apiVersion, '/' . $leadFormId . '/leads', $metaAdsAccessToken, [
                 'fields' => 'created_time,field_data,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name',
                 'limit' => 12,
             ]);
