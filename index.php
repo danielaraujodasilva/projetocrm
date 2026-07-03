@@ -5806,11 +5806,6 @@ if ($page === 'studio_settings') {
             }
             echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
         }
-        if (isset($_SESSION['meta_ads_save_debug']) && is_array($_SESSION['meta_ads_save_debug'])) {
-            $metaAdsSaveDebug = $_SESSION['meta_ads_save_debug'];
-            unset($_SESSION['meta_ads_save_debug']);
-            echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Debug Meta Ads save</h3><pre style="white-space:pre-wrap;margin:0">' . h(json_encode($metaAdsSaveDebug, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) . '</pre></div>';
-        }
         echo '</div>';
         echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
         echo '<form class="form panel" method="post" id="studioSettingsForm">';
