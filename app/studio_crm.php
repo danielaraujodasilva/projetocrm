@@ -9813,6 +9813,21 @@ function studio_save_settings(array $studio, array $data): void
         $whatsappFlowScreen !== '' ? $whatsappFlowScreen : 'FIRST_ENTRY_SCREEN',
     ]);
 
+    if (!empty($_POST['debug_meta_save'])) {
+        $_SESSION['meta_ads_save_debug'] = [
+            'meta_ads_enabled' => $metaAdsEnabled,
+            'meta_ads_app_id' => $metaAdsAppIdInput,
+            'meta_ads_access_token' => $metaAdsAccessTokenInput !== '' ? studio_meta_ads_mask_secret($metaAdsAccessTokenInput) : '',
+            'meta_ads_business_id' => $metaAdsBusinessId,
+            'meta_ads_ad_account_id' => $metaAdsAdAccountId,
+            'meta_ads_pixel_id' => $metaAdsPixelId,
+            'meta_ads_lead_form_id' => $metaAdsLeadFormId,
+            'meta_ads_api_version' => $metaAdsApiVersion,
+            'meta_ads_redirect_uri' => $metaAdsRedirectUri,
+            'meta_ads_notes' => $metaAdsNotes,
+        ];
+    }
+
     $currentWhatsappStatus = (string)($studio['whatsapp_status'] ?? 'not_configured');
     $nextWhatsappStatus = $whatsappEnabled
         ? (in_array($currentWhatsappStatus, ['connected', 'waiting_qr'], true) ? $currentWhatsappStatus : 'disconnected')
