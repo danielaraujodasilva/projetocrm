@@ -5942,6 +5942,154 @@ function studio_meta_ads_mask_secret(string $value, int $keep = 6): string
     return str_repeat('•', max(0, mb_strlen($value) - mb_strlen($tail))) . $tail;
 }
 
+function studio_meta_ads_balance_status(array $studio, float $threshold = 20.0): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $accountId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0'));
+
+    if (empty($settings['meta_ads_enabled']) || $token === '' || $accountId === '') {
+        return ['ok' => false, 'enabled' => false, 'error' => 'Meta Ads não configurada.'];
+    }
+
+    $response = studio_meta_ads_request($version, '/act_' . $accountId, $token, [
+        'fields' => 'id,name,currency,balance,account_status',
+    ]);
+
+    if (empty($response['ok'])) {
+        return [
+            'ok' => false,
+            'enabled' => true,
+            'error' => (string)($response['error'] ?? 'Não foi possível consultar o saldo da Meta Ads.'),
+        ];
+    }
+
+    $account = is_array($response['json'] ?? null) ? $response['json'] : [];
+    if (!array_key_exists('balance', $account) || !is_numeric($account['balance'])) {
+        return ['ok' => false, 'enabled' => true, 'error' => 'A Meta não retornou o campo balance para esta conta.'];
+    }
+
+    $balance = ((float)$account['balance']) / 100;
+
+    return [
+        'ok' => true,
+        'enabled' => true,
+        'low' => $balance <= $threshold,
+        'balance' => $balance,
+        'threshold' => $threshold,
+        'currency' => (string)($account['currency'] ?? 'BRL'),
+        'account_name' => (string)($account['name'] ?? 'Conta de anúncios'),
+        'account_status' => (int)($account['account_status'] ?? 0),
+    ];
+}
+
+function studio_meta_balance_alert_state_ensure(array $studio): void
+{
+    studio_db($studio)->exec(
+        'CREATE TABLE IF NOT EXISTS `crm_alert_state` (
+            `alert_key` VARCHAR(120) NOT NULL,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 0,
+            `last_value` DECIMAL(14,2) NULL,
+            `last_notified_at` DATETIME NULL,
+            `last_notification_ok` TINYINT(1) NULL,
+            `last_notification_error` TEXT NULL,
+            `created_at` DATETIME NOT NULL,
+            `updated_at` DATETIME NOT NULL,
+            PRIMARY KEY (`alert_key`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function studio_meta_balance_alert_process(
+    array $studio,
+    float $threshold = 20.0,
+    string $notifyPhone = '5511947573311'
+): array {
+    $status = studio_meta_ads_balance_status($studio, $threshold);
+    if (empty($status['ok'])) {
+        return $status;
+    }
+
+    studio_meta_balance_alert_state_ensure($studio);
+    $pdo = studio_db($studio);
+    $alertKey = 'meta_ads_low_balance';
+
+    $stmt = $pdo->prepare('SELECT * FROM crm_alert_state WHERE alert_key = ? LIMIT 1');
+    $stmt->execute([$alertKey]);
+    $state = $stmt->fetch();
+    $wasActive = is_array($state) && !empty($state['is_active']);
+
+    if (empty($status['low'])) {
+        $upsert = $pdo->prepare(
+            'INSERT INTO crm_alert_state (alert_key, is_active, last_value, created_at, updated_at)
+             VALUES (?, 0, ?, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                is_active = 0,
+                last_value = VALUES(last_value),
+                updated_at = NOW()'
+        );
+        $upsert->execute([$alertKey, number_format((float)$status['balance'], 2, '.', '')]);
+        $status['notification_sent'] = false;
+        return $status;
+    }
+
+    $notificationSent = false;
+    $notificationOk = null;
+    $notificationError = '';
+
+    if (!$wasActive) {
+        $message = "⚠️ ALERTA META ADS\n\n"
+            . 'O saldo reportado da conta "' . (string)$status['account_name'] . '" caiu para '
+            . 'R$ ' . number_format((float)$status['balance'], 2, ',', '.') . ".\n\n"
+            . 'Limite configurado no CRM: R$ ' . number_format($threshold, 2, ',', '.') . ".\n"
+            . 'Vale recarregar antes que as campanhas parem.';
+
+        $send = studio_whatsapp_official_send_text($studio, $notifyPhone, $message);
+        $notificationSent = true;
+        $notificationOk = !empty($send['ok']);
+        $notificationError = $notificationOk
+            ? ''
+            : (string)($send['error'] ?? 'Falha desconhecida ao enviar WhatsApp.');
+    }
+
+    $upsert = $pdo->prepare(
+        'INSERT INTO crm_alert_state (
+            alert_key,
+            is_active,
+            last_value,
+            last_notified_at,
+            last_notification_ok,
+            last_notification_error,
+            created_at,
+            updated_at
+        ) VALUES (?, 1, ?, ?, ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            is_active = 1,
+            last_value = VALUES(last_value),
+            last_notified_at = COALESCE(VALUES(last_notified_at), last_notified_at),
+            last_notification_ok = COALESCE(VALUES(last_notification_ok), last_notification_ok),
+            last_notification_error = CASE
+                WHEN VALUES(last_notified_at) IS NULL THEN last_notification_error
+                ELSE VALUES(last_notification_error)
+            END,
+            updated_at = NOW()'
+    );
+
+    $upsert->execute([
+        $alertKey,
+        number_format((float)$status['balance'], 2, '.', ''),
+        $notificationSent ? date('Y-m-d H:i:s') : null,
+        $notificationSent ? ($notificationOk ? 1 : 0) : null,
+        $notificationSent ? $notificationError : null,
+    ]);
+
+    $status['notification_sent'] = $notificationSent;
+    $status['notification_ok'] = $notificationOk;
+    $status['notification_error'] = $notificationError;
+    return $status;
+}
+
 function studio_meta_ads_test_connection(array $studio): array
 {
     $settings = studio_settings($studio);

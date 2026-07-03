@@ -2719,6 +2719,34 @@ if ($page === 'studio_home') {
         $appointmentsMonthItems = array_map($decorateAppointmentCard, $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: []);
         $nextMonthItems = array_map($decorateAppointmentCard, $pdo->query("SELECT a.*, COALESCE(c.name, a.title) AS customer_name, ta.name AS artist_name FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE a.appointment_date BETWEEN '" . (new DateTimeImmutable('first day of next month', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND '" . (new DateTimeImmutable('last day of next month 23:59:59', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d') . "' AND a.status NOT IN ('cancelado') ORDER BY a.appointment_date ASC, a.start_time ASC LIMIT 40")->fetchAll() ?: []);
         $alerts = [];
+
+        try {
+            $metaBalanceAlert = studio_meta_balance_alert_process(
+                $studio,
+                20.0,
+                '5511947573311'
+            );
+
+            if (!empty($metaBalanceAlert['ok']) && !empty($metaBalanceAlert['low'])) {
+                $description = 'Saldo reportado pela Meta: '
+                    . format_money((float)$metaBalanceAlert['balance'])
+                    . '. Recarregue a conta para evitar interrupção das campanhas.';
+
+                if (!empty($metaBalanceAlert['notification_sent']) && empty($metaBalanceAlert['notification_ok'])) {
+                    $description .= ' O aviso no WhatsApp falhou; confira a janela de atendimento ou a configuração da API oficial.';
+                }
+
+                $alerts[] = [
+                    'title' => 'Saldo Meta baixo',
+                    'description' => $description,
+                    'href' => app_url('studio_meta_ads'),
+                    'tone' => 'danger',
+                ];
+            }
+        } catch (Throwable $e) {
+            // O monitor nunca deve derrubar a Home do CRM.
+        }
+
         if ($staleAttentionLeadsCount > 0) {
             $alerts[] = [
                 'title' => 'Leads sem atualização há mais de 24h',
