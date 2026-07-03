@@ -9704,6 +9704,33 @@ function studio_save_settings(array $studio, array $data): void
         $appointmentDurationMinutes = 300;
     }
 
+    $metaSaveDebugLog = null;
+    if (!empty($_POST['debug_meta_save']) || array_key_exists('meta_ads_enabled', $data) || array_key_exists('meta_ads_app_id', $data) || array_key_exists('meta_ads_access_token', $data)) {
+        $metaSaveDebugLog = [
+            'timestamp' => date('c'),
+            'studio_id' => (int)($studio['id'] ?? 0),
+            'request_method' => (string)($_SERVER['REQUEST_METHOD'] ?? ''),
+            'settings_tab' => (string)($data['settings_tab'] ?? ''),
+            'debug_meta_save' => !empty($_POST['debug_meta_save']),
+            'posted_keys' => array_values(array_filter(array_keys($data), static fn(string $key): bool => str_starts_with($key, 'meta_ads_'))),
+            'meta_ads_enabled' => $metaAdsEnabled,
+            'meta_ads_app_id' => $metaAdsAppIdInput,
+            'meta_ads_access_token' => $metaAdsAccessTokenInput !== '' ? studio_meta_ads_mask_secret($metaAdsAccessTokenInput) : '',
+            'meta_ads_business_id' => $metaAdsBusinessId,
+            'meta_ads_ad_account_id' => $metaAdsAdAccountId,
+            'meta_ads_pixel_id' => $metaAdsPixelId,
+            'meta_ads_lead_form_id' => $metaAdsLeadFormId,
+            'meta_ads_api_version' => $metaAdsApiVersion,
+            'meta_ads_redirect_uri' => $metaAdsRedirectUri,
+            'meta_ads_notes_len' => mb_strlen($metaAdsNotes),
+        ];
+        @file_put_contents(
+            sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'projetocrm_meta_ads_save.log',
+            json_encode($metaSaveDebugLog, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+            FILE_APPEND
+        );
+    }
+
     $pdo = studio_db($studio);
     foreach ([
         'studio_address' => 'VARCHAR(300) NULL',
