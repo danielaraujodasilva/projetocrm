@@ -701,6 +701,7 @@ if ($action === 'studio_login') {
             $analysis = $preview['analysis'] ?? [];
             $candidates = $analysis['candidates'] ?? [];
             $selectedItems = [];
+            $conflictsSkipped = 0;
             foreach ($candidates as $candidate) {
                 $uid = (string)($candidate['uid'] ?? '');
                 if ($uid === '') {
@@ -713,6 +714,7 @@ if ($action === 'studio_login') {
                 $conflicts = $candidate['conflicts'] ?? [];
                 $allowConflict = !empty($item['allow_conflict']);
                 if ($conflicts && !$allowConflict) {
+                    $conflictsSkipped++;
                     continue;
                 }
                 $startDate = trim((string)($item['date'] ?? $candidate['date'] ?? ''));
@@ -742,6 +744,13 @@ if ($action === 'studio_login') {
                     'allow_conflict' => $allowConflict,
                 ];
             }
+            if (!$selectedItems) {
+                $message = $conflictsSkipped > 0
+                    ? 'Nenhum evento foi importado porque todos os itens selecionados têm conflito. Marque "Importar mesmo assim" nos eventos que deseja manter.'
+                    : 'Selecione pelo menos um evento válido para importar.';
+                flash_set('error', $message);
+                redirect_to('studio_agenda', ['ics_preview' => $token]);
+            }
             $result = studio_import_calendar_events($studio, $selectedItems);
             $_SESSION['calendar_import_last_batch'] = [
                 'studio_id' => (int)$studio['id'],
@@ -749,8 +758,15 @@ if ($action === 'studio_login') {
                 'created_at' => time(),
             ];
             unset($_SESSION['calendar_import_preview'][$token]);
-            flash_set('success', 'Importacao revisada concluida: ' . (int)$result['appointments_created'] . ' agendamentos criados e ' . (int)$result['duplicates_skipped'] . ' duplicados ignorados.');
-            redirect_to('studio_agenda');
+            $message = 'Importação concluída: ' . (int)$result['appointments_created'] . ' agendamentos criados e ' . (int)$result['duplicates_skipped'] . ' duplicados ignorados.';
+            if ($conflictsSkipped > 0) {
+                $message .= ' ' . $conflictsSkipped . ' conflito(s) não foram importados.';
+            }
+            flash_set('success', $message);
+            redirect_to('studio_agenda', [
+                'cal_view' => 'month',
+                'date' => (string)($selectedItems[0]['date'] ?? date('Y-m-d')),
+            ]);
         }
 
         if ($action === 'undo_calendar_import') {
@@ -761,7 +777,16 @@ if ($action === 'studio_login') {
             }
             $result = studio_revert_import_calendar_events($studio, $batch['uids'] ?? []);
             unset($_SESSION['calendar_import_last_batch']);
-            flash_set('success', 'Importacao desfeita: ' . (int)($result['appointments_deleted'] ?? 0) . ' agendamentos removidos.');
+            flash_set(
+                'success',
+                'Importação desfeita: '
+                . (int)($result['appointments_deleted'] ?? 0)
+                . ' agendamentos, '
+                . (int)($result['leads_deleted'] ?? 0)
+                . ' leads e '
+                . (int)($result['customers_deleted'] ?? 0)
+                . ' clientes de teste removidos.'
+            );
             redirect_to('studio_agenda');
         }
 

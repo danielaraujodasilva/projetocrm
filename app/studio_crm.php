@@ -8422,11 +8422,11 @@ function studio_appointment_confirmation_ai_decision(array $studio, array $appoi
 
     $config = studio_openai_config($studio);
     if (empty($config['api_key'])) {
-        $normalized = remove_accents(lower_text($reply));
-        if (contains_any($normalized, ['sim', 'confirmo', 'confirmado', 'confirmar', 'vou', 'estarei', 'ok', 'beleza', 'claro'])) {
+        $normalized = studio_calendar_remove_accents(studio_calendar_lower_text($reply));
+        if (studio_calendar_contains_any($normalized, ['sim', 'confirmo', 'confirmado', 'confirmar', 'vou', 'estarei', 'ok', 'beleza', 'claro'])) {
             return 'confirmado';
         }
-        if (contains_any($normalized, ['nao', 'não', 'cancelar', 'cancela', 'cancelado', 'desmarcar', 'nao vou', 'não vou', 'impossivel', 'impossível'])) {
+        if (studio_calendar_contains_any($normalized, ['nao', 'não', 'cancelar', 'cancela', 'cancelado', 'desmarcar', 'nao vou', 'não vou', 'impossivel', 'impossível'])) {
             return 'cancelado';
         }
         return null;
@@ -8813,7 +8813,7 @@ function studio_find_imported_calendar_appointment_id(array $studio, string $imp
         return $existingId;
     }
 
-    $normalizedTitle = normalize_spaces(remove_accents(mb_strtolower($title)));
+    $normalizedTitle = normalize_spaces(studio_calendar_remove_accents(mb_strtolower($title)));
     $stmt = $pdo->prepare(
         'SELECT id, title, raw_title
          FROM appointments
@@ -8825,7 +8825,7 @@ function studio_find_imported_calendar_appointment_id(array $studio, string $imp
     );
     $stmt->execute([$date, $startTime]);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
-        $existingTitle = normalize_spaces(remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
+        $existingTitle = normalize_spaces(studio_calendar_remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
         if ($existingTitle !== '' && $normalizedTitle !== '') {
             if ($existingTitle === $normalizedTitle || str_contains($existingTitle, $normalizedTitle) || str_contains($normalizedTitle, $existingTitle)) {
                 return (int)($row['id'] ?? 0);
@@ -8845,7 +8845,7 @@ function studio_find_imported_calendar_appointment_id(array $studio, string $imp
         );
         $stmt->execute([$date, $endTime]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
-            $existingTitle = normalize_spaces(remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
+            $existingTitle = normalize_spaces(studio_calendar_remove_accents(mb_strtolower((string)($row['raw_title'] ?? $row['title'] ?? ''))));
             if ($existingTitle !== '' && $normalizedTitle !== '') {
                 if ($existingTitle === $normalizedTitle || str_contains($existingTitle, $normalizedTitle) || str_contains($normalizedTitle, $existingTitle)) {
                     return (int)($row['id'] ?? 0);
@@ -8910,18 +8910,87 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
     return $items;
 }
 
+function studio_calendar_lower_text(string $value): string
+{
+    return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+}
+
+function studio_calendar_remove_accents(string $value): string
+{
+    $converted = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+    return $converted !== false ? $converted : $value;
+}
+
+function studio_calendar_contains_any(string $value, array $needles): bool
+{
+    foreach ($needles as $needle) {
+        if ($needle !== '' && str_contains($value, $needle)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function studio_calendar_extract_phone(string $text): string
+{
+    if (preg_match('/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[-\s]?\d{4}/', $text, $match)) {
+        return normalize_phone($match[0]);
+    }
+
+    return '';
+}
+
+function studio_calendar_extract_event_value(string $title): array
+{
+    $candidate = preg_replace('/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[-\s]?\d{4}/', ' ', $title) ?? $title;
+    $patterns = [
+        '/R\$\s*([\d\.\,]+)/iu',
+        '/([\d\.\,]+)\s*\$/u',
+        '/\b(\d{2,6}(?:[,.]\d{2})?)\s*,?\s*(?:com|pagou sinal|sinal pago|pago|sinal)\b/iu',
+        '/[-–]\s*(\d{2,6}(?:[,.]\d{2})?)\b/u',
+        '/\b(\d{2,6}(?:[,.]\d{2})?)\s*(?:\((?:pago|sinal|sem sinal|fiado|parcelado)[^)]*\))?$/iu',
+    ];
+
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $candidate, $match)) {
+            return [money_to_float($match[1]), $match[0]];
+        }
+    }
+
+    return [0.0, ''];
+}
+
+function studio_calendar_looks_like_person_title(string $title): bool
+{
+    $clean = studio_calendar_remove_accents(studio_calendar_lower_text($title));
+    $clean = preg_replace('/\([^)]*\)|R\$\s*[\d\.\,]+|[\d\.\,]+\s*\$|[-–]\s*\d{2,6}/u', ' ', $clean) ?? $clean;
+    $clean = normalize_spaces($clean);
+    $words = preg_split('/\s+/', $clean, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $alphaWords = array_values(array_filter($words, static fn(string $word): bool => preg_match('/^[a-z]{3,}$/', $word) === 1));
+
+    return count($alphaWords) >= 2 && count($alphaWords) <= 6;
+}
+
 function studio_parse_calendar_event_for_crm(array $event): array
 {
     $rawTitle = normalize_spaces((string)($event['SUMMARY'] ?? ($event['summary'] ?? '')));
     $description = normalize_spaces((string)($event['DESCRIPTION'] ?? ($event['description'] ?? '')));
-    $start = studio_ics_datetime_to_local((string)($event['DTSTART'] ?? ($event['dtstart'] ?? '')));
+    $startValue = (string)($event['DTSTART'] ?? ($event['dtstart'] ?? ''));
+    $start = studio_ics_datetime_to_local($startValue);
     $end = studio_ics_datetime_to_local((string)($event['DTEND'] ?? ($event['dtend'] ?? '')));
+    $googleUid = trim((string)($event['UID'] ?? ($event['uid'] ?? '')));
+    $recurrenceId = trim((string)($event['RECURRENCE-ID'] ?? ($event['recurrence-id'] ?? '')));
+    $uidSeed = $googleUid;
+    if ($recurrenceId !== '') {
+        $uidSeed .= '|' . $recurrenceId;
+    }
     $base = [
         'include' => false,
         'reason' => '',
         'raw_title' => $rawTitle,
-        'uid' => import_uid((string)($event['UID'] ?? ($event['uid'] ?? ''))),
-        'google_uid' => (string)($event['UID'] ?? ($event['uid'] ?? '')),
+        'uid' => import_uid($uidSeed),
+        'google_uid' => $googleUid,
         'description_original' => $description,
         'date' => $start ? $start->format('Y-m-d') : null,
         'start_time' => $start ? $start->format('H:i:s') : null,
@@ -8938,8 +9007,8 @@ function studio_parse_calendar_event_for_crm(array $event): array
         return array_merge($base, ['reason' => 'sem titulo']);
     }
 
-    $lower = lower_text($rawTitle . ' ' . $description);
-    $normalized = remove_accents($lower);
+    $lower = studio_calendar_lower_text($rawTitle . ' ' . $description);
+    $normalized = studio_calendar_remove_accents($lower);
     $hardSkipWords = [
         'cartorio', 'cognizant', 'edital', 'ultra-som', 'ultra som', 'ubs', 'conselho tutelar',
         'guarda roupa', 'endoscopia', 'pastor', 'curso', 'aniversario', 'reuniao', 'oftalmo',
@@ -8947,14 +9016,14 @@ function studio_parse_calendar_event_for_crm(array $event): array
         'consulta', 'medico', 'faculdade', 'lavar', 'mercado', 'academia', 'dentista',
         'visita tecnica', 'marketing', 'limpeza e etc', 'cobrar sinal', 'padaria', 'restaurante',
     ];
-    if (contains_any($normalized, $hardSkipWords)) {
+    if (studio_calendar_contains_any($normalized, $hardSkipWords)) {
         return array_merge($base, ['reason' => 'parece compromisso pessoal']);
     }
 
-    $phone = extract_phone($rawTitle . ' ' . $description);
-    [$value, $valueToken] = extract_event_value($rawTitle);
-    $hasServiceKeyword = contains_any($normalized, ['tattoo', 'tatuagem', 'tatuar', 'retoque', 'micro', 'micropigmentacao', 'cilios', 'piercing', 'pomada', 'sinal', 'orcamento', 'cobertura', 'sessao', 'fechamento', 'higienizacao']);
-    $looksLikePerson = looks_like_person_title($rawTitle);
+    $phone = studio_calendar_extract_phone($rawTitle . ' ' . $description);
+    [$value, $valueToken] = studio_calendar_extract_event_value($rawTitle);
+    $hasServiceKeyword = studio_calendar_contains_any($normalized, ['tattoo', 'tatuagem', 'tatuar', 'retoque', 'micro', 'micropigmentacao', 'cilios', 'piercing', 'pomada', 'sinal', 'orcamento', 'cobertura', 'sessao', 'fechamento', 'higienizacao']);
+    $looksLikePerson = studio_calendar_looks_like_person_title($rawTitle);
 
     if ($phone === '' && $value <= 0 && !$hasServiceKeyword && !$looksLikePerson) {
         return array_merge($base, ['reason' => 'sem sinal de cliente/atendimento']);
@@ -8966,7 +9035,7 @@ function studio_parse_calendar_event_for_crm(array $event): array
     $today = new DateTimeImmutable(date('Y-m-d'), new DateTimeZone('America/Sao_Paulo'));
     $appointmentDate = new DateTimeImmutable($start->format('Y-m-d'), new DateTimeZone('America/Sao_Paulo'));
     $isPast = $appointmentDate < $today;
-    $paymentText = remove_accents($lower);
+    $paymentText = studio_calendar_remove_accents($lower);
     $unconfirmed = str_contains($paymentText, 'sem sinal') || str_contains($paymentText, 'fiado') || str_contains($paymentText, 'negociar');
     $status = $isPast ? 'concluido' : ($unconfirmed ? 'pre_agendado' : 'confirmado');
     $leadStatus = $isPast ? 'fechado' : ($unconfirmed ? 'pre_agendado' : 'agendado');
@@ -9035,12 +9104,189 @@ function studio_parse_ics_events(string $raw): array
             continue;
         }
 
-        [$name, $value] = array_pad(explode(':', $line, 2), 2, '');
-        $name = strtoupper(trim((string)explode(';', $name, 2)[0]));
-        $current[$name] = trim((string)$value);
+        [$property, $value] = array_pad(explode(':', $line, 2), 2, '');
+        $propertyParts = explode(';', $property);
+        $name = strtoupper(trim((string)array_shift($propertyParts)));
+        $value = trim((string)$value);
+        if (in_array($name, ['SUMMARY', 'DESCRIPTION', 'LOCATION'], true)) {
+            $value = studio_ics_decode_text($value);
+        }
+        if (isset($current[$name]) && in_array($name, ['EXDATE', 'RDATE'], true)) {
+            $current[$name] .= ',' . $value;
+        } else {
+            $current[$name] = $value;
+        }
+        foreach ($propertyParts as $parameter) {
+            [$parameterName, $parameterValue] = array_pad(explode('=', $parameter, 2), 2, '');
+            $parameterName = strtoupper(trim($parameterName));
+            if ($parameterName !== '') {
+                $current[$name . '_' . $parameterName] = trim($parameterValue, "\" \t");
+            }
+        }
+        if ($name === 'DTSTART' && (($current['DTSTART_VALUE'] ?? '') === 'DATE' || preg_match('/^\d{8}$/', $value))) {
+            $current['ALL_DAY'] = true;
+        }
     }
 
-    return $events;
+    return studio_expand_ics_recurring_events($events);
+}
+
+function studio_ics_decode_text(string $value): string
+{
+    $value = str_replace(['\\n', '\\N'], "\n", $value);
+    return trim(str_replace(['\\,', '\\;', '\\\\'], [',', ';', '\\'], $value));
+}
+
+function studio_ics_recurrence_key(string $value): string
+{
+    $date = studio_ics_datetime_to_local($value);
+    return $date ? $date->format('Y-m-d H:i:s') : trim($value);
+}
+
+function studio_expand_ics_recurring_events(array $events): array
+{
+    $standalone = [];
+    $masters = [];
+    $exceptions = [];
+
+    foreach ($events as $event) {
+        $uid = trim((string)($event['UID'] ?? ''));
+        $recurrenceId = trim((string)($event['RECURRENCE-ID'] ?? ''));
+        if ($uid !== '' && $recurrenceId !== '') {
+            $exceptions[$uid][studio_ics_recurrence_key($recurrenceId)] = $event;
+        } elseif ($uid !== '' && trim((string)($event['RRULE'] ?? '')) !== '') {
+            $masters[] = $event;
+        } else {
+            $standalone[] = $event;
+        }
+    }
+
+    $expanded = [];
+    foreach ($masters as $master) {
+        $uid = trim((string)($master['UID'] ?? ''));
+        foreach (studio_ics_rrule_occurrences($master) as $occurrence) {
+            $key = studio_ics_recurrence_key((string)($occurrence['RECURRENCE-ID'] ?? ''));
+            if (isset($exceptions[$uid][$key])) {
+                $replacement = $exceptions[$uid][$key];
+                unset($exceptions[$uid][$key]);
+                if (strtoupper((string)($replacement['STATUS'] ?? 'CONFIRMED')) !== 'CANCELLED') {
+                    $expanded[] = $replacement;
+                }
+                continue;
+            }
+            $expanded[] = $occurrence;
+        }
+    }
+
+    foreach ($exceptions as $uidExceptions) {
+        foreach ($uidExceptions as $exception) {
+            if (strtoupper((string)($exception['STATUS'] ?? 'CONFIRMED')) !== 'CANCELLED') {
+                $expanded[] = $exception;
+            }
+        }
+    }
+
+    $result = array_merge($standalone, $expanded);
+    usort($result, static function (array $left, array $right): int {
+        $leftDate = studio_ics_datetime_to_local((string)($left['DTSTART'] ?? ''));
+        $rightDate = studio_ics_datetime_to_local((string)($right['DTSTART'] ?? ''));
+        return ($leftDate?->getTimestamp() ?? 0) <=> ($rightDate?->getTimestamp() ?? 0);
+    });
+
+    return $result;
+}
+
+function studio_ics_rrule_occurrences(array $event): array
+{
+    $start = studio_ics_datetime_to_local((string)($event['DTSTART'] ?? ''));
+    if (!$start || !empty($event['ALL_DAY'])) {
+        return [$event];
+    }
+
+    $rules = [];
+    foreach (explode(';', strtoupper((string)($event['RRULE'] ?? ''))) as $part) {
+        [$key, $value] = array_pad(explode('=', $part, 2), 2, '');
+        if ($key !== '') {
+            $rules[$key] = $value;
+        }
+    }
+    $frequency = $rules['FREQ'] ?? '';
+    if (!in_array($frequency, ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'], true)) {
+        return [$event];
+    }
+
+    $interval = max(1, (int)($rules['INTERVAL'] ?? 1));
+    $countLimit = max(0, (int)($rules['COUNT'] ?? 0));
+    $until = studio_ics_datetime_to_local((string)($rules['UNTIL'] ?? ''));
+    $windowStart = new DateTimeImmutable('-2 years', new DateTimeZone('America/Sao_Paulo'));
+    $windowEnd = new DateTimeImmutable('+2 years', new DateTimeZone('America/Sao_Paulo'));
+    if ($until && $until < $windowEnd) {
+        $windowEnd = $until;
+    }
+
+    $end = studio_ics_datetime_to_local((string)($event['DTEND'] ?? ''));
+    $durationSeconds = $end ? max(0, $end->getTimestamp() - $start->getTimestamp()) : 0;
+    $excluded = [];
+    foreach (preg_split('/\s*,\s*/', (string)($event['EXDATE'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $excludedValue) {
+        $excluded[studio_ics_recurrence_key($excludedValue)] = true;
+    }
+
+    $weekDays = array_values(array_filter(explode(',', (string)($rules['BYDAY'] ?? ''))));
+    if (!$weekDays) {
+        $weekDays = [['1' => 'MO', '2' => 'TU', '3' => 'WE', '4' => 'TH', '5' => 'FR', '6' => 'SA', '7' => 'SU'][$start->format('N')]];
+    }
+    $monthDays = array_values(array_filter(array_map('intval', explode(',', (string)($rules['BYMONTHDAY'] ?? $start->format('j'))))));
+    $occurrences = [];
+    $matched = 0;
+    $iterations = 0;
+    $cursor = $start;
+
+    while ($iterations < 20000 && count($occurrences) < 1500) {
+        $iterations++;
+        if ($cursor > $windowEnd || ($until && $cursor > $until)) {
+            break;
+        }
+
+        $isMatch = false;
+        if ($frequency === 'DAILY') {
+            $days = (int)$start->setTime(0, 0)->diff($cursor->setTime(0, 0))->format('%a');
+            $isMatch = $days % $interval === 0;
+        } elseif ($frequency === 'WEEKLY') {
+            $days = (int)$start->setTime(0, 0)->diff($cursor->setTime(0, 0))->format('%a');
+            $dayCode = ['1' => 'MO', '2' => 'TU', '3' => 'WE', '4' => 'TH', '5' => 'FR', '6' => 'SA', '7' => 'SU'][$cursor->format('N')];
+            $isMatch = intdiv($days, 7) % $interval === 0 && in_array($dayCode, $weekDays, true);
+        } elseif ($frequency === 'MONTHLY') {
+            $months = (((int)$cursor->format('Y') - (int)$start->format('Y')) * 12) + ((int)$cursor->format('n') - (int)$start->format('n'));
+            $isMatch = $months >= 0 && $months % $interval === 0 && in_array((int)$cursor->format('j'), $monthDays, true);
+        } elseif ($frequency === 'YEARLY') {
+            $years = (int)$cursor->format('Y') - (int)$start->format('Y');
+            $isMatch = $years >= 0 && $years % $interval === 0 && $cursor->format('md') === $start->format('md');
+        }
+
+        if ($isMatch && $cursor >= $start) {
+            $matched++;
+            if ($countLimit > 0 && $matched > $countLimit) {
+                break;
+            }
+            $recurrenceValue = $cursor->format('Ymd\THis');
+            if ($cursor >= $windowStart && !isset($excluded[studio_ics_recurrence_key($recurrenceValue)])) {
+                $occurrence = $event;
+                $occurrence['DTSTART'] = $recurrenceValue;
+                $occurrence['RECURRENCE-ID'] = $recurrenceValue;
+                if ($durationSeconds > 0) {
+                    $occurrence['DTEND'] = $cursor->modify('+' . $durationSeconds . ' seconds')->format('Ymd\THis');
+                }
+                unset($occurrence['RRULE'], $occurrence['EXDATE'], $occurrence['RDATE']);
+                $occurrences[] = $occurrence;
+            }
+            if ($countLimit > 0 && $matched >= $countLimit) {
+                break;
+            }
+        }
+        $cursor = $cursor->modify('+1 day');
+    }
+
+    return $occurrences;
 }
 
 function studio_parse_event_title(string $title, string $valueToken): array
@@ -9161,13 +9407,25 @@ function studio_revert_import_calendar_events(array $studio, array $uids): array
     $pdo = studio_db($studio);
     $uids = array_values(array_unique(array_filter(array_map('trim', $uids), static fn(string $uid): bool => $uid !== '')));
     if (!$uids) {
-        return ['appointments_deleted' => 0, 'leads_deleted' => 0];
+        return ['appointments_deleted' => 0, 'leads_deleted' => 0, 'customers_deleted' => 0];
     }
 
     $pdo->beginTransaction();
     try {
         $placeholders = implode(',', array_fill(0, count($uids), '?'));
         $deletedLeads = 0;
+        $deletedCustomers = 0;
+        $customerIds = [];
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT customer_id
+             FROM appointments
+             WHERE import_source IN ("google_calendar", "google_ics")
+               AND import_uid IN (' . $placeholders . ')
+               AND COALESCE(customer_id, 0) > 0'
+        );
+        $stmt->execute($uids);
+        $customerIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
 
         $stmt = $pdo->prepare('DELETE FROM appointments WHERE import_source IN ("google_calendar", "google_ics") AND import_uid IN (' . $placeholders . ')');
         $stmt->execute($uids);
@@ -9180,6 +9438,18 @@ function studio_revert_import_calendar_events(array $studio, array $uids): array
         } catch (Throwable) {
         }
 
+        foreach (array_values(array_unique($customerIds)) as $customerId) {
+            $stmt = $pdo->prepare(
+                'DELETE FROM customers
+                 WHERE id = ?
+                   AND notes LIKE "Importado do Google Agenda.%"
+                   AND NOT EXISTS (SELECT 1 FROM appointments WHERE customer_id = ?)
+                   AND NOT EXISTS (SELECT 1 FROM leads WHERE customer_id = ?)'
+            );
+            $stmt->execute([$customerId, $customerId, $customerId]);
+            $deletedCustomers += $stmt->rowCount();
+        }
+
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -9189,6 +9459,7 @@ function studio_revert_import_calendar_events(array $studio, array $uids): array
     return [
         'appointments_deleted' => $deletedAppointments ?? 0,
         'leads_deleted' => $deletedLeads,
+        'customers_deleted' => $deletedCustomers,
     ];
 }
 
@@ -9210,7 +9481,13 @@ function studio_find_or_create_customer_from_import(array $studio, array $item, 
     }
 
     $stmt = $pdo->prepare('INSERT INTO customers (name, phone, email, instagram, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())');
-    $stmt->execute([$item['name'], $item['phone'], 'Importado do Google Agenda. Titulo original: ' . $item['raw_title']]);
+    $stmt->execute([
+        $item['name'],
+        $item['phone'],
+        '',
+        '',
+        'Importado do Google Agenda. Titulo original: ' . $item['raw_title'],
+    ]);
     $result['customers_created']++;
 
     return (int)$pdo->lastInsertId();
