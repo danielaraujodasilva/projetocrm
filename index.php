@@ -1602,10 +1602,13 @@ function render_head(string $title): void
     $bodyClass = in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true) ? ' class="mobile-workspace"' : '';
     echo '<meta name="viewport" content="' . h($viewport) . '">';
     echo '<title>' . h($title) . '</title>';
+    echo '<link rel="preconnect" href="https://fonts.googleapis.com">';
+    echo '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
+    echo '<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
-    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
+    echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
+    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/app.css') ?: app_build_version())) . '">';
     if (in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)) {
-        echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
         echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
     }
     echo '</head><body' . $bodyClass . '>';
@@ -1619,7 +1622,7 @@ function render_public_head(string $title, string $description): void
     echo '<meta name="description" content="' . h($description) . '">';
     echo '<title>' . h($title) . '</title>';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISV5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
-    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '">';
+    echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/app.css') ?: app_build_version())) . '">';
     echo '</head><body class="public-page">';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
@@ -1835,28 +1838,66 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
 {
     $user = current_studio_user();
     render_head($title);
-    echo '<div class="shell d-flex flex-column flex-lg-row min-vh-100">';
-    echo '<aside class="sidebar d-flex flex-column flex-shrink-0 rounded-end-4">';
-    echo '<div class="brand"><span class="brand-mark">CRM</span><span>' . h($user['studio_name'] ?? 'Estúdio') . '</span></div>';
-    echo '<div class="sidebar-meta shadow-sm"><span class="sidebar-meta-label">Operação do estúdio</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></div>';
-    echo '<nav class="nav nav-pills flex-row flex-lg-column flex-wrap gap-2">';
-    echo '<a class="' . ($active === 'home' ? 'active' : '') . '" href="' . h(app_url('studio_home')) . '">Início</a>';
-    echo '<a class="' . ($active === 'people' ? 'active' : '') . '" href="' . h(app_url('studio_people')) . '">Pessoas</a>';
-    echo '<a class="' . ($active === 'agenda' ? 'active' : '') . '" href="' . h(app_url('studio_agenda')) . '">Agenda</a>';
-    echo '<a class="' . ($active === 'whatsapp' ? 'active' : '') . '" href="' . h(app_url('studio_whatsapp')) . '">WhatsApp</a>';
-    echo '<a class="' . ($active === 'finance' ? 'active' : '') . '" href="' . h(app_url('studio_finance')) . '">Financeiro</a>';
-    echo '<a class="' . ($active === 'settings' ? 'active' : '') . '" href="' . h(app_url('studio_settings')) . '">Configurações</a>';
-    echo '<a class="' . ($active === 'reports' ? 'active' : '') . '" href="' . h(app_url('studio_reports')) . '">Relatórios</a>';
-    echo '<a class="' . ($active === 'assistant' ? 'active' : '') . '" href="' . h(app_url('studio_data_assistant')) . '">Assistente IA</a>';
-    echo '<a class="' . ($active === 'tattoo_images' ? 'active' : '') . '" href="' . h(app_url('studio_tattoo_images')) . '">Criar imagens</a>';
-    echo '<a href="' . h(app_url('studio_logout')) . '">Sair</a>';
-    echo '</nav></aside>';
+    $navGroups = [
+        'Operação' => [
+            ['home', 'fa-house', 'Início', 'studio_home'],
+            ['people', 'fa-user-group', 'Pessoas', 'studio_people'],
+            ['agenda', 'fa-calendar-days', 'Agenda', 'studio_agenda'],
+        ],
+        'Atendimento' => [
+            ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
+        ],
+        'Marketing' => [
+            ['meta_ads', 'fa-chart-line', 'Meta Ads', 'studio_meta_ads'],
+            ['tattoo_images', 'fa-wand-magic-sparkles', 'Criar imagens', 'studio_tattoo_images'],
+        ],
+        'Gestão' => [
+            ['finance', 'fa-wallet', 'Financeiro', 'studio_finance'],
+            ['reports', 'fa-chart-pie', 'Relatórios', 'studio_reports'],
+            ['assistant', 'fa-robot', 'Assistente IA', 'studio_data_assistant'],
+        ],
+        'Configurações' => [
+            ['settings', 'fa-sliders', 'Configurações', 'studio_settings'],
+        ],
+    ];
+    $renderStudioNav = static function (array $groups, string $current): void {
+        foreach ($groups as $groupLabel => $items) {
+            echo '<div class="nav-group"><span class="nav-group-label">' . h($groupLabel) . '</span>';
+            foreach ($items as [$key, $icon, $label, $route]) {
+                echo '<a class="' . ($current === $key ? 'active' : '') . '" href="' . h(app_url($route)) . '"><i class="fa-solid ' . h($icon) . '" aria-hidden="true"></i><span>' . h($label) . '</span></a>';
+            }
+            echo '</div>';
+        }
+    };
+    echo '<div class="shell studio-shell d-flex flex-column flex-lg-row min-vh-100">';
+    echo '<aside class="sidebar studio-sidebar d-flex flex-column flex-shrink-0">';
+    echo '<div class="brand"><span class="brand-mark">C</span><span><strong>' . h($user['studio_name'] ?? 'Estúdio') . '</strong><small>Workspace operacional</small></span></div>';
+    echo '<div class="sidebar-meta"><span class="sidebar-avatar">' . h(mb_strtoupper(mb_substr((string)($user['name'] ?? 'U'), 0, 1))) . '</span><span><span class="sidebar-meta-label">Conectado como</span><strong>' . h($user['name'] ?? 'Usuário') . '</strong></span></div>';
+    echo '<nav class="nav studio-nav desktop-nav">';
+    $renderStudioNav($navGroups, $active);
+    echo '<div class="nav-group nav-account"><a href="' . h(app_url('studio_logout')) . '"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span>Sair</span></a></div>';
+    echo '</nav>';
+    echo '<details class="mobile-menu"><summary><i class="fa-solid fa-bars"></i><span>Navegação</span><i class="fa-solid fa-chevron-down"></i></summary><nav class="nav studio-nav">';
+    $renderStudioNav($navGroups, $active);
+    echo '<a href="' . h(app_url('studio_logout')) . '"><i class="fa-solid fa-arrow-right-from-bracket"></i><span>Sair</span></a></nav></details>';
+    echo '</aside>';
     echo '<main class="main flex-grow-1 container-fluid py-3 py-lg-4">';
-    echo '<div class="topbar d-flex justify-content-between align-items-start gap-3 flex-wrap pb-3 mb-4 border-bottom"><div><div class="topbar-kicker">Painel do estúdio</div><h1 class="h2 mb-1">' . h($title) . '</h1><p class="mb-0">' . h($subtitle) . '</p></div>';
-    echo '<span class="badge text-bg-secondary rounded-pill px-3 py-2">' . h($user['name'] ?? 'Usuario') . '</span></div>';
+    echo '<div class="topbar studio-topbar d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><div class="topbar-kicker">Workspace / ' . h($title) . '</div><h1 class="h2 mb-1">' . h($title) . '</h1><p class="mb-0">' . h($subtitle) . '</p></div>';
+    echo '<div class="topbar-presence"><span></span><strong>Operação online</strong></div></div>';
     render_flash($flash);
     $content();
-    echo '</main></div>';
+    echo '</main>';
+    echo '<nav class="mobile-bottom-nav" aria-label="Navegação principal">';
+    foreach ([
+        ['home', 'fa-house', 'Início', 'studio_home'],
+        ['leads', 'fa-bolt', 'Leads', 'studio_leads'],
+        ['agenda', 'fa-calendar-days', 'Agenda', 'studio_agenda'],
+        ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
+        ['meta_ads', 'fa-chart-line', 'Meta', 'studio_meta_ads'],
+    ] as [$key, $icon, $label, $route]) {
+        echo '<a class="' . ($active === $key ? 'active' : '') . '" href="' . h(app_url($route)) . '"><i class="fa-solid ' . h($icon) . '"></i><span>' . h($label) . '</span></a>';
+    }
+    echo '</nav></div>';
     render_scripts();
     echo '</body></html>';
 }
@@ -2996,39 +3037,58 @@ if ($page === 'studio_home') {
                 ],
             ],
         ];
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Alertas operacionais</h2><p class="muted mb-0">Situa&ccedil;&otilde;es que pedem a&ccedil;&atilde;o agora.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Abrir relat&oacute;rios</a></div>';
+        echo '<div class="home-command-center">';
+        echo '<section class="home-kpi-section"><div class="section-heading"><div><span class="section-eyebrow">Pulso do estúdio</span><h2>Hoje, em uma leitura</h2></div><span class="section-date">' . h(format_date_pt($todayIso)) . '</span></div>';
+        echo '<div class="home-kpi-grid">';
+        $homeKpis = [
+            ['Leads hoje', (string)$newLeadsToday, 'Novas oportunidades', 'fa-bolt', 'attention_leads'],
+            ['Conversas abertas', (string)count($pendingWhatsappConversations), 'Aguardando resposta', 'fa-comments', 'whatsapp_conversations'],
+            ['Agenda de hoje', (string)$todayAppointmentsCount, 'Atendimentos ativos', 'fa-calendar-check', 'today_agenda'],
+            ['Faturamento previsto', format_money($scheduledToEndOfMonth), 'Até o fim do mês', 'fa-arrow-trend-up', 'scheduled_month'],
+            ['Meta Ads', is_array($metaInsights) && !empty($metaInsights['ok']) ? format_money((float)($metaInsights['spend'] ?? 0)) : '—', 'Gasto nos últimos 30 dias', 'fa-chart-line', 'meta_ads'],
+        ];
+        foreach ($homeKpis as [$label, $value, $hint, $icon, $target]) {
+            if ($target === 'meta_ads') {
+                echo '<a class="home-kpi-card" href="' . h(app_url('studio_meta_ads')) . '">';
+            } else {
+                echo '<button class="home-kpi-card" type="button" data-home-focus="' . h($target) . '">';
+            }
+            echo '<span class="home-kpi-icon"><i class="fa-solid ' . h($icon) . '"></i></span><span class="home-kpi-label">' . h($label) . '</span><strong>' . h($value) . '</strong><small>' . h($hint) . '</small>';
+            echo $target === 'meta_ads' ? '</a>' : '</button>';
+        }
+        echo '</div></section>';
+        echo '<section class="panel attention-panel"><div class="section-heading"><div><span class="section-eyebrow">Prioridades</span><h2>O que precisa de atenção agora</h2><p class="muted mb-0">Ordenado para você agir primeiro no que impacta a operação.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver todos os alertas</a></div>';
         if (!$alerts) {
-            echo '<p class="muted">Sem alertas importantes no momento.</p>';
+            echo '<div class="attention-empty"><i class="fa-solid fa-circle-check"></i><div><strong>Tudo sob controle</strong><span>Nenhum alerta importante no momento.</span></div></div>';
         } else {
             echo '<ul class="alert-list">';
             foreach ($alerts as $alert) {
                 $tone = (string)($alert['tone'] ?? 'warn');
-                echo '<li class="alert-list-item"><span class="badge ' . h($tone === 'danger' ? 'danger' : ($tone === 'ok' ? 'ok' : 'warn')) . '">' . h($alert['title'] ?? 'Alerta') . '</span><span class="alert-list-text">' . h($alert['description'] ?? '') . '</span>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Abrir &aacute;rea</a>' : '') . '</li>';
+                echo '<li class="alert-list-item ' . h($tone) . '"><span class="alert-priority-dot"></span><span class="alert-list-text"><strong>' . h($alert['title'] ?? 'Alerta') . '</strong><small>' . h($alert['description'] ?? '') . '</small></span>' . (!empty($alert['href']) ? '<a class="btn tiny secondary" href="' . h((string)$alert['href']) . '">Resolver</a>' : '') . '</li>';
             }
             echo '</ul>';
         }
         echo '</section>';
 
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Atalhos da Home</h2><p class="muted mb-0">Toque em um card para abrir o conte&uacute;do em overlay.</p></div><span class="badge ok">Vis&atilde;o r&aacute;pida</span></div>';
+        echo '<section class="home-actions-section"><div class="section-heading"><div><span class="section-eyebrow">Próximos passos</span><h2>Atalhos inteligentes</h2><p class="muted mb-0">Acesse as rotinas mais usadas sem procurar no menu.</p></div></div>';
         echo '<div class="settings-overview-grid dashboard-home-blocks row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 mt-3">';
         $homeCards = [
-            ['label' => 'Funil', 'summary' => 'Leads quentes, parados e com retorno pendente.', 'focus' => 'attention_leads'],
-            ['label' => 'Agenda de hoje', 'summary' => 'Atendimentos do dia e status atual.', 'focus' => 'today_agenda'],
-            ['label' => 'Leads do Meta', 'summary' => 'Leads captados por campanha e faixa de data.', 'focus' => 'meta_campaign'],
-            ['label' => 'Meta Ads', 'summary' => $metaSpendLabel, 'focus' => 'meta_ads'],
-            ['label' => 'Pr&oacute;ximos atendimentos', 'summary' => 'Agenda futura com filtros por per&iacute;odo.', 'focus' => 'appointments'],
-            ['label' => 'Hor&aacute;rios livres', 'summary' => 'Janelas dispon&iacute;veis na agenda.', 'focus' => 'free_windows'],
-            ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result'],
+            ['label' => 'Responder WhatsApp', 'summary' => count($pendingWhatsappConversations) . ' conversas aguardando retorno.', 'focus' => 'whatsapp_conversations', 'icon' => 'fa-comments'],
+            ['label' => 'Ver leads quentes', 'summary' => $attentionLeadsTotal . ' oportunidades pedem atenção.', 'focus' => 'attention_leads', 'icon' => 'fa-bolt'],
+            ['label' => 'Abrir agenda', 'summary' => $todayAppointmentsCount . ' atendimentos previstos hoje.', 'focus' => 'today_agenda', 'icon' => 'fa-calendar-days'],
+            ['label' => 'Acompanhar Meta Ads', 'summary' => $metaSpendLabel, 'focus' => 'meta_ads', 'icon' => 'fa-chart-line'],
+            ['label' => 'Próximos horários livres', 'summary' => 'Encontre uma janela para agendar.', 'focus' => 'free_windows', 'icon' => 'fa-clock'],
+            ['label' => 'Resultado do mês', 'summary' => 'Receita, despesas e saldo simplificado.', 'focus' => 'month_result', 'icon' => 'fa-wallet'],
         ];
         foreach ($homeCards as $card) {
             $isMetaAds = (string)($card['focus'] ?? '') === 'meta_ads';
             if ($isMetaAds) {
-                echo '<a class="panel dashboard-stat dashboard-stat-button home-action-card text-start" href="' . h(app_url('studio_meta_ads')) . '"><p class="metric h4 mb-1">' . h((string)$card['label']) . '</p><p class="muted mb-2">' . h((string)$card['summary']) . '</p><span class="muted small">Abrir página</span></a>';
+                echo '<a class="home-smart-action" href="' . h(app_url('studio_meta_ads')) . '"><span class="home-action-icon"><i class="fa-solid ' . h((string)$card['icon']) . '"></i></span><span><strong>' . h((string)$card['label']) . '</strong><small>' . h((string)$card['summary']) . '</small></span><i class="fa-solid fa-arrow-right"></i></a>';
                 continue;
             }
-            echo '<button type="button" class="panel dashboard-stat dashboard-stat-button home-action-card text-start" data-home-focus="' . h((string)$card['focus']) . '"><p class="metric h4 mb-1">' . h((string)$card['label']) . '</p><p class="muted mb-2">' . h((string)$card['summary']) . '</p><span class="muted small">Abrir em overlay</span></button>';
+            echo '<button type="button" class="home-smart-action" data-home-focus="' . h((string)$card['focus']) . '"><span class="home-action-icon"><i class="fa-solid ' . h((string)$card['icon']) . '"></i></span><span><strong>' . h((string)$card['label']) . '</strong><small>' . h((string)$card['summary']) . '</small></span><i class="fa-solid fa-arrow-right"></i></button>';
         }
-        echo '</div></section>';
+        echo '</div></section></div>';
         echo '<div id="homeDrilldownModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1120px)"><div class="crm-panel-header"><div><h3 id="homeDrilldownTitle" class="crm-panel-title">Detalhe rápido</h3><p id="homeDrilldownSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" class="crm-button crm-icon-button" onclick="document.getElementById(\'homeDrilldownModal\').classList.add(\'hidden\')"><i class="fa-solid fa-xmark"></i></button></div><div id="homeDrilldownBody" class="p-4"></div></div></div>';
         echo '<div id="homeTodayAgendaModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Agenda de hoje</h3><p class="muted" style="margin:4px 0 0">Leitura rápida dos agendamentos do dia.</p></div><button type="button" class="crm-button crm-icon-button" id="closeHomeTodayAgendaModal"><i class="fa-solid fa-xmark"></i></button></div><div id="homeTodayAgendaBody" class="p-4"></div></div></div>';
         echo '<script>window.homeDrilldowns = ' . json_encode(normalize_display_value($homeDrilldowns), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';window.homeTodayAgenda = ' . json_encode(normalize_display_value(['items' => $todayAppointments, 'date' => format_date_pt($todayIso)]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
@@ -5790,22 +5850,24 @@ if ($page === 'studio_settings') {
         echo '</div></div>';
         echo '<div class="settings-overview-grid">';
         $settingsCards = [
-            'studio' => ['Estúdio', 'Dados base e integração'],
-            'agenda' => ['Agenda', 'Regras de horário e duração'],
-            'whatsapp' => ['WhatsApp', 'Entrada e comportamento'],
-            'ia' => ['IA', 'Modelo, chave e automação'],
-            'meta_ads' => ['Meta Ads', 'Integração com a API de anúncios'],
-            'quick_replies' => ['Respostas rápidas', 'Biblioteca do atendimento'],
-            'rules' => ['Treinamento da IA', 'Informações que valem em todas as conversas'],
-            'tags' => ['Tags das conversas', 'Oficiais do estúdio e pessoais'],
+            'studio' => ['Estúdio', 'Identidade, dados base e integrações', 'fa-store', 'Dados essenciais'],
+            'agenda' => ['Agenda', 'Horários, duração e disponibilidade', 'fa-calendar-days', count($selectedWorkDays) . ' dias ativos'],
+            'whatsapp' => ['WhatsApp', 'Conexão e comportamento do atendimento', 'fa-comments', studio_whatsapp_provider($studio) === 'official' ? 'API oficial' : 'Baileys'],
+            'ia' => ['Inteligência artificial', 'Modelo, chave e automações', 'fa-robot', !empty($settings['openai_api_key']) ? 'Configurada' : 'Pendente'],
+            'meta_ads' => ['Meta Ads', 'Conta, token, Pixel e formulários', 'fa-chart-line', !empty($settings['meta_ads_enabled']) ? 'Ativa' : 'Desativada'],
+            'quick_replies' => ['Respostas rápidas', 'Biblioteca para agilizar o atendimento', 'fa-reply', 'Conteúdo'],
+            'rules' => ['Treinamento da IA', 'Regras usadas em todas as conversas', 'fa-graduation-cap', 'Conteúdo'],
+            'tags' => ['Tags das conversas', 'Organização oficial e pessoal', 'fa-tags', 'Organização'],
         ];
-        foreach ($settingsCards as $key => [$title, $subtitle]) {
+        foreach ($settingsCards as $key => [$title, $subtitle, $icon, $status]) {
             if ($key === 'tags') {
-                echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp_tags')) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Gerenciar tags</span></a>';
+                echo '<a class="settings-category-card" href="' . h(app_url('studio_whatsapp_tags')) . '"><span class="settings-category-icon"><i class="fa-solid ' . h($icon) . '"></i></span><span class="settings-category-status">' . h($status) . '</span><strong>' . h($title) . '</strong><small>' . h($subtitle) . '</small><span class="settings-category-link">Gerenciar <i class="fa-solid fa-arrow-right"></i></span></a>';
                 continue;
             }
-            echo '<button type="button" class="panel dashboard-stat" data-settings-overlay="' . h($key) . '"><p class="metric">' . h($title) . '</p><p class="muted">' . h($subtitle) . '</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="settings-category-card" data-settings-overlay="' . h($key) . '"><span class="settings-category-icon"><i class="fa-solid ' . h($icon) . '"></i></span><span class="settings-category-status">' . h($status) . '</span><strong>' . h($title) . '</strong><small>' . h($subtitle) . '</small><span class="settings-category-link">Configurar <i class="fa-solid fa-arrow-right"></i></span></button>';
         }
+        echo '<a class="settings-category-card" href="' . h(app_url('studio_finance')) . '"><span class="settings-category-icon"><i class="fa-solid fa-wallet"></i></span><span class="settings-category-status">Gestão</span><strong>Financeiro</strong><small>Despesas e leitura do resultado mensal</small><span class="settings-category-link">Abrir módulo <i class="fa-solid fa-arrow-right"></i></span></a>';
+        echo '<a class="settings-category-card" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id']])) . '"><span class="settings-category-icon"><i class="fa-solid fa-shield-halved"></i></span><span class="settings-category-status">Segurança</span><strong>Acessos</strong><small>Atendentes, usuários e permissões do estúdio</small><span class="settings-category-link">Gerenciar <i class="fa-solid fa-arrow-right"></i></span></a>';
         echo '</div>';
         echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
         echo '<form class="form panel" method="post" id="studioSettingsForm">';
@@ -6067,7 +6129,7 @@ if ($page === 'studio_settings') {
 
 if ($page === 'studio_meta_ads') {
     $studio = require_studio();
-    render_studio_shell('Meta Ads', 'Acesso rápido para configurar e explorar a API de anúncios da Meta.', 'home', function () use ($studio) {
+    render_studio_shell('Meta Ads', 'Performance, campanhas e saúde da conta em uma única visão.', 'meta_ads', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -6116,8 +6178,32 @@ if ($page === 'studio_meta_ads') {
             'until' => $performanceEnd,
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $performanceSummary = null;
+        $todayPerformanceSummary = null;
+        $accountOverview = null;
+        $accountOverviewError = null;
         if ($metaAdsAuthReady) {
             try {
+                $accountOverviewResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId, $metaAdsAccessToken, [
+                    'fields' => 'id,name,currency,balance,amount_spent,spend_cap,account_status',
+                ]);
+                if (!empty($accountOverviewResponse['ok'])) {
+                    $accountOverview = is_array($accountOverviewResponse['json'] ?? null) ? $accountOverviewResponse['json'] : null;
+                } else {
+                    $accountOverviewError = (string)($accountOverviewResponse['error'] ?? 'Não foi possível consultar os dados financeiros da conta.');
+                }
+                $todayPerformanceResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId . '/insights', $metaAdsAccessToken, [
+                    'fields' => 'spend',
+                    'date_preset' => 'today',
+                    'limit' => 1,
+                ]);
+                if (!empty($todayPerformanceResponse['ok'])) {
+                    $todayPerformanceRows = is_array($todayPerformanceResponse['json']['data'] ?? null) ? $todayPerformanceResponse['json']['data'] : [];
+                    $todayPerformanceRow = is_array($todayPerformanceRows[0] ?? null) ? $todayPerformanceRows[0] : [];
+                    $todayPerformanceSummary = [
+                        'ok' => true,
+                        'spend' => (float)($todayPerformanceRow['spend'] ?? 0),
+                    ];
+                }
                 $apiPerformanceResponse = studio_meta_ads_request($apiVersion, '/act_' . preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? ''))) . '/insights', trim((string)$settings['meta_ads_access_token']), [
                     'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach',
                     'time_range' => $performanceTimeRange,
@@ -6273,11 +6359,32 @@ if ($page === 'studio_meta_ads') {
             ['title' => 'Públicos', 'method' => 'GET', 'path' => '/act_' . ($accountId !== '' ? $accountId : '{ad_account_id}') . '/customaudiences', 'description' => 'Consulta públicos personalizados disponíveis.'],
         ];
         echo '<div class="meta-ads-page">';
-        echo '<section class="panel">';
+        $activeCampaigns = count(array_filter((array)$campaignsData, static fn($campaign): bool => is_array($campaign) && (string)($campaign['effective_status'] ?? $campaign['status'] ?? '') === 'ACTIVE'));
+        $metaCurrency = (string)($accountOverview['currency'] ?? 'BRL');
+        $metaMoney = static fn($value): string => $value === null || $value === '' ? '—' : format_money(((float)$value) / 100);
+        echo '<nav class="meta-section-nav" aria-label="Seções do Meta Ads"><a href="#meta-overview">Visão geral</a><a href="#meta-campaigns">Campanhas e anúncios</a><a href="#meta-audiences">Públicos</a><a href="#meta-diagnostics">Diagnóstico</a><a href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Configuração</a></nav>';
+        echo '<section class="panel meta-overview-panel" id="meta-overview">';
         echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-        echo '<div><h2 class="mb-1">Meta Ads API</h2><p class="muted mb-0">Página para validar a integração, testar endpoints e documentar os dados necessários.</p></div>';
-        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Ativa no CRM' : 'Desativada') . '</span><span class="badge">' . h($apiVersion !== '' ? $apiVersion : 'v22.0') . '</span><button type="button" class="btn btn-secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">AVANÇADO</button><button type="button" class="btn" onclick="var d=document.getElementById(\'metaAdsPerformanceDialog\'); if(d && d.showModal) d.showModal();">Performance de mídia</button></div>';
+        echo '<div><span class="section-eyebrow">Conta de anúncios</span><h2 class="mb-1">' . h((string)($accountOverview['name'] ?? 'Visão geral')) . '</h2><p class="muted mb-0">Dados atualizados diretamente pela API da Meta para o período selecionado.</p></div>';
+        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Integração ativa' : 'Integração desativada') . '</span><span class="badge">' . h($metaCurrency) . '</span><button type="button" class="btn secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">Avançado</button><button type="button" class="btn" onclick="var d=document.getElementById(\'metaAdsPerformanceDialog\'); if(d && d.showModal) d.showModal();">Alterar período</button></div>';
         echo '</div>';
+        echo '<div class="meta-kpi-grid">';
+        foreach ([
+            ['Saldo atual', $accountOverview ? $metaMoney($accountOverview['balance'] ?? null) : '—', 'Saldo reportado pela conta', 'fa-wallet'],
+            ['Gasto hoje', is_array($todayPerformanceSummary) && !empty($todayPerformanceSummary['ok']) ? format_money((float)($todayPerformanceSummary['spend'] ?? 0)) : '—', 'Investimento desde 00h', 'fa-clock'],
+            ['Gasto no período', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? format_money((float)($performanceSummary['spend'] ?? 0)) : '—', $performanceStart . ' a ' . $performanceEnd, 'fa-arrow-trend-up'],
+            ['Campanhas ativas', (string)$activeCampaigns, count((array)$campaignsData) . ' campanhas carregadas', 'fa-bullhorn'],
+            ['CTR', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.') . '%' : '—', 'Taxa de cliques', 'fa-computer-mouse'],
+            ['CPC médio', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? format_money((float)($performanceSummary['cpc'] ?? 0)) : '—', 'Custo por clique', 'fa-coins'],
+            ['Alcance', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.') : '—', 'Pessoas alcançadas', 'fa-users'],
+            ['Limite da conta', $accountOverview ? $metaMoney($accountOverview['spend_cap'] ?? null) : '—', 'Teto configurado na Meta', 'fa-gauge-high'],
+        ] as [$label, $value, $hint, $icon]) {
+            echo '<div class="meta-kpi-card"><span><i class="fa-solid ' . h($icon) . '"></i>' . h($label) . '</span><strong>' . h($value) . '</strong><small>' . h($hint) . '</small></div>';
+        }
+        echo '</div>';
+        if ($accountOverviewError) {
+            echo '<div class="meta-inline-alert"><i class="fa-solid fa-circle-info"></i><span><strong>Dados financeiros indisponíveis</strong>' . h($accountOverviewError) . '</span></div>';
+        }
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
             echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Resultado do teste</h3><p class="muted mb-0">Verificação ao vivo da API da Meta.</p></div><span class="badge ' . h($tone) . '">' . h(!empty($testResult['ok']) ? 'Conectado' : 'Erro') . '</span></div>';
@@ -6318,6 +6425,7 @@ if ($page === 'studio_meta_ads') {
             echo '</div>';
         }
         echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
+        echo '<span id="meta-diagnostics" class="section-anchor" aria-hidden="true"></span>';
         echo '<div class="grid cols-3" style="margin-bottom:16px">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0">';
         echo '<li>Conexão com a Meta</li>';
@@ -6391,7 +6499,8 @@ if ($page === 'studio_meta_ads') {
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div></div>';
-        echo '<div class="panel soft" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Públicos personalizados</h3><p class="muted mb-0">Lista em cards para ficar mais fácil de bater o olho.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
+        echo '</div>';
+        echo '<div class="panel soft" id="meta-audiences" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Públicos personalizados</h3><p class="muted mb-0">Lista em cards para ficar mais fácil de bater o olho.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
         if ($audiencesError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
         } elseif ($audiencesData) {
@@ -6415,7 +6524,6 @@ if ($page === 'studio_meta_ads') {
         } else {
             echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
         }
-        echo '</div>';
         echo '</div>';
         echo '</section>';
         $adsByAdset = [];
@@ -6449,7 +6557,7 @@ if ($page === 'studio_meta_ads') {
                 'reach' => (int)($performanceSummary['reach'] ?? 0),
             ];
         }
-        echo '<section class="panel" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Árvore da conta</h2><p class="muted mb-0">Campanha > conjunto > anúncio, tudo em uma leitura só.</p></div><div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div></div>';
+        echo '<section class="panel" id="meta-campaigns" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Campanhas e anúncios</h2><p class="muted mb-0">Estrutura compacta de campanha, conjunto e anúncio.</p></div><div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div></div>';
         if ($campaignsError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
         } elseif ($campaignsData) {
