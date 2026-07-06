@@ -702,17 +702,32 @@ if ($action === 'studio_login') {
             $candidates = $analysis['candidates'] ?? [];
             $selectedItems = [];
             $conflictsSkipped = 0;
+            $selectedUidList = json_decode((string)($_POST['selected_uids_json'] ?? ''), true);
+            $allowedConflictList = json_decode((string)($_POST['allow_conflicts_json'] ?? ''), true);
+            $itemOverrides = json_decode((string)($_POST['item_overrides_json'] ?? ''), true);
+            $usesJsonPayload = is_array($selectedUidList);
+            $selectedUidSet = $usesJsonPayload
+                ? array_fill_keys(array_filter(array_map('strval', $selectedUidList)), true)
+                : [];
+            $allowedConflictSet = is_array($allowedConflictList)
+                ? array_fill_keys(array_filter(array_map('strval', $allowedConflictList)), true)
+                : [];
+            $itemOverrides = is_array($itemOverrides) ? $itemOverrides : [];
             foreach ($candidates as $candidate) {
                 $uid = (string)($candidate['uid'] ?? '');
                 if ($uid === '') {
                     continue;
                 }
-                $item = $_POST['items'][$uid] ?? null;
-                if (!is_array($item) || empty($item['selected'])) {
+                $item = $usesJsonPayload
+                    ? (is_array($itemOverrides[$uid] ?? null) ? $itemOverrides[$uid] : [])
+                    : ($_POST['items'][$uid] ?? null);
+                $selected = $usesJsonPayload ? isset($selectedUidSet[$uid]) : (is_array($item) && !empty($item['selected']));
+                if (!$selected) {
                     continue;
                 }
+                $item = is_array($item) ? $item : [];
                 $conflicts = $candidate['conflicts'] ?? [];
-                $allowConflict = !empty($item['allow_conflict']);
+                $allowConflict = $usesJsonPayload ? isset($allowedConflictSet[$uid]) : !empty($item['allow_conflict']);
                 if ($conflicts && !$allowConflict) {
                     $conflictsSkipped++;
                     continue;
@@ -733,7 +748,7 @@ if ($action === 'studio_login') {
                     'interest' => trim((string)($item['interest'] ?? $candidate['interest'] ?? '')),
                     'phone' => normalize_phone((string)($item['phone'] ?? $candidate['phone'] ?? '')),
                     'name' => $name,
-                    'value' => (float)str_replace(',', '.', (string)($item['value'] ?? $candidate['value'] ?? 0)),
+                    'value' => money_to_float((string)($item['value'] ?? $candidate['value'] ?? 0)),
                     'date' => $startDate,
                     'start_time' => $startTime,
                     'end_time' => $endTime,
@@ -752,13 +767,23 @@ if ($action === 'studio_login') {
                 redirect_to('studio_agenda', ['ics_preview' => $token]);
             }
             $result = studio_import_calendar_events($studio, $selectedItems);
-            $_SESSION['calendar_import_last_batch'] = [
-                'studio_id' => (int)$studio['id'],
-                'uids' => array_values(array_map(static fn(array $item): string => (string)$item['uid'], $selectedItems)),
-                'created_at' => time(),
-            ];
+            if (!empty($result['created_uids'])) {
+                $_SESSION['calendar_import_last_batch'] = [
+                    'studio_id' => (int)$studio['id'],
+                    'uids' => array_values(array_map('strval', $result['created_uids'])),
+                    'created_at' => time(),
+                ];
+            } else {
+                unset($_SESSION['calendar_import_last_batch']);
+            }
             unset($_SESSION['calendar_import_preview'][$token]);
-            $message = 'Importação concluída: ' . (int)$result['appointments_created'] . ' agendamentos criados e ' . (int)$result['duplicates_skipped'] . ' duplicados ignorados.';
+            $message = 'Sincronização concluída: '
+                . (int)$result['appointments_created']
+                . ' criados, '
+                . (int)($result['appointments_updated'] ?? 0)
+                . ' atualizados e '
+                . (int)$result['duplicates_skipped']
+                . ' já estavam iguais.';
             if ($conflictsSkipped > 0) {
                 $message .= ' ' . $conflictsSkipped . ' conflito(s) não foram importados.';
             }
@@ -3723,25 +3748,33 @@ if ($page === 'studio_agenda') {
             $analysis = $importPreview['analysis'] ?? [];
             $candidates = $analysis['candidates'] ?? [];
             $skipped = $analysis['skipped'] ?? [];
-            echo '<section class="panel border-primary-subtle" style="margin-top:16px;background:linear-gradient(180deg,rgba(48, 91, 255, 0.08),rgba(48, 91, 255, 0.02))">';
-            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-            echo '<div><h2 class="mb-1">Revisar importacao Google Agenda</h2><p class="muted mb-0">Escolha o que importar, ajuste os campos e confirme apenas o que realmente faz sentido para o estúdio.</p></div>';
-            echo '<div class="d-flex gap-2 flex-wrap">';
+            echo '<section class="panel import-preview-shell">';
+            echo '<div class="import-preview-head">';
+            echo '<div><span class="section-eyebrow">Google Agenda</span><h2 class="mb-1">Revisar sincronização</h2><p class="muted mb-0">Confira a lista compacta. Abra um evento somente quando precisar editar os detalhes.</p></div>';
+            echo '<div class="import-preview-actions">';
             echo '<button class="btn secondary" type="button" data-import-toggle="all">Selecionar tudo</button>';
             echo '<button class="btn secondary" type="button" data-import-toggle="none">Desmarcar tudo</button>';
             echo '</div>';
             echo '</div>';
-            echo '<form method="post" class="import-preview-form" style="margin-top:16px">';
+            echo '<form method="post" class="import-preview-form">';
             echo csrf_field();
             echo '<input type="hidden" name="action" value="import_calendar_ics_confirm">';
             echo '<input type="hidden" name="import_token" value="' . h($importPreviewToken) . '">';
-            echo '<div class="alert-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mb-3">';
-            echo '<article class="alert-card"><span class="badge ok">' . h((string)count($candidates)) . '</span><p><strong>Candidatos</strong></p><p class="muted">Eventos prontos para revisar.</p></article>';
-            echo '<article class="alert-card"><span class="badge warn">' . h((string)($analysis['duplicates'] ?? 0)) . '</span><p><strong>Possiveis duplicados</strong></p><p class="muted">Eventos ja importados ou muito parecidos com importações anteriores.</p></article>';
-            echo '<article class="alert-card"><span class="badge">' . h((string)count($skipped)) . '</span><p><strong>Ignorados</strong></p><p class="muted">Entradas sem sinal claro de atendimento.</p></article>';
-            echo '<article class="alert-card"><span class="badge">' . h((string)($analysis['events_total'] ?? 0)) . '</span><p><strong>Total no ICS</strong></p><p class="muted">' . h((string)$importPreview['file_name']) . '</p></article>';
+            echo '<input type="hidden" name="selected_uids_json" value="">';
+            echo '<input type="hidden" name="allow_conflicts_json" value="">';
+            echo '<input type="hidden" name="item_overrides_json" value="">';
+            echo '<div class="import-summary-strip">';
+            echo '<span><strong>' . h((string)count($candidates)) . '</strong> candidatos</span>';
+            echo '<span><strong>' . h((string)($analysis['duplicates'] ?? 0)) . '</strong> já importados</span>';
+            echo '<span><strong>' . h((string)count($skipped)) . '</strong> ignorados</span>';
+            echo '<span><strong>' . h((string)($analysis['events_total'] ?? 0)) . '</strong> no arquivo</span>';
             echo '</div>';
-            echo '<div class="stack d-grid gap-3">';
+            echo '<div class="import-list-toolbar">';
+            echo '<label class="import-search"><i class="fa-solid fa-magnifying-glass"></i><input type="search" placeholder="Buscar por nome, data ou horário" data-import-search></label>';
+            echo '<span class="import-selected-count"><strong data-import-selected-count>' . h((string)count($candidates)) . '</strong> selecionados</span>';
+            echo '<div class="import-pagination"><button class="btn tiny secondary" type="button" data-import-page="prev">Anterior</button><span data-import-page-label>Página 1</span><button class="btn tiny secondary" type="button" data-import-page="next">Próxima</button></div>';
+            echo '</div>';
+            echo '<div class="import-candidate-list" data-import-list>';
             foreach ($candidates as $candidate) {
                 $uid = (string)($candidate['uid'] ?? '');
                 $title = (string)($candidate['name'] ?? $candidate['raw_title'] ?? '');
@@ -3749,57 +3782,66 @@ if ($page === 'studio_agenda') {
                 $description = (string)($candidate['description_original'] ?? '');
                 $notes = (string)($candidate['notes'] ?? '');
                 $conflicts = $candidate['conflicts'] ?? [];
-                echo '<article class="panel shadow-sm" style="padding:16px;border:1px solid rgba(0,0,0,0.08)">';
-                echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-                echo '<label class="form-check d-flex align-items-start gap-2 m-0 flex-grow-1">';
-                echo '<input class="form-check-input import-select" type="checkbox" name="items[' . h($uid) . '][selected]" value="1" checked data-import-row="' . h($uid) . '">';
-                echo '<span><strong>' . h($title) . '</strong><br><span class="muted">' . h($rawTitle) . '</span></span>';
-                echo '</label>';
-                echo '<span class="badge ' . ($conflicts ? 'warn' : '') . ' align-self-start">' . h($conflicts ? 'conflito' : (string)($candidate['reason'] ?? 'candidato')) . '</span>';
-                echo '</div>';
+                $alreadyImported = !empty($candidate['already_imported']);
+                $dateLabel = format_date_pt((string)($candidate['date'] ?? ''), false);
+                $startLabel = substr((string)($candidate['start_time'] ?? ''), 0, 5);
+                $endLabel = substr((string)($candidate['end_time'] ?? ''), 0, 5);
+                $searchText = studio_calendar_lower_text($title . ' ' . $rawTitle . ' ' . $dateLabel . ' ' . $startLabel);
+                echo '<details class="import-candidate-row" data-import-candidate data-import-uid="' . h($uid) . '" data-import-search-text="' . h($searchText) . '">';
+                echo '<summary class="import-candidate-summary">';
+                echo '<label class="import-candidate-check" onclick="event.stopPropagation()"><input class="form-check-input import-select" type="checkbox" checked data-import-row="' . h($uid) . '"><span></span></label>';
+                echo '<span class="import-candidate-when"><strong>' . h($dateLabel) . '</strong><small>' . h($startLabel . ($endLabel !== '' ? ' – ' . $endLabel : '')) . '</small></span>';
+                echo '<span class="import-candidate-title"><strong>' . h($title) . '</strong><small>' . h($rawTitle !== $title ? $rawTitle : '') . '</small></span>';
+                echo '<span class="import-candidate-badges">';
+                if ($alreadyImported) {
+                    echo '<span class="badge ok">sincronizar</span>';
+                }
                 if ($conflicts) {
-                    echo '<div class="panel soft border-warning-subtle" style="margin-top:12px;padding:12px;background:rgba(255,165,0,0.06)">';
-                    echo '<strong>Conflito com agenda atual</strong>';
-                    echo '<div class="stack d-grid gap-2 mt-2">';
-                    foreach ($conflicts as $conflict) {
+                    echo '<span class="badge warn">conflito</span>';
+                }
+                if ((float)($candidate['value'] ?? 0) > 0) {
+                    echo '<span class="badge">' . h(format_money((float)$candidate['value'])) . '</span>';
+                }
+                echo '</span><i class="fa-solid fa-chevron-down import-candidate-chevron"></i>';
+                echo '</summary>';
+                echo '<div class="import-candidate-details">';
+                if ($conflicts) {
+                    echo '<div class="import-conflict-box"><strong>Conflito com a agenda atual</strong><div>';
+                    foreach (array_slice($conflicts, 0, 3) as $conflict) {
                         $conflictName = (string)($conflict['customer_name'] ?? $conflict['title'] ?? 'Agendamento');
                         $conflictArtist = (string)($conflict['artist_name'] ?? 'sem tatuador');
                         $conflictStart = substr((string)($conflict['start_time'] ?? ''), 0, 5);
                         $conflictEnd = substr((string)($conflict['end_time'] ?? $conflict['start_time'] ?? ''), 0, 5);
-                        echo '<div class="panel bg-white" style="padding:10px;border:1px solid rgba(0,0,0,0.06)">';
-                        echo '<strong>' . h(format_date_pt((string)$conflict['appointment_date']) . ' ' . $conflictStart . ($conflictEnd !== '' ? ' - ' . $conflictEnd : '')) . '</strong>';
-                        echo '<div class="muted">' . h($conflictName) . ' · ' . h($conflictArtist) . ' · ' . h((string)($conflict['status'] ?? '')) . '</div>';
-                        echo '</div>';
+                        echo '<span><strong>' . h(format_date_pt((string)$conflict['appointment_date']) . ' ' . $conflictStart . ($conflictEnd !== '' ? ' - ' . $conflictEnd : '')) . '</strong> ' . h($conflictName . ' · ' . $conflictArtist) . '</span>';
                     }
-                    echo '</div>';
-                    echo '<label class="form-check" style="margin-top:10px;display:flex;gap:10px;align-items:flex-start">';
-                    echo '<input class="form-check-input" type="checkbox" name="items[' . h($uid) . '][allow_conflict]" value="1">';
-                    echo '<span>Importar mesmo assim e manter este item, mesmo com conflito.</span>';
-                    echo '</label>';
+                    echo '</div><label class="import-allow-conflict"><input class="form-check-input" type="checkbox" data-import-allow-conflict><span>Sincronizar mesmo com este conflito</span></label>';
                     echo '</div>';
                 }
-                echo '<div class="grid grid-4-mobile-safe row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mt-3">';
-                echo '<label>Nome<input type="text" name="items[' . h($uid) . '][name]" value="' . h((string)$title) . '"></label>';
-                echo '<label>Data<input type="date" name="items[' . h($uid) . '][date]" value="' . h((string)($candidate['date'] ?? '')) . '"></label>';
-                echo '<label>Início<input type="time" name="items[' . h($uid) . '][start_time]" value="' . h(substr((string)($candidate['start_time'] ?? ''), 0, 5)) . '"></label>';
-                echo '<label>Fim<input type="time" name="items[' . h($uid) . '][end_time]" value="' . h(substr((string)($candidate['end_time'] ?? ''), 0, 5)) . '"></label>';
-                echo '<label>Telefone<input type="text" name="items[' . h($uid) . '][phone]" value="' . h((string)($candidate['phone'] ?? '')) . '"></label>';
-                echo '<label>Valor<input type="text" name="items[' . h($uid) . '][value]" value="' . h((string)($candidate['value'] ?? 0)) . '"></label>';
-                echo '<label>Status<input type="text" name="items[' . h($uid) . '][appointment_status]" value="' . h((string)($candidate['appointment_status'] ?? 'confirmado')) . '"></label>';
-                echo '<label>Lead<input type="text" name="items[' . h($uid) . '][status]" value="' . h((string)($candidate['status'] ?? 'agendado')) . '"></label>';
+                echo '<div class="import-edit-grid">';
+                foreach ([
+                    ['name', 'Nome', 'text', $title],
+                    ['date', 'Data', 'date', (string)($candidate['date'] ?? '')],
+                    ['start_time', 'Início', 'time', $startLabel],
+                    ['end_time', 'Fim', 'time', $endLabel],
+                    ['phone', 'Telefone', 'text', (string)($candidate['phone'] ?? '')],
+                    ['value', 'Valor', 'text', (string)($candidate['value'] ?? 0)],
+                    ['appointment_status', 'Status', 'text', (string)($candidate['appointment_status'] ?? 'confirmado')],
+                    ['status', 'Lead', 'text', (string)($candidate['status'] ?? 'agendado')],
+                ] as [$field, $label, $type, $fieldValue]) {
+                    echo '<label>' . h($label) . '<input type="' . h($type) . '" value="' . h($fieldValue) . '" data-import-field="' . h($field) . '" data-original="' . h($fieldValue) . '"></label>';
+                }
                 echo '</div>';
-                echo '<label style="display:block;margin-top:12px">Interesse/observações<textarea name="items[' . h($uid) . '][interest]" rows="2">' . h(trim($notes !== '' ? $notes . "\n" : '') . trim($description)) . '</textarea></label>';
-                echo '<input type="hidden" name="items[' . h($uid) . '][pipeline_stage]" value="' . h((string)($candidate['pipeline_stage'] ?? 'agendado')) . '">';
-                echo '<input type="hidden" name="items[' . h($uid) . '][lead_score]" value="' . h((string)($candidate['lead_score'] ?? 6)) . '">';
-                echo '</article>';
+                $interestValue = trim($notes !== '' ? $notes . "\n" : '') . trim($description);
+                echo '<label class="import-interest">Interesse/observações<textarea rows="2" data-import-field="interest" data-original="' . h($interestValue) . '">' . h($interestValue) . '</textarea></label>';
+                echo '</div></details>';
             }
             if (!$candidates) {
                 echo '<div class="alert-card"><p><strong>Nenhum candidato encontrado</strong></p><p class="muted">Esse arquivo não gerou eventos aptos para importação.</p></div>';
             }
             echo '</div>';
-            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mt-3">';
-            echo '<p class="muted mb-0">Itens com conflito ficam destacados. Por padrão eles não são importados, a menos que você marque a opção de manter mesmo assim.</p>';
-            echo '<button class="btn" type="submit">Importar selecionados</button>';
+            echo '<div class="import-submit-bar">';
+            echo '<p class="muted mb-0">Eventos já existentes serão atualizados quando data, horário ou conteúdo tiver mudado. Conflitos reais continuam exigindo confirmação.</p>';
+            echo '<button class="btn" type="submit">Sincronizar selecionados</button>';
             echo '</div>';
             echo '</form>';
             if (!empty($_SESSION['calendar_import_last_batch'])) {
@@ -3822,12 +3864,84 @@ if ($page === 'studio_agenda') {
                 (function () {
                     const form = document.querySelector(".import-preview-form");
                     if (!form) return;
+                    const rows = Array.from(form.querySelectorAll("[data-import-candidate]"));
+                    const search = form.querySelector("[data-import-search]");
+                    const selectedCount = form.querySelector("[data-import-selected-count]");
+                    const pageLabel = form.querySelector("[data-import-page-label]");
+                    const previous = form.querySelector("[data-import-page=\"prev\"]");
+                    const next = form.querySelector("[data-import-page=\"next\"]");
+                    const pageSize = 30;
+                    let currentPage = 1;
+                    let filteredRows = rows;
+
+                    const updateSelectedCount = () => {
+                        if (selectedCount) {
+                            selectedCount.textContent = String(form.querySelectorAll(".import-select:checked").length);
+                        }
+                    };
+
+                    const renderPage = () => {
+                        const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+                        currentPage = Math.min(Math.max(1, currentPage), totalPages);
+                        const visible = new Set(filteredRows.slice((currentPage - 1) * pageSize, currentPage * pageSize));
+                        rows.forEach((row) => { row.hidden = !visible.has(row); });
+                        if (pageLabel) pageLabel.textContent = "Página " + currentPage + " de " + totalPages;
+                        if (previous) previous.disabled = currentPage <= 1;
+                        if (next) next.disabled = currentPage >= totalPages;
+                    };
+
                     document.querySelectorAll("[data-import-toggle]").forEach((button) => {
                         button.addEventListener("click", () => {
                             const checked = button.getAttribute("data-import-toggle") === "all";
                             form.querySelectorAll(".import-select").forEach((input) => { input.checked = checked; });
+                            updateSelectedCount();
                         });
                     });
+                    form.querySelectorAll(".import-select").forEach((input) => input.addEventListener("change", updateSelectedCount));
+                    if (search) {
+                        search.addEventListener("input", () => {
+                            const term = search.value.trim().toLocaleLowerCase("pt-BR");
+                            filteredRows = term === ""
+                                ? rows
+                                : rows.filter((row) => (row.dataset.importSearchText || "").includes(term));
+                            currentPage = 1;
+                            renderPage();
+                        });
+                    }
+                    if (previous) previous.addEventListener("click", () => { currentPage--; renderPage(); });
+                    if (next) next.addEventListener("click", () => { currentPage++; renderPage(); });
+
+                    form.addEventListener("submit", (event) => {
+                        const selected = [];
+                        const allowedConflicts = [];
+                        const overrides = {};
+                        rows.forEach((row) => {
+                            const uid = row.dataset.importUid || "";
+                            const checkbox = row.querySelector(".import-select");
+                            if (uid === "" || !checkbox || !checkbox.checked) return;
+                            selected.push(uid);
+                            if (row.querySelector("[data-import-allow-conflict]:checked")) {
+                                allowedConflicts.push(uid);
+                            }
+                            const changed = {};
+                            row.querySelectorAll("[data-import-field]").forEach((field) => {
+                                if (field.value !== (field.dataset.original || "")) {
+                                    changed[field.dataset.importField] = field.value;
+                                }
+                            });
+                            if (Object.keys(changed).length > 0) overrides[uid] = changed;
+                        });
+                        if (selected.length === 0) {
+                            event.preventDefault();
+                            window.alert("Selecione pelo menos um evento para sincronizar.");
+                            return;
+                        }
+                        form.querySelector("[name=selected_uids_json]").value = JSON.stringify(selected);
+                        form.querySelector("[name=allow_conflicts_json]").value = JSON.stringify(allowedConflicts);
+                        form.querySelector("[name=item_overrides_json]").value = JSON.stringify(overrides);
+                    });
+                    updateSelectedCount();
+                    renderPage();
                 })();
             </script>';
         }

@@ -8893,6 +8893,9 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
 {
     $statuses = ['confirmado', 'pre_agendado', 'em_atendimento', 'concluido'];
     foreach ($items as &$item) {
+        $existingAppointmentId = studio_imported_appointment_id($studio, (string)($item['uid'] ?? ''));
+        $item['already_imported'] = $existingAppointmentId > 0;
+        $item['existing_appointment_id'] = $existingAppointmentId;
         $date = (string)($item['date'] ?? '');
         $start = (string)($item['start_time'] ?? '');
         $end = (string)($item['end_time'] ?? '');
@@ -8903,7 +8906,7 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
         if ($end === '') {
             $end = substr($start, 0, 5) . ':59';
         }
-        $item['conflicts'] = studio_find_overlapping_appointments($studio, $date, $start, $end, null, $statuses, 0);
+        $item['conflicts'] = studio_find_overlapping_appointments($studio, $date, $start, $end, null, $statuses, $existingAppointmentId);
     }
     unset($item);
 
@@ -9337,10 +9340,18 @@ function studio_count_existing_imported_appointments(array $studio, array $items
 
 function studio_imported_appointment_exists(array $studio, string $uid): bool
 {
+    return studio_imported_appointment_id($studio, $uid) > 0;
+}
+
+function studio_imported_appointment_id(array $studio, string $uid): int
+{
+    if ($uid === '') {
+        return 0;
+    }
     $stmt = studio_db($studio)->prepare('SELECT id FROM appointments WHERE import_source IN ("google_calendar", "google_ics") AND import_uid = ? LIMIT 1');
     $stmt->execute([$uid]);
 
-    return (bool)$stmt->fetchColumn();
+    return (int)($stmt->fetchColumn() ?: 0);
 }
 
 function studio_import_calendar_events(array $studio, array $items): array
@@ -9351,8 +9362,10 @@ function studio_import_calendar_events(array $studio, array $items): array
         'customers_created' => 0,
         'leads_created' => 0,
         'appointments_created' => 0,
+        'appointments_updated' => 0,
         'duplicates_skipped' => 0,
         'appointment_ids' => [],
+        'created_uids' => [],
         'lead_ids' => [],
         'customer_ids' => [],
     ];
@@ -9360,8 +9373,59 @@ function studio_import_calendar_events(array $studio, array $items): array
     $pdo->beginTransaction();
     try {
         foreach ($items as $item) {
-            if (studio_imported_appointment_exists($studio, (string)$item['uid'])) {
-                $result['duplicates_skipped']++;
+            $existingAppointmentId = studio_imported_appointment_id($studio, (string)$item['uid']);
+            $description = studio_build_import_description($item);
+            if ($existingAppointmentId > 0) {
+                $stmt = $pdo->prepare(
+                    'SELECT id, lead_id, title, description, appointment_date, start_time, end_time, status, value, raw_title
+                     FROM appointments
+                     WHERE id = ?
+                     LIMIT 1'
+                );
+                $stmt->execute([$existingAppointmentId]);
+                $existing = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                $desired = [
+                    'title' => (string)$item['name'],
+                    'appointment_date' => (string)$item['date'],
+                    'start_time' => substr((string)$item['start_time'], 0, 8),
+                    'end_time' => substr((string)$item['end_time'], 0, 8),
+                    'raw_title' => mb_substr((string)$item['raw_title'], 0, 260),
+                ];
+                $unchanged = (string)($existing['title'] ?? '') === $desired['title']
+                    && (string)($existing['appointment_date'] ?? '') === $desired['appointment_date']
+                    && substr((string)($existing['start_time'] ?? ''), 0, 8) === $desired['start_time']
+                    && substr((string)($existing['end_time'] ?? ''), 0, 8) === $desired['end_time']
+                    && (string)($existing['raw_title'] ?? '') === $desired['raw_title'];
+                if ($unchanged) {
+                    $result['duplicates_skipped']++;
+                    continue;
+                }
+                $stmt = $pdo->prepare(
+                    'UPDATE appointments
+                     SET title = ?, appointment_date = ?, start_time = ?, end_time = ?,
+                         import_source = "google_calendar", raw_title = ?, updated_at = NOW()
+                     WHERE id = ?'
+                );
+                $stmt->execute([
+                    $desired['title'],
+                    $desired['appointment_date'],
+                    $desired['start_time'],
+                    $desired['end_time'] !== '' ? $desired['end_time'] : null,
+                    $desired['raw_title'],
+                    $existingAppointmentId,
+                ]);
+                $leadId = (int)($existing['lead_id'] ?? 0);
+                if ($leadId > 0) {
+                    studio_sync_lead_from_appointment(
+                        $studio,
+                        $leadId,
+                        (string)($existing['status'] ?? 'confirmado'),
+                        (float)($existing['value'] ?? 0),
+                        $desired['appointment_date'] . ' ' . $desired['start_time']
+                    );
+                }
+                $result['appointments_updated']++;
+                $result['appointment_ids'][] = $existingAppointmentId;
                 continue;
             }
 
@@ -9369,8 +9433,6 @@ function studio_import_calendar_events(array $studio, array $items): array
             $result['customer_ids'][] = $customerId;
             $leadId = studio_find_or_create_lead_from_import($studio, $item, $customerId, $result);
             $result['lead_ids'][] = $leadId;
-            $description = studio_build_import_description($item);
-
             $stmt = $pdo->prepare(
                 'INSERT INTO appointments
                     (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, import_source, import_uid, raw_title, created_at, updated_at)
@@ -9392,6 +9454,7 @@ function studio_import_calendar_events(array $studio, array $items): array
             ]);
             $result['appointments_created']++;
             $result['appointment_ids'][] = (int)$pdo->lastInsertId();
+            $result['created_uids'][] = (string)$item['uid'];
         }
         $pdo->commit();
     } catch (Throwable $e) {
