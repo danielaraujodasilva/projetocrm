@@ -9391,10 +9391,14 @@ function studio_import_calendar_events(array $studio, array $items): array
                     'end_time' => substr((string)$item['end_time'], 0, 8),
                     'raw_title' => mb_substr((string)$item['raw_title'], 0, 260),
                 ];
+                $existingEndTime = substr((string)($existing['end_time'] ?? ''), 0, 8);
+                if ($desired['end_time'] === '' && $existingEndTime === '00:00:00') {
+                    $existingEndTime = '';
+                }
                 $unchanged = (string)($existing['title'] ?? '') === $desired['title']
                     && (string)($existing['appointment_date'] ?? '') === $desired['appointment_date']
                     && substr((string)($existing['start_time'] ?? ''), 0, 8) === $desired['start_time']
-                    && substr((string)($existing['end_time'] ?? ''), 0, 8) === $desired['end_time']
+                    && $existingEndTime === $desired['end_time']
                     && (string)($existing['raw_title'] ?? '') === $desired['raw_title'];
                 if ($unchanged) {
                     $result['duplicates_skipped']++;
