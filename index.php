@@ -815,6 +815,37 @@ if ($action === 'studio_login') {
             redirect_to('studio_agenda');
         }
 
+        if ($action === 'google_calendar_sync_now') {
+            $studio = require_studio();
+            $result = google_calendar_sync_studio($studio);
+            flash_set('success', 'Google Agenda sincronizado: ' . $result['message']);
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'google_calendar_toggle') {
+            $studio = require_studio();
+            $enabled = !empty($_POST['enabled']);
+            google_calendar_set_enabled($studio, $enabled);
+            flash_set('success', $enabled ? 'Sincronização automática ativada.' : 'Sincronização automática pausada.');
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'google_calendar_select') {
+            $studio = require_studio();
+            google_calendar_select($studio, trim((string)($_POST['calendar_id'] ?? '')));
+            google_calendar_set_enabled($studio, true);
+            $result = google_calendar_sync_studio($studio, true);
+            flash_set('success', 'Calendário alterado e sincronizado: ' . $result['message']);
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'google_calendar_disconnect') {
+            $studio = require_studio();
+            google_calendar_disconnect($studio);
+            flash_set('success', 'Conta Google desconectada. Os agendamentos já importados foram preservados.');
+            redirect_to('studio_agenda');
+        }
+
         if ($action === 'save_artist') {
             $studio = require_studio();
             studio_save_artist($studio, $_POST);
@@ -3714,6 +3745,9 @@ if ($page === 'studio_agenda') {
         $missingContactCount = (int)studio_db($studio)->query("SELECT COUNT(*) FROM appointments WHERE appointment_date >= CURDATE() AND COALESCE(customer_id, 0) = 0 AND COALESCE(lead_id, 0) = 0 AND status NOT IN ('cancelado', 'perdido', 'concluido', 'atendido', 'finalizado')")->fetchColumn();
         $selectedAppointmentId = (int)($_GET['appointment_id'] ?? 0);
         $selectedAppointment = $selectedAppointmentId > 0 ? studio_find_appointment($studio, $selectedAppointmentId) : null;
+        $googleCalendarConfigured = google_calendar_configured();
+        $googleCalendarIntegration = google_calendar_integration($studio);
+        $googleCalendarConnected = google_calendar_is_connected($googleCalendarIntegration);
         $importPreviewToken = trim((string)($_GET['ics_preview'] ?? ''));
         $importPreview = $importPreviewToken !== '' ? ($_SESSION['calendar_import_preview'][$importPreviewToken] ?? null) : null;
         $appointmentsPage = max(1, (int)($_GET['appointments_page'] ?? 1));
@@ -3744,6 +3778,74 @@ if ($page === 'studio_agenda') {
         echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button>';
         echo '</div>';
         echo '</div>';
+        echo '<section class="google-calendar-sync-card ' . ($googleCalendarConnected ? 'is-connected' : '') . '">';
+        echo '<div class="google-calendar-sync-main">';
+        echo '<span class="google-calendar-mark"><i class="fa-brands fa-google"></i></span>';
+        echo '<div class="google-calendar-copy">';
+        echo '<div class="google-calendar-title-row"><h3>Sincronização Google Agenda</h3>';
+        if ($googleCalendarConnected) {
+            $syncStatus = (string)($googleCalendarIntegration['last_sync_status'] ?? 'connected');
+            $statusClass = $syncStatus === 'error' ? 'warn' : (!empty($googleCalendarIntegration['enabled']) ? 'ok' : '');
+            $statusLabel = $syncStatus === 'error' ? 'atenção' : (!empty($googleCalendarIntegration['enabled']) ? 'automática' : 'pausada');
+            echo '<span class="badge ' . h($statusClass) . '">' . h($statusLabel) . '</span>';
+        } else {
+            echo '<span class="badge">não conectada</span>';
+        }
+        echo '</div>';
+        if (!$googleCalendarConfigured) {
+            echo '<p class="muted">As credenciais OAuth ainda não estão instaladas no servidor.</p>';
+        } elseif (!$googleCalendarConnected) {
+            echo '<p class="muted">Conecte sua conta para buscar somente as alterações do Google a cada cinco minutos.</p>';
+        } else {
+            $calendarLabel = (string)($googleCalendarIntegration['calendar_name'] ?? $googleCalendarIntegration['calendar_id'] ?? 'Agenda principal');
+            $accountLabel = (string)($googleCalendarIntegration['account_email'] ?? '');
+            $lastSyncAt = trim((string)($googleCalendarIntegration['last_sync_at'] ?? ''));
+            echo '<p><strong>' . h($calendarLabel) . '</strong>';
+            if ($accountLabel !== '' && $accountLabel !== $calendarLabel) {
+                echo '<span class="muted"> · ' . h($accountLabel) . '</span>';
+            }
+            echo '</p>';
+            echo '<p class="muted">' . h($lastSyncAt !== '' ? 'Última sincronização em ' . format_datetime_pt($lastSyncAt, false) : 'Primeira sincronização pendente') . '</p>';
+            if (!empty($googleCalendarIntegration['last_sync_message'])) {
+                echo '<p class="google-calendar-last-message">' . h((string)$googleCalendarIntegration['last_sync_message']) . '</p>';
+            }
+        }
+        echo '</div></div>';
+        echo '<div class="google-calendar-sync-actions">';
+        if ($googleCalendarConfigured && !$googleCalendarConnected) {
+            echo '<a class="btn" href="' . h(app_asset_url('google_calendar_oauth_start.php')) . '"><i class="fa-brands fa-google"></i> Conectar Google</a>';
+        }
+        if ($googleCalendarConnected) {
+            $calendars = json_decode((string)($googleCalendarIntegration['calendars_json'] ?? '[]'), true);
+            if (is_array($calendars) && count($calendars) > 1) {
+                echo '<form method="post" class="google-calendar-select">';
+                echo csrf_field() . '<input type="hidden" name="action" value="google_calendar_select">';
+                echo '<label>Calendário<select name="calendar_id" onchange="this.form.submit()">';
+                foreach ($calendars as $calendar) {
+                    if (!is_array($calendar) || empty($calendar['id'])) {
+                        continue;
+                    }
+                    $selected = (string)$calendar['id'] === (string)($googleCalendarIntegration['calendar_id'] ?? '') ? ' selected' : '';
+                    echo '<option value="' . h((string)$calendar['id']) . '"' . $selected . '>' . h((string)($calendar['name'] ?? $calendar['id'])) . '</option>';
+                }
+                echo '</select></label></form>';
+            }
+            if (!empty($googleCalendarIntegration['enabled'])) {
+                echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_sync_now"><button class="btn" type="submit">Sincronizar agora</button></form>';
+            }
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_toggle"><input type="hidden" name="enabled" value="' . (!empty($googleCalendarIntegration['enabled']) ? '0' : '1') . '"><button class="btn secondary" type="submit">' . (!empty($googleCalendarIntegration['enabled']) ? 'Pausar automática' : 'Ativar automática') . '</button></form>';
+            echo '<form method="post" onsubmit="return confirm(\'Desconectar a conta Google? Os agendamentos já importados serão preservados.\')">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_disconnect"><button class="btn secondary danger-outline" type="submit">Desconectar</button></form>';
+        }
+        echo '</div>';
+        if ($googleCalendarConnected) {
+            echo '<div class="google-calendar-sync-stats">';
+            echo '<span><strong>' . h((string)($googleCalendarIntegration['last_sync_created'] ?? 0)) . '</strong><small>criados</small></span>';
+            echo '<span><strong>' . h((string)($googleCalendarIntegration['last_sync_updated'] ?? 0)) . '</strong><small>atualizados</small></span>';
+            echo '<span><strong>' . h((string)($googleCalendarIntegration['last_sync_unchanged'] ?? 0)) . '</strong><small>iguais</small></span>';
+            echo '<span><strong>' . h((string)($googleCalendarIntegration['last_sync_cancelled'] ?? 0)) . '</strong><small>cancelados</small></span>';
+            echo '</div>';
+        }
+        echo '</section>';
         if (is_array($importPreview)) {
             $analysis = $importPreview['analysis'] ?? [];
             $candidates = $analysis['candidates'] ?? [];

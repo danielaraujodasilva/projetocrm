@@ -25,6 +25,9 @@ $baseConfig = require APP_BASE_PATH . '/config/database.php';
 $localConfigPath = APP_BASE_PATH . '/config/database.local.php';
 $localConfig = is_file($localConfigPath) ? require $localConfigPath : [];
 $baseAppConfig = is_file(APP_BASE_PATH . '/config/app.php') ? require APP_BASE_PATH . '/config/app.php' : [];
+$googleCalendarConfig = is_file(APP_BASE_PATH . '/config/google_calendar.php')
+    ? require APP_BASE_PATH . '/config/google_calendar.php'
+    : [];
 
 if (!is_array($localConfig)) {
     $localConfig = [];
@@ -32,13 +35,18 @@ if (!is_array($localConfig)) {
 if (!is_array($baseAppConfig)) {
     $baseAppConfig = [];
 }
+if (!is_array($googleCalendarConfig)) {
+    $googleCalendarConfig = [];
+}
 
 $GLOBALS['app_config'] = [
     'database' => array_merge($baseConfig, $localConfig),
     'app' => $baseAppConfig,
+    'google_calendar' => $googleCalendarConfig,
 ];
 
 require APP_BASE_PATH . '/app/functions.php';
 require APP_BASE_PATH . '/app/studio_crm.php';
+require APP_BASE_PATH . '/app/google_calendar.php';
 require_once APP_BASE_PATH . '/app/tattoo_image_studio_override_v3.php';
 require_once __DIR__ . '/whatsapp_official_runtime.php';

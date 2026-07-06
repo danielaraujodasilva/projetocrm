@@ -8893,7 +8893,12 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
 {
     $statuses = ['confirmado', 'pre_agendado', 'em_atendimento', 'concluido'];
     foreach ($items as &$item) {
-        $existingAppointmentId = studio_imported_appointment_id($studio, (string)($item['uid'] ?? ''));
+        $existingAppointmentId = studio_imported_appointment_id(
+            $studio,
+            (string)($item['uid'] ?? ''),
+            (string)($item['google_event_id'] ?? ''),
+            (string)($item['google_calendar_id'] ?? '')
+        );
         $item['already_imported'] = $existingAppointmentId > 0;
         $item['existing_appointment_id'] = $existingAppointmentId;
         $date = (string)($item['date'] ?? '');
@@ -9343,8 +9348,28 @@ function studio_imported_appointment_exists(array $studio, string $uid): bool
     return studio_imported_appointment_id($studio, $uid) > 0;
 }
 
-function studio_imported_appointment_id(array $studio, string $uid): int
+function studio_imported_appointment_id(
+    array $studio,
+    string $uid,
+    string $googleEventId = '',
+    string $googleCalendarId = ''
+): int
 {
+    if ($googleEventId !== '' && function_exists('google_calendar_ensure_schema')) {
+        google_calendar_ensure_schema($studio);
+        $stmt = studio_db($studio)->prepare(
+            'SELECT id
+             FROM appointments
+             WHERE google_calendar_event_id = ?
+               AND (? = "" OR google_calendar_id = ?)
+             LIMIT 1'
+        );
+        $stmt->execute([$googleEventId, $googleCalendarId, $googleCalendarId]);
+        $googleId = (int)($stmt->fetchColumn() ?: 0);
+        if ($googleId > 0) {
+            return $googleId;
+        }
+    }
     if ($uid === '') {
         return 0;
     }
@@ -9356,6 +9381,9 @@ function studio_imported_appointment_id(array $studio, string $uid): int
 
 function studio_import_calendar_events(array $studio, array $items): array
 {
+    if (function_exists('google_calendar_ensure_schema')) {
+        google_calendar_ensure_schema($studio);
+    }
     $pdo = studio_db($studio);
     $artistId = default_artist_id($studio);
     $result = [
@@ -9373,11 +9401,29 @@ function studio_import_calendar_events(array $studio, array $items): array
     $pdo->beginTransaction();
     try {
         foreach ($items as $item) {
-            $existingAppointmentId = studio_imported_appointment_id($studio, (string)$item['uid']);
+            $googleEventId = trim((string)($item['google_event_id'] ?? ''));
+            $googleCalendarId = trim((string)($item['google_calendar_id'] ?? ''));
+            $existingAppointmentId = studio_imported_appointment_id(
+                $studio,
+                (string)$item['uid'],
+                $googleEventId,
+                $googleCalendarId
+            );
+            if ($existingAppointmentId <= 0 && $googleEventId !== '') {
+                $existingAppointmentId = studio_find_imported_calendar_appointment_id(
+                    $studio,
+                    (string)$item['uid'],
+                    (string)$item['raw_title'],
+                    (string)$item['date'],
+                    (string)$item['start_time'],
+                    (string)($item['end_time'] ?? '')
+                );
+            }
             $description = studio_build_import_description($item);
             if ($existingAppointmentId > 0) {
                 $stmt = $pdo->prepare(
-                    'SELECT id, lead_id, title, description, appointment_date, start_time, end_time, status, value, raw_title
+                    'SELECT id, lead_id, title, description, appointment_date, start_time, end_time, status, value,
+                            raw_title, google_calendar_event_id, google_calendar_id
                      FROM appointments
                      WHERE id = ?
                      LIMIT 1'
@@ -9390,6 +9436,8 @@ function studio_import_calendar_events(array $studio, array $items): array
                     'start_time' => substr((string)$item['start_time'], 0, 8),
                     'end_time' => substr((string)$item['end_time'], 0, 8),
                     'raw_title' => mb_substr((string)$item['raw_title'], 0, 260),
+                    'google_event_id' => $googleEventId !== '' ? $googleEventId : (string)($existing['google_calendar_event_id'] ?? ''),
+                    'google_calendar_id' => $googleCalendarId !== '' ? $googleCalendarId : (string)($existing['google_calendar_id'] ?? ''),
                 ];
                 $existingEndTime = substr((string)($existing['end_time'] ?? ''), 0, 8);
                 if ($desired['end_time'] === '' && $existingEndTime === '00:00:00') {
@@ -9399,7 +9447,9 @@ function studio_import_calendar_events(array $studio, array $items): array
                     && (string)($existing['appointment_date'] ?? '') === $desired['appointment_date']
                     && substr((string)($existing['start_time'] ?? ''), 0, 8) === $desired['start_time']
                     && $existingEndTime === $desired['end_time']
-                    && (string)($existing['raw_title'] ?? '') === $desired['raw_title'];
+                    && (string)($existing['raw_title'] ?? '') === $desired['raw_title']
+                    && (string)($existing['google_calendar_event_id'] ?? '') === $desired['google_event_id']
+                    && (string)($existing['google_calendar_id'] ?? '') === $desired['google_calendar_id'];
                 if ($unchanged) {
                     $result['duplicates_skipped']++;
                     continue;
@@ -9407,7 +9457,8 @@ function studio_import_calendar_events(array $studio, array $items): array
                 $stmt = $pdo->prepare(
                     'UPDATE appointments
                      SET title = ?, appointment_date = ?, start_time = ?, end_time = ?,
-                         import_source = "google_calendar", raw_title = ?, updated_at = NOW()
+                         import_source = "google_calendar", raw_title = ?,
+                         google_calendar_event_id = ?, google_calendar_id = ?, updated_at = NOW()
                      WHERE id = ?'
                 );
                 $stmt->execute([
@@ -9416,6 +9467,8 @@ function studio_import_calendar_events(array $studio, array $items): array
                     $desired['start_time'],
                     $desired['end_time'] !== '' ? $desired['end_time'] : null,
                     $desired['raw_title'],
+                    $desired['google_event_id'] !== '' ? $desired['google_event_id'] : null,
+                    $desired['google_calendar_id'] !== '' ? $desired['google_calendar_id'] : null,
                     $existingAppointmentId,
                 ]);
                 $leadId = (int)($existing['lead_id'] ?? 0);
@@ -9439,8 +9492,10 @@ function studio_import_calendar_events(array $studio, array $items): array
             $result['lead_ids'][] = $leadId;
             $stmt = $pdo->prepare(
                 'INSERT INTO appointments
-                    (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time, status, value, deposit_value, import_source, import_uid, raw_title, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, "google_calendar", ?, ?, NOW(), NOW())'
+                    (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time,
+                     status, value, deposit_value, import_source, import_uid, google_calendar_event_id,
+                     google_calendar_id, raw_title, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, "google_calendar", ?, ?, ?, ?, NOW(), NOW())'
             );
             $stmt->execute([
                 $customerId,
@@ -9454,6 +9509,8 @@ function studio_import_calendar_events(array $studio, array $items): array
                 $item['appointment_status'],
                 $item['value'],
                 $item['uid'],
+                $googleEventId !== '' ? $googleEventId : null,
+                $googleCalendarId !== '' ? $googleCalendarId : null,
                 mb_substr($item['raw_title'], 0, 260),
             ]);
             $result['appointments_created']++;

@@ -166,6 +166,8 @@ CREATE TABLE IF NOT EXISTS `leads` (
   `public_update_token` VARCHAR(64) NULL,
   `import_source` VARCHAR(40) NULL,
   `import_uid` VARCHAR(190) NULL,
+  `google_calendar_event_id` VARCHAR(255) NULL,
+  `google_calendar_id` VARCHAR(255) NULL,
   `raw_title` VARCHAR(260) NULL,
   `last_contact_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL,
@@ -256,6 +258,7 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   KEY `idx_appointments_status` (`status`),
   KEY `idx_appointments_artist` (`artist_id`),
   UNIQUE KEY `uk_appointments_import_uid` (`import_source`, `import_uid`),
+  KEY `idx_appointments_google_event` (`google_calendar_id`, `google_calendar_event_id`),
   CONSTRAINT `fk_appointments_customer`
     FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`)
     ON DELETE SET NULL,
@@ -271,11 +274,37 @@ ALTER TABLE `appointments`
   ADD COLUMN IF NOT EXISTS `artist_id` INT UNSIGNED NULL AFTER `lead_id`,
   ADD COLUMN IF NOT EXISTS `import_source` VARCHAR(40) NULL AFTER `deposit_value`,
   ADD COLUMN IF NOT EXISTS `import_uid` VARCHAR(190) NULL AFTER `import_source`,
-  ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `import_uid`,
+  ADD COLUMN IF NOT EXISTS `google_calendar_event_id` VARCHAR(255) NULL AFTER `import_uid`,
+  ADD COLUMN IF NOT EXISTS `google_calendar_id` VARCHAR(255) NULL AFTER `google_calendar_event_id`,
+  ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `google_calendar_id`,
   ADD COLUMN IF NOT EXISTS `pomada_unit_price` DECIMAL(10,2) NULL AFTER `deposit_value`,
   ADD COLUMN IF NOT EXISTS `pomadas_quantity` INT NOT NULL DEFAULT 0 AFTER `pomada_unit_price`,
   ADD UNIQUE KEY IF NOT EXISTS `uk_appointments_import_uid` (`import_source`, `import_uid`),
+  ADD INDEX IF NOT EXISTS `idx_appointments_google_event` (`google_calendar_id`, `google_calendar_event_id`),
   ADD INDEX IF NOT EXISTS `idx_appointments_artist` (`artist_id`);
+
+CREATE TABLE IF NOT EXISTS `google_calendar_integration` (
+  `id` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `calendar_id` VARCHAR(255) NULL,
+  `calendar_name` VARCHAR(255) NULL,
+  `account_email` VARCHAR(255) NULL,
+  `access_token_encrypted` MEDIUMTEXT NULL,
+  `refresh_token_encrypted` MEDIUMTEXT NULL,
+  `access_token_expires_at` DATETIME NULL,
+  `sync_token` MEDIUMTEXT NULL,
+  `calendars_json` MEDIUMTEXT NULL,
+  `last_sync_at` DATETIME NULL,
+  `last_sync_status` VARCHAR(30) NULL,
+  `last_sync_message` TEXT NULL,
+  `last_sync_created` INT NOT NULL DEFAULT 0,
+  `last_sync_updated` INT NOT NULL DEFAULT 0,
+  `last_sync_unchanged` INT NOT NULL DEFAULT 0,
+  `last_sync_cancelled` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL,
+  `updated_at` DATETIME NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `expenses` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
