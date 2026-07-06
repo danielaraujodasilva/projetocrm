@@ -2243,8 +2243,8 @@ if ($page === 'login') {
         $returnTo = trim((string)($_SESSION['admin_return_to'] ?? ''));
         $emailHint = auth_identity_by_email((string)($_POST['email'] ?? ''));
         echo '<div class="auth-welcome">';
-        echo '<span>Projeto CRM</span>';
-        echo '<strong>Bem-vindo ao Projeto CRM!</strong>';
+        echo '<span>projetocrm</span>';
+        echo '<strong>Bem-vindo ao projetocrm!</strong>';
         echo '<p>Organize seus atendimentos, clientes e agenda em um só lugar.</p>';
         echo '</div>';
         echo '<form class="form" method="post">';
