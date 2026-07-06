@@ -2242,6 +2242,11 @@ if ($page === 'login') {
     render_auth_page('Entrar na plataforma', 'O sistema identifica se o acesso é administrativo ou de estúdio e direciona para o local certo.', function () {
         $returnTo = trim((string)($_SESSION['admin_return_to'] ?? ''));
         $emailHint = auth_identity_by_email((string)($_POST['email'] ?? ''));
+        echo '<div class="auth-welcome">';
+        echo '<span>Projeto CRM</span>';
+        echo '<strong>Bem-vindo ao Projeto CRM!</strong>';
+        echo '<p>Organize seus atendimentos, clientes e agenda em um só lugar.</p>';
+        echo '</div>';
         echo '<form class="form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="login">';

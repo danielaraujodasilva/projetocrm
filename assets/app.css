@@ -495,6 +495,49 @@ div {
     color: var(--muted);
 }
 
+.auth-welcome {
+    position: relative;
+    display: grid;
+    gap: 3px;
+    margin: 0 0 20px;
+    padding: 16px 18px 16px 22px;
+    overflow: hidden;
+    border: 1px solid rgba(31, 111, 120, .16);
+    border-radius: 16px;
+    background:
+        radial-gradient(circle at 92% 18%, rgba(245, 181, 66, .22), transparent 32%),
+        linear-gradient(135deg, rgba(31, 111, 120, .11), rgba(255, 255, 255, .94));
+}
+
+.auth-welcome::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: linear-gradient(180deg, var(--brand), #f5b542);
+    content: "";
+}
+
+.auth-welcome span {
+    color: var(--brand-dark);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.auth-welcome strong {
+    color: var(--text);
+    font-family: Georgia, serif;
+    font-size: 20px;
+    line-height: 1.15;
+}
+
+.auth-welcome p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+}
+
 .grid {
     display: grid;
     gap: 16px;
