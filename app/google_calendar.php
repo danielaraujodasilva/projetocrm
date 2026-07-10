@@ -185,7 +185,7 @@ function google_calendar_authorization_url(array $studio): string
         'scope' => implode(' ', array_map('strval', $config['scopes'] ?? [])),
         'access_type' => 'offline',
         'prompt' => 'consent',
-        'include_granted_scopes' => 'true',
+        'include_granted_scopes' => 'false',
         'state' => $state,
     ], '', '&', PHP_QUERY_RFC3986);
 }
