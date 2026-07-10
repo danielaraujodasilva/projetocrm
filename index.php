@@ -1800,26 +1800,54 @@ function crmParseOverlayDate(value) {
 }
 
 function crmEnhanceOverlay(modal) {
-    if (!modal || modal.dataset.crmOverlayEnhanced === "1") return;
+    if (!modal) return;
     const panel = modal.querySelector(".crm-modal-panel");
     const header = modal.querySelector(".crm-panel-header");
     const body = modal.querySelector(".p-4");
     if (!panel || !header || !body) return;
-    modal.dataset.crmOverlayEnhanced = "1";
+    const candidates = Array.from(body.querySelectorAll([
+        "tbody tr[data-overlay-item]"
+    ].join(",")));
+
+    if (!candidates.length) {
+        const existingToolbar = panel.querySelector(".overlay-toolbar");
+        if (existingToolbar) {
+            existingToolbar.remove();
+            delete modal.dataset.crmOverlayToolbarKey;
+        }
+        return;
+    }
+
+    const allowDateFilters = candidates.some((item) => Boolean(item.dataset.overlayDate));
+    const allowTimeFilters = candidates.some((item) => Boolean(item.dataset.overlayTime));
+    const toolbarKey = [
+        "search",
+        allowDateFilters ? "date" : "",
+        allowTimeFilters ? "time" : ""
+    ].filter(Boolean).join("-");
+    const existingToolbar = panel.querySelector(".overlay-toolbar");
+    if (existingToolbar && modal.dataset.crmOverlayToolbarKey === toolbarKey) {
+        return;
+    }
+    if (existingToolbar) {
+        existingToolbar.remove();
+    }
 
     const toolbar = document.createElement("div");
     toolbar.className = "overlay-toolbar";
     toolbar.innerHTML = `
         <div class="overlay-toolbar-grid">
-            <input type="search" class="form-control overlay-search" placeholder="Buscar dentro deste overlay">
-            <input type="date" class="form-control overlay-date-from" aria-label="Data inicial">
-            <input type="date" class="form-control overlay-date-to" aria-label="Data final">
-            <input type="time" class="form-control overlay-time-from" aria-label="Hora inicial">
-            <input type="time" class="form-control overlay-time-to" aria-label="Hora final">
+            <input type="search" class="form-control overlay-search" placeholder="Buscar nesta lista">
+            ${allowDateFilters ? "<input type=\"date\" class=\"form-control overlay-date-from\" aria-label=\"Data inicial\">" : ""}
+            ${allowDateFilters ? "<input type=\"date\" class=\"form-control overlay-date-to\" aria-label=\"Data final\">" : ""}
+            ${allowTimeFilters ? "<input type=\"time\" class=\"form-control overlay-time-from\" aria-label=\"Hora inicial\">" : ""}
+            ${allowTimeFilters ? "<input type=\"time\" class=\"form-control overlay-time-to\" aria-label=\"Hora final\">" : ""}
             <button type="button" class="btn secondary overlay-clear">Limpar filtros</button>
         </div>
     `;
     panel.insertBefore(toolbar, body);
+    modal.dataset.crmOverlayEnhanced = "1";
+    modal.dataset.crmOverlayToolbarKey = toolbarKey;
 
     const searchInput = toolbar.querySelector(".overlay-search");
     const dateFromInput = toolbar.querySelector(".overlay-date-from");
@@ -1827,27 +1855,6 @@ function crmEnhanceOverlay(modal) {
     const timeFromInput = toolbar.querySelector(".overlay-time-from");
     const timeToInput = toolbar.querySelector(".overlay-time-to");
     const clearButton = toolbar.querySelector(".overlay-clear");
-
-    const candidates = Array.from(body.querySelectorAll([
-        "tbody tr[data-overlay-item]",
-        "tbody tr",
-        ".activity-card",
-        ".alert-card",
-        ".dashboard-stat",
-        ".public-plan-card",
-        ".public-audience-card",
-        ".public-benefit",
-        ".public-final-card",
-        ".wa-web-chat-item",
-        ".lead-card",
-        ".drilldown-card",
-        ".stack-list > *"
-    ].join(",")));
-
-    if (!candidates.length) {
-        const tables = Array.from(body.querySelectorAll("table tbody tr"));
-        candidates.push(...tables);
-    }
 
     const normaliseTime = (value) => {
         const raw = String(value || "").trim();
@@ -8241,7 +8248,7 @@ function render_appointments_table(array $appointments): void
     foreach ($appointments as $appointment) {
         $date = format_date_pt((string)$appointment['appointment_date']);
         $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
-        echo '<tr data-overlay-item data-overlay-date="' . h((string)($conversation['message_last_at'] ?? $conversation['last_message_at'] ?? '')) . '">';
+        echo '<tr data-overlay-item data-overlay-date="' . h((string)($appointment['appointment_date'] ?? '')) . '" data-overlay-time="' . h(substr((string)($appointment['start_time'] ?? ''), 0, 5)) . '">';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h(substr((string)$appointment['start_time'], 0, 5)) . ($appointment['end_time'] ? ' - ' . h(substr((string)$appointment['end_time'], 0, 5)) : '') . '</span></td>';
         echo '<td><strong>' . h($appointment['customer_name'] ?: $appointment['lead_name'] ?: $appointment['title']) . '</strong><br><span class="muted">' . h($appointment['description'] ?: $appointment['title']) . '</span></td>';
         echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
@@ -8263,7 +8270,7 @@ function render_expenses_table(array $expenses): void
     echo '<table class="table"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>';
     foreach ($expenses as $expense) {
         $date = format_date_pt((string)$expense['expense_date']);
-        echo '<tr>';
+        echo '<tr data-overlay-item data-overlay-date="' . h((string)($expense['expense_date'] ?? '')) . '">';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h($expense['payment_method'] ?: '-') . '</span></td>';
         echo '<td><strong>' . h($expense['description']) . '</strong><br><span class="muted">' . h($expense['notes'] ?: '-') . '</span></td>';
         echo '<td><span class="badge">' . h($expense['category']) . '</span></td>';
@@ -8565,7 +8572,8 @@ function render_report_table(array $rows, string $labelKey): void
     }
     echo '<table class="table"><thead><tr><th>Grupo</th><th>Qtd</th><th>Total</th></tr></thead><tbody>';
     foreach ($rows as $row) {
-        echo '<tr>';
+        $overlayText = trim((string)(($row[$labelKey] ?? '') . ' ' . ($row['qtd'] ?? '') . ' ' . ($row['total'] ?? '')));
+        echo '<tr data-overlay-item data-overlay-text="' . h($overlayText) . '">';
         echo '<td>' . h(($row[$labelKey] ?? '') ?: 'sem_informacao') . '</td>';
         echo '<td>' . h($row['qtd'] ?? 0) . '</td>';
         echo '<td><strong>' . h(format_money($row['total'] ?? 0)) . '</strong></td>';
