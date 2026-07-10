@@ -389,7 +389,7 @@ function seed_default_commercial_plans(): void
                 0,
                 0,
                 0,
-                "Tudo do Bsico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido",
+                "Tudo do Bsico\nWhatsApp oficial\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido",
                 "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso",
                 2,
             ],
@@ -431,7 +431,7 @@ function seed_default_commercial_plans(): void
 
         $defaults = [
             ['Basico', 'basico', 'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos", "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado", 1],
-            ['Profissional', 'profissional', 'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Bsico\nWhatsApp/Baileys\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso", 2],
+            ['Profissional', 'profissional', 'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Bsico\nWhatsApp oficial\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso", 2],
             ['Avancado', 'avancado', 'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil", "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sesses", 3],
         ];
     }

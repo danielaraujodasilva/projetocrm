@@ -177,7 +177,7 @@ function crm_whatsapp_official_output_filter(string $html): string
 
     $script = <<<'HTML'
 <style>
-.crm-official-runtime-note{border:1px solid #bbf7d0;background:#ecfdf5;color:#14532d;border-radius:14px;padding:12px 14px;margin:12px 0;font-size:14px}.crm-hide-baileys{display:none!important}
+.crm-official-runtime-note{border:1px solid #bbf7d0;background:#ecfdf5;color:#14532d;border-radius:14px;padding:12px 14px;margin:12px 0;font-size:14px}
 </style>
 <script>
 (function(){
@@ -185,14 +185,13 @@ function crm_whatsapp_official_output_filter(string $html): string
   var tab = new URLSearchParams(location.search).get('tab') || '';
   if (page !== 'studio_settings' && tab !== 'whatsapp') return;
   var provider = document.querySelector('[name="whatsapp_provider"]');
-  if (provider) {
+    if (provider) {
     provider.value = 'official';
-    Array.from(provider.options || []).forEach(function(opt){ if ((opt.value || '').toLowerCase() === 'baileys') opt.hidden = true; });
     var wrap = provider.closest('.field,.form-group,.mb-3,.col,.row') || provider.parentElement;
     if (wrap && !document.querySelector('.crm-official-runtime-note')) {
       var note = document.createElement('div');
       note.className = 'crm-official-runtime-note';
-      note.innerHTML = '<strong>WhatsApp oficial ativado.</strong><br>Baileys ficou preservado no código, mas escondido nesta tela. Preencha apenas o Access Token da Meta e salve.';
+      note.innerHTML = '<strong>WhatsApp oficial ativado.</strong><br>Preencha apenas o Access Token da Meta e salve.';
       wrap.parentNode.insertBefore(note, wrap);
     }
   }
@@ -212,13 +211,6 @@ function crm_whatsapp_official_output_filter(string $html): string
     if (!el) return;
     el.value = values[name];
     if (name !== 'whatsapp_official_access_token') el.readOnly = true;
-  });
-  document.querySelectorAll('button,input,a,summary,label,legend,h2,h3,h4,p,small,span,div').forEach(function(el){
-    var text = (el.textContent || '').toLowerCase();
-    if (text.includes('baileys') || text.includes('qr code') || text.includes('pareamento')) {
-      var card = el.closest('.card,.panel,.accordion-item,.settings-card,section,form');
-      if (card && !card.querySelector('[name="whatsapp_official_access_token"]')) card.classList.add('crm-hide-baileys');
-    }
   });
 })();
 </script>

@@ -4,7 +4,7 @@
 
 Trabalhe neste repositório de forma econômica, cirúrgica e segura.
 
-Este repositório contém vários subprojetos independentes, incluindo site, CRM, ficha, zap/analisador, WhatsApp/Baileys e páginas promocionais. Não trate o repositório inteiro como uma única aplicação, a menos que a tarefa peça isso explicitamente.
+Este repositório contém vários subprojetos independentes, incluindo site, CRM, ficha, zap/analisador, WhatsApp e páginas promocionais. Não trate o repositório inteiro como uma única aplicação, a menos que a tarefa peça isso explicitamente.
 
 ## Regra de economia de tokens
 
@@ -70,12 +70,11 @@ Regras:
 - Não quebrar o fluxo de pipeline.
 - Não alterar visual geral sem pedido explícito.
 
-### WhatsApp / Baileys
+### WhatsApp
 
 Pastas prováveis: `crm/whatsapp/`, `whatsapp/` ou similares.
 
 Regras:
-- Não trocar Baileys por outra biblioteca.
 - Não alterar número, sessão ou autenticação sem pedido.
 - Preservar integração com CRM.
 - Evitar mudanças grandes no bot principal.

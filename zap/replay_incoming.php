@@ -119,7 +119,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 }
 
-$events = replay_last_events(['raw_post', 'change_received', 'incoming_message_seen', 'studio_lookup_result', 'crm_record_message_attempt', 'crm_record_message_ok', 'crm_record_message_error', 'incoming_message_without_studio', 'invalid_json', 'baileys_message'], 25);
+$events = replay_last_events(['raw_post', 'change_received', 'incoming_message_seen', 'studio_lookup_result', 'crm_record_message_attempt', 'crm_record_message_ok', 'crm_record_message_error', 'incoming_message_without_studio', 'invalid_json'], 25);
 ?>
 <!doctype html>
 <html lang="pt-br">

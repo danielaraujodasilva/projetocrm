@@ -4411,15 +4411,14 @@ if ($page === 'studio_agenda') {
 
 if ($page === 'studio_whatsapp') {
     $studio = require_studio();
-    render_studio_shell('WhatsApp', 'Central de conversas, sessao Baileys e respostas do estúdio.', 'whatsapp', function () use ($studio) {
+    render_studio_shell('WhatsApp', 'Central de conversas, API oficial e respostas do estúdio.', 'whatsapp', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
         $settings = studio_settings($studio);
-        $whatsappProvider = studio_whatsapp_provider($studio);
-        $isOfficialWhatsApp = $whatsappProvider === 'official';
+        $isOfficialWhatsApp = true;
         $sessionKey = studio_session_key($studio);
         $serviceStatus = studio_whatsapp_service_status($studio);
         $summary = studio_whatsapp_summary($studio);
@@ -4462,7 +4461,7 @@ if ($page === 'studio_whatsapp') {
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
         echo '<section class="panel whatsapp-hero">';
-        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estudio</div><h2>Central de conversas e API oficial</h2><p class="muted">' . h($isOfficialWhatsApp ? 'Acompanhe a saude da Meta Cloud API, webhooks, envios e conversas do CRM em um unico lugar.' : 'Acompanhe a sessao Baileys, abra o workspace da conversa e atue sobre os contatos sem sair do CRM.') . '</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace')) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
+        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estudio</div><h2>Central de conversas e API oficial</h2><p class="muted">Acompanhe a saude da Meta Cloud API, webhooks, envios e conversas do CRM em um unico lugar.</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace')) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
         echo '<div class="whatsapp-hero-sidebar">';
         if ($isOfficialWhatsApp) {
             $statusBadgeClass = !empty($serviceStatus['ready']) ? 'ok' : 'danger';
@@ -4488,7 +4487,7 @@ if ($page === 'studio_whatsapp') {
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppReadingOverlay"><strong>Leitura rápida</strong><span>' . h((string)$summary['analyzed']) . ' analisadas</span><small>Resumo do fluxo atual</small></button>';
         echo '<button type="button" class="panel quick-action-card h-100 text-start" id="openWhatsAppConversationsOverlay"><strong>Conversas importadas</strong><span>' . h((string)$conversationsTotal) . ' registros</span><small>Ver lista paginada</small></button>';
         echo '</section>';
-        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">' . h($isOfficialWhatsApp ? 'Saude da API oficial, webhook, envios e falhas.' : 'Conexao, pareamento e acoes rapidas.') . '</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
+        echo '<div id="whatsappStatusOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,980px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Status do WhatsApp</h3><p class="muted" style="margin:4px 0 0">Saude da API oficial, webhook, envios e falhas.</p></div><button type="button" id="closeWhatsAppStatusOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappStatusOverlayBody" class="p-4"></div></div></div>';
         echo '<div id="whatsappStatusSource" hidden>';
         if ($isOfficialWhatsApp) {
             echo '<div class="panel" id="wa-session-panel"><div class="actions" style="justify-content:space-between"><h2>API oficial do WhatsApp</h2><span id="waStatusBadge" class="badge ' . h(!empty($serviceStatus['ready']) ? 'ok' : 'danger') . '">' . h($serviceStateLabel) . '</span></div>';
@@ -4549,7 +4548,7 @@ if ($page === 'studio_whatsapp') {
         }
         echo '<div id="waSessionState">';
         if (empty($serviceStatus['ok'])) {
-            echo '<p class="muted">O servico Node ainda nao respondeu. Inicie com <code>npm install</code> e <code>node server.js</code> em <code>services/whatsapp</code>.</p>';
+            echo '<p class="muted">A integração local foi removida. Configure a API oficial da Meta nas configurações acima.</p>';
             echo '<p class="muted">' . h($serviceStatus['error'] ?? '') . '</p>';
         } elseif (!empty($serviceStatus['pairingCode'])) {
             echo '<p class="muted">Parear o numero ' . h((string)($serviceStatus['pairingPhone'] ?? '')) . ' agora.</p>';
@@ -4599,9 +4598,9 @@ if ($page === 'studio_whatsapp') {
         }
         echo '</div>';
         echo '<div id="whatsappReadingOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,760px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Leitura rápida</h3><p class="muted" style="margin:4px 0 0">Resumo do fluxo atual.</p></div><button type="button" id="closeWhatsAppReadingOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappReadingOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota media</small></span></div><p class="muted">' . h($isOfficialWhatsApp ? 'As mensagens recebidas pela API oficial entram aqui e criam lead automaticamente quando o telefone ainda nao existir.' : 'As mensagens recebidas pelo Baileys entram aqui e criam lead automaticamente quando o telefone ainda nao existir.') . '</p></div></div>';
+        echo '<div id="whatsappReadingSource" hidden><div class="panel"><div class="mini-metrics"><span><strong>' . h($summary['human']) . '</strong><small>Em humano</small></span><span><strong>' . h($summary['analyzed']) . '</strong><small>Com IA</small></span><span><strong>' . h($summary['avg_score'] ?: '-') . '</strong><small>Nota media</small></span></div><p class="muted">As mensagens recebidas pela API oficial entram aqui e criam lead automaticamente quando o telefone ainda nao existir.</p></div></div>';
         echo '<div id="whatsappConversationsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1200px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Conversas importadas</h3><p class="muted" style="margin:4px 0 0">Página ' . h((string)$conversationsPage) . ' de ' . h((string)$conversationsTotalPages) . '.</p></div><button type="button" id="closeWhatsAppConversationsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="whatsappConversationsOverlayBody" class="p-4"></div></div></div>';
-        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Conversas importadas</h2><p class="muted">Filtre por urgencia, IA, humano e vinculos.</p></div><span class="badge">' . h($isOfficialWhatsApp ? 'API oficial' : 'Baileys multi-estudio') . '</span></div>';
+        echo '<div id="whatsappConversationsSource" hidden><section class="panel whatsapp-list-panel" style="margin:0"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Conversas importadas</h2><p class="muted">Filtre por urgencia, IA, humano e vinculos.</p></div><span class="badge">API oficial</span></div>';
         echo '<div class="whatsapp-filter-tabs">';
         $baseWhatsappUrl = app_url('studio_whatsapp');
         $filterTabs = [
@@ -6323,7 +6322,7 @@ if ($page === 'studio_settings') {
         $settingsCards = [
             'studio' => ['Estúdio', 'Identidade, dados base e integrações', 'fa-store', 'Dados essenciais'],
             'agenda' => ['Agenda', 'Horários, duração e disponibilidade', 'fa-calendar-days', count($selectedWorkDays) . ' dias ativos'],
-            'whatsapp' => ['WhatsApp', 'Conexão e comportamento do atendimento', 'fa-comments', studio_whatsapp_provider($studio) === 'official' ? 'API oficial' : 'Baileys'],
+            'whatsapp' => ['WhatsApp', 'Conexão e comportamento do atendimento', 'fa-comments', 'API oficial'],
             'ia' => ['Inteligência artificial', 'Modelo, chave e automações', 'fa-robot', !empty($settings['openai_api_key']) ? 'Configurada' : 'Pendente'],
             'meta_ads' => ['Meta Ads', 'Conta, token, Pixel e formulários', 'fa-chart-line', !empty($settings['meta_ads_enabled']) ? 'Ativa' : 'Desativada'],
             'quick_replies' => ['Respostas rápidas', 'Biblioteca para agilizar o atendimento', 'fa-reply', 'Conteúdo'],
@@ -6393,7 +6392,7 @@ if ($page === 'studio_settings') {
         echo '<a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a>';
         echo '</div>';
         echo '<div class="settings-panel-summary-grid">';
-        echo '<div class="drilldown-card compact settings-summary-card"><span class="badge">Provedor</span><strong>' . h(studio_whatsapp_provider($studio) === 'official' ? 'API oficial da Meta' : 'Baileys') . '</strong><div class="muted">' . h(studio_whatsapp_provider($studio) === 'official' ? 'O fluxo oficial está selecionado como motor principal.' : 'O Baileys segue como motor principal da operação.') . '</div></div>';
+        echo '<div class="drilldown-card compact settings-summary-card"><span class="badge">Provedor</span><strong>API oficial da Meta</strong><div class="muted">O fluxo oficial está selecionado como motor principal.</div></div>';
         echo '<div class="drilldown-card compact settings-summary-card"><span class="badge">Ambiente</span><strong>' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? 'Sandbox / teste' : 'Produção') . '</strong><div class="muted">' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? 'Usando dados e número de teste.' : 'Usando credenciais de produção.') . '</div></div>';
         echo '<div class="drilldown-card compact settings-summary-card"><span class="badge ' . h($whatsappOfficialStatus['ready'] ? 'ok' : 'warn') . '">Diagnóstico</span><strong>' . h((string)$whatsappOfficialStatus['score']) . '/' . h((string)$whatsappOfficialStatus['total']) . ' pronto</strong><div class="muted">' . h($whatsappOfficialStatus['ready'] ? 'Bloco oficial apto para testes.' : 'Ainda faltam campos para ativação completa.') . '</div></div>';
         echo '</div>';
@@ -6401,11 +6400,12 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft settings-group">';
         echo '<h3 style="margin-top:0">Entrada do WhatsApp</h3>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Motor principal</label><select name="whatsapp_provider"><option value="baileys"' . (studio_whatsapp_provider($studio) === 'baileys' ? ' selected' : '') . '>Baileys</option><option value="official"' . (studio_whatsapp_provider($studio) === 'official' ? ' selected' : '') . '>API oficial da Meta</option></select><small class="muted">Escolha aqui qual conexão fica como principal neste estúdio.</small></div>';
+        echo '<div class="field"><label>Motor principal</label><div class="muted">A integração usa somente a API oficial da Meta.</div></div>';
+        echo '<input type="hidden" name="whatsapp_provider" value="official">';
         echo '<div class="field"><label>Padrão das novas conversas</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select><small class="muted">Define quem assume as conversas que entram agora.</small></div>';
-        echo '<div class="field"><label>URL do serviço Baileys</label><input name="whatsapp_service_url" value="' . h($settings['whatsapp_service_url'] ?? 'http://localhost:3010') . '"><small class="muted">Usada quando o provedor ativo for Baileys.</small></div>';
+        echo '<div class="field"><label>Integração WhatsApp</label><div class="muted">A integração usa somente a API oficial da Meta.</div></div>';
         echo '</div>';
         echo '<div class="field"><label>Frases iniciais da campanha META</label><textarea name="meta_campaign_phrases" placeholder="Tenho interesse no fechamento!&#10;Quero fechar minha tattoo!">' . h($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!") . '</textarea><small class="muted">Uma frase por linha. O sistema usa isso para identificar leads/campanhas.</small></div>';
         echo '</div>';
@@ -6530,7 +6530,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp/Baileys ativo neste estudio</label></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
         echo '</div>';
         echo '</div></div>';
         echo '<div id="settingsSourceMetaAds" hidden><div class="settings-panel" id="settings-meta-ads" data-settings-panel="meta_ads">';

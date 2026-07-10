@@ -19,7 +19,7 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 - Filtros de leads por busca, status, origem e nota minima.
 - Agenda com visualizacao em mes, semana, dia e blocos dos proximos agendamentos.
 - Cadastro de tatuadores por estudio e escolha do tatuador responsavel em cada agendamento.
-- Central de WhatsApp por estudio com chave de sessao isolada, QR Code, envio manual, filtros, historico de conversa, ajuste de lead/cliente e webhook do Baileys multi-sessao.
+- Central de WhatsApp por estudio com a API oficial da Meta, envio manual, filtros, historico de conversa, ajuste de lead/cliente e webhook.
 - Criacao de agendamento direto a partir de uma conversa WhatsApp ou de um lead.
 - Financeiro por estudio com despesas, categorias e resultado simples do mes.
 - Respostas rapidas por estudio para atendimento humano e futura IA.
@@ -30,7 +30,7 @@ Este projeto roda separado do sistema atual, mas fica online em `/projetocrm`.
 ## Configuracoes do estudio
 
 - `Permitir IA responder clientes quando a conversa estiver em modo IA`: libera a IA para responder apenas conversas marcadas como atendimento por IA.
-- `Permitir conexao WhatsApp/Baileys neste estudio`: libera o uso da sessao WhatsApp daquele estudio no servico multi-estudio.
+- `Permitir conexao WhatsApp neste estudio`: libera o uso da API oficial daquele estudio.
 - `Atendimento padrao para novas conversas`: define se um cliente novo entra primeiro com humano ou com IA.
 
 ## SQL
@@ -57,20 +57,11 @@ A configuracao padrao usa:
 
 Se precisar alterar, copie `config/database.local.example.php` para `config/database.local.php`.
 
-## Servico WhatsApp multi-estudio
+## WhatsApp oficial
 
-O servico Node fica em `services/whatsapp` e usa uma pasta de sessao por estudio em `services/whatsapp/sessions`.
+A integração de WhatsApp do sistema usa a API oficial da Meta.
 
-Primeira execucao:
-
-```bash
-cd services/whatsapp
-npm install
-node server.js
-```
-
-Por padrao ele roda em `http://localhost:3010` e envia eventos para `http://localhost/projetocrm/api/whatsapp_webhook.php`.
-No CRM do estudio, abra `WhatsApp`, clique em "Iniciar ou gerar QR" e escaneie o QR Code.
+No CRM do estúdio, abra `WhatsApp`, configure as credenciais oficiais e use os testes e envios disponíveis no painel.
 
 ## Importacao Google Agenda
 

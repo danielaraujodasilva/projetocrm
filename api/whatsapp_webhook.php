@@ -696,7 +696,7 @@ if ($studioSessionKey !== '' || $webhookToken !== '') {
         whatsapp_webhook_respond_ok();
     }
 
-    // TODO(migration): this branch still accepts the legacy Baileys-shaped payload for older collectors.
+    // Compatibilidade com payloads simples do webhook oficial.
     $numero = trim((string)($payload['numero'] ?? $payload['phone'] ?? ''));
     $mensagem = trim((string)($payload['mensagem'] ?? $payload['message'] ?? $payload['body'] ?? ''));
     $remoteJid = trim((string)($payload['remoteJid'] ?? $payload['jidCompleto'] ?? ''));
@@ -706,7 +706,7 @@ if ($studioSessionKey !== '' || $webhookToken !== '') {
     $fromMe = !empty($payload['fromMe']);
 
     whatsapp_webhook_log([
-        'type' => 'baileys_message',
+        'type' => 'incoming_message_legacy',
         'studio_id' => (int)$studio['id'],
         'studio_session_key' => $studioSessionKey,
         'numero' => $numero,

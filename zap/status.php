@@ -60,7 +60,7 @@ if (($_POST['action'] ?? '') === 'clear_log') {
 }
 
 if (($_POST['action'] ?? '') === 'clear_all_logs') {
-    foreach ([status_log_path(), APP_BASE_PATH . '/services/whatsapp/whatsapp_service.log'] as $logPath) {
+    foreach ([status_log_path(), APP_BASE_PATH . '/storage/logs/whatsapp_official.log'] as $logPath) {
         if (is_file($logPath)) {
             file_put_contents($logPath, '', LOCK_EX);
         }

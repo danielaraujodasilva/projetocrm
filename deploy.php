@@ -6,7 +6,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(404);
     exit;
 }
-
 date_default_timezone_set('America/Sao_Paulo');
 
 $logPath = __DIR__ . '/deploy.log';
@@ -17,7 +16,6 @@ $deployConfig = is_file($localConfig) ? require $localConfig : [];
 if (!is_array($deployConfig)) {
     $deployConfig = [];
 }
-
 $secret = getenv('PROJETOCRM_DEPLOY_WEBHOOK_SECRET') ?: (string)($deployConfig['secret'] ?? '');
 if ($secret === '') {
     http_response_code(500);
@@ -65,98 +63,8 @@ if ($ffmpegOutput !== '') {
     $output .= "\n" . $ffmpegOutput;
 }
 
-$whatsappConfig = $deployConfig['whatsapp_service'] ?? [];
-if (!is_array($whatsappConfig)) {
-    $whatsappConfig = [];
-}
-
-$whatsappEnabled = array_key_exists('enabled', $whatsappConfig)
-    ? (bool)$whatsappConfig['enabled']
-    : true;
-
-if ($whatsappEnabled) {
-    $servicePath = (string)($whatsappConfig['path'] ?? ($realDeployPath . '/services/whatsapp'));
-    $realServicePath = realpath($servicePath);
-
-    $serviceInsideDeploy = $realServicePath !== false
-        && ($realServicePath === $realDeployPath || str_starts_with($realServicePath, $realDeployPath . DIRECTORY_SEPARATOR));
-
-    if (!$serviceInsideDeploy) {
-        $whatsappOutput = "Servico WhatsApp: caminho invalido ou nao encontrado.\n";
-    } else {
-        $whatsappOutput = projetocrm_deploy_whatsapp_service($realServicePath, $whatsappConfig);
-    }
-
-    file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $whatsappOutput . "\n", FILE_APPEND);
-    $output .= "\n" . $whatsappOutput;
-
-    $ffmpegOutput = projetocrm_ensure_ffmpeg($deployConfig['ffmpeg'] ?? []);
-    if ($ffmpegOutput !== '') {
-        file_put_contents($logPath, date('Y-m-d H:i:s') . "\n" . $ffmpegOutput . "\n", FILE_APPEND);
-        $output .= "\n" . $ffmpegOutput;
-    }
-}
-
 header('Content-Type: text/plain; charset=utf-8');
 echo $output;
-
-function projetocrm_deploy_whatsapp_service(string $servicePath, array $config): string
-{
-    $lines = ["Servico WhatsApp:"];
-    $pidFile = $servicePath . '/whatsapp_service.pid';
-    $logFile = $servicePath . '/whatsapp_service.log';
-    $port = (string)($config['port'] ?? getenv('WHATSAPP_PORT') ?: '3010');
-    $install = array_key_exists('install', $config) ? (bool)$config['install'] : true;
-    $restart = array_key_exists('restart', $config) ? (bool)$config['restart'] : true;
-
-    if ($install) {
-        $npm = PHP_OS_FAMILY === 'Windows' ? 'npm.cmd' : 'npm';
-        $installCommand = 'cd ' . escapeshellarg($servicePath) . ' && ' . $npm . ' install --omit=dev';
-        $lines[] = '$ ' . $installCommand;
-        $lines[] = trim((string)shell_exec($installCommand . ' 2>&1'));
-    }
-
-    if (!$restart) {
-        $lines[] = 'Reinicio automatico desativado.';
-        return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
-    }
-
-    if (is_file($pidFile)) {
-        $pid = preg_replace('/\D+/', '', (string)file_get_contents($pidFile));
-        if ($pid !== '') {
-            if (PHP_OS_FAMILY === 'Windows') {
-                shell_exec('taskkill /PID ' . escapeshellarg($pid) . ' /F 2>&1');
-            } else {
-                shell_exec('kill ' . escapeshellarg($pid) . ' 2>&1');
-            }
-        }
-        @unlink($pidFile);
-    }
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $lines[] = trim(projetocrm_stop_windows_port($port));
-        $launcher = projetocrm_write_windows_whatsapp_launcher($servicePath, $logFile, $port, false);
-        $startCommand = 'cmd /D /C start "" /MIN ' . projetocrm_windows_cmd_arg($launcher);
-        $lines[] = '$ ' . $startCommand;
-        $lines[] = trim((string)shell_exec($startCommand));
-    } else {
-        $env = 'WHATSAPP_PORT=' . escapeshellarg($port);
-        if (!empty($config['webhook_url'])) {
-            $env .= ' WHATSAPP_WEBHOOK_URL=' . escapeshellarg((string)$config['webhook_url']);
-        }
-        $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && ' . $env
-            . ' nohup node server.js > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
-        $lines[] = '$ ' . $startCommand;
-        $pid = trim((string)shell_exec($startCommand));
-        if ($pid !== '') {
-            file_put_contents($pidFile, $pid);
-            $lines[] = 'PID: ' . $pid;
-        }
-    }
-
-    return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
-}
 
 function projetocrm_command_exists(string $command): bool
 {
@@ -182,19 +90,6 @@ function projetocrm_ensure_ffmpeg(mixed $config): string
         return implode("\n", $lines) . "\n";
     }
 
-    $servicePath = realpath(__DIR__ . '/services/whatsapp');
-    if ($servicePath !== false && projetocrm_command_exists(PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node')) {
-        $node = PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node';
-        $localCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && ' . $node
-            . ' -e ' . escapeshellarg('try{process.stdout.write(require("@ffmpeg-installer/ffmpeg").path||"")}catch(e){}');
-        $localBinary = trim((string)shell_exec($localCommand . ' 2>&1'));
-        if ($localBinary !== '' && is_file($localBinary)) {
-            $lines[] = 'Disponivel via npm: ' . $localBinary;
-            return implode("\n", $lines) . "\n";
-        }
-    }
-
     $installCommand = trim((string)($config['install_command'] ?? ''));
     if ($installCommand === '' && PHP_OS_FAMILY !== 'Windows' && projetocrm_command_exists('apt-get')) {
         $installCommand = 'sudo -n apt-get update && sudo -n apt-get install -y ffmpeg';
@@ -209,39 +104,4 @@ function projetocrm_ensure_ffmpeg(mixed $config): string
     $lines[] = trim((string)shell_exec($installCommand . ' 2>&1'));
     $lines[] = projetocrm_command_exists('ffmpeg') ? 'Instalado.' : 'Ainda nao encontrei ffmpeg apos a tentativa de instalacao.';
     return implode("\n", array_filter($lines, static fn($line) => $line !== '')) . "\n";
-}
-
-function projetocrm_windows_env_value(string $value): string
-{
-    return str_replace(['"', "\r", "\n"], '', $value);
-}
-
-function projetocrm_windows_cmd_arg(string $value): string
-{
-    return '"' . str_replace('"', '', $value) . '"';
-}
-
-function projetocrm_stop_windows_port(string $port): string
-{
-    $port = preg_replace('/\D+/', '', $port) ?: '3010';
-    $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
-        . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output "Stopped WhatsApp service PID $procId"; }');
-
-    return (string)shell_exec($command);
-}
-
-function projetocrm_write_windows_whatsapp_launcher(string $servicePath, string $logFile, string $port, bool $install): string
-{
-    $launcher = sys_get_temp_dir() . '/projetocrm_whatsapp_start_' . uniqid() . '.cmd';
-    $lines = [
-        '@echo off',
-        'cd /d "' . str_replace('"', '', $servicePath) . '"',
-        'set "WHATSAPP_PORT=' . projetocrm_windows_env_value($port) . '"',
-    ];
-
-    $lines[] = 'node server.js >> "' . str_replace('"', '', $logFile) . '" 2>&1';
-    $lines[] = 'del "%~f0"';
-    file_put_contents($launcher, implode("\r\n", $lines) . "\r\n");
-
-    return $launcher;
 }

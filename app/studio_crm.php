@@ -399,9 +399,7 @@ function studio_whatsapp_service_url(array $studio): string
 
 function studio_whatsapp_provider(array $studio): string
 {
-    $settings = studio_settings($studio);
-    $provider = strtolower(trim((string)($settings['whatsapp_provider'] ?? 'official')));
-    return in_array($provider, ['baileys', 'official'], true) ? $provider : 'official';
+    return 'official';
 }
 
 function studio_whatsapp_official_configured(array $studio): bool
@@ -633,7 +631,6 @@ function crm_whatsapp_official_apply_defaults(array $studio): void
 function studio_whatsapp_official_status(array $studio): array
 {
     $settings = studio_settings($studio);
-    $provider = studio_whatsapp_provider($studio);
     $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
     if (!in_array($mode, ['production', 'sandbox'], true)) {
         $mode = 'production';
@@ -641,8 +638,8 @@ function studio_whatsapp_official_status(array $studio): array
     $checks = [
         'provider' => [
             'label' => 'Provedor selecionado',
-            'ok' => $provider === 'official',
-            'value' => $provider === 'official' ? 'API oficial' : 'Baileys',
+            'ok' => true,
+            'value' => 'API oficial',
         ],
         'mode' => [
             'label' => 'Ambiente',
@@ -727,7 +724,7 @@ function studio_whatsapp_event_log(array $studio, array $event): void
 {
     try {
         $provider = strtolower(trim((string)($event['provider'] ?? studio_whatsapp_provider($studio))));
-        if (!in_array($provider, ['official', 'baileys', 'system'], true)) {
+        if (!in_array($provider, ['official', 'system'], true)) {
             $provider = 'official';
         }
         $direction = strtolower(trim((string)($event['direction'] ?? 'system')));
@@ -784,7 +781,7 @@ function studio_whatsapp_recent_diagnostics(array $studio, int $limit = 20): arr
 
 function studio_whatsapp_customer_service_window(array $studio, int $conversationId): array
 {
-    if ($conversationId <= 0 || studio_whatsapp_provider($studio) !== 'official') {
+    if ($conversationId <= 0) {
         return ['applies' => false, 'open' => true, 'last_inbound_at' => '', 'expires_at' => ''];
     }
 
@@ -971,8 +968,7 @@ function studio_whatsapp_request(array $studio, string $method, string $path, ar
 
 function studio_whatsapp_service_is_local(array $studio): bool
 {
-    $host = strtolower((string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_HOST) ?: ''));
-    return in_array($host, ['localhost', '127.0.0.1', '::1'], true);
+    return false;
 }
 
 function studio_expected_whatsapp_service_version(): string
@@ -991,8 +987,8 @@ function studio_shell_exec_available(): bool
 function studio_whatsapp_log_paths(): array
 {
     return [
-        APP_BASE_PATH . '/services/whatsapp/whatsapp_service.log',
         APP_BASE_PATH . '/storage/logs/whatsapp_service.log',
+        APP_BASE_PATH . '/storage/logs/whatsapp_official.log',
     ];
 }
 
@@ -1017,114 +1013,12 @@ function studio_append_whatsapp_service_log(string $message): bool
 
 function studio_whatsapp_start_local_service(array $studio): array
 {
-    if (!studio_whatsapp_service_is_local($studio)) {
-        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; inicie o servico manualmente neste endereco.'];
-    }
-
-    if (!studio_shell_exec_available()) {
-        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para iniciar o servico WhatsApp.'];
-    }
-
-    $servicePath = APP_BASE_PATH . '/services/whatsapp';
-    if (!is_dir($servicePath) || !is_file($servicePath . '/package.json')) {
-        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
-    }
-
-    $port = (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010);
-    $logDir = APP_BASE_PATH . '/storage/logs';
-    if (!is_dir($logDir)) {
-        mkdir($logDir, 0775, true);
-    }
-
-    $logFile = $logDir . '/whatsapp_service.log';
-    $pidFile = $servicePath . '/whatsapp_service.pid';
-    $startOutput = '';
-    $needsInstall = false;
-    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
-
-    if (studio_whatsapp_health_is_current($health)) {
-        return [
-            'ok' => true,
-            'message' => 'Servico WhatsApp ja estava em execucao.',
-            'health' => $health,
-            'log_file' => $logFile,
-        ];
-    }
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $startLines = [
-            'cd /d "' . str_replace('"', '', $servicePath) . '"',
-            'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
-        ];
-        $startLines[] = studio_windows_port_guard_line(
-            $port,
-            studio_windows_whatsapp_start_cmd($servicePath, $logFile),
-            $logFile
-        );
-        studio_windows_start_process(implode(' && ', $startLines));
-        $startOutput = 'Inicio disparado em background.';
-    } else {
-        $startCommand = 'cd ' . escapeshellarg($servicePath)
-            . ' && WHATSAPP_PORT=' . escapeshellarg($port)
-            . ' nohup node server.js > ' . escapeshellarg($logFile) . ' 2>&1 & echo $!';
-        $startOutput = trim((string)shell_exec($startCommand));
-        if ($startOutput !== '') {
-            file_put_contents($pidFile, $startOutput);
-        }
-    }
-
-    $health = [];
-    for ($attempt = 0; $attempt < 6; $attempt++) {
-        usleep(700000);
-        $health = studio_whatsapp_request($studio, 'GET', '/health', [], 2);
-        if (!empty($health['ok'])) {
-            return [
-                'ok' => true,
-                'message' => 'Servico WhatsApp iniciado automaticamente.',
-                'start_output' => mb_substr($startOutput, 0, 500),
-                'health' => $health,
-                'log_file' => $logFile,
-            ];
-        }
-    }
-
-    $logTail = '';
-    if (is_file($logFile)) {
-        $logTail = mb_substr((string)file_get_contents($logFile), -1500);
-    }
-
-    return [
-        'ok' => false,
-        'pending' => false,
-        'error' => 'Tentei iniciar o servico WhatsApp automaticamente, mas ele nao respondeu em ' . studio_whatsapp_service_url($studio) . '/health.',
-        'start_output' => mb_substr($startOutput, 0, 500),
-        'health_error' => (string)($health['error'] ?? ''),
-        'log_tail' => $logTail,
-        'log_file' => $logFile,
-    ];
+    return ['ok' => false, 'error' => 'A integração do WhatsApp agora usa apenas a API oficial da Meta.'];
 }
 
 function studio_whatsapp_stop_local_service(array $studio): array
 {
-    if (!studio_whatsapp_service_is_local($studio)) {
-        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local.'];
-    }
-
-    if (!studio_shell_exec_available()) {
-        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para parar o servico WhatsApp.'];
-    }
-
-    $port = preg_replace('/\D+/', '', (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010)) ?: '3010';
-    if (PHP_OS_FAMILY === 'Windows') {
-        $command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command '
-            . escapeshellarg('$pids = @(Get-NetTCPConnection -LocalPort ' . $port . ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach ($procId in $pids) { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Output "Stopped PID $procId"; }');
-        $output = trim((string)shell_exec($command));
-    } else {
-        $command = 'lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill 2>&1';
-        $output = trim((string)shell_exec($command));
-    }
-
-    return ['ok' => true, 'output' => mb_substr($output, 0, 1000)];
+    return ['ok' => false, 'error' => 'Não há mais serviço local para parar.'];
 }
 
 function studio_delete_directory(string $target, string $allowedRoot): bool
@@ -1161,62 +1055,7 @@ function studio_delete_directory(string $target, string $allowedRoot): bool
 
 function studio_reset_whatsapp_session_locally(array $studio): array
 {
-    if (!studio_whatsapp_service_is_local($studio)) {
-        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso limpar arquivos de sessao remotos.'];
-    }
-
-    if (!studio_shell_exec_available()) {
-        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para limpar a sessao WhatsApp.'];
-    }
-
-    $servicePath = APP_BASE_PATH . '/services/whatsapp';
-    if (!is_dir($servicePath) || !is_file($servicePath . '/package.json')) {
-        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
-    }
-
-    $sessionsRoot = $servicePath . '/sessions';
-    if (!is_dir($sessionsRoot)) {
-        mkdir($sessionsRoot, 0775, true);
-    }
-
-    $sessionKey = studio_whatsapp_safe_session_key(studio_session_key($studio));
-    $sessionPath = $sessionsRoot . '/' . $sessionKey;
-    $port = preg_replace('/\D+/', '', (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010)) ?: '3010';
-    $logDir = APP_BASE_PATH . '/storage/logs';
-    if (!is_dir($logDir)) {
-        mkdir($logDir, 0775, true);
-    }
-    $logFile = $logDir . '/whatsapp_service.log';
-    $needsInstall = false;
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $resetLines = [
-            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"\$pids = @(Get-NetTCPConnection -LocalPort " . preg_replace('/\D+/', '', $port) . " -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique); foreach (\$procId in \$pids) { Stop-Process -Id \$procId -Force -ErrorAction SilentlyContinue; Write-Output ('Stopped PID ' + \$procId) }\" >> \"" . str_replace('"', '', $logFile) . "\" 2>&1",
-            'rmdir /S /Q "' . str_replace('"', '', $sessionPath) . '" >> "' . str_replace('"', '', $logFile) . '" 2>&1',
-            'cd /d "' . str_replace('"', '', $servicePath) . '"',
-            'set "WHATSAPP_PORT=' . studio_windows_env_value($port) . '"',
-        ];
-        $resetLines[] = studio_windows_port_guard_line(
-            $port,
-            studio_windows_whatsapp_start_cmd($servicePath, $logFile),
-            $logFile
-        );
-        studio_windows_start_process(implode(' && ', $resetLines));
-    } else {
-        $command = '(lsof -ti tcp:' . escapeshellarg($port) . ' | xargs -r kill; rm -rf ' . escapeshellarg($sessionPath)
-            . '; cd ' . escapeshellarg($servicePath)
-            . ' WHATSAPP_PORT=' . escapeshellarg($port)
-            . ' nohup node server.js >> ' . escapeshellarg($logFile) . ' 2>&1 &) 2>&1';
-        shell_exec($command);
-    }
-
-    return [
-        'ok' => true,
-        'pending' => true,
-        'message' => 'Limpeza da sessao WhatsApp disparada em background.',
-        'deleted_path' => $sessionPath,
-        'log_file' => $logFile,
-    ];
+    return ['ok' => false, 'error' => 'Não há mais sessão local para limpar.'];
 }
 
 function studio_whatsapp_safe_session_key(string $value): string
@@ -1236,6 +1075,11 @@ function studio_windows_cmd_arg(string $value): string
     return '"' . str_replace('"', '', $value) . '"';
 }
 
+function studio_windows_ps_single_quote(string $value): string
+{
+    return str_replace("'", "''", $value);
+}
+
 function studio_pomada_unit_price(array $studio): float
 {
     $settings = studio_settings($studio);
@@ -1252,11 +1096,12 @@ function studio_windows_whatsapp_start_cmd(string $servicePath, string $logFile)
 {
     $nodeExe = trim((string)(getenv('NODE_EXE') ?: 'node'));
 
-    return '"' 
-        . str_replace('"', '', $nodeExe)
-        . '" server.js >> "'
-        . str_replace('"', '', $logFile)
-        . '" 2>&1';
+    return 'Start-Process -WindowStyle Hidden'
+        . ' -WorkingDirectory \'' . studio_windows_ps_single_quote($servicePath) . '\''
+        . ' -FilePath \'' . studio_windows_ps_single_quote($nodeExe) . '\''
+        . ' -ArgumentList \'server.js\''
+        . ' -RedirectStandardOutput \'' . studio_windows_ps_single_quote($logFile) . '\''
+        . ' -RedirectStandardError \'' . studio_windows_ps_single_quote($logFile) . '\'';
 }
 
 function studio_windows_port_guard_line(string $port, string $startCommand, string $logFile): string
@@ -1265,7 +1110,7 @@ function studio_windows_port_guard_line(string $port, string $startCommand, stri
     $escapedStart = str_replace("'", "''", $startCommand);
     $escapedLog = str_replace('"', '', $logFile);
 
-    return "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not (Get-NetTCPConnection -LocalPort {$portDigits} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)) { cmd /c '{$escapedStart}' } else { Write-Output 'WhatsApp service already listening on port {$portDigits}' }\" >> \"{$escapedLog}\" 2>&1";
+    return "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (-not (Get-NetTCPConnection -LocalPort {$portDigits} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)) { {$escapedStart} } else { Write-Output 'WhatsApp service already listening on port {$portDigits}' }\" >> \"{$escapedLog}\" 2>&1";
 }
 
 function studio_windows_json_string(array $payload): string
@@ -1441,82 +1286,20 @@ function studio_write_windows_whatsapp_reset_launcher(string $servicePath, strin
 
 function studio_whatsapp_background_context(array $studio): array
 {
-    $servicePath = APP_BASE_PATH . '/services/whatsapp';
-    $logDir = APP_BASE_PATH . '/storage/logs';
-    if (!is_dir($logDir)) {
-        mkdir($logDir, 0775, true);
-    }
-    if (!is_dir($servicePath . '/sessions')) {
-        mkdir($servicePath . '/sessions', 0775, true);
-    }
-
-    $sessionKey = studio_whatsapp_safe_session_key(studio_session_key($studio));
-
     return [
-        'servicePath' => $servicePath,
-        'logFile' => $servicePath . '/whatsapp_service.log',
-        'port' => (string)(parse_url(studio_whatsapp_service_url($studio), PHP_URL_PORT) ?: 3010),
-        'sessionKey' => $sessionKey,
-        'sessionPath' => $servicePath . '/sessions/' . $sessionKey,
+        'servicePath' => '',
+        'logFile' => APP_BASE_PATH . '/storage/logs/whatsapp_official.log',
+        'port' => '3010',
+        'sessionKey' => '',
+        'sessionPath' => '',
         'needsInstall' => false,
-        'payload' => [
-            'studioId' => (int)$studio['id'],
-            'studioSlug' => (string)$studio['slug'],
-            'studioName' => (string)$studio['name'],
-            'webhookUrl' => studio_whatsapp_webhook_url(),
-            'webhookToken' => studio_whatsapp_webhook_token($studio),
-        ],
+        'payload' => [],
     ];
 }
 
 function studio_queue_whatsapp_action(array $studio, string $action, ?array $payload = null): array
 {
-    if (!in_array($action, ['start', 'disconnect', 'reset', 'restart', 'pairing_code'], true)) {
-        return ['ok' => false, 'error' => 'Acao WhatsApp invalida.'];
-    }
-
-    if (!studio_whatsapp_service_is_local($studio)) {
-        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso disparar acao em background.'];
-    }
-
-    if (!studio_shell_exec_available()) {
-        return ['ok' => false, 'error' => 'O PHP do servidor nao permite disparar comandos em background.'];
-    }
-
-    $ctx = studio_whatsapp_background_context($studio);
-    if (!is_dir($ctx['servicePath']) || !is_file($ctx['servicePath'] . '/package.json')) {
-        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
-    }
-
-    studio_append_whatsapp_service_log('CRM queued WhatsApp action: ' . $action);
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $launcher = $action === 'reset'
-            ? studio_write_windows_whatsapp_reset_launcher($ctx['servicePath'], $ctx['sessionPath'], $ctx['logFile'], $ctx['port'], $ctx['needsInstall'])
-            : studio_write_windows_whatsapp_action_launcher(
-                $ctx['servicePath'],
-                $ctx['logFile'],
-                $ctx['port'],
-                $action,
-                $ctx['sessionKey'],
-                $payload ?? $ctx['payload'],
-                $ctx['needsInstall']
-            );
-
-        $command = 'cmd /c start "" /B ' . studio_windows_cmd_arg($launcher) . ' > NUL 2>&1';
-        if (function_exists('shell_exec')) {
-            @shell_exec($command);
-        } elseif (function_exists('popen')) {
-            $handle = @popen($command, 'r');
-            if (is_resource($handle)) {
-                @pclose($handle);
-            }
-        }
-
-        return ['ok' => true, 'pending' => true, 'message' => 'Acao WhatsApp disparada em background.', 'sessionKey' => $ctx['sessionKey']];
-    }
-
-    return ['ok' => false, 'error' => 'Disparo em background ainda nao configurado para este sistema operacional.'];
+    return ['ok' => false, 'error' => 'A integração do WhatsApp agora usa apenas a API oficial da Meta.'];
 }
 
 function studio_wait_whatsapp_health(array $studio, int $seconds = 10, int $requestTimeout = 2): array
@@ -1542,111 +1325,22 @@ function studio_whatsapp_health_is_current(array $health): bool
 
 function studio_launch_whatsapp_service(array $studio, array $ctx): array
 {
-    if (!studio_whatsapp_service_is_local($studio)) {
-        return ['ok' => false, 'error' => 'A URL do servico WhatsApp nao e local; nao posso iniciar automaticamente.'];
-    }
-
-    if (!studio_shell_exec_available()) {
-        return ['ok' => false, 'error' => 'O PHP do servidor nao permite executar comandos para iniciar o servico WhatsApp.'];
-    }
-
-    if (!is_dir($ctx['servicePath']) || !is_file($ctx['servicePath'] . '/package.json')) {
-        return ['ok' => false, 'error' => 'Pasta services/whatsapp nao encontrada no servidor.'];
-    }
-
-    studio_append_whatsapp_service_log('CRM trying to launch WhatsApp service on port ' . $ctx['port']);
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $command = 'cd /d "' . str_replace('"', '', $ctx['servicePath']) . '" && set "WHATSAPP_PORT=' . studio_windows_env_value($ctx['port']) . '"';
-        $command .= ' && ' . studio_windows_port_guard_line(
-            $ctx['port'],
-            studio_windows_whatsapp_start_cmd($ctx['servicePath'], $ctx['logFile']),
-            $ctx['logFile']
-        );
-        studio_windows_start_process($command);
-        return ['ok' => true, 'log_file' => $ctx['logFile']];
-    }
-
-    $command = 'cd ' . escapeshellarg($ctx['servicePath'])
-        . ' && '
-        . ' WHATSAPP_PORT=' . escapeshellarg($ctx['port'])
-        . ' nohup node server.js >> ' . escapeshellarg($ctx['logFile']) . ' 2>&1 &';
-    @shell_exec($command);
-
-    return ['ok' => true, 'command' => $command, 'log_file' => $ctx['logFile']];
+    return ['ok' => false, 'error' => 'A integração do WhatsApp agora usa apenas a API oficial da Meta.'];
 }
 
 function studio_ensure_whatsapp_service(array $studio, array $ctx): array
 {
-    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
-    if (studio_whatsapp_health_is_current($health)) {
-        return ['ok' => true, 'health' => $health, 'restarted' => false];
-    }
-
-    if (!empty($health['ok'])) {
-        studio_append_whatsapp_service_log(
-            'CRM restarting stale WhatsApp service. Current version: '
-            . (string)($health['version'] ?? 'sem-versao')
-            . ' expected: '
-            . studio_expected_whatsapp_service_version()
-        );
-        studio_whatsapp_stop_local_service($studio);
-        usleep(1200000);
-    }
-
-    $launch = studio_launch_whatsapp_service($studio, $ctx);
-    if (empty($launch['ok'])) {
-        return $launch;
-    }
-
-    $health = studio_wait_whatsapp_health($studio, 30, 3);
-    if (!studio_whatsapp_health_is_current($health)) {
-        return [
-            'ok' => false,
-            'error' => 'O servico WhatsApp iniciou, mas esta em versao antiga ou nao respondeu corretamente.',
-            'health_error' => (string)($health['error'] ?? ''),
-            'current_version' => (string)($health['version'] ?? 'sem-versao'),
-            'expected_version' => studio_expected_whatsapp_service_version(),
-            'log_tail' => studio_whatsapp_service_log_tail(2500),
-        ];
-    }
-
-    return ['ok' => true, 'health' => $health, 'restarted' => true];
+    return ['ok' => false, 'error' => 'A integração do WhatsApp agora usa apenas a API oficial da Meta.'];
 }
 
 function studio_restart_whatsapp_service(array $studio): array
 {
-    $ctx = studio_whatsapp_background_context($studio);
-    studio_append_whatsapp_service_log('CRM forced WhatsApp service restart requested.');
-    $result = studio_queue_whatsapp_action($studio, 'restart');
-    return $result + ['message' => 'Reinicio do servico WhatsApp disparado em background.'];
+    return ['ok' => false, 'error' => 'Não há serviço local para reiniciar.'];
 }
 
 function studio_whatsapp_service_status(array $studio, int $timeout = 2): array
 {
-    if (studio_whatsapp_provider($studio) === 'official') {
-        return studio_whatsapp_official_health($studio);
-    }
-
-    $sessionKey = studio_session_key($studio);
-    $status = studio_whatsapp_request($studio, 'GET', '/studios/' . rawurlencode($sessionKey) . '/status', [], $timeout);
-    $health = studio_whatsapp_request($studio, 'GET', '/health', [], 1);
-    $status['service_health'] = $health;
-    $status['service_version'] = (string)($health['version'] ?? '');
-    $status['expected_service_version'] = studio_expected_whatsapp_service_version();
-    $status['service_stale'] = !studio_whatsapp_health_is_current($health);
-
-    if (!empty($status['ok']) && !empty($status['status'])) {
-        $platformStatus = match ((string)$status['status']) {
-            'connected' => 'connected',
-            'waiting_qr' => 'waiting_qr',
-            'starting', 'disconnected' => 'disconnected',
-            default => 'error',
-        };
-        studio_update_whatsapp_platform_status($studio, $platformStatus);
-    }
-
-    return $status;
+    return studio_whatsapp_official_health($studio);
 }
 
 function studio_update_whatsapp_platform_status(array $studio, string $status): void
@@ -1660,94 +1354,22 @@ function studio_update_whatsapp_platform_status(array $studio, string $status): 
 
 function studio_start_whatsapp_session(array $studio): array
 {
-    if (!plan_allows('whatsapp')) {
-        return ['ok' => false, 'error' => 'A integração com WhatsApp está disponível a partir do plano Profissional.'];
-    }
-
-    $limit = plan_limit('max_whatsapp_sessions');
-    if ($limit > 0 && studio_whatsapp_session_count($studio) >= $limit && trim((string)($studio['whatsapp_session_key'] ?? '')) === '') {
-        return ['ok' => false, 'error' => 'Seu plano atual permite até ' . $limit . ' sessões WhatsApp. Para conectar mais sessões, altere para um plano superior.'];
-    }
-
-    $ctx = studio_whatsapp_background_context($studio);
-    studio_append_whatsapp_service_log('CRM start requested for session ' . $ctx['sessionKey']);
-
-    $service = studio_ensure_whatsapp_service($studio, $ctx);
-    if (empty($service['ok'])) {
-        studio_update_whatsapp_platform_status($studio, 'error');
-        return $service;
-    }
-
-    $payload = $ctx['payload'];
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/start', $payload, 20);
-    if (empty($result['ok'])) {
-        $result = studio_queue_whatsapp_action($studio, 'start');
-    }
-
-    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
-    studio_event((int)$studio['id'], 'whatsapp_session_started', 'Sessao WhatsApp solicitada no servico multi-estudio.');
-    return $result;
+    return ['ok' => false, 'error' => 'A integração do WhatsApp agora usa apenas a API oficial da Meta.'];
 }
 
 function studio_request_whatsapp_pairing_code(array $studio, string $phone): array
 {
-    if (!plan_allows('whatsapp')) {
-        return ['ok' => false, 'error' => 'A integração com WhatsApp está disponível a partir do plano Profissional.'];
-    }
-
-    $limit = plan_limit('max_whatsapp_sessions');
-    if ($limit > 0 && studio_whatsapp_session_count($studio) >= $limit && trim((string)($studio['whatsapp_session_key'] ?? '')) === '') {
-        return ['ok' => false, 'error' => 'Seu plano atual permite até ' . $limit . ' sessões WhatsApp. Para conectar mais sessões, altere para um plano superior.'];
-    }
-
-    $phone = preg_replace('/\D+/', '', $phone) ?: '';
-    if (strlen($phone) < 10) {
-        return ['ok' => false, 'error' => 'Informe o telefone com DDI e DDD, somente numeros. Exemplo: 5521999999999.'];
-    }
-
-    $ctx = studio_whatsapp_background_context($studio);
-    studio_append_whatsapp_service_log('CRM pairing code requested for session ' . $ctx['sessionKey'] . ' phone ' . $phone);
-
-    $service = studio_ensure_whatsapp_service($studio, $ctx);
-    if (empty($service['ok'])) {
-        studio_update_whatsapp_platform_status($studio, 'error');
-        return $service;
-    }
-
-    $payload = $ctx['payload'];
-    $payload['numero'] = $phone;
-    $result = studio_whatsapp_request($studio, 'POST', '/studios/' . rawurlencode($ctx['sessionKey']) . '/pairing-code', $payload, 20);
-    if (empty($result['ok'])) {
-        $result = studio_queue_whatsapp_action($studio, 'pairing_code', $payload);
-    }
-
-    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'waiting_qr');
-    studio_event((int)$studio['id'], 'whatsapp_pairing_code_requested', 'Codigo de pareamento WhatsApp solicitado pelo painel.');
-
-    return $result;
+    return ['ok' => false, 'error' => 'O pareamento por QR Code foi removido. Use a API oficial da Meta.'];
 }
 
 function studio_disconnect_whatsapp_session(array $studio): array
 {
-    $ctx = studio_whatsapp_background_context($studio);
-    studio_append_whatsapp_service_log('CRM disconnect requested for session ' . $ctx['sessionKey']);
-    $result = studio_queue_whatsapp_action($studio, 'disconnect');
-    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
-    studio_event((int)$studio['id'], 'whatsapp_session_disconnected', 'Sessao WhatsApp desconectada pelo painel.');
-
-    return $result;
+    return ['ok' => false, 'error' => 'Não há mais sessão local para desconectar.'];
 }
 
 function studio_reset_whatsapp_session(array $studio): array
 {
-    $ctx = studio_whatsapp_background_context($studio);
-    studio_append_whatsapp_service_log('CRM reset requested for session ' . $ctx['sessionKey']);
-
-    $result = studio_queue_whatsapp_action($studio, 'reset');
-    studio_update_whatsapp_platform_status($studio, empty($result['ok']) ? 'error' : 'disconnected');
-    studio_event((int)$studio['id'], 'whatsapp_session_reset', 'Sessao WhatsApp limpa para gerar novo QR Code.');
-
-    return $result;
+    return ['ok' => false, 'error' => 'Não há mais sessão local para limpar.'];
 }
 
 function studio_whatsapp_service_log_tail(int $maxBytes = 5000): string
@@ -6526,7 +6148,7 @@ function studio_whatsapp_official_prepare_audio_upload(array $upload): array
         return $upload;
     }
 
-    $upload['audioConversionError'] = 'ffmpeg nao encontrado no servidor. Rode o deploy com npm install em services/whatsapp ou configure FFMPEG_BINARY para enviar audio gravado.';
+    $upload['audioConversionError'] = 'ffmpeg nao encontrado no servidor. Configure FFMPEG_BINARY ou instale o binario no servidor para enviar audio gravado.';
     return $upload;
 }
 
@@ -6550,18 +6172,7 @@ function studio_whatsapp_ffmpeg_binary(): string
         return $ffmpeg;
     }
 
-    $servicePath = realpath(__DIR__ . '/../services/whatsapp');
-    if ($servicePath === false) {
-        return '';
-    }
-
-    $node = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'node.exe' : 'node';
-    $command = 'cd ' . escapeshellarg($servicePath)
-        . ' && ' . escapeshellarg($node)
-        . ' -e ' . escapeshellarg('try{process.stdout.write(require("@ffmpeg-installer/ffmpeg").path||"")}catch(e){}')
-        . ' 2>' . (PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null');
-    $local = trim((string)@shell_exec($command));
-    return is_file($local) ? $local : '';
+    return '';
 }
 
 function studio_whatsapp_official_send_media(array $studio, string $toPhone, array &$upload, string $caption = ''): array
@@ -10041,7 +9652,7 @@ function studio_save_settings(array $studio, array $data): void
     $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'official')));
-    if (!in_array($whatsappProvider, ['baileys', 'official'], true)) {
+    if (!in_array($whatsappProvider, ['official'], true)) {
         $whatsappProvider = 'official';
     }
     $whatsappOfficialMode = strtolower(trim((string)($data['whatsapp_official_mode'] ?? 'production')));
