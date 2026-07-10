@@ -34,7 +34,7 @@ function app_build_version(): string
 
 $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
-$page = (string)($_GET['page'] ?? 'dashboard');
+$page = (string)($_GET['page'] ?? 'home');
 
 if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $leadId = (int)($_POST['lead_id'] ?? 0);
@@ -1993,6 +1993,127 @@ function render_public_page(string $title, string $subtitle, callable $content):
     echo '</body></html>';
 }
 
+function render_public_home_page(): void
+{
+    render_public_page('projetocrm · CRM para estúdios e atendimentos', 'projetocrm é um CRM para organizar clientes, leads, agenda, atendimentos, metas e integrações, incluindo sincronização de eventos do Google Calendar com a agenda interna.', function () {
+        echo '<nav class="public-home-nav" aria-label="Navegação pública">';
+        echo '<a class="public-home-brand" href="' . h(app_base_path() . '/') . '"><span>crm</span><strong>projetocrm</strong></a>';
+        echo '<div class="public-home-links">';
+        echo '<a href="' . h(app_url('privacy')) . '">Privacidade</a>';
+        echo '<a href="' . h(app_url('terms')) . '">Termos</a>';
+        echo '<a href="' . h(app_url('support')) . '">Suporte</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('login')) . '">Entrar no sistema</a>';
+        echo '</div></nav>';
+
+        echo '<section class="public-home-hero">';
+        echo '<div class="public-home-copy">';
+        echo '<span class="public-kicker">CRM operacional para estúdios</span>';
+        echo '<h1>projetocrm organiza clientes, agenda e atendimentos em um só lugar.</h1>';
+        echo '<p class="public-lead">O projetocrm é um sistema de CRM criado para centralizar leads, clientes, agenda, conversas, metas, financeiro e integrações usadas na rotina de atendimento.</p>';
+        echo '<p class="public-copy">A área interna exige login para proteger os dados dos estúdios. Esta página pública explica a finalidade do app, seus recursos principais e como a integração com Google Calendar funciona.</p>';
+        echo '<div class="actions public-actions">';
+        echo '<a class="btn" href="' . h(app_url('login')) . '">Entrar no sistema</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('support')) . '">Falar com suporte</a>';
+        echo '</div></div>';
+        echo '<aside class="public-home-card" aria-label="Resumo do aplicativo">';
+        echo '<strong>Para que serve?</strong>';
+        echo '<p>Para ajudar equipes de atendimento a acompanhar pessoas, compromissos, oportunidades e tarefas sem espalhar informações entre planilhas, WhatsApp e calendários.</p>';
+        echo '<div class="public-home-pill-grid">';
+        foreach (['Clientes', 'Agenda', 'Leads', 'Metas', 'Financeiro', 'Integrações'] as $item) {
+            echo '<span>' . h($item) . '</span>';
+        }
+        echo '</div>';
+        echo '</aside></section>';
+
+        echo '<section class="public-section">';
+        echo '<div class="section-head"><h2>Recursos principais</h2><p>O sistema foi desenhado para dar visão prática da operação e reduzir perda de informações durante o atendimento.</p></div>';
+        echo '<div class="public-home-feature-grid">';
+        $features = [
+            ['Clientes e histórico', 'Cadastro de clientes, leads, interesses, observações e histórico de contato.'],
+            ['Agenda interna', 'Visualização e organização dos compromissos do estúdio dentro do CRM.'],
+            ['Atendimentos e WhatsApp', 'Apoio ao fluxo de atendimento, conversas, respostas rápidas e acompanhamento de oportunidades.'],
+            ['Metas e relatórios', 'Indicadores para acompanhar performance, metas comerciais e evolução da operação.'],
+            ['Meta Ads', 'Consulta de informações de campanhas e anúncios quando a conta de anúncios está conectada.'],
+            ['Google Calendar', 'Sincronização dos eventos do calendário Google com a agenda interna do projetocrm.'],
+        ];
+        foreach ($features as [$title, $text]) {
+            echo '<article class="public-home-feature"><strong>' . h($title) . '</strong><p>' . h($text) . '</p></article>';
+        }
+        echo '</div></section>';
+
+        echo '<section class="public-section public-home-google">';
+        echo '<div class="section-head"><h2>Integração com Google Calendar</h2><p>Quando autorizada pelo usuário, a integração lê calendários e eventos para manter a agenda interna do CRM alinhada.</p></div>';
+        echo '<div class="public-home-split">';
+        echo '<div class="public-home-panel"><h3>O que a integração faz</h3><ul>';
+        echo '<li>Lista calendários disponíveis para o usuário conectado.</li>';
+        echo '<li>Importa e atualiza eventos do Google Calendar na agenda interna.</li>';
+        echo '<li>Usa sincronização incremental para buscar alterações recentes sem duplicar compromissos.</li>';
+        echo '</ul></div>';
+        echo '<div class="public-home-panel"><h3>O que ela não faz</h3><ul>';
+        echo '<li>Não publica dados sensíveis nesta página pública.</li>';
+        echo '<li>Não permite acesso à agenda sem login no CRM.</li>';
+        echo '<li>Não altera eventos do Google Calendar; a sincronização atual é de leitura para o CRM.</li>';
+        echo '</ul></div>';
+        echo '</div></section>';
+
+        echo '<footer class="public-home-footer">';
+        echo '<span>projetocrm</span>';
+        echo '<a href="' . h(app_url('privacy')) . '">Política de Privacidade</a>';
+        echo '<a href="' . h(app_url('terms')) . '">Termos de Uso</a>';
+        echo '<a href="' . h(app_url('support')) . '">Suporte/Contato</a>';
+        echo '<a href="' . h(app_url('login')) . '">Login</a>';
+        echo '</footer>';
+    });
+}
+
+function render_public_policy_page(string $page): void
+{
+    $isPrivacy = $page === 'privacy';
+    $isTerms = $page === 'terms';
+    $title = $isPrivacy ? 'Política de Privacidade do projetocrm' : ($isTerms ? 'Termos de Uso do projetocrm' : 'Suporte do projetocrm');
+    $description = $isPrivacy
+        ? 'Política de Privacidade pública do projetocrm, incluindo uso de dados e integração com Google Calendar.'
+        : ($isTerms ? 'Termos públicos de uso do projetocrm.' : 'Página pública de suporte e contato do projetocrm.');
+
+    render_public_page($title, $description, function () use ($page, $title, $isPrivacy, $isTerms) {
+        echo '<nav class="public-home-nav" aria-label="Navegação pública">';
+        echo '<a class="public-home-brand" href="' . h(app_base_path() . '/') . '"><span>crm</span><strong>projetocrm</strong></a>';
+        echo '<div class="public-home-links">';
+        echo '<a href="' . h(app_url('privacy')) . '">Privacidade</a>';
+        echo '<a href="' . h(app_url('terms')) . '">Termos</a>';
+        echo '<a href="' . h(app_url('support')) . '">Suporte</a>';
+        echo '<a class="btn secondary" href="' . h(app_url('login')) . '">Entrar no sistema</a>';
+        echo '</div></nav>';
+        echo '<section class="public-home-document">';
+        echo '<span class="public-kicker">Informação pública</span>';
+        echo '<h1>' . h($title) . '</h1>';
+
+        if ($isPrivacy) {
+            echo '<p>O projetocrm coleta e processa dados necessários para organizar atendimento, clientes, leads, agenda, histórico de contato, relatórios e integrações autorizadas pelo usuário.</p>';
+            echo '<h2>Dados usados</h2><p>Podem ser armazenados dados cadastrais, dados de atendimento, registros de agenda, mensagens operacionais, preferências do estúdio e identificadores técnicos necessários para autenticação e segurança.</p>';
+            echo '<h2>Google Calendar</h2><p>Quando o usuário conecta sua conta Google, o projetocrm usa permissões de leitura para listar calendários e sincronizar eventos com a agenda interna. Esses dados são usados somente para exibir e atualizar compromissos dentro do CRM.</p>';
+            echo '<h2>Proteção</h2><p>As áreas com dados internos exigem autenticação. Tokens de integração são armazenados de forma protegida no ambiente do servidor e não são exibidos publicamente.</p>';
+            echo '<h2>Contato</h2><p>Para solicitações de suporte, remoção de acesso ou dúvidas sobre dados, use a página pública de suporte.</p>';
+        } elseif ($isTerms) {
+            echo '<p>Ao usar o projetocrm, o usuário concorda em acessar o sistema somente com credenciais autorizadas e manter a confidencialidade das informações de clientes e atendimentos.</p>';
+            echo '<h2>Uso permitido</h2><p>O sistema deve ser usado para gestão operacional de estúdios, atendimentos, agenda, leads, clientes, metas e integrações relacionadas.</p>';
+            echo '<h2>Responsabilidades</h2><p>Cada usuário é responsável pelas informações inseridas, pela autorização das integrações conectadas e pelo uso adequado dos dados exibidos no CRM.</p>';
+            echo '<h2>Disponibilidade</h2><p>O projetocrm pode receber ajustes, melhorias e manutenções para preservar segurança, estabilidade e qualidade da operação.</p>';
+        } else {
+            echo '<p>Use esta página para encontrar os canais públicos de suporte do projetocrm.</p>';
+            echo '<h2>Ajuda para acesso</h2><p>Se você já possui credenciais, acesse o botão de login. Se não conseguir entrar, solicite suporte ao responsável pela implantação do CRM.</p>';
+            echo '<h2>Suporte sobre integrações</h2><p>Para dúvidas sobre Google Calendar, Meta Ads ou permissões de acesso, informe qual conta foi conectada, qual tela apresentou erro e o horário aproximado do teste.</p>';
+            echo '<div class="actions public-actions">';
+            echo '<a class="btn" href="' . h(app_url('login')) . '">Entrar no sistema</a>';
+            echo '<a class="btn secondary" href="' . h(public_sales_whatsapp_url()) . '" target="_blank" rel="noopener">Contato via WhatsApp</a>';
+            echo '</div>';
+        }
+
+        echo '<p class="muted public-home-updated">Última atualização: 09/07/2026.</p>';
+        echo '</section>';
+    });
+}
+
 function render_public_agent_page(): void
 {
     $version = app_build_version();
@@ -2040,6 +2161,16 @@ function render_public_agent_page(): void
         'version' => $version,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) . '</pre></section>';
     echo '</main></body></html>';
+}
+
+if ($page === 'home') {
+    render_public_home_page();
+    exit;
+}
+
+if (in_array($page, ['privacy', 'terms', 'support'], true)) {
+    render_public_policy_page($page);
+    exit;
 }
 
 if (!$dbStatus['ok'] || !$schemaReady) {
