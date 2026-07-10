@@ -253,7 +253,19 @@ function google_calendar_store_connection(array $studio, array $tokens, array $c
         throw new RuntimeException('O Google não retornou autorização offline. Remova o acesso anterior na conta Google e conecte novamente.');
     }
     $selected = null;
+    $currentCalendarId = trim((string)($current['calendar_id'] ?? ''));
+    if ($currentCalendarId !== '') {
+        foreach ($calendars as $calendar) {
+            if (hash_equals((string)($calendar['id'] ?? ''), $currentCalendarId)) {
+                $selected = $calendar;
+                break;
+            }
+        }
+    }
     foreach ($calendars as $calendar) {
+        if ($selected !== null) {
+            break;
+        }
         if (!empty($calendar['primary'])) {
             $selected = $calendar;
             break;
