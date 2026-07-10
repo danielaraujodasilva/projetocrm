@@ -570,8 +570,18 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_appointment') {
             $studio = require_studio();
-            studio_save_appointment($studio, $_POST);
-            flash_set('success', 'Agenda salva.');
+            $appointmentId = studio_save_appointment($studio, $_POST);
+            $outboundAttempted = function_exists('google_calendar_outbound_enabled')
+                && google_calendar_outbound_enabled($studio);
+            $outboundOk = $outboundAttempted && function_exists('google_calendar_try_push_appointment')
+                ? google_calendar_try_push_appointment($studio, $appointmentId)
+                : false;
+            flash_set(
+                'success',
+                $outboundAttempted && !$outboundOk
+                    ? 'Agenda salva. O envio ao Google ficou pendente; veja Opções da agenda.'
+                    : 'Agenda salva.'
+            );
             if (!empty($_POST['return_to_mobile2'])) {
                 redirect_to('studio_whatsapp_mobile', array_filter([
                     'id' => (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0) ?: null,
@@ -603,7 +613,17 @@ if ($action === 'studio_login') {
             $appointmentId = (int)($_POST['appointment_id'] ?? 0);
             $newStatus = trim((string)($_POST['status'] ?? 'falta'));
             studio_update_appointment_status($studio, $appointmentId, $newStatus);
-            flash_set('success', 'Status do agendamento atualizado.');
+            $outboundAttempted = function_exists('google_calendar_outbound_enabled')
+                && google_calendar_outbound_enabled($studio);
+            $outboundOk = $outboundAttempted && function_exists('google_calendar_try_push_appointment')
+                ? google_calendar_try_push_appointment($studio, $appointmentId)
+                : false;
+            flash_set(
+                'success',
+                $outboundAttempted && !$outboundOk
+                    ? 'Status atualizado. O envio ao Google ficou pendente; veja Opções da agenda.'
+                    : 'Status do agendamento atualizado.'
+            );
             $redirectDate = trim((string)($_POST['appointment_date'] ?? ''));
             if ($redirectDate !== '') {
                 redirect_to('studio_agenda', ['date' => $redirectDate, 'appointment_id' => $appointmentId]);
@@ -614,8 +634,18 @@ if ($action === 'studio_login') {
         if ($action === 'delete_appointment') {
             $studio = require_studio();
             $appointmentId = (int)($_POST['appointment_id'] ?? 0);
+            $outboundAttempted = function_exists('google_calendar_outbound_enabled')
+                && google_calendar_outbound_enabled($studio);
+            $outboundOk = $outboundAttempted && function_exists('google_calendar_try_push_appointment')
+                ? google_calendar_try_push_appointment($studio, $appointmentId, true)
+                : false;
             studio_delete_appointment($studio, $appointmentId);
-            flash_set('success', 'Agendamento excluido.');
+            flash_set(
+                'success',
+                $outboundAttempted && !$outboundOk
+                    ? 'Agendamento excluido. O envio ao Google ficou pendente; veja Opções da agenda.'
+                    : 'Agendamento excluido.'
+            );
             $redirectDate = trim((string)($_POST['appointment_date'] ?? ''));
             if ($redirectDate !== '') {
                 redirect_to('studio_agenda', ['date' => $redirectDate]);
@@ -827,6 +857,19 @@ if ($action === 'studio_login') {
             $enabled = !empty($_POST['enabled']);
             google_calendar_set_enabled($studio, $enabled);
             flash_set('success', $enabled ? 'Sincronização automática ativada.' : 'Sincronização automática pausada.');
+            redirect_to('studio_agenda');
+        }
+
+        if ($action === 'google_calendar_outbound_toggle') {
+            $studio = require_studio();
+            $enabled = !empty($_POST['outbound_enabled']);
+            google_calendar_set_outbound_enabled($studio, $enabled);
+            flash_set(
+                'success',
+                $enabled
+                    ? 'Envio CRM -> Google ativado. Para gravar no Google, reconecte a conta com permissões de escrita.'
+                    : 'Envio CRM -> Google desativado.'
+            );
             redirect_to('studio_agenda');
         }
 
@@ -3949,6 +3992,16 @@ if ($page === 'studio_agenda') {
             if (!empty($googleCalendarIntegration['last_sync_message'])) {
                 echo '<p class="google-calendar-last-message">' . h((string)$googleCalendarIntegration['last_sync_message']) . '</p>';
             }
+            $outboundEnabled = !empty($googleCalendarIntegration['outbound_enabled']);
+            echo '<p class="muted">Envio CRM -&gt; Google: <strong>' . ($outboundEnabled ? 'ativado' : 'desativado') . '</strong></p>';
+            if (!empty($googleCalendarIntegration['outbound_last_message'])) {
+                $outboundStatus = (string)($googleCalendarIntegration['outbound_last_status'] ?? '');
+                $outboundClass = $outboundStatus === 'error' ? ' warn' : '';
+                echo '<p class="google-calendar-last-message' . h($outboundClass) . '">Último envio CRM -&gt; Google: ' . h((string)$googleCalendarIntegration['outbound_last_message']) . '</p>';
+            }
+            if ($outboundEnabled) {
+                echo '<p class="muted">Se aparecer erro ao enviar, reconecte a conta Google com permissão para criar e editar eventos.</p>';
+            }
         }
         echo '</div></div>';
         echo '<div class="google-calendar-sync-actions">';
@@ -3974,6 +4027,7 @@ if ($page === 'studio_agenda') {
                 echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_sync_now"><button class="btn" type="submit">Sincronizar agora</button></form>';
             }
             echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_toggle"><input type="hidden" name="enabled" value="' . (!empty($googleCalendarIntegration['enabled']) ? '0' : '1') . '"><button class="btn secondary" type="submit">' . (!empty($googleCalendarIntegration['enabled']) ? 'Pausar automática' : 'Ativar automática') . '</button></form>';
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_outbound_toggle"><input type="hidden" name="outbound_enabled" value="' . (!empty($googleCalendarIntegration['outbound_enabled']) ? '0' : '1') . '"><button class="btn secondary" type="submit">' . (!empty($googleCalendarIntegration['outbound_enabled']) ? 'Desativar CRM -> Google' : 'Ativar CRM -> Google') . '</button></form>';
             echo '<form method="post" onsubmit="return confirm(\'Desconectar a conta Google? Os agendamentos já importados serão preservados.\')">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_disconnect"><button class="btn secondary danger-outline" type="submit">Desconectar</button></form>';
         }
         echo '</div>';

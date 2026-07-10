@@ -39,6 +39,10 @@ function google_calendar_ensure_schema(array $studio): void
             `last_sync_updated` INT NOT NULL DEFAULT 0,
             `last_sync_unchanged` INT NOT NULL DEFAULT 0,
             `last_sync_cancelled` INT NOT NULL DEFAULT 0,
+            `outbound_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+            `outbound_last_status` VARCHAR(30) NULL,
+            `outbound_last_message` TEXT NULL,
+            `outbound_last_at` DATETIME NULL,
             `created_at` DATETIME NOT NULL,
             `updated_at` DATETIME NOT NULL,
             PRIMARY KEY (`id`)
@@ -46,6 +50,10 @@ function google_calendar_ensure_schema(array $studio): void
     );
 
     foreach ([
+        'ALTER TABLE `google_calendar_integration` ADD COLUMN IF NOT EXISTS `outbound_enabled` TINYINT(1) NOT NULL DEFAULT 0 AFTER `last_sync_cancelled`',
+        'ALTER TABLE `google_calendar_integration` ADD COLUMN IF NOT EXISTS `outbound_last_status` VARCHAR(30) NULL AFTER `outbound_enabled`',
+        'ALTER TABLE `google_calendar_integration` ADD COLUMN IF NOT EXISTS `outbound_last_message` TEXT NULL AFTER `outbound_last_status`',
+        'ALTER TABLE `google_calendar_integration` ADD COLUMN IF NOT EXISTS `outbound_last_at` DATETIME NULL AFTER `outbound_last_message`',
         'ALTER TABLE `appointments` ADD COLUMN IF NOT EXISTS `google_calendar_event_id` VARCHAR(255) NULL AFTER `import_uid`',
         'ALTER TABLE `appointments` ADD COLUMN IF NOT EXISTS `google_calendar_id` VARCHAR(255) NULL AFTER `google_calendar_event_id`',
         'ALTER TABLE `appointments` ADD INDEX IF NOT EXISTS `idx_appointments_google_event` (`google_calendar_id`, `google_calendar_event_id`)',
@@ -376,6 +384,33 @@ function google_calendar_set_enabled(array $studio, bool $enabled): void
     )->execute([$enabled ? 1 : 0]);
 }
 
+function google_calendar_set_outbound_enabled(array $studio, bool $enabled): void
+{
+    google_calendar_ensure_schema($studio);
+    studio_db($studio)->prepare(
+        'UPDATE google_calendar_integration
+         SET outbound_enabled = ?, outbound_last_status = NULL, outbound_last_message = NULL,
+             outbound_last_at = NULL, updated_at = NOW()
+         WHERE id = 1'
+    )->execute([$enabled ? 1 : 0]);
+}
+
+function google_calendar_outbound_enabled(array $studio): bool
+{
+    $integration = google_calendar_integration($studio);
+    return google_calendar_is_connected($integration) && !empty($integration['outbound_enabled']);
+}
+
+function google_calendar_set_outbound_status(array $studio, string $status, string $message): void
+{
+    google_calendar_ensure_schema($studio);
+    studio_db($studio)->prepare(
+        'UPDATE google_calendar_integration
+         SET outbound_last_status = ?, outbound_last_message = ?, outbound_last_at = NOW(), updated_at = NOW()
+         WHERE id = 1'
+    )->execute([$status, mb_substr($message, 0, 1000)]);
+}
+
 function google_calendar_api_datetime_to_ics(array $dateData): string
 {
     $dateTime = trim((string)($dateData['dateTime'] ?? ''));
@@ -428,6 +463,130 @@ function google_calendar_mark_cancelled(array $studio, string $calendarId, strin
     );
     $stmt->execute([$calendarId, $eventId]);
     return $stmt->rowCount();
+}
+
+function google_calendar_appointment_datetime(array $appointment, string $field): string
+{
+    $date = trim((string)($appointment['appointment_date'] ?? ''));
+    $time = trim((string)($appointment[$field] ?? ''));
+    if ($date === '') {
+        throw new RuntimeException('Agendamento sem data para enviar ao Google.');
+    }
+    if ($time === '') {
+        $time = $field === 'end_time' ? trim((string)($appointment['start_time'] ?? '')) : '09:00:00';
+    }
+    if (preg_match('/^\d{2}:\d{2}$/', $time)) {
+        $time .= ':00';
+    }
+    $dateTime = new DateTimeImmutable($date . ' ' . $time, new DateTimeZone('America/Sao_Paulo'));
+    if ($field === 'end_time' && trim((string)($appointment['end_time'] ?? '')) === '') {
+        $dateTime = $dateTime->modify('+1 hour');
+    }
+    return $dateTime->format(DateTimeInterface::RFC3339);
+}
+
+function google_calendar_appointment_payload(array $appointment, bool $deleted = false): array
+{
+    $name = trim((string)($appointment['customer_name'] ?: ($appointment['lead_name'] ?: ($appointment['title'] ?? 'Atendimento'))));
+    $title = trim((string)($appointment['title'] ?? $name));
+    $status = trim((string)($appointment['status'] ?? ''));
+    $summary = $name !== '' ? $name : ($title !== '' ? $title : 'Atendimento');
+    if ($deleted || in_array($status, ['cancelado', 'perdido'], true)) {
+        $summary = '[CANCELADO] ' . preg_replace('/^\[CANCELADO\]\s*/u', '', $summary);
+    }
+    $descriptionParts = [];
+    $description = trim((string)($appointment['description'] ?? ''));
+    if ($description !== '') {
+        $descriptionParts[] = $description;
+    }
+    $descriptionParts[] = 'Sincronizado pelo projetocrm.';
+    $descriptionParts[] = 'Status no CRM: ' . ($status !== '' ? $status : 'sem status');
+    if (!empty($appointment['artist_name'])) {
+        $descriptionParts[] = 'Tatuador: ' . (string)$appointment['artist_name'];
+    }
+    if ($deleted) {
+        $descriptionParts[] = 'Este agendamento foi excluído no CRM.';
+    }
+
+    return [
+        'summary' => $summary,
+        'description' => implode("\n", $descriptionParts),
+        'start' => [
+            'dateTime' => google_calendar_appointment_datetime($appointment, 'start_time'),
+            'timeZone' => 'America/Sao_Paulo',
+        ],
+        'end' => [
+            'dateTime' => google_calendar_appointment_datetime($appointment, 'end_time'),
+            'timeZone' => 'America/Sao_Paulo',
+        ],
+        'extendedProperties' => [
+            'private' => [
+                'projetocrm_appointment_id' => (string)($appointment['id'] ?? ''),
+                'projetocrm_status' => $deleted ? 'deleted' : $status,
+            ],
+        ],
+    ];
+}
+
+function google_calendar_push_appointment(array $studio, int $appointmentId, bool $deleted = false): bool
+{
+    if ($appointmentId <= 0 || !google_calendar_outbound_enabled($studio)) {
+        return false;
+    }
+    $appointment = studio_find_appointment($studio, $appointmentId);
+    if (!$appointment) {
+        return false;
+    }
+    $integration = google_calendar_integration($studio);
+    $calendarId = trim((string)($integration['calendar_id'] ?? ''));
+    if ($calendarId === '') {
+        throw new RuntimeException('Selecione um calendário Google antes de enviar agendamentos do CRM.');
+    }
+    $eventId = trim((string)($appointment['google_calendar_event_id'] ?? ''));
+    if ($eventId === '' && ($deleted || in_array((string)($appointment['status'] ?? ''), ['cancelado', 'perdido'], true))) {
+        return false;
+    }
+
+    $accessToken = google_calendar_access_token($studio);
+    $payload = google_calendar_appointment_payload($appointment, $deleted);
+    if ($eventId !== '') {
+        google_calendar_http(
+            'PATCH',
+            'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendarId) . '/events/' . rawurlencode($eventId),
+            ['Authorization: Bearer ' . $accessToken, 'Content-Type: application/json'],
+            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        google_calendar_set_outbound_status($studio, 'success', 'Evento atualizado no Google Agenda.');
+        return true;
+    }
+
+    $response = google_calendar_http(
+        'POST',
+        'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendarId) . '/events',
+        ['Authorization: Bearer ' . $accessToken, 'Content-Type: application/json'],
+        json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    );
+    $newEventId = trim((string)($response['data']['id'] ?? ''));
+    if ($newEventId === '') {
+        throw new RuntimeException('O Google não retornou o ID do evento criado.');
+    }
+    studio_db($studio)->prepare(
+        'UPDATE appointments
+         SET google_calendar_id = ?, google_calendar_event_id = ?, updated_at = NOW()
+         WHERE id = ?'
+    )->execute([$calendarId, $newEventId, $appointmentId]);
+    google_calendar_set_outbound_status($studio, 'success', 'Evento criado no Google Agenda.');
+    return true;
+}
+
+function google_calendar_try_push_appointment(array $studio, int $appointmentId, bool $deleted = false): bool
+{
+    try {
+        return google_calendar_push_appointment($studio, $appointmentId, $deleted);
+    } catch (Throwable $e) {
+        google_calendar_set_outbound_status($studio, 'error', $e->getMessage());
+        return false;
+    }
 }
 
 function google_calendar_sync_studio(array $studio, bool $forceFull = false): array

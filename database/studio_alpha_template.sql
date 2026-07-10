@@ -301,6 +301,10 @@ CREATE TABLE IF NOT EXISTS `google_calendar_integration` (
   `last_sync_updated` INT NOT NULL DEFAULT 0,
   `last_sync_unchanged` INT NOT NULL DEFAULT 0,
   `last_sync_cancelled` INT NOT NULL DEFAULT 0,
+  `outbound_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `outbound_last_status` VARCHAR(30) NULL,
+  `outbound_last_message` TEXT NULL,
+  `outbound_last_at` DATETIME NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`)
