@@ -1696,7 +1696,7 @@ function render_head(string $title): void
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
-function render_public_head(string $title, string $description): void
+function render_public_head(string $title, string $description, string $bodyClass = ''): void
 {
     echo '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
@@ -1704,7 +1704,8 @@ function render_public_head(string $title, string $description): void
     echo '<title>' . h($title) . '</title>';
     echo '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISV5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhj6hW+ALEwIH" crossorigin="anonymous">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/app.css') ?: app_build_version())) . '">';
-    echo '</head><body class="public-page">';
+    $bodyClasses = trim('public-page ' . $bodyClass);
+    echo '</head><body class="' . h($bodyClasses) . '">';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
 }
 
@@ -1983,9 +1984,9 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     echo '</body></html>';
 }
 
-function render_public_page(string $title, string $subtitle, callable $content): void
+function render_public_page(string $title, string $subtitle, callable $content, string $bodyClass = ''): void
 {
-    render_public_head($title, $subtitle);
+    render_public_head($title, $subtitle, $bodyClass);
     echo '<div class="public-page-wrap container-xl px-3 px-md-4 py-3 py-md-4">';
     $content();
     echo '</div>';
@@ -2025,7 +2026,7 @@ function render_public_home_page(): void
         echo '</div>';
         echo '</aside></section>';
 
-        echo '<section class="public-section">';
+        echo '<section class="public-section public-home-section">';
         echo '<div class="section-head"><h2>Recursos principais</h2><p>O sistema foi desenhado para dar visão prática da operação e reduzir perda de informações durante o atendimento.</p></div>';
         echo '<div class="public-home-feature-grid">';
         $features = [
@@ -2063,7 +2064,7 @@ function render_public_home_page(): void
         echo '<a href="' . h(app_url('support')) . '">Suporte/Contato</a>';
         echo '<a href="' . h(app_url('login')) . '">Login</a>';
         echo '</footer>';
-    });
+    }, 'public-page-app');
 }
 
 function render_public_policy_page(string $page): void
@@ -2111,7 +2112,7 @@ function render_public_policy_page(string $page): void
 
         echo '<p class="muted public-home-updated">Última atualização: 09/07/2026.</p>';
         echo '</section>';
-    });
+    }, 'public-page-app');
 }
 
 function render_public_agent_page(): void

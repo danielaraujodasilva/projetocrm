@@ -4413,10 +4413,27 @@ textarea {
     color: #f3d1b8;
 }
 
+.public-page.public-page-app {
+    background:
+        radial-gradient(circle at 86% -10%, rgba(70, 130, 108, .08), transparent 28%),
+        linear-gradient(180deg, #fafbf9 0, var(--bg) 380px);
+    color: var(--text);
+}
+
+.public-page.public-page-app a {
+    color: var(--brand);
+}
+
 .public-page .app-build-badge-input {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.15);
     color: #fff;
+}
+
+.public-page.public-page-app .app-build-badge-input {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(26, 45, 37, .10);
+    color: var(--text-soft, #39443e);
 }
 
 .mobile-workspace .app-build-badge-input {
@@ -4445,17 +4462,17 @@ textarea {
     gap: 18px;
     margin: 0 0 18px;
     padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    background: rgba(15, 23, 42, 0.80);
-    box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.16);
+    border: 1px solid rgba(26, 45, 37, 0.08);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 16px 40px rgba(28, 39, 33, 0.07);
 }
 
 .public-home-brand {
     display: inline-flex;
     align-items: center;
     gap: 10px;
-    color: #fff;
+    color: var(--text);
     text-decoration: none;
 }
 
@@ -4465,8 +4482,8 @@ textarea {
     justify-content: center;
     width: 38px;
     height: 38px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, #1f6f78, #c74d40);
+    border-radius: 10px;
+    background: linear-gradient(135deg, #176b55, #2d8992);
     color: #fff;
     font-size: 12px;
     font-weight: 900;
@@ -4475,7 +4492,7 @@ textarea {
 }
 
 .public-home-brand strong {
-    color: #fff;
+    color: var(--text);
     font-size: 18px;
     letter-spacing: -.01em;
 }
@@ -4490,14 +4507,14 @@ textarea {
 
 .public-home-links a,
 .public-home-footer a {
-    color: #d8e0e7;
+    color: var(--text-soft, #39443e);
     font-weight: 700;
     text-decoration: none;
 }
 
 .public-home-links a:not(.btn):hover,
 .public-home-footer a:hover {
-    color: #fff;
+    color: var(--brand);
 }
 
 .public-home-hero {
@@ -4513,16 +4530,19 @@ textarea {
 .public-home-feature,
 .public-home-panel,
 .public-home-document {
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 22px;
-    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.22);
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(26, 45, 37, 0.08);
+    border-radius: 20px;
+    box-shadow: 0 18px 45px rgba(28, 39, 33, 0.06);
 }
 
 .public-home-copy {
     position: relative;
     overflow: hidden;
     padding: clamp(26px, 4vw, 44px);
+    background:
+        radial-gradient(circle at 92% 8%, rgba(23, 107, 85, .10), transparent 28%),
+        linear-gradient(135deg, rgba(255, 255, 255, .98), rgba(248, 249, 247, .94));
 }
 
 .public-home-copy::after {
@@ -4532,7 +4552,7 @@ textarea {
     width: 280px;
     height: 280px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(199, 77, 64, .28), rgba(199, 77, 64, 0) 68%);
+    background: radial-gradient(circle, rgba(245, 181, 66, .26), rgba(245, 181, 66, 0) 68%);
     content: "";
     pointer-events: none;
 }
@@ -4541,10 +4561,10 @@ textarea {
     position: relative;
     z-index: 1;
     margin: 0;
-    color: #fff;
-    font-size: clamp(36px, 5.2vw, 68px);
-    line-height: .98;
-    letter-spacing: -.045em;
+    color: var(--text);
+    font-size: clamp(34px, 4.8vw, 62px);
+    line-height: 1.02;
+    letter-spacing: -.04em;
     max-width: 880px;
 }
 
@@ -4555,28 +4575,61 @@ textarea {
     z-index: 1;
 }
 
+.public-home-copy .public-kicker,
+.public-home-document .public-kicker {
+    background: var(--brand-soft, #e6f3ee);
+    border-color: rgba(23, 107, 85, .12);
+    color: var(--brand);
+}
+
+.public-home-copy .public-lead {
+    color: var(--text-soft, #39443e);
+}
+
+.public-home-copy .public-copy {
+    color: var(--muted);
+}
+
 .public-home-card {
     display: grid;
     align-content: start;
     gap: 14px;
     padding: 24px;
-    color: #dbe4ea;
+    color: var(--text-soft, #39443e);
+    background:
+        linear-gradient(180deg, rgba(17, 24, 39, .98) 0%, rgba(15, 23, 42, .98) 100%);
+    border-color: rgba(255, 255, 255, .06);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, .14);
 }
 
-.public-home-card strong,
 .public-home-feature strong,
-.public-home-panel h3,
 .public-home-document h1,
 .public-home-document h2 {
+    color: var(--text);
+}
+
+.public-home-card strong {
     color: #fff;
 }
 
-.public-home-card p,
+.public-home-panel h3 {
+    color: var(--text);
+}
+
 .public-home-feature p,
-.public-home-panel li,
 .public-home-document p,
 .public-home-document li {
-    color: #c5ced7;
+    color: var(--muted);
+    line-height: 1.65;
+}
+
+.public-home-card p {
+    color: rgba(239, 245, 247, .80);
+    line-height: 1.65;
+}
+
+.public-home-panel li {
+    color: var(--muted);
     line-height: 1.65;
 }
 
@@ -4604,6 +4657,16 @@ textarea {
     gap: 16px;
 }
 
+.public-home-section .section-head h2,
+.public-home-google .section-head h2 {
+    color: var(--text);
+}
+
+.public-home-section .section-head p,
+.public-home-google .section-head p {
+    color: var(--muted);
+}
+
 .public-home-feature,
 .public-home-panel {
     padding: 22px;
@@ -4621,11 +4684,11 @@ textarea {
 
 .public-home-google {
     padding: 20px;
-    border: 1px solid rgba(56, 163, 165, 0.16);
+    border: 1px solid rgba(23, 107, 85, 0.12);
     border-radius: 26px;
     background:
-        radial-gradient(circle at 10% 20%, rgba(56, 163, 165, .18), transparent 28%),
-        rgba(4, 10, 19, .36);
+        radial-gradient(circle at 10% 20%, rgba(23, 107, 85, .08), transparent 28%),
+        rgba(255, 255, 255, .56);
 }
 
 .public-home-split {
@@ -4647,11 +4710,11 @@ textarea {
     justify-content: center;
     margin-top: 26px;
     padding: 18px;
-    color: #aeb8c2;
+    color: var(--muted);
 }
 
 .public-home-footer span {
-    color: #fff;
+    color: var(--text);
     font-weight: 900;
 }
 
