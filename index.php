@@ -358,8 +358,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
         if ($action === 'login') {
             $email = (string)$_POST['email'];
             $password = (string)$_POST['password'];
-            $returnTo = trim((string)($_POST['return_to'] ?? $_SESSION['admin_return_to'] ?? ''));
+            $loginContext = trim((string)($_POST['login_context'] ?? 'auto'));
+            if (!in_array($loginContext, ['studio', 'admin', 'auto'], true)) {
+                $loginContext = 'auto';
+            }
+            $returnTo = safe_local_return_url((string)($_POST['return_to'] ?? $_SESSION['admin_return_to'] ?? ''));
+            $isStudioReturn = $returnTo !== '' && str_contains($returnTo, 'page=studio_');
             unset($_SESSION['admin_return_to']);
+            if ($loginContext === 'admin') {
+                if (login_admin($email, $password)) {
+                    flash_set('success', 'Login administrativo realizado.');
+                    if ($returnTo !== '' && !$isStudioReturn) {
+                        redirect_to_url($returnTo);
+                    }
+                    redirect_to('dashboard');
+                }
+                flash_set('error', 'Email ou senha invalidos para o painel gerente.');
+                redirect_to('login');
+            }
+            if ($loginContext === 'studio') {
+                if (login_studio_user($email, $password)) {
+                    flash_set('success', 'Login do estudio realizado.');
+                    if ($returnTo !== '' && $isStudioReturn) {
+                        redirect_to_url($returnTo);
+                    }
+                    redirect_to('studio_agenda');
+                }
+                flash_set('error', 'Email ou senha invalidos para o estudio.');
+                redirect_to('login');
+            }
             $identity = auth_identity_by_email($email);
             if ($identity['type'] === 'admin') {
                 if (login_admin($email, $password)) {
@@ -2414,9 +2441,12 @@ if (admin_count() === 0) {
 }
 
 if ($page === 'login') {
-    render_auth_page('Entrar na plataforma', 'O sistema identifica se o acesso é administrativo ou de estúdio e direciona para o local certo.', function () {
+    render_auth_page('Entrar na plataforma', 'Escolha se este acesso deve abrir o CRM do estúdio ou o painel gerente.', function () {
         $returnTo = trim((string)($_SESSION['admin_return_to'] ?? ''));
-        $emailHint = auth_identity_by_email((string)($_POST['email'] ?? ''));
+        $selectedContext = (string)($_GET['mode'] ?? 'studio');
+        if (!in_array($selectedContext, ['studio', 'admin', 'auto'], true)) {
+            $selectedContext = 'studio';
+        }
         echo '<div class="auth-welcome">';
         echo '<span>projetocrm</span>';
         echo '<strong>Bem-vindo ao projetocrm!</strong>';
@@ -2428,15 +2458,18 @@ if ($page === 'login') {
         if ($returnTo !== '') {
             echo '<input type="hidden" name="return_to" value="' . h($returnTo) . '">';
         }
+        echo '<div class="field"><label>Entrar como</label><select name="login_context" required>';
+        echo '<option value="studio"' . ($selectedContext === 'studio' ? ' selected' : '') . '>Estúdio - agenda e operação</option>';
+        echo '<option value="admin"' . ($selectedContext === 'admin' ? ' selected' : '') . '>Gerente - painel administrativo</option>';
+        echo '<option value="auto"' . ($selectedContext === 'auto' ? ' selected' : '') . '>Automático - detectar pelo email</option>';
+        echo '</select><small class="muted">Use Estúdio para gravar a integração com Google Agenda; use Gerente para configurar planos, estúdios e usuários.</small></div>';
         echo '<div class="field"><label>Email</label><input name="email" type="text" inputmode="email" required autocomplete="email" placeholder="admin@... ou acesso do estúdio"></div>';
         echo '<div class="field"><label>Senha</label><input name="password" type="password" required autocomplete="current-password"></div>';
         echo '<div class="actions" style="justify-content:space-between;gap:10px;align-items:center">';
-        echo '<button class="btn" type="submit">Entrar e direcionar</button>';
-        echo '<span class="badge ' . h(($emailHint['type'] ?? 'none') === 'admin' ? 'ok' : ((($emailHint['type'] ?? 'none') === 'studio') ? 'warn' : 'neutral')) . '">';
-        echo h(($emailHint['type'] ?? 'none') === 'admin' ? 'Administrador' : ((($emailHint['type'] ?? 'none') === 'studio') ? 'Estúdio' : 'Sem identificação'));
-        echo '</span>';
+        echo '<button class="btn" type="submit">Entrar</button>';
+        echo '<span class="badge neutral">Escolha manual</span>';
         echo '</div>';
-        echo '<p class="muted" style="margin-top:10px">Se o email também existir como admin, o acesso administrativo tem prioridade.</p>';
+        echo '<p class="muted" style="margin-top:10px">Se o mesmo email existir nos dois lugares, a escolha acima decide para onde o login vai.</p>';
         echo '</form>';
     }, $flash);
     exit;
