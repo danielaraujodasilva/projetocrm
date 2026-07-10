@@ -3895,15 +3895,9 @@ if ($page === 'studio_agenda') {
         $appointmentsOffset = ($appointmentsPage - 1) * $appointmentsPerPage;
         $appointmentsPageRows = array_slice($appointments, $appointmentsOffset, $appointmentsPerPage);
 
-        echo '<section class="panel agenda-shell"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap calendar-toolbar">';
-        echo '<div class="agenda-toolbar-copy"><span class="badge ok">Agenda viva</span><h2 class="mb-0">Calendario</h2><p class="muted mb-0">Visão principal para revisar, importar e organizar os horários sem ruído extra.</p></div>';
-        echo '<form class="inline-form d-flex flex-wrap gap-2 align-items-end agenda-import-form" method="post" enctype="multipart/form-data">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="import_calendar_ics">';
-        echo '<input type="file" name="ics_file" accept=".ics,text/calendar" required>';
-        echo '<button class="btn secondary" type="submit">Importar ICS</button>';
-        echo '</form>';
-        echo '<div class="calendar-toolbar-actions">';
+        echo '<section class="panel agenda-shell"><div class="agenda-focus-toolbar calendar-toolbar">';
+        echo '<div class="agenda-toolbar-copy"><span class="badge ok">Agenda viva</span><h2 class="mb-0">Calendário</h2><p class="muted mb-0">O calendário fica no centro. Importação, Google e alertas ficam em opções.</p></div>';
+        echo '<div class="calendar-toolbar-actions agenda-primary-actions">';
         foreach (['month' => 'Mes', 'week' => 'Semana', 'day' => 'Dia', 'list' => 'Blocos'] as $key => $label) {
             echo '<a class="btn ' . ($view === $key ? '' : 'secondary') . '" href="' . h(app_url('studio_agenda', ['cal_view' => $key, 'date' => $focus->format('Y-m-d')])) . '">' . h($label) . '</a>';
         }
@@ -3912,9 +3906,18 @@ if ($page === 'studio_agenda') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $prev->format('Y-m-d')])) . '">Anterior</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => date('Y-m-d')])) . '">Hoje</a>';
         echo '<a class="btn secondary" href="' . h(app_url('studio_agenda', ['cal_view' => $view, 'date' => $next->format('Y-m-d')])) . '">Proximo</a>';
-        echo '<button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button>';
+        echo '<button type="button" class="btn secondary" id="openAgendaToolsButton"><i class="fa-solid fa-ellipsis"></i> Opções</button>';
         echo '</div>';
         echo '</div>';
+        echo '<div id="agendaToolsModal" class="crm-modal hidden"><div class="crm-modal-panel agenda-tools-modal"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Opções da agenda</h3><p class="muted" style="margin:4px 0 0">Todas as funções continuam aqui, sem poluir o calendário principal.</p></div><button type="button" id="closeAgendaToolsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="agenda-tools-grid">';
+        echo '<section class="panel soft agenda-tool-card"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h3 class="mt-0 mb-1">Importar ICS</h3><p class="muted mb-0">Envie um arquivo do Google Agenda para revisar antes de gravar.</p></div><span class="badge">arquivo</span></div>';
+        echo '<form class="inline-form d-flex flex-wrap gap-2 align-items-end agenda-import-form" method="post" enctype="multipart/form-data">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="import_calendar_ics">';
+        echo '<input type="file" name="ics_file" accept=".ics,text/calendar" required>';
+        echo '<button class="btn secondary" type="submit">Importar ICS</button>';
+        echo '</form></section>';
+        echo '<section class="panel soft agenda-tool-card"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h3 class="mt-0 mb-1">Horários livres</h3><p class="muted mb-0">Veja rapidamente as próximas janelas disponíveis.</p></div><span class="badge ok">' . h((string)count($nextAvailableSlots)) . '</span></div><button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button></section>';
         echo '<section class="google-calendar-sync-card ' . ($googleCalendarConnected ? 'is-connected' : '') . '">';
         echo '<div class="google-calendar-sync-main">';
         echo '<span class="google-calendar-mark"><i class="fa-brands fa-google"></i></span>';
@@ -3983,6 +3986,14 @@ if ($page === 'studio_agenda') {
             echo '</div>';
         }
         echo '</section>';
+        echo '<section class="panel soft agenda-tool-card agenda-alerts-card"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h3 class="mt-0 mb-1">Alertas rápidos</h3><p class="muted mb-0">Sinais de atenção sem ocupar o topo do calendário.</p></div><span class="badge warn">status</span></div>';
+        echo '<div class="alert-grid row row-cols-1 row-cols-md-2 g-3 mt-3">';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
+        echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
+        echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
+        echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
+        echo '</div></section>';
+        echo '</div></div></div></div>';
         if (is_array($importPreview)) {
             $analysis = $importPreview['analysis'] ?? [];
             $candidates = $analysis['candidates'] ?? [];
@@ -4184,12 +4195,6 @@ if ($page === 'studio_agenda') {
                 })();
             </script>';
         }
-        echo '<div class="alert-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 mt-3">';
-        echo '<article class="alert-card"><span class="badge warn">' . h((string)$preScheduledNoSignalCount) . '</span><p><strong>Pré-agendamentos sem sinal</strong></p><p class="muted">Há pré-agendamentos aguardando confirmação financeira.</p></article>';
-        echo '<article class="alert-card"><span class="badge ok">' . h((string)count($todayAppointments)) . '</span><p><strong>Agendamentos de hoje</strong></p><p class="muted">Confira a ocupação do dia atual sem sair da agenda.</p></article>';
-        echo '<article class="alert-card"><span class="badge danger">' . h((string)$missingArtistCount) . '</span><p><strong>Sem tatuador definido</strong></p><p class="muted">Agendamentos sem tatuador precisam de revisão.</p></article>';
-        echo '<article class="alert-card"><span class="badge warn">' . h((string)$missingContactCount) . '</span><p><strong>Sem cliente/lead vinculado</strong></p><p class="muted">Esses agendamentos merecem vínculo para evitar perda de contexto.</p></article>';
-        echo '</div>';
         echo '<div id="freeSlotsModal" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 class="crm-panel-title">Próximos horários livres</h3><p class="muted" style="margin:4px 0 0">Primeiras janelas livres encontradas na agenda.</p></div><button type="button" id="closeFreeSlotsModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4"><div class="stack-list d-grid gap-2">';
         if (!$nextAvailableSlots) {
             echo '<p class="muted">Não foi possível encontrar vagas livres nas próximas semanas.</p>';
@@ -4200,7 +4205,8 @@ if ($page === 'studio_agenda') {
             }
         }
         echo '</div></div></div></div>';
-        echo '<script>(function(){const openBtn=document.getElementById("openFreeSlotsButton");const modal=document.getElementById("freeSlotsModal");const closeBtn=document.getElementById("closeFreeSlotsModal");if(!openBtn||!modal)return;openBtn.addEventListener("click",()=>modal.classList.remove("hidden"));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
+        echo '<div id="appointmentDetailModal" class="crm-modal hidden"><div class="crm-modal-panel appointment-detail-modal"><div class="crm-panel-header"><div><h3 id="appointmentDetailTitle" class="crm-panel-title">Agendamento</h3><p id="appointmentDetailSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeAppointmentDetailModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="appointmentDetailBody"></div></div></div>';
+        echo '<script>(function(){const toolsBtn=document.getElementById("openAgendaToolsButton");const toolsModal=document.getElementById("agendaToolsModal");const closeTools=document.getElementById("closeAgendaToolsModal");const freeBtn=document.getElementById("openFreeSlotsButton");const freeModal=document.getElementById("freeSlotsModal");const closeFree=document.getElementById("closeFreeSlotsModal");const detailModal=document.getElementById("appointmentDetailModal");const closeDetail=document.getElementById("closeAppointmentDetailModal");const detailTitle=document.getElementById("appointmentDetailTitle");const detailSummary=document.getElementById("appointmentDetailSummary");const detailBody=document.getElementById("appointmentDetailBody");const open=(modal)=>{if(modal)modal.classList.remove("hidden");};const close=(modal)=>{if(modal)modal.classList.add("hidden");};const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));if(toolsBtn&&toolsModal)toolsBtn.addEventListener("click",()=>open(toolsModal));if(closeTools)closeTools.addEventListener("click",()=>close(toolsModal));if(freeBtn&&freeModal)freeBtn.addEventListener("click",()=>{close(toolsModal);open(freeModal);});if(closeFree)closeFree.addEventListener("click",()=>close(freeModal));if(closeDetail)closeDetail.addEventListener("click",()=>close(detailModal));document.addEventListener("click",(event)=>{const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger||!detailModal||!detailTitle||!detailBody)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}detailTitle.textContent=item.name||item.title||"Agendamento";detailSummary.textContent=[item.date_label,item.time_label,item.status].filter(Boolean).join(" · ");const alerts=Array.isArray(item.health_alerts)?item.health_alerts:[];detailBody.innerHTML=`<div class="appointment-detail-grid"><div class="appointment-detail-kpi"><span>Quando</span><strong>${esc(item.date_label||"-")}</strong><small>${esc(item.time_label||"-")}</small></div><div class="appointment-detail-kpi"><span>Status</span><strong>${esc(item.status||"-")}</strong><small>${esc(item.origin_label||"Manual")}</small></div><div class="appointment-detail-kpi"><span>Tatuador</span><strong>${esc(item.artist||"-")}</strong><small>${esc(item.google_calendar_id?"Google Agenda":"CRM")}</small></div><div class="appointment-detail-kpi"><span>Valores</span><strong>${esc(item.value_label||"R$ 0,00")}</strong><small>Sinal ${esc(item.deposit_label||"R$ 0,00")}</small></div></div><div class="panel soft appointment-detail-notes"><strong>Título original</strong><p>${esc(item.title||item.name||"-")}</p>${item.description?`<strong>Descrição</strong><p>${esc(item.description)}</p>`:""}${item.raw_title?`<strong>Origem/importação</strong><p>${esc(item.raw_title)}</p>`:""}${alerts.length?`<strong>Alertas de saúde</strong><div class="appointment-health-list">${alerts.map((alert)=>`<span class="badge warn">${esc(alert.label)}: ${esc(alert.detail)}</span>`).join("")}</div>`:""}</div><div class="actions appointment-detail-actions"><a class="btn" href="${esc(item.edit_url||"#")}">Editar agendamento</a><button type="button" class="btn secondary" data-close-appointment-detail>Fechar</button></div>`;open(detailModal);});document.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("[data-close-appointment-detail]"))close(detailModal);});[toolsModal,freeModal,detailModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal)close(modal);});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){close(toolsModal);close(freeModal);close(detailModal);}});})();</script>';
         if ($view === 'month') {
             render_calendar_month($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'week') {
@@ -7858,39 +7864,78 @@ function render_calendar_list(array $appointments): void
     echo '</div>';
 }
 
+function appointment_calendar_detail_payload(array $appointment): array
+{
+    $name = (string)($appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']));
+    $date = (string)($appointment['appointment_date'] ?? '');
+    $start = substr((string)($appointment['start_time'] ?? ''), 0, 5);
+    $end = substr((string)($appointment['end_time'] ?? ''), 0, 5);
+    $value = appointment_display_amount($appointment['value'] ?? 0);
+    $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
+    $status = (string)($appointment['status'] ?? '');
+    $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
+    $href = app_url('studio_agenda', ['date' => $date, 'appointment_id' => (int)($appointment['id'] ?? 0)]) . '#appointment-form';
+
+    return [
+        'id' => (int)($appointment['id'] ?? 0),
+        'name' => $name,
+        'title' => (string)($appointment['title'] ?? ''),
+        'description' => (string)($appointment['description'] ?? ''),
+        'date' => $date,
+        'date_label' => $date !== '' ? format_date_pt($date) : '-',
+        'time_label' => trim($start . ($end !== '' ? ' - ' . $end : '')),
+        'status' => $status !== '' ? $status : 'sem status',
+        'artist' => (string)($appointment['artist_name'] ?: 'Sem tatuador'),
+        'value_label' => format_money($value),
+        'deposit_label' => format_money($deposit),
+        'origin_label' => appointment_origin_label((string)($appointment['import_source'] ?? 'manual')),
+        'raw_title' => (string)($appointment['raw_title'] ?? ''),
+        'google_calendar_id' => (string)($appointment['google_calendar_id'] ?? ''),
+        'google_event_id' => (string)($appointment['google_calendar_event_id'] ?? ''),
+        'health_alerts' => array_map(static fn(array $alert): array => [
+            'label' => (string)($alert['label'] ?? ''),
+            'detail' => (string)($alert['detail'] ?? ''),
+        ], $healthAlerts),
+        'edit_url' => $href,
+    ];
+}
+
+function appointment_calendar_detail_attr(array $appointment): string
+{
+    return h(json_encode(appointment_calendar_detail_payload($appointment), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
 function render_calendar_event(array $appointment): void
 {
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
-    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
     $status = (string)($appointment['status'] ?? '');
     $status_class = appointment_status_class($status);
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
     $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
-    echo '<a class="calendar-event ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong> ' . h($name) . '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . '</a>';
+    echo '<button type="button" class="calendar-event ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong><span class="calendar-event-title">' . h($name) . '</span><span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . '</button>';
 }
 
 function render_calendar_block(array $appointment): void
 {
     $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
-    $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
     $value = appointment_display_amount($appointment['value'] ?? 0);
     $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     $status = (string)($appointment['status'] ?? '');
     $status_class = appointment_status_class($status);
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
-    echo '<a class="appointment-block ' . h($status_class) . '" href="' . h($href) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '">';
+    echo '<button type="button" class="appointment-block appointment-block-compact ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '">';
     echo '<strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
-    echo '<span>' . h($name . ' - ' . $appointment['title']) . '</span>';
-    echo '<span class="muted">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
+    echo '<span class="appointment-block-title">' . h($name . ' - ' . $appointment['title']) . '</span>';
+    echo '<span class="muted appointment-block-meta">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     echo '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>';
     if (studio_appointment_health_alerts_from_row($appointment)) {
         echo '<span class="badge warn">saúde</span>';
     }
-    echo '</a>';
+    echo '</button>';
 }
 
 function render_customers_table(array $customers): void
