@@ -2294,6 +2294,12 @@ textarea {
 .calendar-grid.month .calendar-event,
 .calendar-grid.week .calendar-event {
     grid-template-columns: auto minmax(0, 1fr);
+    height: 34px;
+    min-height: 34px;
+    max-height: 34px;
+    overflow: hidden;
+    padding-top: 6px;
+    padding-bottom: 6px;
 }
 
 .calendar-grid.month .calendar-event .badge,
