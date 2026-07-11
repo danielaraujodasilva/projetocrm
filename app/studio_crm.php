@@ -5410,11 +5410,13 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
 
     $style = studio_tattoo_image_choice((string)($data['style'] ?? 'realistic'), ['realistic', 'stencil', 'blackwork', 'chicano', 'fineline', 'oldschool', 'reference'], 'realistic');
     $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical', 'square', 'wide'], 'vertical');
+    $composition = studio_tattoo_image_choice((string)($data['composition'] ?? 'reference'), ['reference', 'mockup', 'flash'], 'reference');
     $referenceNotes = trim((string)($data['reference_notes'] ?? ''));
     $negativePrompt = trim((string)($data['negative_prompt'] ?? ''));
     $upscale = !empty($data['upscale']);
     $upscaleFactor = max(2, min(4, (int)($data['upscale_factor'] ?? 4)));
     $translated = studio_translate_tattoo_image_prompt($request . ($referenceNotes !== '' ? ' Style notes: ' . $referenceNotes : ''));
+    $subjectHint = function_exists('studio_tattoo_image_subject_hint') ? studio_tattoo_image_subject_hint($request . ' ' . $referenceNotes) : '';
     $stylePrompt = match ($style) {
         'stencil' => 'professional tattoo stencil blueprint, pure black ink on white background, clean contour lines, dashed shadow guides, anatomical hatching, no gray wash',
         'blackwork' => 'blackwork tattoo concept, strong silhouettes, balanced negative space, readable tattoo composition',
@@ -5422,18 +5424,31 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
         'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
         'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
         'reference' => 'clean visual reference for tattoo design, clear subject, easy to redraw',
-        default => 'realistic tattoo reference, cinematic lighting, sharp subject, controlled background, rich tonal range',
+        default => 'clean tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
     };
     $formatHint = match ($format) {
         'square' => 'balanced square composition',
         'wide' => 'wide horizontal composition',
         default => 'strong vertical composition',
     };
+    $compositionHint = match ($composition) {
+        'mockup' => 'show it as a tattoo mockup on human skin only if the request suggests skin placement',
+        'flash' => 'present it as tattoo flash on a clean sheet / poster layout',
+        default => 'present it as a standalone tattoo reference on a clean neutral background, not as a tattoo already applied to skin',
+    };
+    $compositionNegative = match ($composition) {
+        'mockup' => 'isolated illustration without any skin context, body mockup, blank sheet',
+        'flash' => 'photographed skin mockup, flesh, arm, leg, torso, body, body close-up',
+        default => 'tattoo on skin, photographed on a body, arm, leg, torso, chest, flesh, skin mockup',
+    };
     $prompt = $stylePrompt
         . ', ' . $formatHint
+        . ', ' . $compositionHint
+        . ($subjectHint !== '' ? '. SUBJECT HINT: ' . $subjectHint : '')
         . '. ' . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['lock']
         . ' Tattoo reference only. Preserve the exact requested subject, pose, accessories and composition.'
         . ' Do not add text, watermark, logo, border or frame.'
+        . ' Do not replace the subject with a random person, generic tattoo motif or unrelated creature.'
         . ' Original request: ' . $request
         . ($referenceNotes !== '' ? ' | Artist direction: ' . $referenceNotes : '')
         . ' | English rewrite: ' . $translated;
@@ -5446,6 +5461,7 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
             . 'bad anatomy, bad hands, extra fingers, deformed, ugly, face asymmetry, eye asymmetry, duplicated subject, '
             . 'text, letters, typography, watermark, signature, logo, border, frame, user interface, '
             . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['negative']
+            . ', ' . $compositionNegative
             . ($negativePrompt !== '' ? ', ' . $negativePrompt : ''),
         'clip_skip' => -1,
         'width' => 832,
@@ -5483,6 +5499,7 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
         'prompt' => $request,
         'style' => $style,
         'format' => $format,
+        'composition' => $composition,
         'reference_notes' => $referenceNotes,
         'negative_prompt' => $negativePrompt,
         'translated_prompt' => $translated,
@@ -5542,6 +5559,7 @@ function studio_poll_tattoo_reference_generation(array $studio, array $job): arr
             'prompt' => (string)($job['prompt'] ?? ''),
             'style' => (string)($job['style'] ?? 'realistic'),
             'format' => (string)($job['format'] ?? 'vertical'),
+            'composition' => (string)($job['composition'] ?? 'reference'),
             'reference_notes' => (string)($job['reference_notes'] ?? ''),
             'negative_prompt' => (string)($job['negative_prompt'] ?? ''),
             'translated_prompt' => (string)($job['translated_prompt'] ?? ''),

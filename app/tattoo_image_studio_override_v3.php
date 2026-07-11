@@ -43,6 +43,22 @@ function studio_tattoo_image_subject_guard(string $request): array
     ];
 }
 
+function studio_tattoo_image_subject_hint(string $request): string
+{
+    $t = studio_tattoo_image_norm($request);
+    $patterns = [
+        '/\bsaci(?:-?perer[eê])?\b/u' => 'Brazilian folklore character Saci-Pererê, one-legged mischievous figure, red cap, smoking pipe, dark curly hair, recognizable folkloric silhouette, playful but eerie expression',
+        '/\bmula sem cab[eê]ca\b/u' => 'Brazilian folklore headless mule, horse body without a head, flames or smoke from the neck, dramatic folklore silhouette, no human face',
+        '/\bcurupira\b/u' => 'Brazilian folklore Curupira, red hair, backward feet, forest guardian, mischievous posture, unmistakable folkloric icon',
+    ];
+    foreach ($patterns as $pattern => $hint) {
+        if (preg_match($pattern, $t)) {
+            return $hint;
+        }
+    }
+    return '';
+}
+
 function studio_tattoo_image_style_prompt(string $style): string
 {
     return match ($style) {
@@ -52,7 +68,7 @@ function studio_tattoo_image_style_prompt(string $style): string
         'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
         'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
         'reference' => 'clean visual reference for tattoo design, clear subject, easy to redraw',
-        default => 'photorealistic tattoo reference, cinematic lighting, sharp subject, rich tonal range, ultra detailed',
+        default => 'clean tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
     };
 }
 
@@ -93,9 +109,10 @@ function studio_tattoo_image_build_prompt(array $data): string
     $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical','square','wide'], 'vertical');
     $reference = trim((string)($data['reference_notes'] ?? ''));
     $guard = studio_tattoo_image_subject_guard($request . ' ' . $reference);
+    $subjectHint = studio_tattoo_image_subject_hint($request . ' ' . $reference);
     $translated = studio_tattoo_image_translate_basic($request . ($reference !== '' ? '. Style notes: ' . $reference : ''));
     $formatHint = match ($format) { 'square' => 'balanced square composition', 'wide' => 'wide horizontal composition', default => 'strong vertical composition' };
-    return studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ' . $guard['lock'] . ' No caption, no watermark, no logo, no frame. User concept: ' . $translated;
+    return studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ' . ($subjectHint !== '' ? 'SUBJECT HINT: ' . $subjectHint . '. ' : '') . $guard['lock'] . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame. User concept: ' . $translated;
 }
 
 function studio_tattoo_image_body(array $data, string $mode): array
