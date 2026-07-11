@@ -7620,6 +7620,253 @@ input[type="time"]:focus {
     margin-top: 16px;
 }
 
+.meta-ads-page .meta-campaign-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 14px;
+}
+
+.meta-ads-page .meta-period-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(148, 163, 184, .16);
+    border-radius: 16px;
+    background: rgba(248, 250, 252, .92);
+}
+
+.meta-ads-page .meta-period-form label {
+    display: grid;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.meta-ads-page .meta-period-form input[type="date"] {
+    min-width: 150px;
+}
+
+.meta-ads-page .meta-campaign-list,
+.meta-ads-page .meta-adset-list,
+.meta-ads-page .meta-ad-list,
+.meta-ads-page .meta-endpoint-grid,
+.meta-ads-page .meta-audience-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.meta-ads-page .meta-campaign-card,
+.meta-ads-page .meta-adset-card,
+.meta-ads-page .meta-ad-card,
+.meta-ads-page .meta-endpoint-card,
+.meta-ads-page .meta-audience-card {
+    border: 1px solid rgba(148, 163, 184, .18);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(247, 250, 252, .95));
+    box-shadow: 0 12px 28px rgba(15, 23, 42, .05);
+}
+
+.meta-ads-page .meta-campaign-card {
+    overflow: hidden;
+}
+
+.meta-ads-page .meta-campaign-card > summary,
+.meta-ads-page .meta-adset-card > summary,
+.meta-ads-page .meta-endpoint-card > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 16px 16px 14px;
+}
+
+.meta-ads-page .meta-campaign-card > summary {
+    display: grid;
+    gap: 10px;
+}
+
+.meta-ads-page .meta-campaign-card > summary::-webkit-details-marker,
+.meta-ads-page .meta-adset-card > summary::-webkit-details-marker,
+.meta-ads-page .meta-endpoint-card > summary::-webkit-details-marker {
+    display: none;
+}
+
+.meta-ads-page .meta-campaign-card > summary::before,
+.meta-ads-page .meta-adset-card > summary::before,
+.meta-ads-page .meta-endpoint-card > summary::before,
+.meta-ads-page .meta-ad-more > summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 8px;
+    color: var(--brand);
+    font-weight: 900;
+    transition: transform .16s ease;
+}
+
+.meta-ads-page details[open].meta-campaign-card > summary::before,
+.meta-ads-page details[open].meta-adset-card > summary::before,
+.meta-ads-page details[open].meta-endpoint-card > summary::before,
+.meta-ads-page details[open].meta-ad-more > summary::before {
+    transform: rotate(90deg);
+}
+
+.meta-ads-page .meta-campaign-head,
+.meta-ads-page .meta-ad-head,
+.meta-ads-page .meta-audience-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.meta-ads-page .meta-campaign-head strong,
+.meta-ads-page .meta-ad-head strong,
+.meta-ads-page .meta-audience-top strong {
+    display: block;
+    color: #0f172a;
+    font-size: 15px;
+    line-height: 1.25;
+}
+
+.meta-ads-page .meta-campaign-head span,
+.meta-ads-page .meta-ad-head span,
+.meta-ads-page .meta-audience-top span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.meta-ads-page .meta-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.meta-ads-page .meta-campaign-line,
+.meta-ads-page .meta-subline {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.meta-ads-page .meta-campaign-metrics,
+.meta-ads-page .meta-ad-metrics,
+.meta-ads-page .meta-ad-secondary-grid,
+.meta-ads-page .meta-audience-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.meta-ads-page .meta-campaign-metrics span,
+.meta-ads-page .meta-ad-metrics span,
+.meta-ads-page .meta-ad-secondary-grid span,
+.meta-ads-page .meta-audience-metrics span {
+    display: grid;
+    gap: 3px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(248, 250, 252, .95);
+    border: 1px solid rgba(148, 163, 184, .12);
+}
+
+.meta-ads-page .meta-campaign-metrics small,
+.meta-ads-page .meta-ad-metrics small,
+.meta-ads-page .meta-ad-secondary-grid small,
+.meta-ads-page .meta-audience-metrics small {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.meta-ads-page .meta-campaign-metrics strong,
+.meta-ads-page .meta-ad-metrics strong,
+.meta-ads-page .meta-ad-secondary-grid strong,
+.meta-ads-page .meta-audience-metrics strong {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.meta-ads-page .meta-campaign-body,
+.meta-ads-page .meta-adset-body,
+.meta-ads-page .meta-ad-more-body,
+.meta-ads-page .meta-endpoint-body {
+    padding: 0 16px 16px;
+}
+
+.meta-ads-page .meta-adset-card {
+    overflow: hidden;
+}
+
+.meta-ads-page .meta-adset-card > summary {
+    display: grid;
+    gap: 8px;
+}
+
+.meta-ads-page .meta-ad-list {
+    margin-top: 12px;
+}
+
+.meta-ads-page .meta-ad-card {
+    padding: 14px;
+}
+
+.meta-ads-page .meta-ad-more {
+    margin-top: 10px;
+    border-top: 1px dashed rgba(148, 163, 184, .18);
+    padding-top: 10px;
+}
+
+.meta-ads-page .meta-ad-more > summary {
+    list-style: none;
+    cursor: pointer;
+    color: var(--brand-dark);
+    font-weight: 700;
+    font-size: 13px;
+}
+
+.meta-ads-page .meta-ad-more > summary::-webkit-details-marker {
+    display: none;
+}
+
+.meta-ads-page .meta-endpoint-card {
+    overflow: hidden;
+}
+
+.meta-ads-page .meta-endpoint-card > summary {
+    display: grid;
+    gap: 6px;
+}
+
+.meta-ads-page .meta-audience-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.meta-ads-page .meta-audience-card {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+}
+
+.meta-ads-page .meta-audience-top {
+    align-items: flex-start;
+}
+
+.meta-ads-page .meta-audience-metrics {
+    grid-template-columns: 1fr 2fr;
+}
+
+.meta-ads-page .meta-audience-metrics strong {
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .meta-ads-page .meta-section-shell {
     margin-top: 16px;
 }
@@ -8433,6 +8680,16 @@ input[type="time"]:focus {
     }
 
     .meta-ads-page .meta-layer-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .meta-ads-page .meta-campaign-metrics,
+    .meta-ads-page .meta-ad-metrics,
+    .meta-ads-page .meta-ad-secondary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .meta-ads-page .meta-audience-grid {
         grid-template-columns: 1fr;
     }
 }

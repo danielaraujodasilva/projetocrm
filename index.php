@@ -6933,19 +6933,19 @@ if ($page === 'studio_meta_ads') {
                 'lead' => 'Token, conta e permissões que liberam a API.',
                 'badge' => $enabled ? 'Ativa' : 'A revisar',
                 'items' => [
-                    'Conta de anúncio configurada no CRM.',
-                    'API version e token do System User.',
-                    'Status financeiro, saldo e limite da conta.',
+                    'Conta conectada e liberada no CRM.',
+                    'Versão da API e token do System User.',
+                    'Saldo, limite e status da conta.',
                 ],
             ],
             [
                 'title' => 'Estrutura de mídia',
-                'lead' => 'Campanhas, conjuntos e anúncios, do topo ao detalhe.',
+                'lead' => 'Campanhas, conjuntos e anúncios do topo ao detalhe.',
                 'badge' => 'Estrutura',
                 'items' => [
-                    'Campanhas, conjuntos e anúncios com estados.',
-                    'Resumo de gasto, CTR, CPC, CPM e alcance.',
-                    'Detalhe por campanha com navegação em camadas.',
+                    'Campanhas ativas e pausadas.',
+                    'Conjuntos e anúncios agrupados por campanha.',
+                    'Resumo de gasto, cliques e CTR.',
                 ],
             ],
             [
@@ -6953,9 +6953,9 @@ if ($page === 'studio_meta_ads') {
                 'lead' => 'Tudo que pode ser segmentado ou reutilizado.',
                 'badge' => 'Públicos',
                 'items' => [
-                    'Públicos personalizados carregados por conta.',
-                    'Estados, tamanhos estimados e descrições.',
-                    'Base para lookalikes, retargeting e exclusões.',
+                    'Públicos personalizados carregados na conta.',
+                    'Status e tamanho aproximado.',
+                    'Base para retargeting e exclusões.',
                 ],
             ],
             [
@@ -6963,9 +6963,9 @@ if ($page === 'studio_meta_ads') {
                 'lead' => 'Captura, importação e acionamentos internos.',
                 'badge' => 'Leads',
                 'items' => [
-                    'Sincronização de formulários para o CRM.',
-                    'Teste de conexão, OAuth e seleção de conta.',
-                    'Gatilhos para avisar quando algo quebra.',
+                    'Formulários importados para o CRM.',
+                    'Teste de conexão e OAuth.',
+                    'Alertas quando a captura falha.',
                 ],
             ],
             [
@@ -6973,19 +6973,19 @@ if ($page === 'studio_meta_ads') {
                 'lead' => 'Leitura executiva para saber se a conta está saudável.',
                 'badge' => 'Insights',
                 'items' => [
-                    'Gasto por período, hoje e por campanha.',
-                    'Troubleshooting com erros e respostas da API.',
-                    'Atalhos para período, configuração e suporte.',
+                    'Gasto por período e por campanha.',
+                    'Sinal de erro e conexão da API.',
+                    'Atalhos para período e configuração.',
                 ],
             ],
             [
-                'title' => 'Endpoints úteis',
-                'lead' => 'Mapa rápido para quem precisa explorar a Graph API.',
-                'badge' => 'Graph API',
+                'title' => 'Configuração e suporte',
+                'lead' => 'Atalhos e rota técnica só quando precisar ajustar algo.',
+                'badge' => 'Opcional',
                 'items' => [
-                    'Contas, campanhas, conjuntos, anúncios e insights.',
-                    'Públicos personalizados e dados relacionados.',
-                    'Atalhos para entender o que já existe e o que falta.',
+                    'Abrir configurações da Meta Ads.',
+                    'Testar conexão e sincronização.',
+                    'Consultar a referência técnica escondida.',
                 ],
             ],
         ];
@@ -7026,32 +7026,23 @@ if ($page === 'studio_meta_ads') {
         echo '</section>';
         echo '<section class="meta-detail-stack" aria-label="Detalhes da integração">';
         echo '<details class="panel soft meta-detail-card" id="meta-health"' . ($metaOpenHealth ? ' open' : '') . '>';
-        echo '<summary><div class="meta-summary-line"><strong>Saúde da integração</strong><span class="badge">' . h(($metaOpenHealth ? 'há detalhes' : 'fechado')) . '</span></div><span class="meta-summary-lead">Teste da API, sincronização, OAuth e conta selecionada em um só bloco.</span></summary>';
+        echo '<summary><div class="meta-summary-line"><strong>Saúde da integração</strong><span class="badge">' . h(($metaOpenHealth ? 'há detalhes' : 'fechado')) . '</span></div><span class="meta-summary-lead">Mostra só o que importa para saber se a conta está viva e sincronizando.</span></summary>';
         echo '<div class="meta-detail-body">';
         echo '<div class="grid cols-3">';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0"><li>Conexão com a Meta</li><li>Visão da conta e das campanhas</li><li>Importação para o CRM</li></ul></div>';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Depende de configurar</h3><ul class="mb-0"><li>Insights de mídia</li><li>OAuth no CRM</li><li>Pixel para eventos</li><li>Formulário de leads certo</li></ul></div>';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Próxima etapa</h3><ul class="mb-0"><li>Anúncios individuais</li><li>Públicos personalizados</li><li>Sincronização automática</li></ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Conexão</h3><ul class="mb-0"><li>' . h($enabled ? 'Meta Ads ativado no CRM.' : 'Meta Ads ainda desativado no CRM.') . '</li><li>' . h($metaAdsAuthReady ? 'Token e conta respondendo.' : 'Token ou conta faltando.') . '</li><li>' . h($accountOverviewError ? 'A conta respondeu com erro.' : 'A conta respondeu normalmente.') . '</li></ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Sincronização</h3><ul class="mb-0"><li>' . h(is_array($syncResult) && !empty($syncResult['ok']) ? 'Leads importados com sucesso.' : 'Sincronização ainda não foi executada.') . '</li><li>' . h($leadFormId !== '' ? 'Formulário de leads configurado.' : 'Formulário de leads não informado.') . '</li><li>' . h(is_array($oauthResult) ? 'OAuth já foi concluído nesta sessão.' : 'OAuth ainda pode ser feito.') . '</li></ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Próximo passo</h3><ul class="mb-0"><li>Confira a campanha principal no bloco abaixo.</li><li>Se faltar algo, abra Configuração.</li><li>Se algo quebrar, rode o teste da integração.</li></ul></div>';
         echo '</div>';
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
             echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Resultado do teste</h3><p class="muted mb-0">Verificação ao vivo da API da Meta.</p></div><span class="badge ' . h($tone) . '">' . h(!empty($testResult['ok']) ? 'Conectado' : 'Erro') . '</span></div>';
             if (!empty($testResult['ok'])) {
                 echo '<div class="grid cols-2" style="margin-top:12px">';
-                echo '<div class="field"><strong>Usuário/Aplicação</strong><p class="muted mb-0">' . h((string)($testResult['me']['name'] ?? '')) . ' · ' . h((string)($testResult['me']['id'] ?? '')) . '</p></div>';
                 echo '<div class="field"><strong>Conta</strong><p class="muted mb-0">' . h((string)($testResult['account']['name'] ?? '')) . ' · ' . h((string)($testResult['account']['id'] ?? '')) . '</p></div>';
                 echo '<div class="field"><strong>Status da conta</strong><p class="muted mb-0">' . h((string)($testResult['account']['account_status'] ?? '')) . '</p></div>';
                 echo '<div class="field"><strong>Moeda / fuso</strong><p class="muted mb-0">' . h((string)($testResult['account']['currency'] ?? '')) . ' · ' . h((string)($testResult['account']['timezone_name'] ?? '')) . '</p></div>';
                 echo '</div>';
-                if (!empty($testResult['campaigns_ok']) && !empty($testResult['campaigns']['data']) && is_array($testResult['campaigns']['data'])) {
-                    echo '<div class="panel" style="margin-top:12px"><h4 style="margin-top:0">Campanhas encontradas</h4><ul class="mb-0">';
-                    foreach (array_slice($testResult['campaigns']['data'], 0, 3) as $campaign) {
-                        echo '<li><strong>' . h((string)($campaign['name'] ?? 'Campanha')) . '</strong> · ' . h((string)($campaign['status'] ?? '')) . ' · ' . h((string)($campaign['objective'] ?? '')) . '</li>';
-                    }
-                    echo '</ul></div>';
-                } else {
-                    echo '<p class="muted mb-0" style="margin-top:12px">Conexão validada. Não trouxe campanhas nesse teste, mas a conta e o token responderam.</p>';
-                }
+                echo '<p class="muted mb-0" style="margin-top:12px">' . h(!empty($testResult['campaigns_ok']) ? 'Conexão validada com campanhas acessíveis.' : 'Conexão validada. As campanhas não vieram nesse teste, mas conta e token responderam.') . '</p>';
             } else {
                 echo '<p class="mb-0" style="margin-top:12px"><strong>Erro:</strong> ' . h((string)($testResult['error'] ?? 'Erro desconhecido')) . '</p>';
             }
@@ -7123,41 +7114,29 @@ if ($page === 'studio_meta_ads') {
         }
         echo '</div></details>';
         echo '<details class="panel soft meta-detail-card" id="meta-endpoints">';
-        echo '<summary><div class="meta-summary-line"><strong>Endpoints úteis e próximos passos</strong><span class="badge">' . h((string)count($examples)) . ' exemplos</span></div><span class="meta-summary-lead">Referências rápidas para explorar a Graph API e o que ainda pode entrar no CRM.</span></summary>';
+        echo '<summary><div class="meta-summary-line"><strong>Referência técnica opcional</strong><span class="badge">' . h((string)count($examples)) . ' rotas</span></div><span class="meta-summary-lead">Só para quando você quiser conferir a API por trás do painel. Fica recolhido por padrão.</span></summary>';
         echo '<div class="meta-detail-body">';
-        echo '<div class="grid cols-2">';
+        echo '<div class="meta-endpoint-grid">';
         foreach ($examples as $example) {
             $fullUrl = $baseGraphUrl . (string)$example['path'];
-            echo '<div class="panel soft"><div class="d-flex justify-content-between gap-2 flex-wrap"><strong>' . h((string)$example['title']) . '</strong><span class="badge">' . h((string)$example['method']) . '</span></div><p class="muted">' . h((string)$example['description']) . '</p><code style="display:block;white-space:pre-wrap;word-break:break-word">' . h($fullUrl) . '</code></div>';
+            echo '<details class="meta-endpoint-card"><summary><div class="meta-summary-line"><strong>' . h((string)$example['title']) . '</strong><span class="badge">' . h((string)$example['method']) . '</span></div><span class="meta-summary-lead">' . h((string)$example['description']) . '</span></summary><div class="meta-endpoint-body"><code style="display:block;white-space:pre-wrap;word-break:break-word">' . h($fullUrl) . '</code></div></details>';
         }
-        echo '</div>';
-        echo '<div class="grid cols-2 mt-3">';
-        echo '<div class="panel soft"><strong>Sincronizar campanhas</strong><p class="muted">Importar campanhas ativas e relacionar gastos com o funil interno.</p></div>';
-        echo '<div class="panel soft"><strong>Importar leads</strong><p class="muted">Buscar leads dos formulários e criar contatos no CRM automaticamente.</p></div>';
-        echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
-        echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
         echo '</div>';
         echo '</div></details>';
         echo '<details class="panel soft meta-detail-card" id="meta-audiences">';
-        echo '<summary><div class="meta-summary-line"><strong>Públicos personalizados</strong><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div><span class="meta-summary-lead">Tudo que a conta tem de audiência, com quantidade, status e descrição.</span></summary>';
+        echo '<summary><div class="meta-summary-line"><strong>Públicos personalizados</strong><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div><span class="meta-summary-lead">Lista curta dos públicos que podem ser usados em segmentação e remarketing.</span></summary>';
         echo '<div class="meta-detail-body">';
         if ($audiencesError) {
             echo '<div class="panel soft"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
         } elseif ($audiencesData) {
-            echo '<div class="grid cols-2">';
+            echo '<div class="meta-audience-grid">';
             foreach ($audiencesData as $audience) {
                 $delivery = is_array($audience['delivery_status'] ?? null) ? $audience['delivery_status'] : [];
                 $deliveryStatus = is_array($delivery) && isset($delivery['code']) ? (string)$delivery['code'] : (string)($audience['operation_status']['code'] ?? $audience['operation_status'] ?? '');
                 $approxCount = $audience['approximate_count'] ?? ($audience['approximate_count_lower_bound'] ?? '');
-                echo '<article class="panel soft" style="margin:0;border-left:4px solid ' . h($deliveryStatus === 'ACTIVE' ? '#16a34a' : '#94a3b8') . ';background:linear-gradient(135deg, rgba(255,255,255,0.92), rgba(241,245,249,0.85))">';
-                echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-                echo '<div><strong>' . h((string)($audience['name'] ?? '')) . '</strong><br><span class="muted">' . h((string)($audience['id'] ?? '')) . '</span></div>';
-                echo '<div class="d-flex gap-2 flex-wrap"><span class="badge">' . h((string)($audience['subtype'] ?? '')) . '</span><span class="badge ' . h($deliveryStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($deliveryStatus) . '</span></div>';
-                echo '</div>';
-                echo '<div class="grid cols-2 mt-3">';
-                echo '<div class="field"><strong>Quantidade</strong><p class="muted mb-0">' . h((string)$approxCount) . '</p></div>';
-                echo '<div class="field"><strong>Descrição</strong><p class="muted mb-0">' . h((string)($audience['description'] ?? '')) . '</p></div>';
-                echo '</div>';
+                echo '<article class="meta-audience-card">';
+                echo '<div class="meta-audience-top"><div><strong>' . h((string)($audience['name'] ?? '')) . '</strong><span>' . h((string)($audience['id'] ?? '')) . '</span></div><div class="meta-chip-row"><span class="badge">' . h((string)($audience['subtype'] ?? '')) . '</span><span class="badge ' . h($deliveryStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($deliveryStatus) . '</span></div></div>';
+                echo '<div class="meta-audience-metrics"><span><small>Tamanho</small><strong>' . h((string)$approxCount) . '</strong></span><span><small>Descrição</small><strong>' . h((string)($audience['description'] ?? '—')) . '</strong></span></div>';
                 echo '</article>';
             }
             echo '</div>';
@@ -7199,13 +7178,13 @@ if ($page === 'studio_meta_ads') {
             ];
         }
         echo '<details class="panel soft meta-detail-card" id="meta-campaigns">';
-        echo '<summary><div class="meta-summary-line"><strong>Campanhas e anúncios</strong><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div><span class="meta-summary-lead">Estrutura compacta com campanha, conjunto e anúncio em uma árvore fácil de abrir.</span></summary>';
+        echo '<summary><div class="meta-summary-line"><strong>Campanhas e anúncios</strong><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div><span class="meta-summary-lead">Leitura operacional da conta: campanha no topo, conjuntos no meio e anúncios em cartões compactos.</span></summary>';
         echo '<div class="meta-detail-body">';
-        echo '<div class="d-flex justify-content-end gap-2 flex-wrap align-items-center" style="margin-bottom:14px"><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div>';
+        echo '<div class="meta-campaign-toolbar"><form method="get" class="meta-period-form"><input type="hidden" name="page" value="studio_meta_ads"><label>De<input type="date" name="meta_ads_since" value="' . h($performanceStart) . '"></label><label>Até<input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '"></label><button class="btn" type="submit">Aplicar período</button></form></div>';
         if ($campaignsError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
+            echo '<div class="panel soft"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
         } elseif ($campaignsData) {
-            echo '<div class="meta-tree mt-3">';
+            echo '<div class="meta-campaign-list">';
             foreach ($campaignsData as $campaign) {
                 if (!is_array($campaign)) {
                     continue;
@@ -7213,107 +7192,125 @@ if ($page === 'studio_meta_ads') {
                 $campaignId = (string)($campaign['id'] ?? '');
                 $campaignName = (string)($campaign['name'] ?? 'Campanha');
                 $campaignStatus = (string)($campaign['effective_status'] ?? $campaign['status'] ?? '');
+                $campaignObjective = trim((string)($campaign['objective'] ?? ''));
+                $campaignBuyingType = trim((string)($campaign['buying_type'] ?? ''));
                 $campaignAdsets = $adsetsByCampaign[$campaignId] ?? [];
                 $campaignAds = $adsByCampaign[$campaignId] ?? [];
-                $campaignSummaryParts = [];
-                $campaignSummaryParts[] = (string)count($campaignAdsets) . ' conjuntos';
-                $campaignSummaryParts[] = (string)count($campaignAds) . ' anúncios';
-                if (isset($campaignMetrics[$campaignId])) {
-                    $campaignSummaryParts[] = format_money((float)($campaignMetrics[$campaignId]['spend'] ?? 0)) . ' gasto';
-                    $campaignSummaryParts[] = (int)($campaignMetrics[$campaignId]['clicks'] ?? 0) . ' cliques';
-                    $campaignSummaryParts[] = number_format((float)($campaignMetrics[$campaignId]['ctr'] ?? 0), 2, ',', '.') . '% CTR';
-                } else {
-                    $campaignSummaryParts[] = 'Sem métrica';
-                }
+                $campaignMetric = $campaignMetrics[$campaignId] ?? [];
                 $activeCampaign = $campaignStatus === 'ACTIVE';
-                $campaignTone = $activeCampaign ? 'linear-gradient(135deg, rgba(22,163,74,0.12), rgba(14,165,233,0.08))' : 'linear-gradient(135deg, rgba(43,108,176,0.10), rgba(148,163,184,0.08))';
-                echo '<details class="panel soft meta-campaign-accordion" style="border-left:4px solid ' . ($activeCampaign ? '#16a34a' : '#2b6cb0') . ';margin-bottom:14px;background:' . $campaignTone . '">';
-                echo '<summary class="meta-campaign-summary" style="cursor:pointer;list-style:none;padding:4px 0">';
-                echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-                echo '<div><h3 class="mb-1">' . h($campaignName) . '</h3><p class="muted mb-0">' . h($campaignId) . '</p></div>';
-                echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h(implode(' · ', $campaignSummaryParts)) . '</span><span class="badge">Clique para abrir</span></div>';
+                echo '<details class="meta-campaign-card" style="border-left-color:' . h($activeCampaign ? '#16a34a' : '#64748b') . '">';
+                echo '<summary class="meta-campaign-summary">';
+                echo '<div class="meta-campaign-head"><div><strong>' . h($campaignName) . '</strong><span>' . h($campaignId) . '</span></div><div class="meta-chip-row"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h((string)count($campaignAdsets)) . ' conjuntos</span><span class="badge">' . h((string)count($campaignAds)) . ' anúncios</span></div></div>';
+                echo '<div class="meta-campaign-line">' . h(($campaignObjective !== '' ? $campaignObjective : 'Objetivo não informado') . ($campaignBuyingType !== '' ? ' · ' . $campaignBuyingType : '')) . '</div>';
+                echo '<div class="meta-campaign-metrics">';
+                echo '<span><small>Gasto</small><strong>' . h(isset($campaignMetric['spend']) ? format_money((float)$campaignMetric['spend']) : '—') . '</strong></span>';
+                echo '<span><small>Cliques</small><strong>' . h(isset($campaignMetric['clicks']) ? number_format((int)$campaignMetric['clicks'], 0, ',', '.') : '—') . '</strong></span>';
+                echo '<span><small>CTR</small><strong>' . h(isset($campaignMetric['ctr']) ? number_format((float)$campaignMetric['ctr'], 2, ',', '.') . '%' : '—') . '</strong></span>';
+                echo '<span><small>Alcance</small><strong>' . h(isset($campaignMetric['reach']) ? number_format((int)$campaignMetric['reach'], 0, ',', '.') : '—') . '</strong></span>';
                 echo '</div>';
                 echo '</summary>';
-                echo '<div class="tree-branch" style="margin-top:12px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.08)">';
-                foreach ($campaignAdsets as $adset) {
-                    $adsetId = (string)($adset['id'] ?? '');
-                    $adsetName = (string)($adset['name'] ?? 'Conjunto');
-                    $adsetStatus = (string)($adset['effective_status'] ?? $adset['status'] ?? '');
-                    $adsetTone = $adsetStatus === 'ACTIVE' ? 'linear-gradient(135deg, rgba(14,165,233,0.12), rgba(96,165,250,0.06))' : 'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(251,191,36,0.06))';
-                    echo '<div class="panel" style="margin:0 0 12px 0;border-left:3px solid ' . h($adsetStatus === 'ACTIVE' ? '#0ea5e9' : '#f59e0b') . ';background:' . $adsetTone . '">';
-                    echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-                    echo '<div><strong>' . h($adsetName) . '</strong><br><span class="muted">' . h($adsetId) . '</span></div>';
-                    echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h((string)count($adsByAdset[$adsetId] ?? [])) . ' anúncios</span></div>';
-                    echo '</div>';
-                    if (!empty($adsByAdset[$adsetId])) {
-                        echo '<div class="tree-branch" style="margin-top:10px;padding-left:14px;border-left:2px solid rgba(0,0,0,0.06)">';
-                        foreach ($adsByAdset[$adsetId] as $ad) {
-                            $adName = (string)($ad['name'] ?? 'Anúncio');
-                            $adId = (string)($ad['id'] ?? '');
-                            $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
-                            $adTone = $adStatus === 'ACTIVE' ? 'linear-gradient(135deg, rgba(22,163,74,0.10), rgba(34,197,94,0.04))' : 'linear-gradient(135deg, rgba(203,213,225,0.12), rgba(241,245,249,0.06))';
-                            echo '<div class="panel soft" style="margin-bottom:10px;border-left:3px solid ' . h($adStatus === 'ACTIVE' ? '#16a34a' : '#cbd5e1') . ';background:' . $adTone . '">';
-                            echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-                            echo '<div><strong>' . h($adName) . '</strong><br><span class="muted">' . h($adId) . '</span></div>';
-                            echo '<div class="d-flex gap-2 flex-wrap"><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span><span class="badge">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div>';
-                            echo '</div>';
-                            $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
-                            $adActions = is_array($adInsights['actions'] ?? null) ? $adInsights['actions'] : [];
-                            $adActionSummary = [];
-                            foreach ($adActions as $action) {
-                                if (!is_array($action)) {
+                echo '<div class="meta-campaign-body">';
+                if (!empty($campaignAdsets)) {
+                    echo '<div class="meta-adset-list">';
+                    foreach ($campaignAdsets as $adset) {
+                        if (!is_array($adset)) {
+                            continue;
+                        }
+                        $adsetId = (string)($adset['id'] ?? '');
+                        $adsetName = (string)($adset['name'] ?? 'Conjunto');
+                        $adsetStatus = (string)($adset['effective_status'] ?? $adset['status'] ?? '');
+                        $adsetObjective = trim((string)($adset['optimization_goal'] ?? ''));
+                        $adsetBilling = trim((string)($adset['billing_event'] ?? ''));
+                        $adsetAds = $adsByAdset[$adsetId] ?? [];
+                        echo '<details class="meta-adset-card">';
+                        echo '<summary class="meta-adset-summary"><div><strong>' . h($adsetName) . '</strong><span>' . h($adsetId) . '</span></div><div class="meta-chip-row"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h(($adsetObjective !== '' ? $adsetObjective : 'objetivo não informado')) . '</span><span class="badge">' . h((string)count($adsetAds)) . ' anúncios</span></div></summary>';
+                        echo '<div class="meta-adset-body">';
+                        if ($adsetBilling !== '') {
+                            echo '<p class="meta-subline">Cobrança: ' . h($adsetBilling) . '</p>';
+                        }
+                        if (!empty($adsetAds)) {
+                            echo '<div class="meta-ad-list">';
+                            foreach ($adsetAds as $ad) {
+                                if (!is_array($ad)) {
                                     continue;
                                 }
-                                $actionType = trim((string)($action['action_type'] ?? ''));
-                                $actionValue = trim((string)($action['value'] ?? ''));
-                                if ($actionType !== '' && $actionValue !== '') {
-                                    $adActionSummary[] = $actionType . ': ' . $actionValue;
+                                $adName = (string)($ad['name'] ?? 'Anúncio');
+                                $adId = (string)($ad['id'] ?? '');
+                                $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
+                                $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
+                                $adActions = is_array($adInsights['actions'] ?? null) ? $adInsights['actions'] : [];
+                                $adActionSummary = [];
+                                foreach ($adActions as $action) {
+                                    if (!is_array($action)) {
+                                        continue;
+                                    }
+                                    $actionType = trim((string)($action['action_type'] ?? ''));
+                                    $actionValue = trim((string)($action['value'] ?? ''));
+                                    if ($actionType !== '' && $actionValue !== '') {
+                                        $adActionSummary[] = $actionType . ': ' . $actionValue;
+                                    }
+                                    if (count($adActionSummary) >= 3) {
+                                        break;
+                                    }
                                 }
-                                if (count($adActionSummary) >= 4) {
-                                    break;
+                                echo '<article class="meta-ad-card">';
+                                echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h($adId) . '</span></div><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span></div>';
+                                echo '<div class="meta-ad-metrics">';
+                                echo '<span><small>Gasto</small><strong>' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</strong></span>';
+                                echo '<span><small>Cliques</small><strong>' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                                echo '<span><small>CTR</small><strong>' . h(number_format((float)($adInsights['ctr'] ?? 0), 2, ',', '.') . '%') . '</strong></span>';
+                                echo '<span><small>Alcance</small><strong>' . h(number_format((int)($adInsights['reach'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                                echo '</div>';
+                                echo '<details class="meta-ad-more">';
+                                echo '<summary>Mais detalhes</summary>';
+                                echo '<div class="meta-ad-more-body">';
+                                echo '<div class="meta-ad-secondary-grid">';
+                                echo '<span><small>CPC</small><strong>' . h(format_money((float)($adInsights['cpc'] ?? 0))) . '</strong></span>';
+                                echo '<span><small>CPM</small><strong>' . h(format_money((float)($adInsights['cpm'] ?? 0))) . '</strong></span>';
+                                echo '<span><small>Frequência</small><strong>' . h(number_format((float)($adInsights['frequency'] ?? 0), 2, ',', '.')) . '</strong></span>';
+                                echo '<span><small>Cliques no link</small><strong>' . h(number_format((int)($adInsights['inline_link_clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                                echo '<span><small>Cliques externos</small><strong>' . h(number_format((int)($adInsights['outbound_clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                                echo '<span><small>Última atualização</small><strong>' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</strong></span>';
+                                echo '</div>';
+                                if ($adActionSummary) {
+                                    echo '<p class="meta-subline">Ações: ' . h(implode(' · ', $adActionSummary)) . '</p>';
                                 }
+                                echo '<p class="meta-subline">Conjunto: ' . h((string)($ad['adset_id'] ?? '')) . ' · Campanha: ' . h((string)($ad['campaign_id'] ?? '')) . '</p>';
+                                echo '</div>';
+                                echo '</details>';
+                                echo '</article>';
                             }
-                            $metricHelp = static function (string $label, string $help): string {
-                                return '<span class="d-inline-flex align-items-center gap-1" style="white-space:nowrap">' .
-                                    '<strong>' . h($label) . '</strong>' .
-                                    '<details style="display:inline-block;position:relative">' .
-                                    '<summary title="' . h($help) . '" style="cursor:pointer;list-style:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:rgba(15,23,42,.08);font-size:11px;line-height:1">i</summary>' .
-                                    '<div style="position:absolute;top:24px;left:0;z-index:10;min-width:240px;max-width:320px;padding:10px 12px;border:1px solid rgba(15,23,42,.12);border-radius:12px;background:#fff;box-shadow:0 12px 32px rgba(15,23,42,.12);font-size:12px;line-height:1.4">' . h($help) . '</div>' .
-                                    '</details></span>';
-                            };
-                            echo '<div class="grid cols-2 mt-3">';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Gasto', 'Total investido nesse anúncio no período selecionado.') . '<span class="muted">' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Impressões', 'Quantidade de vezes que o anúncio apareceu.') . '<span class="muted">' . h(number_format((int)($adInsights['impressions'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques', 'Total de cliques registrados no anúncio.') . '<span class="muted">' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('CTR', 'Percentual de pessoas que clicaram depois de ver o anúncio.') . '<span class="muted">' . h(number_format((float)($adInsights['ctr'] ?? 0), 2, ',', '.')) . '%</span></div></div>';
                             echo '</div>';
-                            echo '<details class="mt-3"><summary style="cursor:pointer"><strong>Mais métricas</strong> <span class="muted">abrir para ver custos, alcance e cliques detalhados</span></summary>';
-                            echo '<div class="grid cols-2 mt-3">';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('CPC', 'Custo médio por clique.') . '<span class="muted">' . h(format_money((float)($adInsights['cpc'] ?? 0))) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('CPM', 'Custo por mil impressões.') . '<span class="muted">' . h(format_money((float)($adInsights['cpm'] ?? 0))) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Alcance', 'Quantidade estimada de pessoas únicas alcançadas.') . '<span class="muted">' . h(number_format((int)($adInsights['reach'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Frequência', 'Média de vezes que a mesma pessoa viu o anúncio.') . '<span class="muted">' . h(number_format((float)($adInsights['frequency'] ?? 0), 2, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques no link', 'Cliques no link principal do anúncio.') . '<span class="muted">' . h(number_format((int)($adInsights['inline_link_clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques externos', 'Cliques que saíram para um destino externo.') . '<span class="muted">' . h(number_format((int)($adInsights['outbound_clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques únicos', 'Cliques únicos totais no anúncio.') . '<span class="muted">' . h(number_format((int)($adInsights['unique_clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques únicos no link', 'Cliques únicos no link principal.') . '<span class="muted">' . h(number_format((int)($adInsights['unique_inline_link_clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Cliques únicos externos', 'Cliques únicos para destinos externos.') . '<span class="muted">' . h(number_format((int)($adInsights['unique_outbound_clicks'] ?? 0), 0, ',', '.')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Atualizado', 'Última atualização conhecida do anúncio.') . '<span class="muted">' . h(format_date_pt((string)($ad['updated_time'] ?? $ad['created_time'] ?? ''))) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Conjunto', 'ID do conjunto ao qual esse anúncio pertence.') . '<span class="muted">' . h((string)($ad['adset_id'] ?? '')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Campanha', 'ID da campanha pai desse anúncio.') . '<span class="muted">' . h((string)($ad['campaign_id'] ?? '')) . '</span></div></div>';
-                            echo '<div class="panel soft" style="margin:0"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Estado', 'Status atual de entrega do anúncio.') . '<span class="muted">' . h($adStatus) . '</span></div></div>';
-                            if ($adActionSummary) {
-                                echo '<div class="panel soft" style="margin:0;grid-column:1/-1"><div class="d-flex justify-content-between gap-2 flex-wrap">' . $metricHelp('Ações registradas', 'Eventos detectados pela Meta para esse anúncio.') . '<span class="muted">' . h(implode(' · ', $adActionSummary)) . '</span></div></div>';
-                            }
-                            echo '</div></details>';
-                            echo '</div>';
+                        } else {
+                            echo '<p class="meta-subline">Sem anúncios retornados para este conjunto.</p>';
                         }
                         echo '</div>';
+                        echo '</details>';
                     }
                     echo '</div>';
-                }
-                if (empty($adsetsByCampaign[$campaignId]) && empty($adsByCampaign[$campaignId])) {
-                    echo '<p class="muted mb-0" style="margin-top:10px">Sem conjuntos ou anúncios retornados para esta campanha.</p>';
+                } elseif (!empty($campaignAds)) {
+                    echo '<div class="meta-ad-list">';
+                    foreach ($campaignAds as $ad) {
+                        if (!is_array($ad)) {
+                            continue;
+                        }
+                        $adName = (string)($ad['name'] ?? 'Anúncio');
+                        $adId = (string)($ad['id'] ?? '');
+                        $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
+                        $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
+                        echo '<article class="meta-ad-card">';
+                        echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h($adId) . '</span></div><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span></div>';
+                        echo '<div class="meta-ad-metrics">';
+                        echo '<span><small>Gasto</small><strong>' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</strong></span>';
+                        echo '<span><small>Cliques</small><strong>' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                        echo '<span><small>CTR</small><strong>' . h(number_format((float)($adInsights['ctr'] ?? 0), 2, ',', '.') . '%') . '</strong></span>';
+                        echo '<span><small>Alcance</small><strong>' . h(number_format((int)($adInsights['reach'] ?? 0), 0, ',', '.')) . '</strong></span>';
+                        echo '</div>';
+                        echo '</article>';
+                    }
+                    echo '</div>';
+                } else {
+                    echo '<p class="meta-subline">Sem conjuntos ou anúncios retornados para esta campanha.</p>';
                 }
                 echo '</div>';
                 echo '</details>';
