@@ -20,10 +20,61 @@ function studio_tattoo_image_norm(string $text): string
     return strtr(mb_strtolower($text, 'UTF-8'), ['á'=>'a','à'=>'a','ã'=>'a','â'=>'a','é'=>'e','ê'=>'e','í'=>'i','ó'=>'o','ô'=>'o','õ'=>'o','ú'=>'u','ç'=>'c']);
 }
 
+function studio_tattoo_image_non_human_negative(): string
+{
+    return 'human body, human face, person, portrait, woman, man, girl, boy, nude, naked, breast, buttocks, torso, skin, tattooed skin, tattooed person, model photo, body photo, fashion photo, glamour photo, boudoir photo, shoulder, arm, leg, back, nsfw';
+}
+
+function studio_tattoo_image_mentions_human_or_mockup(string $request): bool
+{
+    $t = studio_tattoo_image_norm($request);
+    return (bool)preg_match('/\b(retrato|portrait|rosto|face|pessoa|person|homem|man|mulher|woman|menino|boy|menina|girl|corpo|body|modelo|model|pele|skin|braco|bra[cç]o|arm|perna|leg|costas|back|ombro|shoulder|nua|nu|nude|naked)\b/u', $t);
+}
+
+function studio_tattoo_image_translate_request(string $text): string
+{
+    $text = trim($text);
+    if ($text === '') return '';
+    $basic = studio_tattoo_image_translate_basic($text);
+    if (mb_strlen($text, 'UTF-8') <= 40 && $basic !== $text) return $basic;
+    if (!function_exists('curl_init')) return $basic;
+
+    $body = [
+        'model' => trim((string)(getenv('LOCAL_IMAGE_PROMPT_MODEL') ?: 'llama3.2:3b')),
+        'stream' => false,
+        'think' => false,
+        'keep_alive' => 0,
+        'messages' => [
+            [
+                'role' => 'system',
+                'content' => 'Translate the user request into concise literal English for an image generator. Preserve the exact requested subject. Do not add people, bodies, nudity, tattoos on skin, scenery, props, or style details unless the user explicitly requested them. Return only the English translation.',
+            ],
+            ['role' => 'user', 'content' => $basic],
+        ],
+        'options' => ['temperature' => 0.0, 'num_predict' => 80, 'num_gpu' => 0],
+    ];
+    $ch = curl_init('http://127.0.0.1:11434/api/chat');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 1,
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $raw = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $json = is_string($raw) ? json_decode($raw, true) : null;
+    $translated = is_array($json) ? trim((string)($json['message']['content'] ?? '')) : '';
+    $translated = trim((string)preg_replace('/<think>.*?<\/think>/is', '', $translated));
+    return ($status >= 200 && $status < 300 && $translated !== '') ? studio_tattoo_image_translate_basic($translated) : $basic;
+}
+
 function studio_tattoo_image_subject_guard(string $request): array
 {
     $t = studio_tattoo_image_norm($request);
-    $animals = ['leao'=>'lion','lion'=>'lion','tigre'=>'tiger','tiger'=>'tiger','lobo'=>'wolf','wolf'=>'wolf','onca'=>'jaguar','jaguar'=>'jaguar','aguia'=>'eagle','eagle'=>'eagle','coruja'=>'owl','owl'=>'owl','cachorro'=>'dog','dog'=>'dog','gato'=>'cat','cat'=>'cat','cobra'=>'snake','snake'=>'snake','jacare'=>'crocodile','jacaré'=>'crocodile','crocodilo'=>'crocodile','alligator'=>'alligator'];
+    $animals = ['leao'=>'lion','lion'=>'lion','tigre'=>'tiger','tiger'=>'tiger','lobo'=>'wolf','wolf'=>'wolf','onca'=>'jaguar','jaguar'=>'jaguar','aguia'=>'eagle','eagle'=>'eagle','coruja'=>'owl','owl'=>'owl','cachorro'=>'dog','dog'=>'dog','gato'=>'cat','cat'=>'cat','cobra'=>'snake','snake'=>'snake','jacare'=>'crocodile','crocodilo'=>'crocodile','alligator'=>'alligator','macaco'=>'monkey','monkey'=>'monkey','mico'=>'small monkey','chimpanze'=>'chimpanzee','chipanze'=>'chimpanzee','chimpanzee'=>'chimpanzee','gorila'=>'gorilla','gorilla'=>'gorilla','orangotango'=>'orangutan','orangutan'=>'orangutan','bonobo'=>'bonobo'];
     foreach ($animals as $needle => $animal) {
         if (preg_match('/\b' . preg_quote($needle, '/') . 's?\b/u', $t)) {
             $details = [];
@@ -37,14 +88,14 @@ function studio_tattoo_image_subject_guard(string $request): array
             if (str_contains($t, 'rugindo') || str_contains($t, 'roaring')) $details[] = 'roaring expression';
             if (str_contains($t, 'coroa')) $details[] = 'royal crown accessory on the animal';
             return [
-                'lock' => 'SUBJECT FIDELITY: main subject is exactly a real ' . $animal . '. Preserve the animal species, anatomy, pose, angle, expression and requested accessories. ' . implode(', ', $details) . '.',
-                'negative' => 'wrong subject, different animal, unrelated character, human body, human face, woman, man, torso, costume, mannequin, text, watermark'
+                'lock' => 'STRICT SUBJECT LOCK: the only main subject is exactly one real ' . $animal . '. Do not replace it with a human, tattooed model, body, costume, statue, robot or unrelated character. Use natural animal anatomy and natural animal posture, not a humanoid body. Preserve the animal species, anatomy, pose, angle, expression and requested accessories' . ($details ? ': ' . implode(', ', $details) : '') . '.',
+                'negative' => 'wrong subject, different animal, unrelated character, anthropomorphic, humanoid, human anatomy, muscular human torso, human chest, abs, costume, mannequin, statue, robot, text, watermark, ' . studio_tattoo_image_non_human_negative()
             ];
         }
     }
     return [
-        'lock' => 'SUBJECT FIDELITY: preserve the exact requested main subject, anatomy, identity, pose, angle, expression and requested accessories.',
-        'negative' => 'wrong subject, unrelated character, human body, human face, text, watermark'
+        'lock' => 'STRICT SUBJECT LOCK: preserve the exact requested main subject, anatomy, identity, pose, angle, expression and requested accessories. Do not invent a different subject.',
+        'negative' => 'wrong subject, unrelated character, text, watermark'
     ];
 }
 
@@ -99,7 +150,7 @@ function studio_tattoo_image_subject_brief(string $request): array
         $accessories[] = 'chain';
     }
 
-    $humanNegative = 'human body, human face, person, portrait, model, torso, arm, leg, skin, clothing';
+    $humanNegative = studio_tattoo_image_non_human_negative() . ', clothing';
     $genericNegative = 'wrong subject, unrelated character, random person, text, watermark, logo';
 
     $folklore = [
@@ -136,6 +187,11 @@ function studio_tattoo_image_subject_brief(string $request): array
         '/\b(gato|cat)\b/u' => ['cat', 'single real cat, clean silhouette, full body visible, centered composition, clear tattoo reference, neutral background'],
         '/\b(cobra|snake)\b/u' => ['snake', 'single real snake, coiled or stretched body, clear scales, centered composition, clear tattoo reference, neutral background'],
         '/\b(jacare|jacaré|crocodilo|alligator)\b/u' => ['crocodile', 'single real crocodile, full body visible, long snout, reptile scales, sharp teeth, centered composition, clear tattoo reference, neutral background'],
+        '/\b(macaco|monkey|mico)\b/u' => ['monkey', 'single real monkey, natural primate anatomy, natural animal posture, expressive face, visible fur, centered composition, clear tattoo reference, neutral background'],
+        '/\b(chimpanze|chipanze|chimpanz[eé]|chipanz[eé]|chimpanzee)\b/u' => ['chimpanzee', 'single real chimpanzee, natural primate anatomy, natural seated or knuckle-walking posture, dark fur, expressive chimpanzee face, long arms, no human torso, centered composition, clear tattoo reference, neutral background'],
+        '/\b(gorila|gorilla)\b/u' => ['gorilla', 'single real gorilla, natural primate anatomy, natural animal posture, powerful shoulders, dark fur, expressive face, centered composition, clear tattoo reference, neutral background'],
+        '/\b(orangotango|orangutan)\b/u' => ['orangutan', 'single real orangutan, natural primate anatomy, natural animal posture, orange fur, expressive face, long arms, centered composition, clear tattoo reference, neutral background'],
+        '/\b(bonobo)\b/u' => ['bonobo', 'single real bonobo, natural primate anatomy, natural animal posture, dark fur, expressive face, centered composition, clear tattoo reference, neutral background'],
     ];
     foreach ($animals as $pattern => [$label, $prompt]) {
         if (preg_match($pattern, $t)) {
@@ -146,7 +202,7 @@ function studio_tattoo_image_subject_brief(string $request): array
             return [
                 'kind' => 'animal',
                 'prompt' => $prompt,
-                'negative' => $humanNegative . ', costume, mannequin, extra limbs, extra heads, text, watermark',
+                'negative' => $humanNegative . ', anthropomorphic, humanoid, human anatomy, muscular human torso, human chest, abs, costume, mannequin, extra limbs, extra heads, text, watermark',
             ];
         }
     }
@@ -191,11 +247,11 @@ function studio_tattoo_image_subject_brief(string $request): array
         ];
     }
 
-    $translatedRequest = studio_tattoo_image_translate_basic($request);
+    $translatedRequest = studio_tattoo_image_translate_request($request);
     return [
         'kind' => 'generic',
-        'prompt' => 'single isolated tattoo subject, fully visible, centered, clear silhouette, easy to redraw, neutral background' . ($view ? ', ' . implode(', ', $view) : '') . ($accessories ? ', ' . implode(', ', $accessories) : ''),
-        'negative' => $genericNegative,
+        'prompt' => 'single isolated tattoo subject matching exactly this request: ' . $translatedRequest . ', fully visible, centered, clear silhouette, easy to redraw, neutral background' . ($view ? ', ' . implode(', ', $view) : '') . ($accessories ? ', ' . implode(', ', $accessories) : ''),
+        'negative' => $genericNegative . (studio_tattoo_image_mentions_human_or_mockup($request) ? '' : ', ' . studio_tattoo_image_non_human_negative()),
         'translated' => $translatedRequest,
     ];
 }
@@ -220,11 +276,19 @@ function studio_tattoo_image_translate_basic(string $text): string
         'cabeça completa' => 'complete head', 'cabeca completa' => 'complete head', 'frontal' => 'front view', 'de frente' => 'front view', 'rugindo' => 'roaring',
         'leão' => 'lion', 'leao' => 'lion', 'tigre' => 'tiger', 'lobo' => 'wolf', 'onça' => 'jaguar', 'onca' => 'jaguar', 'águia' => 'eagle', 'aguia' => 'eagle',
         'coroa de rei' => 'royal king crown', 'coroa' => 'crown', 'realista' => 'realistic', 'preto e branco' => 'black and grey',
-        'jacaré' => 'crocodile', 'jacare' => 'crocodile', 'crocodilo' => 'crocodile', 'alligator' => 'alligator'
+        'jacaré' => 'crocodile', 'jacare' => 'crocodile', 'crocodilo' => 'crocodile', 'alligator' => 'alligator',
+        'chimpanzeee' => 'chimpanzee', 'chimpanzé' => 'chimpanzee', 'chimpanze' => 'chimpanzee', 'chipanzé' => 'chimpanzee', 'chipanze' => 'chimpanzee',
+        'macaco' => 'monkey', 'mico' => 'small monkey', 'gorila' => 'gorilla', 'orangotango' => 'orangutan', 'bonobo' => 'bonobo',
+        'caveira' => 'skull', 'crânio' => 'skull', 'cranio' => 'skull', 'rosa' => 'rose', 'rosas' => 'roses', 'flor' => 'flower', 'flores' => 'flowers',
+        'borboleta' => 'butterfly', 'corvo' => 'raven', 'pena' => 'feather', 'adaga' => 'dagger', 'espada' => 'sword', 'relógio' => 'clock', 'relogio' => 'clock',
+        'bússola' => 'compass', 'bussola' => 'compass', 'lua' => 'moon', 'sol' => 'sun', 'coração' => 'heart', 'coracao' => 'heart',
+        'pequena' => 'small', 'pequeno' => 'small', 'grande' => 'large', 'gigante' => 'giant', 'corpo inteiro' => 'full body', 'inteiro' => 'full body',
+        'com ' => 'with ', 'sem ' => 'without ', 'um ' => 'a ', 'uma ' => 'a '
     ];
     foreach ($pairs as $from => $to) {
         $r = str_ireplace($from, $to, $r);
     }
+    $r = str_ireplace('chimpanzeee', 'chimpanzee', $r);
     return $r;
 }
 
@@ -256,7 +320,7 @@ function studio_tattoo_image_build_prompt(array $data): string
     $guard = studio_tattoo_image_subject_guard($request . ' ' . $reference);
     $subjectHint = studio_tattoo_image_subject_hint($request . ' ' . $reference);
     $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief($request . ' ' . $reference) : ['kind' => 'generic', 'prompt' => '', 'negative' => '', 'translated' => ''];
-    $translated = studio_tattoo_image_translate_basic($request . ($reference !== '' ? '. Style notes: ' . $reference : ''));
+    $translated = studio_tattoo_image_translate_request($request . ($reference !== '' ? '. Style notes: ' . $reference : ''));
     $formatHint = match ($format) { 'square' => 'balanced square composition', 'wide' => 'wide horizontal composition', default => 'strong vertical composition' };
     $subjectLine = $subjectBrief['prompt'] !== '' ? $subjectBrief['prompt'] : '';
     $prompt = studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ';
@@ -266,11 +330,14 @@ function studio_tattoo_image_build_prompt(array $data): string
     if ($subjectHint !== '') {
         $prompt .= 'SUBJECT HINT: ' . $subjectHint . '. ';
     }
-    $prompt .= $guard['lock'] . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame.';
+    $nonHumanLock = !studio_tattoo_image_mentions_human_or_mockup($request . ' ' . $reference)
+        ? ' If the requested subject is an animal, object, symbol or creature, the image must contain no human model, no nude body, no tattooed skin and no body mockup.'
+        : '';
+    $prompt .= $guard['lock'] . $nonHumanLock . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame.';
     if (($subjectBrief['kind'] ?? 'generic') === 'generic') {
         $prompt .= ' User concept: ' . ($subjectBrief['translated'] ?? $translated);
     } else {
-        $prompt .= ' User concept: ' . $request;
+        $prompt .= ' User concept: ' . $translated;
     }
     return $prompt;
 }
