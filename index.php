@@ -6607,7 +6607,7 @@ if ($page === 'studio_settings') {
 
 if ($page === 'studio_meta_ads') {
     $studio = require_studio();
-    render_studio_shell('Meta Ads', 'Performance, campanhas e saúde da conta em uma única visão.', 'meta_ads', function () use ($studio) {
+    render_studio_shell('Meta Ads', 'Uma visão limpa da conta, com camadas expansíveis para acessar tudo o que a API entrega.', 'meta_ads', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -6840,22 +6840,85 @@ if ($page === 'studio_meta_ads') {
         $activeCampaigns = count(array_filter((array)$campaignsData, static fn($campaign): bool => is_array($campaign) && (string)($campaign['effective_status'] ?? $campaign['status'] ?? '') === 'ACTIVE'));
         $metaCurrency = (string)($accountOverview['currency'] ?? 'BRL');
         $metaMoney = static fn($value): string => $value === null || $value === '' ? '—' : format_money(((float)$value) / 100);
-        echo '<nav class="meta-section-nav" aria-label="Seções do Meta Ads"><a href="#meta-overview">Visão geral</a><a href="#meta-campaigns">Campanhas e anúncios</a><a href="#meta-audiences">Públicos</a><a href="#meta-diagnostics">Diagnóstico</a><a href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Configuração</a></nav>';
+        $metaOpenHealth = is_array($testResult) || is_array($syncResult) || is_array($oauthResult) || !empty($oauthAccounts) || (bool)$accountOverviewError;
+        $metaOpenPerformance = is_array($performanceSummary) && !empty($performanceSummary['ok']);
+        $metaLayerCards = [
+            [
+                'title' => 'Conta e acesso',
+                'lead' => 'Token, conta e permissões que liberam a API.',
+                'badge' => $enabled ? 'Ativa' : 'A revisar',
+                'items' => [
+                    'Conta de anúncio configurada no CRM.',
+                    'API version e token do System User.',
+                    'Status financeiro, saldo e limite da conta.',
+                ],
+            ],
+            [
+                'title' => 'Estrutura de mídia',
+                'lead' => 'Campanhas, conjuntos e anúncios, do topo ao detalhe.',
+                'badge' => 'Estrutura',
+                'items' => [
+                    'Campanhas, conjuntos e anúncios com estados.',
+                    'Resumo de gasto, CTR, CPC, CPM e alcance.',
+                    'Detalhe por campanha com navegação em camadas.',
+                ],
+            ],
+            [
+                'title' => 'Públicos e ativos',
+                'lead' => 'Tudo que pode ser segmentado ou reutilizado.',
+                'badge' => 'Públicos',
+                'items' => [
+                    'Públicos personalizados carregados por conta.',
+                    'Estados, tamanhos estimados e descrições.',
+                    'Base para lookalikes, retargeting e exclusões.',
+                ],
+            ],
+            [
+                'title' => 'Leads e automações',
+                'lead' => 'Captura, importação e acionamentos internos.',
+                'badge' => 'Leads',
+                'items' => [
+                    'Sincronização de formulários para o CRM.',
+                    'Teste de conexão, OAuth e seleção de conta.',
+                    'Gatilhos para avisar quando algo quebra.',
+                ],
+            ],
+            [
+                'title' => 'Insights e diagnóstico',
+                'lead' => 'Leitura executiva para saber se a conta está saudável.',
+                'badge' => 'Insights',
+                'items' => [
+                    'Gasto por período, hoje e por campanha.',
+                    'Troubleshooting com erros e respostas da API.',
+                    'Atalhos para período, configuração e suporte.',
+                ],
+            ],
+            [
+                'title' => 'Endpoints úteis',
+                'lead' => 'Mapa rápido para quem precisa explorar a Graph API.',
+                'badge' => 'Graph API',
+                'items' => [
+                    'Contas, campanhas, conjuntos, anúncios e insights.',
+                    'Públicos personalizados e dados relacionados.',
+                    'Atalhos para entender o que já existe e o que falta.',
+                ],
+            ],
+        ];
+        echo '<nav class="meta-section-nav" aria-label="Seções do Meta Ads"><a href="#meta-overview">Visão geral</a><a href="#meta-health">Saúde</a><a href="#meta-performance">Performance</a><a href="#meta-audiences">Públicos</a><a href="#meta-campaigns">Campanhas</a><a href="#meta-endpoints">Endpoints</a><a href="#meta-config">Configuração</a></nav>';
         echo '<section class="panel meta-overview-panel" id="meta-overview">';
-        echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">';
-        echo '<div><span class="section-eyebrow">Conta de anúncios</span><h2 class="mb-1">' . h((string)($accountOverview['name'] ?? 'Visão geral')) . '</h2><p class="muted mb-0">Dados atualizados diretamente pela API da Meta para o período selecionado.</p></div>';
-        echo '<div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Integração ativa' : 'Integração desativada') . '</span><span class="badge">' . h($metaCurrency) . '</span><button type="button" class="btn secondary" onclick="var el=document.getElementById(\'metaAdsAdvanced\'); if(!el) return; el.style.display = (el.style.display === \'none\' || !el.style.display) ? \'block\' : \'none\';">Avançado</button><button type="button" class="btn" onclick="var d=document.getElementById(\'metaAdsPerformanceDialog\'); if(d && d.showModal) d.showModal();">Alterar período</button></div>';
+        echo '<div class="meta-hero">';
+        echo '<div class="meta-hero-copy"><span class="section-eyebrow">Conta de anúncios</span><h2>' . h((string)($accountOverview['name'] ?? 'Visão geral')) . '</h2><p class="muted mb-0">Uma leitura limpa do Meta Ads, mostrando primeiro o que importa e escondendo o resto em camadas fáceis de abrir.</p></div>';
+        echo '<div class="meta-hero-actions">';
+        echo '<div class="meta-status-stack"><span class="badge ' . ($enabled ? 'ok' : 'warn') . '">' . ($enabled ? 'Integração ativa' : 'Integração desativada') . '</span><span class="badge">' . h($metaCurrency) . '</span><span class="badge">' . h($accountId !== '' ? 'act_' . $accountId : 'conta não definida') . '</span></div>';
+        echo '<div class="meta-action-row"><button type="button" class="btn secondary" onclick="toggleMetaAdsSections(true)">Expandir tudo</button><button type="button" class="btn secondary" onclick="toggleMetaAdsSections(false)">Recolher tudo</button><button type="button" class="btn" onclick="var d=document.getElementById(\'metaAdsPerformanceDialog\'); if(d && d.showModal) d.showModal();">Alterar período</button></div>';
         echo '</div>';
-        echo '<div class="meta-kpi-grid">';
+        echo '</div>';
+        echo '<div class="meta-kpi-grid meta-kpi-grid--primary">';
         foreach ([
             ['Saldo atual', $accountOverview ? $metaMoney($accountOverview['balance'] ?? null) : '—', 'Saldo reportado pela conta', 'fa-wallet'],
             ['Gasto hoje', is_array($todayPerformanceSummary) && !empty($todayPerformanceSummary['ok']) ? format_money((float)($todayPerformanceSummary['spend'] ?? 0)) : '—', 'Investimento desde 00h', 'fa-clock'],
             ['Gasto no período', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? format_money((float)($performanceSummary['spend'] ?? 0)) : '—', $performanceStart . ' a ' . $performanceEnd, 'fa-arrow-trend-up'],
             ['Campanhas ativas', (string)$activeCampaigns, count((array)$campaignsData) . ' campanhas carregadas', 'fa-bullhorn'],
-            ['CTR', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? number_format((float)($performanceSummary['ctr'] ?? 0), 2, ',', '.') . '%' : '—', 'Taxa de cliques', 'fa-computer-mouse'],
-            ['CPC médio', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? format_money((float)($performanceSummary['cpc'] ?? 0)) : '—', 'Custo por clique', 'fa-coins'],
-            ['Alcance', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.') : '—', 'Pessoas alcançadas', 'fa-users'],
-            ['Limite da conta', $accountOverview ? $metaMoney($accountOverview['spend_cap'] ?? null) : '—', 'Teto configurado na Meta', 'fa-gauge-high'],
         ] as [$label, $value, $hint, $icon]) {
             echo '<div class="meta-kpi-card"><span><i class="fa-solid ' . h($icon) . '"></i>' . h($label) . '</span><strong>' . h($value) . '</strong><small>' . h($hint) . '</small></div>';
         }
@@ -6863,6 +6926,28 @@ if ($page === 'studio_meta_ads') {
         if ($accountOverviewError) {
             echo '<div class="meta-inline-alert"><i class="fa-solid fa-circle-info"></i><span><strong>Dados financeiros indisponíveis</strong>' . h($accountOverviewError) . '</span></div>';
         }
+        echo '<div class="meta-layer-grid">';
+        foreach ($metaLayerCards as $layer) {
+            echo '<details class="panel soft meta-layer-card">';
+            echo '<summary><div class="meta-summary-line"><strong>' . h((string)$layer['title']) . '</strong><span class="badge">' . h((string)$layer['badge']) . '</span></div><span class="meta-summary-lead">' . h((string)$layer['lead']) . '</span></summary>';
+            echo '<div class="meta-layer-body"><ul class="mb-0">';
+            foreach ((array)($layer['items'] ?? []) as $item) {
+                echo '<li>' . h((string)$item) . '</li>';
+            }
+            echo '</ul></div>';
+            echo '</details>';
+        }
+        echo '</div>';
+        echo '</section>';
+        echo '<section class="meta-detail-stack" aria-label="Detalhes da integração">';
+        echo '<details class="panel soft meta-detail-card" id="meta-health"' . ($metaOpenHealth ? ' open' : '') . '>';
+        echo '<summary><div class="meta-summary-line"><strong>Saúde da integração</strong><span class="badge">' . h(($metaOpenHealth ? 'há detalhes' : 'fechado')) . '</span></div><span class="meta-summary-lead">Teste da API, sincronização, OAuth e conta selecionada em um só bloco.</span></summary>';
+        echo '<div class="meta-detail-body">';
+        echo '<div class="grid cols-3">';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0"><li>Conexão com a Meta</li><li>Visão da conta e das campanhas</li><li>Importação para o CRM</li></ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Depende de configurar</h3><ul class="mb-0"><li>Insights de mídia</li><li>OAuth no CRM</li><li>Pixel para eventos</li><li>Formulário de leads certo</li></ul></div>';
+        echo '<div class="panel soft"><h3 style="margin-top:0">Próxima etapa</h3><ul class="mb-0"><li>Anúncios individuais</li><li>Públicos personalizados</li><li>Sincronização automática</li></ul></div>';
+        echo '</div>';
         if (is_array($testResult)) {
             $tone = !empty($testResult['ok']) ? 'ok' : 'danger';
             echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Resultado do teste</h3><p class="muted mb-0">Verificação ao vivo da API da Meta.</p></div><span class="badge ' . h($tone) . '">' . h(!empty($testResult['ok']) ? 'Conectado' : 'Erro') . '</span></div>';
@@ -6902,34 +6987,14 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</div>';
         }
-        echo '<div id="metaAdsAdvanced" style="display:none;margin-top:16px">';
-        echo '<span id="meta-diagnostics" class="section-anchor" aria-hidden="true"></span>';
-        echo '<div class="grid cols-3" style="margin-bottom:16px">';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Já funciona</h3><ul class="mb-0">';
-        echo '<li>Conexão com a Meta</li>';
-        echo '<li>Visão da conta e das campanhas</li>';
-        echo '<li>Importação para o CRM</li>';
-        echo '</ul></div>';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Depende de configurar</h3><ul class="mb-0">';
-        echo '<li>Insights de mídia</li>';
-        echo '<li>OAuth no CRM</li>';
-        echo '<li>Pixel para eventos</li>';
-        echo '<li>Formulário de leads certo</li>';
-        echo '</ul></div>';
-        echo '<div class="panel soft"><h3 style="margin-top:0">Próxima etapa</h3><ul class="mb-0">';
-        echo '<li>Anúncios individuais</li>';
-        echo '<li>Públicos personalizados</li>';
-        echo '<li>Sincronização automática</li>';
-        echo '</ul></div>';
-        echo '</div>';
         if (is_array($oauthResult)) {
-            echo '<div class="panel soft" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Conexão OAuth concluída</h3><p class="muted mb-0">Token salvo com segurança e contas de anúncio carregadas.</p></div><span class="badge ok">Pronto</span></div>';
             echo '<p class="mb-0 mt-2">Token salvo: ' . h((string)($oauthResult['access_token_tail'] ?? '')) . ' · Contas encontradas: ' . h((string)($oauthResult['accounts_count'] ?? 0)) . '</p>';
             echo '</div>';
         }
         if ($oauthAccounts) {
             $currentAccountSetting = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
-            echo '<div class="panel soft" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Escolha a conta de anúncio</h3><p class="muted mb-0">Selecione a conta correta retornada pela Meta e salve no CRM.</p></div><span class="badge">' . h((string)count($oauthAccounts)) . ' contas</span></div>';
+            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Escolha a conta de anúncio</h3><p class="muted mb-0">Selecione a conta correta retornada pela Meta e salve no CRM.</p></div><span class="badge">' . h((string)count($oauthAccounts)) . ' contas</span></div>';
             echo '<form method="post" class="mt-3">' . csrf_field() . '<input type="hidden" name="action" value="select_meta_ads_account"><div class="grid cols-2"><div class="field"><label>Conta encontrada</label><select name="meta_ads_selected_account">';
             foreach ($oauthAccounts as $account) {
                 $accountId = (string)($account['id'] ?? '');
@@ -6939,7 +7004,7 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</select><small class="muted">A conta correta já vem pré-selecionada quando existe na lista.</small></div><div class="field"><label>Ação</label><button class="btn" type="submit">Salvar conta selecionada</button></div></div></form></div>';
         }
-        echo '<div class="grid cols-2">';
+        echo '<div class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel soft"><h3 style="margin-top:0">Resumo técnico</h3><ul class="list-unstyled mb-0">';
         echo '<li class="mb-2"><strong>Base Graph:</strong> ' . h($baseGraphUrl) . '</li>';
         echo '<li class="mb-2"><strong>Conta:</strong> ' . h($accountId !== '' ? 'act_' . $accountId : 'não configurada') . '</li>';
@@ -6953,8 +7018,12 @@ if ($page === 'studio_meta_ads') {
         echo '<li>Validar a conta de anúncio e os ativos associados.</li>';
         echo '</ol></div>';
         echo '</div>';
+        echo '</div></details>';
+        echo '<details class="panel soft meta-detail-card" id="meta-performance"' . ($metaOpenPerformance ? ' open' : '') . '>';
+        echo '<summary><div class="meta-summary-line"><strong>Performance e período</strong><span class="badge">' . h($performanceStart . ' → ' . $performanceEnd) . '</span></div><span class="meta-summary-lead">Resumo executivo do período selecionado e do que a conta entregou até aqui.</span></summary>';
+        echo '<div class="meta-detail-body">';
+        echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Leitura executiva</h3><p class="muted mb-0">Resumo de ' . h((string)($performanceSummary['since'] ?? $performanceStart)) . ' até ' . h((string)($performanceSummary['until'] ?? $performanceEnd)) . ' da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
         if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
-            echo '<div class="panel soft" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h3 class="mb-1">Performance de mídia</h3><p class="muted mb-0">Resumo de ' . h((string)($performanceSummary['since'] ?? $performanceStart)) . ' até ' . h((string)($performanceSummary['until'] ?? $performanceEnd)) . ' da conta conectada.</p></div><span class="badge ok">Leitura executiva</span></div>';
             echo '<div class="grid cols-4" style="margin-top:12px">';
             echo '<div class="field"><strong>Gasto</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['spend'] ?? 0))) . '</p></div>';
             echo '<div class="field"><strong>Impressões</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['impressions'] ?? 0), 0, ',', '.')) . '</p></div>';
@@ -6963,26 +7032,34 @@ if ($page === 'studio_meta_ads') {
             echo '<div class="field"><strong>CPC</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpc'] ?? 0))) . '</p></div>';
             echo '<div class="field"><strong>CPM</strong><p class="muted mb-0">' . h(format_money((float)($performanceSummary['cpm'] ?? 0))) . '</p></div>';
             echo '<div class="field"><strong>Alcance</strong><p class="muted mb-0">' . h(number_format((int)($performanceSummary['reach'] ?? 0), 0, ',', '.')) . '</p></div>';
-            echo '</div></div>';
+            echo '</div>';
+        } else {
+            echo '<p class="muted mb-0" style="margin-top:16px">Conecte a conta para ver as métricas aqui.</p>';
         }
-        echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Endpoints úteis</h3><div class="grid cols-2">';
+        echo '</div></details>';
+        echo '<details class="panel soft meta-detail-card" id="meta-endpoints">';
+        echo '<summary><div class="meta-summary-line"><strong>Endpoints úteis e próximos passos</strong><span class="badge">' . h((string)count($examples)) . ' exemplos</span></div><span class="meta-summary-lead">Referências rápidas para explorar a Graph API e o que ainda pode entrar no CRM.</span></summary>';
+        echo '<div class="meta-detail-body">';
+        echo '<div class="grid cols-2">';
         foreach ($examples as $example) {
             $fullUrl = $baseGraphUrl . (string)$example['path'];
             echo '<div class="panel soft"><div class="d-flex justify-content-between gap-2 flex-wrap"><strong>' . h((string)$example['title']) . '</strong><span class="badge">' . h((string)$example['method']) . '</span></div><p class="muted">' . h((string)$example['description']) . '</p><code style="display:block;white-space:pre-wrap;word-break:break-word">' . h($fullUrl) . '</code></div>';
         }
-        echo '</div></div>';
-        echo '<div class="panel soft" style="margin-top:16px"><h3 style="margin-top:0">Próximas melhorias da integração</h3><div class="grid cols-2">';
+        echo '</div>';
+        echo '<div class="grid cols-2 mt-3">';
         echo '<div class="panel soft"><strong>Sincronizar campanhas</strong><p class="muted">Importar campanhas ativas e relacionar gastos com o funil interno.</p></div>';
         echo '<div class="panel soft"><strong>Importar leads</strong><p class="muted">Buscar leads dos formulários e criar contatos no CRM automaticamente.</p></div>';
         echo '<div class="panel soft"><strong>Relatório de mídia</strong><p class="muted">Exibir investimento, CTR, CPC e conversões em uma leitura executiva.</p></div>';
         echo '<div class="panel soft"><strong>Validação de token</strong><p class="muted">Avisar quando o token estiver expirado, sem escopos ou sem acesso à conta.</p></div>';
-        echo '</div></div>';
         echo '</div>';
-        echo '<div class="panel soft" id="meta-audiences" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Públicos personalizados</h3><p class="muted mb-0">Lista em cards para ficar mais fácil de bater o olho.</p></div><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div>';
+        echo '</div></details>';
+        echo '<details class="panel soft meta-detail-card" id="meta-audiences">';
+        echo '<summary><div class="meta-summary-line"><strong>Públicos personalizados</strong><span class="badge">' . h((string)count($audiencesData ?? [])) . ' públicos</span></div><span class="meta-summary-lead">Tudo que a conta tem de audiência, com quantidade, status e descrição.</span></summary>';
+        echo '<div class="meta-detail-body">';
         if ($audiencesError) {
-            echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
+            echo '<div class="panel soft"><p class="mb-0"><strong>Não foi possível carregar públicos:</strong> ' . h($audiencesError) . '</p></div>';
         } elseif ($audiencesData) {
-            echo '<div class="grid cols-2 mt-3">';
+            echo '<div class="grid cols-2">';
             foreach ($audiencesData as $audience) {
                 $delivery = is_array($audience['delivery_status'] ?? null) ? $audience['delivery_status'] : [];
                 $deliveryStatus = is_array($delivery) && isset($delivery['code']) ? (string)$delivery['code'] : (string)($audience['operation_status']['code'] ?? $audience['operation_status'] ?? '');
@@ -7000,10 +7077,11 @@ if ($page === 'studio_meta_ads') {
             }
             echo '</div>';
         } else {
-            echo '<p class="muted mb-0 mt-3">Nenhum público retornado ainda.</p>';
+            echo '<p class="muted mb-0">Nenhum público retornado ainda.</p>';
         }
-        echo '</div>';
+        echo '</div></details>';
         echo '</section>';
+        echo '<script>(function(){const root=document.querySelector(".meta-ads-page");if(!root||window.toggleMetaAdsSections)return;window.toggleMetaAdsSections=function(open){root.querySelectorAll("details.meta-layer-card,details.meta-detail-card,details.meta-campaign-accordion").forEach((el)=>{el.open=!!open;});};})();</script>';
         $adsByAdset = [];
         $adsByCampaign = [];
         $campaignMetrics = [];
@@ -7035,7 +7113,10 @@ if ($page === 'studio_meta_ads') {
                 'reach' => (int)($performanceSummary['reach'] ?? 0),
             ];
         }
-        echo '<section class="panel" id="meta-campaigns" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Campanhas e anúncios</h2><p class="muted mb-0">Estrutura compacta de campanha, conjunto e anúncio.</p></div><div class="d-flex gap-2 flex-wrap align-items-center"><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div></div>';
+        echo '<details class="panel soft meta-detail-card" id="meta-campaigns">';
+        echo '<summary><div class="meta-summary-line"><strong>Campanhas e anúncios</strong><span class="badge">' . h((string)count($campaignsData ?? [])) . ' campanhas</span></div><span class="meta-summary-lead">Estrutura compacta com campanha, conjunto e anúncio em uma árvore fácil de abrir.</span></summary>';
+        echo '<div class="meta-detail-body">';
+        echo '<div class="d-flex justify-content-end gap-2 flex-wrap align-items-center" style="margin-bottom:14px"><form method="get" class="m-0 d-flex gap-2 flex-wrap align-items-center"><input type="hidden" name="page" value="studio_meta_ads"><label class="muted" style="margin:0">De</label><input type="date" name="meta_ads_since" value="' . h($performanceStart) . '" style="height:40px"><label class="muted" style="margin:0">Até</label><input type="date" name="meta_ads_until" value="' . h($performanceEnd) . '" style="height:40px"><button class="btn" type="submit">Aplicar</button></form></div>';
         if ($campaignsError) {
             echo '<div class="panel soft mt-3"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
         } elseif ($campaignsData) {
@@ -7156,8 +7237,8 @@ if ($page === 'studio_meta_ads') {
         } else {
             echo '<p class="muted mb-0 mt-3">Nenhuma campanha retornada ainda.</p>';
         }
-        echo '</section>';
-        echo '<div class="panel soft" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Ir para as configurações</h3><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></div>';
+        echo '</div></details>';
+        echo '<details class="panel soft meta-detail-card" id="meta-config"><summary><div class="meta-summary-line"><strong>Configuração e conexão</strong><span class="badge">Ajustes</span></div><span class="meta-summary-lead">Atalhos para revisar credenciais, conta, lead form e tudo que falta ligar.</span></summary><div class="meta-detail-body"><div class="actions" style="justify-content:space-between;align-items:center"><div><h3 class="mb-1">Ir para as configurações</h3><p class="muted mb-0">Se ainda não cadastrou os dados, abra o bloco Meta Ads nas configurações.</p></div><a class="btn" href="' . h(app_url('studio_settings', ['tab' => 'meta_ads'])) . '#settings-meta-ads">Abrir configurações</a></div></div></details>';
         echo '<dialog id="metaAdsPerformanceDialog" style="max-width:980px;width:min(980px,96vw);border:none;border-radius:20px;padding:0;overflow:hidden">';
         echo '<form method="get" style="margin:0;background:#fff">';
         echo '<input type="hidden" name="page" value="studio_meta_ads">';
