@@ -23,23 +23,28 @@ function studio_tattoo_image_norm(string $text): string
 function studio_tattoo_image_subject_guard(string $request): array
 {
     $t = studio_tattoo_image_norm($request);
-    $animals = ['leao'=>'lion','lion'=>'lion','tigre'=>'tiger','tiger'=>'tiger','lobo'=>'wolf','wolf'=>'wolf','onca'=>'jaguar','jaguar'=>'jaguar','aguia'=>'eagle','eagle'=>'eagle','coruja'=>'owl','owl'=>'owl','cachorro'=>'dog','dog'=>'dog','gato'=>'cat','cat'=>'cat','cobra'=>'snake','snake'=>'snake'];
+    $animals = ['leao'=>'lion','lion'=>'lion','tigre'=>'tiger','tiger'=>'tiger','lobo'=>'wolf','wolf'=>'wolf','onca'=>'jaguar','jaguar'=>'jaguar','aguia'=>'eagle','eagle'=>'eagle','coruja'=>'owl','owl'=>'owl','cachorro'=>'dog','dog'=>'dog','gato'=>'cat','cat'=>'cat','cobra'=>'snake','snake'=>'snake','jacare'=>'crocodile','jacaré'=>'crocodile','crocodilo'=>'crocodile','alligator'=>'alligator'];
     foreach ($animals as $needle => $animal) {
         if (preg_match('/\b' . preg_quote($needle, '/') . 's?\b/u', $t)) {
             $details = [];
+            if ($animal === 'crocodile' || $animal === 'alligator') {
+                $details[] = 'real crocodile anatomy';
+                $details[] = 'long snout fully visible';
+                $details[] = 'reptile body proportions';
+            }
             if (str_contains($t, 'frontal') || str_contains($t, 'de frente')) $details[] = 'front view';
             if (str_contains($t, 'cabeca completa')) $details[] = 'complete head fully visible';
             if (str_contains($t, 'rugindo') || str_contains($t, 'roaring')) $details[] = 'roaring expression';
             if (str_contains($t, 'coroa')) $details[] = 'royal crown accessory on the animal';
             return [
                 'lock' => 'SUBJECT FIDELITY: main subject is exactly a real ' . $animal . '. Preserve the animal species, anatomy, pose, angle, expression and requested accessories. ' . implode(', ', $details) . '.',
-                'negative' => 'wrong subject, different animal, unrelated character, statue, costume, mannequin, text, watermark'
+                'negative' => 'wrong subject, different animal, unrelated character, human body, human face, woman, man, torso, costume, mannequin, text, watermark'
             ];
         }
     }
     return [
         'lock' => 'SUBJECT FIDELITY: preserve the exact requested main subject, anatomy, identity, pose, angle, expression and requested accessories.',
-        'negative' => 'wrong subject, unrelated character, text, watermark'
+        'negative' => 'wrong subject, unrelated character, human body, human face, text, watermark'
     ];
 }
 
@@ -78,7 +83,8 @@ function studio_tattoo_image_translate_basic(string $text): string
     $pairs = [
         'cabeça completa' => 'complete head', 'cabeca completa' => 'complete head', 'frontal' => 'front view', 'de frente' => 'front view', 'rugindo' => 'roaring',
         'leão' => 'lion', 'leao' => 'lion', 'tigre' => 'tiger', 'lobo' => 'wolf', 'onça' => 'jaguar', 'onca' => 'jaguar', 'águia' => 'eagle', 'aguia' => 'eagle',
-        'coroa de rei' => 'royal king crown', 'coroa' => 'crown', 'realista' => 'realistic', 'preto e branco' => 'black and grey'
+        'coroa de rei' => 'royal king crown', 'coroa' => 'crown', 'realista' => 'realistic', 'preto e branco' => 'black and grey',
+        'jacaré' => 'crocodile', 'jacare' => 'crocodile', 'crocodilo' => 'crocodile', 'alligator' => 'alligator'
     ];
     foreach ($pairs as $from => $to) {
         $r = str_ireplace($from, $to, $r);

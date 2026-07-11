@@ -5356,6 +5356,13 @@ function studio_local_image_ai_status(): array
 
 function studio_translate_tattoo_image_prompt(string $request): string
 {
+    $request = trim($request);
+    if ($request === '') {
+        return '';
+    }
+    if (mb_strlen($request, 'UTF-8') <= 28) {
+        return function_exists('studio_tattoo_image_translate_basic') ? studio_tattoo_image_translate_basic($request) : $request;
+    }
     $body = [
         'model' => trim((string)(getenv('LOCAL_IMAGE_PROMPT_MODEL') ?: 'llama3.2:3b')),
         'stream' => false,
@@ -5364,12 +5371,12 @@ function studio_translate_tattoo_image_prompt(string $request): string
         'messages' => [
             [
                 'role' => 'system',
-                'content' => 'Convert the user request into one concise, vivid English prompt for a photorealistic image generator. Preserve every requested subject, mood, angle and composition. Return only the final prompt in English, without quotes, labels, explanations or commentary.',
+                'content' => 'Translate the user request into one concise English prompt for a tattoo reference generator. Translate literally, preserve the exact subject and requested details, and do not add new people, body parts, settings, props, or style ideas that were not requested. Return only the final prompt in English, without quotes, labels, explanations or commentary.',
             ],
             ['role' => 'user', 'content' => $request],
         ],
         'options' => [
-            'temperature' => 0.2,
+            'temperature' => 0.05,
             'num_predict' => 140,
             'num_gpu' => 0,
         ],
