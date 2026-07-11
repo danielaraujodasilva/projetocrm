@@ -64,6 +64,142 @@ function studio_tattoo_image_subject_hint(string $request): string
     return '';
 }
 
+function studio_tattoo_image_subject_brief(string $request): array
+{
+    $t = studio_tattoo_image_norm($request);
+    $request = trim($request);
+    $view = [];
+    if (preg_match('/\b(frontal|de frente|front view|face front)\b/u', $t)) {
+        $view[] = 'front view';
+    }
+    if (preg_match('/\b(perfil|lateral|de lado|side view)\b/u', $t)) {
+        $view[] = 'side view';
+    }
+    if (preg_match('/\b(3\/4|tr[êe]s quartos|three-quarter)\b/u', $t)) {
+        $view[] = 'three-quarter view';
+    }
+    if (preg_match('/\b(corpo inteiro|full body|inteiro)\b/u', $t)) {
+        $view[] = 'full body visible';
+    }
+
+    $accessories = [];
+    if (preg_match('/\b(com|with)\s+rosas?\b/u', $t) || preg_match('/\brosas?\b/u', $t)) {
+        $accessories[] = 'roses';
+    }
+    if (preg_match('/\b(com|with)\s+fogo\b/u', $t) || preg_match('/\bfogo\b/u', $t)) {
+        $accessories[] = 'fire';
+    }
+    if (preg_match('/\b(com|with)\s+coroa\b/u', $t) || preg_match('/\bcoroa\b/u', $t)) {
+        $accessories[] = 'crown';
+    }
+    if (preg_match('/\b(com|with)\s+fuma[çc]a\b/u', $t) || preg_match('/\bfuma[çc]a\b/u', $t)) {
+        $accessories[] = 'smoke';
+    }
+    if (preg_match('/\b(com|with)\s+corrente\b/u', $t) || preg_match('/\bcorrente\b/u', $t)) {
+        $accessories[] = 'chain';
+    }
+
+    $humanNegative = 'human body, human face, person, portrait, model, torso, arm, leg, skin, clothing';
+    $genericNegative = 'wrong subject, unrelated character, random person, text, watermark, logo';
+
+    $folklore = [
+        '/\bsaci(?:-?perer[eê])?\b/u' => [
+            'kind' => 'folklore',
+            'prompt' => 'full-body Brazilian folklore character Saci-Pererê, one-legged mischievous figure, red cap, smoking pipe, dark curly hair, recognizable folkloric silhouette, playful but eerie expression, centered tattoo reference, neutral background',
+            'negative' => $humanNegative . ', extra legs, generic man, generic woman, modern clothing',
+        ],
+        '/\bmula sem cab[eê]ca\b/u' => [
+            'kind' => 'folklore',
+            'prompt' => 'Brazilian folklore headless mule, horse body without a head, flames or smoke coming from the neck, dramatic silhouette, fully visible, centered tattoo reference, neutral background',
+            'negative' => $humanNegative . ', human face, human torso, rider, extra heads',
+        ],
+        '/\bcurupira\b/u' => [
+            'kind' => 'folklore',
+            'prompt' => 'Brazilian folklore Curupira, red hair, backward feet, forest guardian, mischievous posture, unmistakable folkloric icon, centered tattoo reference, neutral background',
+            'negative' => $humanNegative . ', random man, random woman, normal feet, extra limbs',
+        ],
+    ];
+    foreach ($folklore as $pattern => $brief) {
+        if (preg_match($pattern, $t)) {
+            return $brief;
+        }
+    }
+
+    $animals = [
+        '/\b(le[aã]o|lion)\b/u' => ['lion', 'single real lion, full body visible, strong mane, centered composition, clear tattoo reference, neutral background'],
+        '/\b(tigre|tiger)\b/u' => ['tiger', 'single real tiger, full body visible, sharp stripes, centered composition, clear tattoo reference, neutral background'],
+        '/\b(lobo|wolf)\b/u' => ['wolf', 'single real wolf, full body visible, intense eyes, centered composition, clear tattoo reference, neutral background'],
+        '/\b(on[cç]a|jaguar)\b/u' => ['jaguar', 'single real jaguar, full body visible, spotted coat, centered composition, clear tattoo reference, neutral background'],
+        '/\b(aguia|águia|eagle)\b/u' => ['eagle', 'single real eagle, wings visible if requested, powerful beak, centered composition, clear tattoo reference, neutral background'],
+        '/\b(coruja|owl)\b/u' => ['owl', 'single real owl, round eyes, feathers clearly visible, centered composition, clear tattoo reference, neutral background'],
+        '/\b(cachorro|dog)\b/u' => ['dog', 'single real dog, faithful anatomy, full body visible, centered composition, clear tattoo reference, neutral background'],
+        '/\b(gato|cat)\b/u' => ['cat', 'single real cat, clean silhouette, full body visible, centered composition, clear tattoo reference, neutral background'],
+        '/\b(cobra|snake)\b/u' => ['snake', 'single real snake, coiled or stretched body, clear scales, centered composition, clear tattoo reference, neutral background'],
+        '/\b(jacare|jacaré|crocodilo|alligator)\b/u' => ['crocodile', 'single real crocodile, full body visible, long snout, reptile scales, sharp teeth, centered composition, clear tattoo reference, neutral background'],
+    ];
+    foreach ($animals as $pattern => [$label, $prompt]) {
+        if (preg_match($pattern, $t)) {
+            $prompt .= $view ? ', ' . implode(', ', $view) : '';
+            if ($accessories) {
+                $prompt .= ', ' . implode(', ', $accessories);
+            }
+            return [
+                'kind' => 'animal',
+                'prompt' => $prompt,
+                'negative' => $humanNegative . ', costume, mannequin, extra limbs, extra heads, text, watermark',
+            ];
+        }
+    }
+
+    $objects = [
+        '/\b(rel[oó]gio de bolso|pocket watch)\b/u' => 'single antique pocket watch with chain, fully visible, centered, detailed metal casing, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(rel[oó]gio|clock|watch)\b/u' => 'single antique clock, fully visible, centered, detailed metal casing, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(caveira|skull)\b/u' => 'single human skull, fully visible, centered, high-contrast tattoo reference, clean contour lines, neutral background',
+        '/\b(b[uú]ssola|compass)\b/u' => 'single antique compass, fully visible, centered, precise engraved details, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(adaga|dagger)\b/u' => 'single dagger, fully visible, centered, sharp blade, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(espada|sword)\b/u' => 'single sword, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(coroa|crown)\b/u' => 'single crown, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(cruz|cross)\b/u' => 'single cross, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(lua|moon)\b/u' => 'single crescent moon, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(sol|sun)\b/u' => 'single sun symbol, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(cora[cç][aã]o|heart)\b/u' => 'single heart, fully visible, centered, clean contour lines, clear tattoo reference, neutral background',
+        '/\b(pena|feather)\b/u' => 'single feather, fully visible, centered, fine contour lines, clear tattoo reference, neutral background',
+        '/\b(borboleta|butterfly)\b/u' => 'single butterfly, fully visible, centered, clean wings, clear tattoo reference, neutral background',
+        '/\b(corvo|raven)\b/u' => 'single raven, fully visible, centered, sharp silhouette, clear tattoo reference, neutral background',
+    ];
+    foreach ($objects as $pattern => $prompt) {
+        if (preg_match($pattern, $t)) {
+            if (preg_match('/\bcaveira\b/u', $t) && preg_match('/\brosa|rosas\b/u', $t)) {
+                $prompt = 'single human skull with roses, fully visible, centered, high-contrast tattoo reference, clean contour lines, neutral background';
+            } elseif ($accessories) {
+                $prompt .= ', ' . implode(', ', $accessories);
+            }
+            $prompt .= $view ? ', ' . implode(', ', $view) : '';
+            return [
+                'kind' => 'object',
+                'prompt' => $prompt,
+                'negative' => $humanNegative . ', body mockup, skin, arm, leg, torso, face close-up, person, portrait, clothing, text, watermark',
+            ];
+        }
+    }
+
+    if (preg_match('/\b(retrato|portrait|rosto|face|homem|mulher|menino|menina|personagem|guerreiro|samurai|cowboy|pirata|bruxa|mago|anjo|demonio|dem[ôo]nio)\b/u', $t)) {
+        return [
+            'kind' => 'character',
+            'prompt' => 'single human character tattoo reference, fully visible, centered, readable facial expression, clean contour lines, neutral background' . ($view ? ', ' . implode(', ', $view) : ''),
+            'negative' => 'random animal, extra limbs, extra heads, blurry face, duplicated face, text, watermark, logo',
+        ];
+    }
+
+    $translatedRequest = studio_tattoo_image_translate_basic($request);
+    return [
+        'kind' => 'generic',
+        'prompt' => 'single isolated tattoo subject, fully visible, centered, clear silhouette, easy to redraw, neutral background' . ($view ? ', ' . implode(', ', $view) : '') . ($accessories ? ', ' . implode(', ', $accessories) : ''),
+        'negative' => $genericNegative,
+        'translated' => $translatedRequest,
+    ];
+}
+
 function studio_tattoo_image_style_prompt(string $style): string
 {
     return match ($style) {
@@ -72,8 +208,8 @@ function studio_tattoo_image_style_prompt(string $style): string
         'chicano' => 'chicano tattoo reference, dramatic black and grey mood, smooth contrast, premium tattoo composition',
         'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
         'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
-        'reference' => 'clean visual reference for tattoo design, clear subject, easy to redraw',
-        default => 'clean tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
+        'reference' => 'single-subject tattoo reference sheet, isolated centered subject, clean outline, easy to redraw',
+        default => 'single-subject tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
     };
 }
 
@@ -116,9 +252,24 @@ function studio_tattoo_image_build_prompt(array $data): string
     $reference = trim((string)($data['reference_notes'] ?? ''));
     $guard = studio_tattoo_image_subject_guard($request . ' ' . $reference);
     $subjectHint = studio_tattoo_image_subject_hint($request . ' ' . $reference);
+    $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief($request . ' ' . $reference) : ['kind' => 'generic', 'prompt' => '', 'negative' => '', 'translated' => ''];
     $translated = studio_tattoo_image_translate_basic($request . ($reference !== '' ? '. Style notes: ' . $reference : ''));
     $formatHint = match ($format) { 'square' => 'balanced square composition', 'wide' => 'wide horizontal composition', default => 'strong vertical composition' };
-    return studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ' . ($subjectHint !== '' ? 'SUBJECT HINT: ' . $subjectHint . '. ' : '') . $guard['lock'] . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame. User concept: ' . $translated;
+    $subjectLine = $subjectBrief['prompt'] !== '' ? $subjectBrief['prompt'] : '';
+    $prompt = studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ';
+    if ($subjectLine !== '') {
+        $prompt .= 'SUBJECT BRIEF: ' . $subjectLine . '. ';
+    }
+    if ($subjectHint !== '') {
+        $prompt .= 'SUBJECT HINT: ' . $subjectHint . '. ';
+    }
+    $prompt .= $guard['lock'] . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame.';
+    if (($subjectBrief['kind'] ?? 'generic') === 'generic') {
+        $prompt .= ' User concept: ' . ($subjectBrief['translated'] ?? $translated);
+    } else {
+        $prompt .= ' User concept: ' . $request;
+    }
+    return $prompt;
 }
 
 function studio_tattoo_image_body(array $data, string $mode): array
@@ -127,7 +278,11 @@ function studio_tattoo_image_body(array $data, string $mode): array
     $config = studio_tattoo_image_mode_config($mode);
     [$width, $height] = studio_tattoo_image_dimensions_for_format($config, $format);
     $guard = studio_tattoo_image_subject_guard((string)($data['prompt'] ?? '') . ' ' . (string)($data['reference_notes'] ?? ''));
+    $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief((string)($data['prompt'] ?? '') . ' ' . (string)($data['reference_notes'] ?? '')) : ['kind' => 'generic', 'negative' => ''];
     $negative = 'low quality, blurry, malformed anatomy, duplicated subject, signature, user interface, ' . $guard['negative'];
+    if (!empty($subjectBrief['negative'])) {
+        $negative .= ', ' . $subjectBrief['negative'];
+    }
     $extraNegative = trim((string)($data['negative_prompt'] ?? ''));
     if ($extraNegative !== '') $negative .= ', ' . $extraNegative;
     $body = [
@@ -251,13 +406,14 @@ function studio_tattoo_image_handle_request(): void
 {
     $page = (string)($_GET['page'] ?? '');
     $action = (string)($_POST['action'] ?? '');
+    $requestMethod = (string)($_SERVER['REQUEST_METHOD'] ?? '');
     if ($page === 'studio_tattoo_images' && (isset($_GET['reset']) || $action === 'cancel_tattoo_reference')) {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') csrf_verify();
+        if ($requestMethod === 'POST') csrf_verify();
         studio_tattoo_image_clear_job();
         flash_set('success', 'Geração travada cancelada.');
         redirect_to('studio_tattoo_images');
     }
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'generate_tattoo_reference') {
+    if ($requestMethod === 'POST' && $action === 'generate_tattoo_reference') {
         $studio = require_studio(); csrf_verify();
         try {
             $_SESSION['studio_tattoo_image_job'] = studio_tattoo_image_start($studio, $_POST);

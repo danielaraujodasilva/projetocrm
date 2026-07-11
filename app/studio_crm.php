@@ -5430,8 +5430,8 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
         'chicano' => 'chicano tattoo reference, dramatic black and grey mood, smooth contrast, premium tattoo composition',
         'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
         'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
-        'reference' => 'clean visual reference for tattoo design, clear subject, easy to redraw',
-        default => 'clean tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
+        'reference' => 'single-subject tattoo reference sheet, isolated centered subject, clean outline, easy to redraw',
+        default => 'single-subject tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
     };
     $formatHint = match ($format) {
         'square' => 'balanced square composition',
@@ -5448,9 +5448,11 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
         'flash' => 'photographed skin mockup, flesh, arm, leg, torso, body, body close-up',
         default => 'tattoo on skin, photographed on a body, arm, leg, torso, chest, flesh, skin mockup',
     };
+    $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief($request . ' ' . $referenceNotes) : ['kind' => 'generic', 'prompt' => '', 'negative' => '', 'translated' => ''];
     $prompt = $stylePrompt
         . ', ' . $formatHint
         . ', ' . $compositionHint
+        . (!empty($subjectBrief['prompt']) ? '. SUBJECT BRIEF: ' . $subjectBrief['prompt'] : '')
         . ($subjectHint !== '' ? '. SUBJECT HINT: ' . $subjectHint : '')
         . '. ' . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['lock']
         . ' Tattoo reference only. Preserve the exact requested subject, pose, accessories and composition.'
@@ -5458,9 +5460,11 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
         . ' Do not replace the subject with a random person, generic tattoo motif or unrelated creature.'
         . ' Original request: ' . $request
         . ($referenceNotes !== '' ? ' | Artist direction: ' . $referenceNotes : '')
-        . ' | English rewrite: ' . $translated;
+        . (($subjectBrief['kind'] ?? 'generic') === 'generic'
+            ? ' | English rewrite: ' . $translated
+            : '');
     if ($style === 'reference') {
-        $prompt = 'clean tattoo reference sheet, ' . $formatHint . '. ' . $prompt;
+        $prompt = 'single-subject tattoo reference sheet, ' . $formatHint . '. ' . $prompt;
     }
     $body = [
         'prompt' => $prompt,
@@ -5468,6 +5472,7 @@ function studio_start_tattoo_reference_generation(array $studio, array|string $r
             . 'bad anatomy, bad hands, extra fingers, deformed, ugly, face asymmetry, eye asymmetry, duplicated subject, '
             . 'text, letters, typography, watermark, signature, logo, border, frame, user interface, '
             . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['negative']
+            . (!empty($subjectBrief['negative']) ? ', ' . $subjectBrief['negative'] : '')
             . ', ' . $compositionNegative
             . ($negativePrompt !== '' ? ', ' . $negativePrompt : ''),
         'clip_skip' => -1,
