@@ -5392,9 +5392,10 @@ function studio_translate_tattoo_image_prompt(string $request): string
     return ($status >= 200 && $status < 300 && $translated !== '') ? $translated : $request;
 }
 
-function studio_start_tattoo_reference_generation(array $studio, string $request): array
+function studio_start_tattoo_reference_generation(array $studio, array|string $requestData): array
 {
-    $request = trim($request);
+    $data = is_array($requestData) ? $requestData : ['prompt' => $requestData];
+    $request = trim((string)($data['prompt'] ?? $requestData));
     if (mb_strlen($request, 'UTF-8') < 4) {
         throw new RuntimeException('Descreva um pouco melhor a imagem que você quer criar.');
     }
@@ -5407,18 +5408,45 @@ function studio_start_tattoo_reference_generation(array $studio, string $request
         throw new RuntimeException('A IA local de imagens ainda está iniciando. Aguarde um pouco e tente novamente.');
     }
 
-    $translated = studio_translate_tattoo_image_prompt($request);
-    $prompt = 'RAW professional photograph, award-winning photorealism, ultra-detailed natural textures, '
-        . 'cinematic lighting, dimensional depth, sharp subject, rich tonal range, strong vertical composition, '
-        . 'a visually coherent standalone reference suitable for a premium tattoo design. '
-        . 'Do not show a user interface, frame, caption, watermark, logo or typography. '
-        . 'Do not place the artwork on skin or a human body unless the request explicitly asks for that. '
-        . 'User concept: ' . $translated;
+    $style = studio_tattoo_image_choice((string)($data['style'] ?? 'realistic'), ['realistic', 'stencil', 'blackwork', 'chicano', 'fineline', 'oldschool', 'reference'], 'realistic');
+    $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical', 'square', 'wide'], 'vertical');
+    $referenceNotes = trim((string)($data['reference_notes'] ?? ''));
+    $negativePrompt = trim((string)($data['negative_prompt'] ?? ''));
+    $upscale = !empty($data['upscale']);
+    $upscaleFactor = max(2, min(4, (int)($data['upscale_factor'] ?? 4)));
+    $translated = studio_translate_tattoo_image_prompt($request . ($referenceNotes !== '' ? ' Style notes: ' . $referenceNotes : ''));
+    $stylePrompt = match ($style) {
+        'stencil' => 'professional tattoo stencil blueprint, pure black ink on white background, clean contour lines, dashed shadow guides, anatomical hatching, no gray wash',
+        'blackwork' => 'blackwork tattoo concept, strong silhouettes, balanced negative space, readable tattoo composition',
+        'chicano' => 'chicano tattoo reference, dramatic black and grey mood, smooth contrast, premium tattoo composition',
+        'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
+        'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
+        'reference' => 'clean visual reference for tattoo design, clear subject, easy to redraw',
+        default => 'realistic tattoo reference, cinematic lighting, sharp subject, controlled background, rich tonal range',
+    };
+    $formatHint = match ($format) {
+        'square' => 'balanced square composition',
+        'wide' => 'wide horizontal composition',
+        default => 'strong vertical composition',
+    };
+    $prompt = $stylePrompt
+        . ', ' . $formatHint
+        . '. ' . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['lock']
+        . ' Tattoo reference only. Preserve the exact requested subject, pose, accessories and composition.'
+        . ' Do not add text, watermark, logo, border or frame.'
+        . ' Original request: ' . $request
+        . ($referenceNotes !== '' ? ' | Artist direction: ' . $referenceNotes : '')
+        . ' | English rewrite: ' . $translated;
+    if ($style === 'reference') {
+        $prompt = 'clean tattoo reference sheet, ' . $formatHint . '. ' . $prompt;
+    }
     $body = [
         'prompt' => $prompt,
         'negative_prompt' => 'low quality, worst quality, blurry, flat lighting, oversaturated, cartoon, illustration, 3d render, '
             . 'bad anatomy, bad hands, extra fingers, deformed, ugly, face asymmetry, eye asymmetry, duplicated subject, '
-            . 'text, letters, typography, watermark, signature, logo, border, frame, user interface',
+            . 'text, letters, typography, watermark, signature, logo, border, frame, user interface, '
+            . studio_tattoo_image_subject_guard($request . ' ' . $referenceNotes)['negative']
+            . ($negativePrompt !== '' ? ', ' . $negativePrompt : ''),
         'clip_skip' => -1,
         'width' => 832,
         'height' => 1216,
@@ -5453,7 +5481,13 @@ function studio_start_tattoo_reference_generation(array $studio, string $request
     return [
         'id' => $jobId,
         'prompt' => $request,
+        'style' => $style,
+        'format' => $format,
+        'reference_notes' => $referenceNotes,
+        'negative_prompt' => $negativePrompt,
         'translated_prompt' => $translated,
+        'upscale' => $upscale,
+        'upscale_factor' => $upscaleFactor,
         'status' => (string)($result['json']['status'] ?? 'queued'),
         'started_at' => date('Y-m-d H:i:s'),
         'model' => 'RealVisXL 5.0 local',
@@ -5497,13 +5531,24 @@ function studio_poll_tattoo_reference_generation(array $studio, array $job): arr
     if (file_put_contents($folder . '/' . $fileName, $binary) === false) {
         return ['status' => 'failed', 'error' => 'Não foi possível salvar a imagem gerada.'];
     }
+    $upscaledFile = '';
+    if (!empty($job['upscale'])) {
+        $upscaledFile = studio_tattoo_image_upscale_jpeg($folder . '/' . $fileName, (int)($job['upscale_factor'] ?? 4));
+    }
 
     return [
         'status' => 'completed',
         'result' => [
             'prompt' => (string)($job['prompt'] ?? ''),
+            'style' => (string)($job['style'] ?? 'realistic'),
+            'format' => (string)($job['format'] ?? 'vertical'),
+            'reference_notes' => (string)($job['reference_notes'] ?? ''),
+            'negative_prompt' => (string)($job['negative_prompt'] ?? ''),
+            'translated_prompt' => (string)($job['translated_prompt'] ?? ''),
             'image_path' => 'storage/tattoo-images/' . $safeStudio . '/' . $fileName,
             'file_name' => $fileName,
+            'upscaled_image_path' => $upscaledFile !== '' ? 'storage/tattoo-images/' . $safeStudio . '/' . $upscaledFile : '',
+            'upscaled_file_name' => $upscaledFile,
             'generated_at' => date('Y-m-d H:i:s'),
             'model' => 'RealVisXL 5.0 local',
         ],

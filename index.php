@@ -1490,10 +1490,17 @@ if ($action === 'studio_login') {
 
         if ($action === 'generate_tattoo_reference') {
             $studio = require_studio();
-            $tattooImagePrompt = trim((string)($_POST['prompt'] ?? ''));
-            $_SESSION['studio_tattoo_image_prompt'] = $tattooImagePrompt;
-            $_SESSION['studio_tattoo_image_job'] = studio_start_tattoo_reference_generation($studio, $tattooImagePrompt);
-            unset($_SESSION['studio_tattoo_image_prompt']);
+            $_SESSION['studio_tattoo_image_form'] = [
+                'prompt' => trim((string)($_POST['prompt'] ?? '')),
+                'style' => trim((string)($_POST['style'] ?? 'realistic')),
+                'format' => trim((string)($_POST['format'] ?? 'vertical')),
+                'mode' => trim((string)($_POST['mode'] ?? 'final')),
+                'reference_notes' => trim((string)($_POST['reference_notes'] ?? '')),
+                'negative_prompt' => trim((string)($_POST['negative_prompt'] ?? '')),
+                'upscale' => !empty($_POST['upscale']) ? '1' : '',
+                'upscale_factor' => trim((string)($_POST['upscale_factor'] ?? '4')),
+            ];
+            $_SESSION['studio_tattoo_image_job'] = studio_start_tattoo_reference_generation($studio, $_POST);
             flash_set('success', 'A IA local começou a criar sua imagem.');
             redirect_to('studio_tattoo_images');
         }
@@ -6189,6 +6196,9 @@ if ($page === 'studio_tattoo_image_status') {
     $poll = studio_poll_tattoo_reference_generation($studio, $job);
     if (($poll['status'] ?? '') === 'completed' && is_array($poll['result'] ?? null)) {
         $_SESSION['studio_tattoo_image_result'] = $poll['result'];
+        if (function_exists('studio_tattoo_image_history_add')) {
+            studio_tattoo_image_history_add($poll['result']);
+        }
         unset($_SESSION['studio_tattoo_image_job']);
     } elseif (($poll['status'] ?? '') === 'failed') {
         unset($_SESSION['studio_tattoo_image_job']);
@@ -6205,38 +6215,113 @@ if ($page === 'studio_tattoo_images') {
         $job = $_SESSION['studio_tattoo_image_job'] ?? null;
         $isGenerating = is_array($job) && !empty($job['id']);
         $result = $_SESSION['studio_tattoo_image_result'] ?? null;
-        $prompt = trim((string)($_SESSION['studio_tattoo_image_prompt'] ?? $job['prompt'] ?? $result['prompt'] ?? ''));
-        unset($_SESSION['studio_tattoo_image_prompt']);
-
-        echo '<div class="tattoo-image-studio">';
-        echo '<section class="tattoo-image-compose">';
-        echo '<div class="tattoo-image-intro"><span>IMAGEM REALISTA PARA TATUAGEM</span><h2>O que você quer criar?</h2><p>Descreva a cena do seu jeito. A IA cuida do realismo, iluminação, composição e detalhes.</p></div>';
-        if (empty($localAi['ok'])) {
-            echo '<div class="tattoo-image-key-note"><strong>A IA local está iniciando.</strong><span>O modelo RealVisXL roda nesta máquina, sem API externa. Atualize a página em alguns instantes.</span></div>';
-        } else {
-            echo '<div class="tattoo-image-local-status"><i></i><span>RealVisXL 5.0 · rodando localmente</span></div>';
-        }
-        echo '<form method="post" id="tattooImageForm" class="tattoo-image-form">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="generate_tattoo_reference">';
-        echo '<textarea name="prompt" rows="5" maxlength="4000" required ' . ($isGenerating ? 'disabled' : '') . ' placeholder="Ex: um leão de frente emergindo de uma floresta escura, luz lateral dramática, olhar intenso, muito realista...">' . h($prompt) . '</textarea>';
-        echo '<div class="tattoo-image-submit-row"><span id="tattooImageWait" ' . ($isGenerating ? '' : 'hidden') . '>' . ($isGenerating ? 'A IA local está criando sua imagem… pode levar alguns minutos.' : 'Preparando a IA local…') . '</span><button class="btn tattoo-image-generate" type="submit" ' . (empty($localAi['ok']) || $isGenerating ? 'disabled' : '') . '>' . ($isGenerating ? 'Criando…' : 'Gerar imagem') . '</button></div>';
-        echo '</form>';
+        $history = function_exists('studio_tattoo_image_history') ? studio_tattoo_image_history() : [];
+        $formState = is_array($_SESSION['studio_tattoo_image_form'] ?? null) ? $_SESSION['studio_tattoo_image_form'] : [];
+        unset($_SESSION['studio_tattoo_image_form']);
+        $prompt = trim((string)($job['prompt'] ?? $result['prompt'] ?? $formState['prompt'] ?? ''));
+        $selectedStyle = (string)($job['style'] ?? $result['style'] ?? $formState['style'] ?? 'realistic');
+        $selectedFormat = (string)($job['format'] ?? $result['format'] ?? $formState['format'] ?? 'vertical');
+        $selectedMode = (string)($job['mode'] ?? $result['mode'] ?? $formState['mode'] ?? 'final');
+        $referenceNotes = trim((string)($job['reference_notes'] ?? $result['reference_notes'] ?? $formState['reference_notes'] ?? ''));
+        $negativePrompt = trim((string)($job['negative_prompt'] ?? $result['negative_prompt'] ?? $formState['negative_prompt'] ?? ''));
+        $upscale = !empty($job['upscale'] ?? $formState['upscale'] ?? false);
+        $upscaleFactor = max(2, min(4, (int)($job['upscale_factor'] ?? $formState['upscale_factor'] ?? 4)));
+        $styleLabels = [
+            'realistic' => 'Realista',
+            'stencil' => 'Stencil blueprint',
+            'blackwork' => 'Blackwork',
+            'chicano' => 'Chicano',
+            'fineline' => 'Fine line',
+            'oldschool' => 'Old school',
+            'reference' => 'Referência limpa',
+        ];
+        $formatLabels = ['vertical' => 'Vertical', 'square' => 'Quadrado', 'wide' => 'Horizontal'];
+        $modeLabels = ['fast' => 'Visualização rápida', 'final' => 'Final qualidade'];
+        $presetPrompts = [
+            'Leao frontal, cabeça completa, coroa de rei, olhar intenso, alto contraste',
+            'Coruja em blackwork, asas abertas, composição vertical, sombreado limpo',
+            'Mula sem cabeça, atmosfera sombria, silhueta fiel, sem virar retrato humano',
+            'Stencil limpo de rosa e punhal, linhas fortes, pronto para decalque',
+            'Retrato feminino tatuado, rosto bem centralizado, luz suave, composição equilibrada',
+            'Caveira chicano com flores, sombras suaves, preto e cinza, leitura de tattoo',
+        ];
+        $selectedImagePath = is_array($result) ? trim((string)($result['upscaled_image_path'] ?? $result['image_path'] ?? '')) : '';
+        $selectedDownloadName = is_array($result) ? trim((string)($result['upscaled_file_name'] ?? $result['file_name'] ?? 'referencia-tattoo.jpg')) : 'referencia-tattoo.jpg';
+        $selectedPromptText = is_array($result) ? trim((string)($result['translated_prompt'] ?? $result['prompt'] ?? '')) : '';
+        $localAiModel = (string)($localAi['model'] ?? 'RealVisXL 5.0 local');
+        $localAiState = !empty($localAi['ok']) ? 'Operação online' : 'A IA local está iniciando';
+        echo '<div class="tattoo-image-page">';
+        echo '<section class="panel tattoo-image-hero">';
+        echo '<div class="tattoo-image-hero-copy"><span class="section-eyebrow">IA de imagem</span><h2>Briefing de tatuagem em camadas</h2><p>Primeiro o sujeito principal, depois a direção artística. A IA usa os controles da página para obedecer melhor ao que você pediu e não virar uma foto aleatória.</p><div class="tattoo-image-mini-badges"><span class="badge">' . h($localAiModel) . '</span><span class="badge">' . h($modeLabels[$selectedMode] ?? $selectedMode) . '</span><span class="badge">' . h($selectedStyle !== '' ? ($styleLabels[$selectedStyle] ?? $selectedStyle) : 'Realista') . '</span><span class="badge">' . h($formatLabels[$selectedFormat] ?? $selectedFormat) . '</span></div></div>';
+        echo '<div class="tattoo-image-hero-meta"><div class="tattoo-image-status-chip"><span class="tattoo-image-status-dot ' . (!empty($localAi['ok']) ? 'is-on' : 'is-off') . '"></span><div><strong>' . h($localAiState) . '</strong><small>' . h(!empty($localAi['ok']) ? 'Geração local sem API externa' : 'Aguarde o modelo subir') . '</small></div></div><div class="tattoo-image-hero-actions"><a class="btn secondary" href="#tattoo-history">Ver histórico</a><a class="btn secondary" href="#tattoo-guides">Guias rápidos</a></div></div>';
         echo '</section>';
-
-        if (is_array($result) && !empty($result['image_path'])) {
-            $imageUrl = app_asset_url((string)$result['image_path']);
-            echo '<section class="tattoo-image-result">';
-            echo '<img src="' . h($imageUrl) . '" alt="Imagem realista gerada para referência de tatuagem">';
-            echo '<div><p>' . h((string)$result['prompt']) . '</p><a class="btn secondary" href="' . h($imageUrl) . '" download="' . h((string)($result['file_name'] ?? 'referencia-tattoo.jpg')) . '">Baixar imagem</a></div>';
-            echo '</section>';
-        } else {
-            echo '<section class="tattoo-image-empty"><div class="tattoo-image-orb"></div><p>Sua imagem vai aparecer aqui.</p></section>';
+        echo '<div class="tattoo-image-layout">';
+        echo '<section class="panel tattoo-image-panel tattoo-image-compose" id="tattoo-compose">';
+        echo '<div class="tattoo-image-panel-head"><div><h3>Gerar imagem</h3><p class="muted mb-0">Escolha o estilo, defina o sujeito e deixe o restante em detalhes expansíveis.</p></div><span class="badge ' . (!empty($localAi['ok']) ? 'ok' : 'warn') . '">' . h($isGenerating ? 'Gerando' : 'Pronto') . '</span></div>';
+        echo '<div class="tattoo-image-chip-row" aria-label="Sugestões rápidas">';
+        foreach ($presetPrompts as $preset) {
+            echo '<button type="button" class="tattoo-image-chip" data-tattoo-preset="' . h($preset) . '">' . h(mb_substr($preset, 0, 40)) . '</button>';
         }
         echo '</div>';
-        echo '<script>(function(){const form=document.getElementById("tattooImageForm");const wait=document.getElementById("tattooImageWait");if(form){form.addEventListener("submit",()=>{const button=form.querySelector("button[type=submit]");if(button){button.disabled=true;button.textContent="Preparando…";}if(wait){wait.hidden=false;wait.textContent="Preparando a IA local…";}});}';
+        if (empty($localAi['ok'])) {
+            echo '<div class="tattoo-image-key-note"><strong>A IA local está iniciando.</strong><span>O modelo RealVisXL roda nesta máquina. Quando ficar online, o gerador usa seu briefing sem depender de API externa.</span></div>';
+        } else {
+            echo '<div class="tattoo-image-local-status"><i></i><span>' . h($localAiModel) . ' · rodando localmente</span></div>';
+        }
+        echo '<form method="post" id="tattooImageForm" class="tattoo-image-form" data-tattoo-image-form>';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="generate_tattoo_reference">';
+        echo '<div class="field"><label>Ideia da arte</label><textarea data-tattoo-image-input name="prompt" rows="6" maxlength="4000" required ' . ($isGenerating ? 'disabled' : '') . ' placeholder="Ex: mula sem cabeça em cena sombria, silhueta clara, cabeça ausente, clima dramático, pronta para tattoo...">' . h($prompt) . '</textarea><small class="tattoo-image-muted-note">Descreva o sujeito principal, o que precisa aparecer e o que não pode mudar.</small></div>';
+        echo '<div class="tattoo-image-control-grid">';
+        echo '<div class="tattoo-image-control-card"><label>Modo</label><select data-tattoo-image-mode name="mode"><option value="fast"' . ($selectedMode === 'fast' ? ' selected' : '') . '>Visualização rápida</option><option value="final"' . ($selectedMode === 'final' ? ' selected' : '') . '>Final qualidade</option></select><small>Rápido para testar, final para fechar a arte.</small></div>';
+        echo '<div class="tattoo-image-control-card"><label>Estilo</label><select data-tattoo-image-style name="style"><option value="realistic"' . ($selectedStyle === 'realistic' ? ' selected' : '') . '>Realista</option><option value="stencil"' . ($selectedStyle === 'stencil' ? ' selected' : '') . '>Stencil blueprint</option><option value="blackwork"' . ($selectedStyle === 'blackwork' ? ' selected' : '') . '>Blackwork</option><option value="chicano"' . ($selectedStyle === 'chicano' ? ' selected' : '') . '>Chicano</option><option value="fineline"' . ($selectedStyle === 'fineline' ? ' selected' : '') . '>Fine line</option><option value="oldschool"' . ($selectedStyle === 'oldschool' ? ' selected' : '') . '>Old school</option><option value="reference"' . ($selectedStyle === 'reference' ? ' selected' : '') . '>Referência limpa</option></select><small>Define o acabamento visual principal.</small></div>';
+        echo '<div class="tattoo-image-control-card"><label>Formato</label><select data-tattoo-image-format name="format"><option value="vertical"' . ($selectedFormat === 'vertical' ? ' selected' : '') . '>Vertical</option><option value="square"' . ($selectedFormat === 'square' ? ' selected' : '') . '>Quadrado</option><option value="wide"' . ($selectedFormat === 'wide' ? ' selected' : '') . '>Horizontal</option></select><small>Ajuda a composição a encaixar melhor.</small></div>';
+        echo '<div class="tattoo-image-control-card"><label>Upscale</label><label class="tattoo-image-check"><input data-tattoo-image-upscale type="checkbox" name="upscale" value="1"' . ($upscale ? ' checked' : '') . ($isGenerating ? ' disabled' : '') . '> gerar 4x</label><input type="hidden" name="upscale_factor" value="' . h((string)$upscaleFactor) . '"><small>Amplia a imagem final para uso mais limpo.</small></div>';
+        echo '</div>';
+        echo '<details class="tattoo-image-detail" open><summary><strong>Direção artística</strong><span class="muted">abrir para refinar a leitura da tatuagem</span></summary><div class="tattoo-image-detail-body">';
+        echo '<div class="field"><label>Referência / direção artística</label><input data-tattoo-image-reference type="text" name="reference_notes" maxlength="600" value="' . h($referenceNotes) . '" placeholder="Ex.: sombra lateral suave, leitura premium, rosto centralizado, fundo escuro..."></div>';
+        echo '<div class="field"><label>Evitar</label><input data-tattoo-image-negative type="text" name="negative_prompt" maxlength="600" value="' . h($negativePrompt) . '" placeholder="Ex.: texto, moldura, fundo poluído, mãos extras, distorção..."></div>';
+        echo '<p class="tattoo-image-muted-note mb-0">Use este bloco para travar o clima, a composição e os erros que você não quer ver.</p>';
+        echo '</div></details>';
+        echo '<div class="tattoo-image-prompt-preview" data-tattoo-image-preview><strong>Prévia do briefing</strong><div class="tattoo-image-preview-lines"><span><i class="fa-solid fa-bolt"></i> <b>Ideia:</b> <em>' . h($prompt !== '' ? $prompt : 'escreva sua ideia principal') . '</em></span><span><i class="fa-solid fa-compass-drafting"></i> <b>Estilo:</b> <em>' . h($styleLabels[$selectedStyle] ?? $selectedStyle) . '</em></span><span><i class="fa-solid fa-crop-simple"></i> <b>Formato:</b> <em>' . h($formatLabels[$selectedFormat] ?? $selectedFormat) . '</em></span><span><i class="fa-solid fa-shield-halved"></i> <b>Evitar:</b> <em>' . h($negativePrompt !== '' ? $negativePrompt : 'nada definido ainda') . '</em></span></div></div>';
+        echo '<div class="tattoo-image-compose-footer"><span class="tattoo-image-submit-note" id="tattooImageWait" ' . ($isGenerating ? '' : 'hidden') . '>' . ($isGenerating ? 'A IA local está criando sua imagem... pode levar alguns minutos.' : 'Preparando a IA local...') . '</span><button class="btn tattoo-image-generate" type="submit" ' . (empty($localAi['ok']) || $isGenerating ? 'disabled' : '') . '>' . ($isGenerating ? 'Criando...' : 'Gerar imagem') . '</button></div>';
+        echo '</form>';
+        echo '</section>';
+        echo '<section class="panel tattoo-image-panel tattoo-image-preview">';
+        if (is_array($result) && $selectedImagePath !== '') {
+            $imageUrl = app_asset_url($selectedImagePath);
+            echo '<div class="tattoo-image-preview-figure"><img class="result-img" src="' . h($imageUrl) . '" alt="Imagem realista gerada para referência de tatuagem"></div>';
+            echo '<div class="tattoo-image-preview-meta"><div class="tattoo-image-preview-title"><h3>Resultado mais recente</h3><div class="tattoo-image-mini-badges"><span class="badge">' . h($modeLabels[(string)($result['mode'] ?? $selectedMode)] ?? (string)($result['mode'] ?? $selectedMode)) . '</span><span class="badge">' . h($styleLabels[(string)($result['style'] ?? $selectedStyle)] ?? (string)($result['style'] ?? $selectedStyle)) . '</span><span class="badge">' . h($formatLabels[(string)($result['format'] ?? $selectedFormat)] ?? (string)($result['format'] ?? $selectedFormat)) . '</span></div></div><p class="muted mb-0">' . h($selectedPromptText !== '' ? $selectedPromptText : (string)($result['prompt'] ?? '')) . '</p><div class="tattoo-image-result-actions"><a class="btn secondary" href="' . h($imageUrl) . '" download="' . h($selectedDownloadName) . '">Baixar imagem</a>' . (!empty($result['upscaled_image_path']) ? '<span class="badge ok">4x pronto</span>' : '') . '</div></div>';
+        } else {
+            echo '<div class="tattoo-image-empty"><div class="tattoo-image-orb"></div><div><strong>Sua imagem aparece aqui.</strong><p class="muted mb-0">Quando a geração terminar, esta área mostra o resultado e o caminho para baixar.</p></div></div>';
+            echo '<div class="tattoo-image-status-stack">';
+            echo '<div class="tattoo-image-status-row"><span class="badge ' . (!empty($localAi['ok']) ? 'ok' : 'warn') . '">' . h($localAiState) . '</span><span class="badge">' . h($localAiModel) . '</span></div>';
+            echo '<p class="muted mb-0">Quanto mais clara for a ideia principal, melhor a IA obedece. Se o resultado vier torto, ajuste o briefing acima e tente de novo.</p>';
+            echo '</div>';
+        }
+        echo '</section>';
+        echo '</div>';
+        echo '<details class="panel tattoo-image-detail" id="tattoo-guides">';
+        echo '<summary><strong>Como a IA interpreta o pedido</strong><span class="muted">o que o modelo vai tentar segurar</span></summary><div class="tattoo-image-detail-body"><div class="grid cols-2"><div class="panel soft"><h3 style="margin-top:0">Mantém</h3><ul class="mb-0"><li>Sujeito principal, pose e acessórios informados.</li><li>Estilo, formato e direção artística escolhidos.</li><li>Direção de composição para não virar uma cena genérica.</li></ul></div><div class="panel soft"><h3 style="margin-top:0">Evita</h3><ul class="mb-0"><li>Texto, moldura, logotipo e interface.</li><li>Troca de sujeito por retrato aleatório.</li><li>Elementos que não foram pedidos no briefing.</li></ul></div></div></div></details>';
+        echo '<details class="panel tattoo-image-detail" id="tattoo-history">';
+        echo '<summary><strong>Histórico recente</strong><span class="badge">' . h((string)count($history)) . ' itens</span></summary><div class="tattoo-image-detail-body">';
+        if (!$history) {
+            echo '<p class="muted mb-0">Sem imagens geradas ainda.</p>';
+        } else {
+            echo '<div class="tattoo-image-history-grid">';
+            foreach ($history as $item) {
+                $thumb = !empty($item['upscaled_image_path'] ?? '') ? app_asset_url((string)$item['upscaled_image_path']) : (!empty($item['image_path'] ?? '') ? app_asset_url((string)$item['image_path']) : '');
+                if ($thumb === '') {
+                    continue;
+                }
+                echo '<article class="tattoo-image-history-card"><img src="' . h($thumb) . '" alt="Histórico de imagem gerada"><strong>' . h((string)($item['style'] ?? 'Referência')) . '</strong><p class="muted mb-2">' . h(mb_strimwidth((string)($item['prompt'] ?? ''), 0, 120, '...')) . '</p><div class="tattoo-image-history-actions"><a class="btn tiny secondary" href="' . h($thumb) . '" download="' . h((string)($item['upscaled_file_name'] ?? $item['file_name'] ?? 'referencia-tattoo.jpg')) . '">Baixar</a></div></article>';
+            }
+            echo '</div>';
+        }
+        echo '</div></details>';
+        echo '<script>(function(){const form=document.getElementById("tattooImageForm");const wait=document.getElementById("tattooImageWait");const preview=document.querySelector("[data-tattoo-image-preview]");const promptInput=form?.querySelector("[data-tattoo-image-input]");const styleSelect=form?.querySelector("[data-tattoo-image-style]");const formatSelect=form?.querySelector("[data-tattoo-image-format]");const modeSelect=form?.querySelector("[data-tattoo-image-mode]");const referenceInput=form?.querySelector("[data-tattoo-image-reference]");const negativeInput=form?.querySelector("[data-tattoo-image-negative]");const upscaleInput=form?.querySelector("[data-tattoo-image-upscale]");const labels={style:' . json_encode($styleLabels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',format:' . json_encode($formatLabels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ',mode:' . json_encode($modeLabels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '};const escapeHtml=(value)=>String(value||"").replace(/[&<>"\']/g,(char)=>{if(char==="&")return"&amp;";if(char==="<")return"&lt;";if(char===">")return"&gt;";if(char===String.fromCharCode(34))return"&quot;";if(char===String.fromCharCode(39))return"&#39;";return char;});const syncPreview=()=>{if(!preview||!promptInput)return;const pieces=[`<span><i class="fa-solid fa-bolt"></i> <b>Ideia:</b> <em>${escapeHtml(promptInput.value.trim()||"escreva sua ideia principal")}</em></span>`,`<span><i class="fa-solid fa-compass-drafting"></i> <b>Estilo:</b> <em>${escapeHtml(labels.style[styleSelect?.value||"realistic"]||styleSelect?.value||"Realista")}</em></span>`,`<span><i class="fa-solid fa-crop-simple"></i> <b>Formato:</b> <em>${escapeHtml(labels.format[formatSelect?.value||"vertical"]||formatSelect?.value||"Vertical")}</em></span>`,`<span><i class="fa-solid fa-clock"></i> <b>Modo:</b> <em>${escapeHtml(labels.mode[modeSelect?.value||"final"]||modeSelect?.value||"Final qualidade")}</em></span>`,`<span><i class="fa-solid fa-shield-halved"></i> <b>Evitar:</b> <em>${escapeHtml(negativeInput?.value.trim()||"nada definido ainda")}</em></span>`];preview.innerHTML=`<strong>Prévia do briefing</strong><div class="tattoo-image-preview-lines">${pieces.join("")}</div>`;};const presetButtons=document.querySelectorAll("[data-tattoo-preset]");presetButtons.forEach((button)=>{button.addEventListener("click",()=>{if(!promptInput)return;promptInput.value=button.dataset.tattooPreset||"";promptInput.dispatchEvent(new Event("input",{bubbles:true}));promptInput.focus();promptInput.setSelectionRange(promptInput.value.length,promptInput.value.length);syncPreview();});});["input","change"].forEach((eventName)=>{promptInput?.addEventListener(eventName,syncPreview);styleSelect?.addEventListener(eventName,syncPreview);formatSelect?.addEventListener(eventName,syncPreview);modeSelect?.addEventListener(eventName,syncPreview);referenceInput?.addEventListener(eventName,syncPreview);negativeInput?.addEventListener(eventName,syncPreview);upscaleInput?.addEventListener(eventName,syncPreview);});syncPreview();if(form){form.addEventListener("submit",()=>{const button=form.querySelector("button[type=submit]");if(button){button.disabled=true;button.textContent="Preparando...";}if(wait){wait.hidden=false;wait.textContent="Preparando a IA local...";}});}';
         if ($isGenerating) {
-            echo 'const statusUrl=' . json_encode(app_url('studio_tattoo_image_status'), JSON_UNESCAPED_SLASHES) . ';let failures=0;const poll=async()=>{try{const response=await fetch(statusUrl,{credentials:"same-origin",cache:"no-store"});const data=await response.json();failures=0;if(data.status==="completed"||data.status==="failed"||data.status==="idle"){location.reload();return;}if(wait){wait.textContent=data.status==="queued"?"Sua imagem está na fila da IA local…":"A IA local está criando sua imagem… pode levar alguns minutos.";}}catch(error){failures++;if(wait&&failures>2)wait.textContent="A geração continua localmente. Tentando reconectar…";}setTimeout(poll,5000);};setTimeout(poll,1500);';
+            echo 'const statusUrl=' . json_encode(app_url('studio_tattoo_image_status'), JSON_UNESCAPED_SLASHES) . ';let failures=0;const poll=async()=>{try{const response=await fetch(statusUrl,{credentials:"same-origin",cache:"no-store"});const data=await response.json();failures=0;if(data.status==="completed"||data.status==="failed"||data.status==="idle"){location.reload();return;}if(wait){wait.textContent=data.status==="queued"?"Sua imagem está na fila da IA local...":"A IA local está criando sua imagem... pode levar alguns minutos.";}}catch(error){failures++;if(wait&&failures>2)wait.textContent="A geração continua localmente. Tentando reconectar...";}setTimeout(poll,5000);};setTimeout(poll,1500);';
         }
         echo '})();</script>';
     }, $flash);

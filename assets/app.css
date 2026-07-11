@@ -206,6 +206,437 @@
     box-shadow: 0 18px 45px rgba(213, 46, 76, .22);
 }
 
+.tattoo-image-page {
+    width: 100%;
+    display: grid;
+    gap: 18px;
+}
+
+.tattoo-image-page .panel {
+    border: 1px solid rgba(19, 27, 37, .08);
+    background: rgba(255, 255, 255, .82);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, .06);
+}
+
+.tattoo-image-page .tattoo-image-compose {
+    color: var(--text);
+    background:
+        radial-gradient(circle at top right, rgba(31, 111, 120, .09), transparent 28%),
+        linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(248, 250, 252, .92));
+}
+
+.tattoo-image-page .tattoo-image-compose .tattoo-image-hero-copy p,
+.tattoo-image-page .tattoo-image-compose .tattoo-image-panel-head p,
+.tattoo-image-page .tattoo-image-compose .tattoo-image-muted-note,
+.tattoo-image-page .tattoo-image-compose .tattoo-image-submit-note {
+    color: var(--muted);
+}
+
+.tattoo-image-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(260px, .85fr);
+    gap: 20px;
+    align-items: center;
+    padding: 26px 28px;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at top right, rgba(31, 111, 120, .12), transparent 32%),
+        linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(248, 250, 252, .9));
+}
+
+.tattoo-image-hero-copy h2 {
+    margin: 8px 0 8px;
+    font-size: clamp(28px, 4vw, 44px);
+    line-height: 1.02;
+    letter-spacing: -.05em;
+}
+
+.tattoo-image-hero-copy p {
+    max-width: 70ch;
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.65;
+}
+
+.tattoo-image-mini-badges,
+.tattoo-image-result-actions,
+.tattoo-image-hero-actions,
+.tattoo-image-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.tattoo-image-mini-badges {
+    margin-top: 16px;
+}
+
+.tattoo-image-status-chip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid rgba(19, 27, 37, .08);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, .9);
+    box-shadow: 0 14px 40px rgba(15, 23, 42, .05);
+}
+
+.tattoo-image-status-chip strong {
+    display: block;
+    font-size: 15px;
+}
+
+.tattoo-image-status-chip small {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.tattoo-image-status-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    box-shadow: 0 0 0 5px rgba(31, 111, 120, .10);
+}
+
+.tattoo-image-status-dot.is-on {
+    background: #2eb872;
+}
+
+.tattoo-image-status-dot.is-off {
+    background: #d46a36;
+}
+
+.tattoo-image-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .95fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.tattoo-image-panel {
+    padding: 22px;
+    border-radius: 28px;
+}
+
+.tattoo-image-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.tattoo-image-panel-head h3,
+.tattoo-image-preview-title h3 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -.03em;
+}
+
+.tattoo-image-panel-head p {
+    margin: 6px 0 0;
+    color: var(--muted);
+}
+
+.tattoo-image-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.tattoo-image-chip {
+    border: 1px solid rgba(31, 111, 120, .14);
+    border-radius: 999px;
+    background: rgba(31, 111, 120, .06);
+    color: var(--brand-dark);
+    padding: 10px 14px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: transform .15s ease, background .15s ease, border-color .15s ease;
+}
+
+.tattoo-image-chip:hover {
+    transform: translateY(-1px);
+    background: rgba(31, 111, 120, .1);
+    border-color: rgba(31, 111, 120, .24);
+}
+
+.tattoo-image-key-note,
+.tattoo-image-local-status,
+.tattoo-image-prompt-preview,
+.tattoo-image-empty,
+.tattoo-image-history-card,
+.tattoo-image-detail-body .panel.soft {
+    border: 1px solid rgba(19, 27, 37, .08);
+}
+
+.tattoo-image-form {
+    display: grid;
+    gap: 14px;
+}
+
+.tattoo-image-form textarea {
+    min-height: 168px;
+    color: var(--text);
+    background: #fff;
+    border-color: var(--line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .65);
+}
+
+.tattoo-image-form textarea::placeholder,
+.tattoo-image-control-card small,
+.tattoo-image-muted-note,
+.tattoo-image-prompt-preview em,
+.tattoo-image-preview-meta p,
+.tattoo-image-detail-body,
+.tattoo-image-empty p {
+    color: var(--muted);
+}
+
+.tattoo-image-control-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.tattoo-image-control-card {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--surface-soft);
+}
+
+.tattoo-image-control-card label {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: .01em;
+}
+
+.tattoo-image-control-card select,
+.tattoo-image-control-card input[type="text"] {
+    width: 100%;
+}
+
+.tattoo-image-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.tattoo-image-detail {
+    padding: 0;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid rgba(19, 27, 37, .08);
+    background: rgba(248, 250, 252, .8);
+}
+
+.tattoo-image-detail > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(19, 27, 37, .06);
+}
+
+.tattoo-image-detail > summary::-webkit-details-marker {
+    display: none;
+}
+
+.tattoo-image-detail-body {
+    padding: 18px;
+}
+
+.tattoo-image-prompt-preview {
+    padding: 16px 18px;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(248, 250, 252, .92));
+    display: grid;
+    gap: 12px;
+}
+
+.tattoo-image-preview-lines {
+    display: grid;
+    gap: 10px;
+}
+
+.tattoo-image-preview-lines span {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+.tattoo-image-preview-lines i {
+    color: var(--brand);
+    margin-top: 2px;
+    flex: 0 0 auto;
+}
+
+.tattoo-image-preview-lines b {
+    color: var(--text);
+}
+
+.tattoo-image-compose-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding-top: 2px;
+}
+
+.tattoo-image-submit-note {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.btn.tattoo-image-generate {
+    min-width: 182px;
+}
+
+.tattoo-image-preview {
+    display: grid;
+    gap: 16px;
+}
+
+.tattoo-image-preview-figure {
+    overflow: hidden;
+    border-radius: 24px;
+    background: #111827;
+    min-height: 280px;
+}
+
+.tattoo-image-preview-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.tattoo-image-preview-meta {
+    display: grid;
+    gap: 14px;
+}
+
+.tattoo-image-preview-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tattoo-image-result-actions {
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.tattoo-image-empty {
+    min-height: 280px;
+    padding: 28px;
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 20% 15%, rgba(31, 111, 120, .08), transparent 30%),
+        rgba(255, 255, 255, .8);
+    align-content: center;
+    justify-items: start;
+    grid-template-columns: 72px 1fr;
+}
+
+.tattoo-image-status-stack {
+    display: grid;
+    gap: 14px;
+}
+
+.tattoo-image-history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+}
+
+.tattoo-image-history-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, .88);
+    box-shadow: 0 14px 35px rgba(15, 23, 42, .05);
+}
+
+.tattoo-image-history-card img {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    border-radius: 14px;
+    background: #101014;
+}
+
+.tattoo-image-history-card strong {
+    font-size: 14px;
+}
+
+.tattoo-image-history-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.tattoo-image-muted-note {
+    margin: 0;
+    font-size: 13px;
+}
+
+.tattoo-image-key-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 4px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255, 187, 92, .08);
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.tattoo-image-local-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 13px;
+}
+
+.tattoo-image-local-status i {
+    background: #2eb872;
+    box-shadow: 0 0 0 5px rgba(46, 184, 114, .12);
+}
+
+@media (max-width: 1080px) {
+    .tattoo-image-hero,
+    .tattoo-image-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .tattoo-image-control-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 640px) {
     .tattoo-image-compose {
         padding: 22px 18px;
@@ -226,6 +657,31 @@
 
     .tattoo-image-generate {
         width: 100%;
+    }
+
+    .tattoo-image-control-grid,
+    .tattoo-image-preview-title,
+    .tattoo-image-compose-footer,
+    .tattoo-image-hero,
+    .tattoo-image-panel-head {
+        grid-template-columns: 1fr;
+    }
+
+    .tattoo-image-control-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tattoo-image-preview-title,
+    .tattoo-image-compose-footer,
+    .tattoo-image-panel-head,
+    .tattoo-image-hero,
+    .tattoo-image-status-chip {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .tattoo-image-empty {
+        grid-template-columns: 1fr;
     }
 }
 
