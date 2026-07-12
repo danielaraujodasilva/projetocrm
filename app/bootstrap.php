@@ -48,5 +48,6 @@ $GLOBALS['app_config'] = [
 require APP_BASE_PATH . '/app/functions.php';
 require APP_BASE_PATH . '/app/studio_crm.php';
 require APP_BASE_PATH . '/app/google_calendar.php';
-require_once APP_BASE_PATH . '/app/tattoo_image_studio_override_v3.php';
+require_once APP_BASE_PATH . '/app/general_image_pipeline.php';
+require_once APP_BASE_PATH . '/app/general_image_studio.php';
 require_once __DIR__ . '/whatsapp_official_runtime.php';

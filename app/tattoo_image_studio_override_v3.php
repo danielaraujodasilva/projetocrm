@@ -11,8 +11,13 @@ function studio_tattoo_image_choice(string $value, array $allowed, string $fallb
 function studio_tattoo_image_mode_config(string $mode): array
 {
     return $mode === 'fast'
-        ? ['width' => 512, 'height' => 704, 'steps' => 6, 'txt_cfg' => 4.0, 'distilled_guidance' => 2.6, 'expected_seconds' => 70, 'denoise' => 0.34]
-        : ['width' => 832, 'height' => 1216, 'steps' => 30, 'txt_cfg' => 5.0, 'distilled_guidance' => 3.5, 'expected_seconds' => 380, 'denoise' => 0.28];
+        ? ['width' => 512, 'height' => 704, 'steps' => 6, 'txt_cfg' => 4.4, 'distilled_guidance' => 2.8, 'expected_seconds' => 70, 'denoise' => 0.62]
+        : ['width' => 832, 'height' => 1216, 'steps' => 30, 'txt_cfg' => 5.4, 'distilled_guidance' => 3.7, 'expected_seconds' => 380, 'denoise' => 0.58];
+}
+
+function studio_tattoo_image_allowed_styles(): array
+{
+    return ['auto','realistic','cartoon','illustration','cinematic','anime','stencil','blackwork','chicano','fineline','oldschool','reference'];
 }
 
 function studio_tattoo_image_norm(string $text): string
@@ -97,6 +102,31 @@ function studio_tattoo_image_subject_guard(string $request): array
         'lock' => 'STRICT SUBJECT LOCK: preserve the exact requested main subject, anatomy, identity, pose, angle, expression and requested accessories. Do not invent a different subject.',
         'negative' => 'wrong subject, unrelated character, text, watermark'
     ];
+}
+
+function studio_tattoo_image_literal_subject_hint(string $request): string
+{
+    $t = studio_tattoo_image_norm($request);
+    $map = [
+        '/\b(macaco|monkey|mico)\b/u' => 'Main subject must be a monkey.',
+        '/\b(chimpanze|chipanze|chimpanz[eé]|chipanz[eé]|chimpanzee)\b/u' => 'Main subject must be a chimpanzee.',
+        '/\b(gorila|gorilla)\b/u' => 'Main subject must be a gorilla.',
+        '/\b(jacare|jacaré|crocodilo|alligator)\b/u' => 'Main subject must be a crocodile or alligator.',
+        '/\b(pirata|pirate)\b/u' => 'Main subject must be a recognizable classic pirate: pirate hat or bandana, pirate coat or worn nautical clothing, adventurous seafarer look, period pirate details.',
+        '/\b(saci(?:-?perer[eê])?)\b/u' => 'Main subject must be the Brazilian folklore character Saci-Perere.',
+        '/\bmula sem cab[eê]ca\b/u' => 'Main subject must be the Brazilian folklore headless mule.',
+        '/\bcurupira\b/u' => 'Main subject must be the Brazilian folklore character Curupira.',
+    ];
+    foreach ($map as $pattern => $hint) {
+        if (preg_match($pattern, $t)) return $hint;
+    }
+    return '';
+}
+
+function studio_tattoo_image_allows_tattoo_or_model_bias(string $request): bool
+{
+    $t = studio_tattoo_image_norm($request);
+    return (bool)preg_match('/\b(tattoo|tatuagem|tatuado|tatuada|pele|skin|modelo|model|ensaio|foto de corpo|body photo|shirtless|sem camisa|nu|nude|nua|naked)\b/u', $t);
 }
 
 function studio_tattoo_image_subject_hint(string $request): string
@@ -259,13 +289,18 @@ function studio_tattoo_image_subject_brief(string $request): array
 function studio_tattoo_image_style_prompt(string $style): string
 {
     return match ($style) {
-        'stencil' => 'professional tattoo stencil blueprint, pure black ink on white background, clean contour lines, dashed shadow guides, anatomical hatching, no gray wash',
-        'blackwork' => 'blackwork tattoo concept, strong silhouettes, balanced negative space, readable tattoo composition',
-        'chicano' => 'chicano tattoo reference, dramatic black and grey mood, smooth contrast, premium tattoo composition',
-        'fineline' => 'fine line tattoo concept, delicate clean linework, elegant minimal detail',
-        'oldschool' => 'old school tattoo flash reference, bold linework, iconic simplified forms',
-        'reference' => 'single-subject tattoo reference sheet, isolated centered subject, clean outline, easy to redraw',
-        default => 'single-subject tattoo reference, faithful to the requested subject, clear silhouette, readable details, neutral background',
+        'realistic' => 'realistic high quality image',
+        'cartoon' => 'cartoon style, expressive shapes, clear readable character design',
+        'illustration' => 'polished digital illustration, clean composition, rich visual detail',
+        'cinematic' => 'cinematic image, dramatic lighting, high detail, strong atmosphere',
+        'anime' => 'anime style illustration, clean lines, expressive design',
+        'stencil' => 'black and white stencil style, clean contour lines, high contrast',
+        'blackwork' => 'blackwork style, strong silhouettes, balanced negative space',
+        'chicano' => 'chicano inspired black and grey style, dramatic contrast',
+        'fineline' => 'fine line style, delicate clean linework, elegant minimal detail',
+        'oldschool' => 'old school flash style, bold linework, iconic simplified forms',
+        'reference' => 'clean visual reference, clear subject, readable details',
+        default => 'natural image generation, follow the user prompt literally',
     };
 }
 
@@ -282,8 +317,11 @@ function studio_tattoo_image_translate_basic(string $text): string
         'caveira' => 'skull', 'crânio' => 'skull', 'cranio' => 'skull', 'rosa' => 'rose', 'rosas' => 'roses', 'flor' => 'flower', 'flores' => 'flowers',
         'borboleta' => 'butterfly', 'corvo' => 'raven', 'pena' => 'feather', 'adaga' => 'dagger', 'espada' => 'sword', 'relógio' => 'clock', 'relogio' => 'clock',
         'bússola' => 'compass', 'bussola' => 'compass', 'lua' => 'moon', 'sol' => 'sun', 'coração' => 'heart', 'coracao' => 'heart',
+        'pirata' => 'pirate', 'cartunesco' => 'cartoon', 'desenho animado' => 'cartoon', 'cartoonizado' => 'cartoon',
+        'alterar' => 'change', 'mudar' => 'change', 'transformar' => 'transform', 'estilo' => 'style', 'mais ' => 'more ',
         'pequena' => 'small', 'pequeno' => 'small', 'grande' => 'large', 'gigante' => 'giant', 'corpo inteiro' => 'full body', 'inteiro' => 'full body',
-        'com ' => 'with ', 'sem ' => 'without ', 'um ' => 'a ', 'uma ' => 'a '
+        'para um ' => 'to a ', 'para uma ' => 'to a ', 'para o ' => 'to the ', 'para a ' => 'to the ', 'para ' => 'to ',
+        'com ' => 'with ', 'sem ' => 'without ', ' o ' => ' the ', ' a ' => ' the ', 'um ' => 'a ', 'uma ' => 'a '
     ];
     foreach ($pairs as $from => $to) {
         $r = str_ireplace($from, $to, $r);
@@ -312,75 +350,12 @@ function studio_tattoo_image_absolute_from_relative(string $relative): string
 
 function studio_tattoo_image_build_prompt(array $data): string
 {
-    $request = trim((string)($data['prompt'] ?? ''));
-    if (mb_strlen($request, 'UTF-8') < 4) throw new RuntimeException('Descreva um pouco melhor a imagem que você quer criar.');
-    $style = studio_tattoo_image_choice((string)($data['style'] ?? 'realistic'), ['realistic','stencil','blackwork','chicano','fineline','oldschool','reference'], 'realistic');
-    $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical','square','wide'], 'vertical');
-    $reference = trim((string)($data['reference_notes'] ?? ''));
-    $guard = studio_tattoo_image_subject_guard($request . ' ' . $reference);
-    $subjectHint = studio_tattoo_image_subject_hint($request . ' ' . $reference);
-    $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief($request . ' ' . $reference) : ['kind' => 'generic', 'prompt' => '', 'negative' => '', 'translated' => ''];
-    $translated = studio_tattoo_image_translate_request($request . ($reference !== '' ? '. Style notes: ' . $reference : ''));
-    $formatHint = match ($format) { 'square' => 'balanced square composition', 'wide' => 'wide horizontal composition', default => 'strong vertical composition' };
-    $subjectLine = $subjectBrief['prompt'] !== '' ? $subjectBrief['prompt'] : '';
-    $prompt = studio_tattoo_image_style_prompt($style) . ', ' . $formatHint . '. ';
-    if ($subjectLine !== '') {
-        $prompt .= 'SUBJECT BRIEF: ' . $subjectLine . '. ';
-    }
-    if ($subjectHint !== '') {
-        $prompt .= 'SUBJECT HINT: ' . $subjectHint . '. ';
-    }
-    $nonHumanLock = !studio_tattoo_image_mentions_human_or_mockup($request . ' ' . $reference)
-        ? ' If the requested subject is an animal, object, symbol or creature, the image must contain no human model, no nude body, no tattooed skin and no body mockup.'
-        : '';
-    $prompt .= $guard['lock'] . $nonHumanLock . ' Present it as a standalone tattoo reference on a neutral background, not as a tattoo already applied to skin unless explicitly requested. No caption, no watermark, no logo, no frame.';
-    if (($subjectBrief['kind'] ?? 'generic') === 'generic') {
-        $prompt .= ' User concept: ' . ($subjectBrief['translated'] ?? $translated);
-    } else {
-        $prompt .= ' User concept: ' . $translated;
-    }
-    return $prompt;
+    return studio_general_image_prompt($data);
 }
 
 function studio_tattoo_image_body(array $data, string $mode): array
 {
-    $format = studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical','square','wide'], 'vertical');
-    $config = studio_tattoo_image_mode_config($mode);
-    [$width, $height] = studio_tattoo_image_dimensions_for_format($config, $format);
-    $guard = studio_tattoo_image_subject_guard((string)($data['prompt'] ?? '') . ' ' . (string)($data['reference_notes'] ?? ''));
-    $subjectBrief = function_exists('studio_tattoo_image_subject_brief') ? studio_tattoo_image_subject_brief((string)($data['prompt'] ?? '') . ' ' . (string)($data['reference_notes'] ?? '')) : ['kind' => 'generic', 'negative' => ''];
-    $negative = 'low quality, blurry, malformed anatomy, duplicated subject, signature, user interface, ' . $guard['negative'];
-    if (!empty($subjectBrief['negative'])) {
-        $negative .= ', ' . $subjectBrief['negative'];
-    }
-    $extraNegative = trim((string)($data['negative_prompt'] ?? ''));
-    if ($extraNegative !== '') $negative .= ', ' . $extraNegative;
-    $body = [
-        'prompt' => studio_tattoo_image_build_prompt($data),
-        'negative_prompt' => $negative,
-        'clip_skip' => -1,
-        'width' => $width,
-        'height' => $height,
-        'seed' => -1,
-        'batch_count' => 1,
-        'sample_params' => ['scheduler' => 'karras', 'sample_method' => 'dpm++2m', 'sample_steps' => (int)$config['steps'], 'guidance' => ['txt_cfg' => (float)$config['txt_cfg'], 'distilled_guidance' => (float)$config['distilled_guidance']]],
-        'vae_tiling_params' => ['enabled' => true, 'tile_size_x' => 512, 'tile_size_y' => 512, 'target_overlap' => 0.25],
-        'output_format' => 'jpeg',
-        'output_compression' => 94,
-    ];
-    $sourcePath = studio_tattoo_image_absolute_from_relative((string)($data['source_image_path'] ?? ''));
-    if ($sourcePath !== '') {
-        $sourceBinary = @file_get_contents($sourcePath);
-        if (is_string($sourceBinary) && $sourceBinary !== '') {
-            $b64 = base64_encode($sourceBinary);
-            $body['init_image'] = $b64;
-            $body['image'] = $b64;
-            $body['source_image'] = $b64;
-            $body['strength'] = (float)$config['denoise'];
-            $body['denoising_strength'] = (float)$config['denoise'];
-        }
-    }
-    return $body;
+    return studio_general_image_local_body($data, $mode);
 }
 
 function studio_tattoo_image_upscale_jpeg(string $sourcePath, int $factor = 2): string
@@ -473,39 +448,12 @@ function studio_tattoo_image_current_job(): ?array
 
 function studio_tattoo_image_start(array $studio, array $data): array
 {
-    $mode = studio_tattoo_image_choice((string)($data['mode'] ?? 'fast'), ['fast','final'], 'fast');
-    $localStatus = studio_local_image_ai_status();
-    if (empty($localStatus['ok'])) throw new RuntimeException('A IA local ainda está iniciando.');
-    $result = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', studio_tattoo_image_body($data, $mode), 120);
-    if (empty($result['ok'])) throw new RuntimeException((string)($result['error'] ?? 'Não foi possível iniciar a geração local.'));
-    $jobId = trim((string)($result['json']['id'] ?? ''));
-    if ($jobId === '' || !preg_match('/^[a-zA-Z0-9_-]{8,100}$/', $jobId)) throw new RuntimeException('A IA local não devolveu um identificador válido.');
-    $config = studio_tattoo_image_mode_config($mode);
-    return ['id'=>$jobId,'prompt'=>trim((string)($data['prompt'] ?? '')),'style'=>studio_tattoo_image_choice((string)($data['style'] ?? 'realistic'), ['realistic','stencil','blackwork','chicano','fineline','oldschool','reference'], 'realistic'),'mode'=>$mode,'format'=>studio_tattoo_image_choice((string)($data['format'] ?? 'vertical'), ['vertical','square','wide'], 'vertical'),'reference_notes'=>trim((string)($data['reference_notes'] ?? '')),'negative_prompt'=>trim((string)($data['negative_prompt'] ?? '')),'source_image_path'=>trim((string)($data['source_image_path'] ?? '')),'upscale'=>!empty($data['upscale']),'upscale_factor'=>max(2, min(4, (int)($data['upscale_factor'] ?? 2))),'started_at'=>date('Y-m-d H:i:s'),'expected_seconds'=>(int)$config['expected_seconds'],'model'=>'RealVisXL 5.0 local'];
+    return studio_general_image_start($studio, $data);
 }
 
 function studio_tattoo_image_poll(array $studio, array $job): array
 {
-    $jobId = trim((string)($job['id'] ?? ''));
-    if ($jobId === '') return ['status'=>'failed','error'=>'Job inválido.'];
-    $result = studio_local_image_ai_request('GET', '/sdcpp/v1/jobs/' . rawurlencode($jobId), null, 10);
-    if (empty($result['ok'])) return ['status'=>'waiting', 'expected_seconds'=>(int)($job['expected_seconds'] ?? 300)];
-    $json = (array)$result['json'];
-    $status = (string)($json['status'] ?? 'waiting');
-    if ($status !== 'completed') return ['status'=>in_array($status, ['failed','cancelled'], true) ? 'failed' : $status,'queue_position'=>(int)($json['queue_position'] ?? 0),'expected_seconds'=>(int)($job['expected_seconds'] ?? 300)];
-    $base64 = trim((string)($json['result']['images'][0]['b64_json'] ?? ''));
-    $binary = $base64 !== '' ? base64_decode($base64, true) : false;
-    if ($binary === false || $binary === '') return ['status'=>'failed','error'=>'A imagem foi gerada, mas não pôde ser lida.'];
-    $safeStudio = preg_replace('/[^a-zA-Z0-9_-]+/', '_', (string)($studio['slug'] ?? 'studio')) ?: 'studio';
-    $folder = APP_BASE_PATH . '/storage/tattoo-images/' . $safeStudio;
-    if (!is_dir($folder) && !mkdir($folder, 0775, true) && !is_dir($folder)) return ['status'=>'failed','error'=>'Não foi possível preparar a pasta.'];
-    $fileName = date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.jpg';
-    $absolutePath = $folder . '/' . $fileName;
-    file_put_contents($absolutePath, $binary);
-    $upscaledFile = !empty($job['upscale']) ? studio_tattoo_image_upscale_jpeg($absolutePath, (int)($job['upscale_factor'] ?? 2)) : '';
-    $payload = ['history_id'=>bin2hex(random_bytes(8)),'prompt'=>(string)($job['prompt'] ?? ''),'image_path'=>'storage/tattoo-images/' . $safeStudio . '/' . $fileName,'file_name'=>$fileName,'upscaled_image_path'=>$upscaledFile !== '' ? 'storage/tattoo-images/' . $safeStudio . '/' . $upscaledFile : '','upscaled_file_name'=>$upscaledFile,'generated_at'=>date('Y-m-d H:i:s'),'mode'=>(string)($job['mode'] ?? 'final'),'style'=>(string)($job['style'] ?? 'realistic'),'format'=>(string)($job['format'] ?? 'vertical'),'reference_notes'=>(string)($job['reference_notes'] ?? ''),'negative_prompt'=>(string)($job['negative_prompt'] ?? ''),'source_image_path'=>(string)($job['source_image_path'] ?? ''),'model'=>'RealVisXL 5.0 local'];
-    studio_tattoo_image_history_add($payload);
-    return ['status'=>'completed','result'=>$payload];
+    return studio_general_image_poll($studio, $job);
 }
 
 function studio_tattoo_image_handle_request(): void
@@ -542,7 +490,7 @@ function studio_tattoo_image_handle_request(): void
                 $_SESSION['studio_tattoo_image_form'] = [
                     'prompt' => (string)($item['prompt'] ?? ''),
                     'mode' => 'fast',
-                    'style' => (string)($item['style'] ?? 'realistic'),
+                    'style' => (string)($item['style'] ?? 'auto'),
                     'format' => (string)($item['format'] ?? 'vertical'),
                     'reference_notes' => (string)($item['reference_notes'] ?? ''),
                     'negative_prompt' => (string)($item['negative_prompt'] ?? ''),
@@ -560,8 +508,16 @@ function studio_tattoo_image_handle_request(): void
     if ($requestMethod === 'POST' && $action === 'generate_tattoo_reference') {
         $studio = require_studio(); csrf_verify();
         try {
-            $_SESSION['studio_tattoo_image_job'] = studio_tattoo_image_start($studio, $_POST);
-            unset($_SESSION['studio_tattoo_image_result'], $_SESSION['studio_tattoo_image_prompt']);
+            $generation = studio_tattoo_image_start($studio, $_POST);
+            if (($generation['status'] ?? '') === 'completed' && is_array($generation['result'] ?? null)) {
+                $_SESSION['studio_tattoo_image_result'] = $generation['result'];
+                studio_tattoo_image_history_add($generation['result']);
+                studio_tattoo_image_clear_job();
+            } else {
+                $_SESSION['studio_tattoo_image_job'] = $generation;
+                unset($_SESSION['studio_tattoo_image_result']);
+            }
+            unset($_SESSION['studio_tattoo_image_prompt']);
         } catch (Throwable $error) {
             $_SESSION['studio_tattoo_image_prompt'] = trim((string)($_POST['prompt'] ?? ''));
             flash_set('error', $error->getMessage());
@@ -579,8 +535,8 @@ function studio_tattoo_image_handle_request(): void
     }
     if ($page !== 'studio_tattoo_images') return;
     $studio = require_studio();
-    render_studio_shell('Criar imagem', 'Prévia rápida, finalização e reset de travamento.', 'tattoo_images', function () use ($studio) {
-        $localAi = studio_local_image_ai_status();
+    render_studio_shell('Criar imagem', 'Geração livre: diga o que quer ver e a IA tenta seguir literalmente.', 'tattoo_images', function () use ($studio) {
+        $localAi = studio_general_image_provider($studio);
         $job = studio_tattoo_image_current_job();
         $isGenerating = is_array($job);
         $result = $_SESSION['studio_tattoo_image_result'] ?? null;
@@ -588,7 +544,7 @@ function studio_tattoo_image_handle_request(): void
         $prompt = trim((string)($formState['prompt'] ?? $_SESSION['studio_tattoo_image_prompt'] ?? $job['prompt'] ?? $result['prompt'] ?? ''));
         $sourceImagePath = trim((string)($formState['source_image_path'] ?? ''));
         $selectedMode = studio_tattoo_image_choice((string)($formState['mode'] ?? $job['mode'] ?? 'fast'), ['fast','final'], 'fast');
-        $selectedStyle = studio_tattoo_image_choice((string)($formState['style'] ?? $job['style'] ?? $result['style'] ?? 'realistic'), ['realistic','stencil','blackwork','chicano','fineline','oldschool','reference'], 'realistic');
+        $selectedStyle = studio_tattoo_image_choice((string)($formState['style'] ?? $job['style'] ?? $result['style'] ?? 'auto'), studio_tattoo_image_allowed_styles(), 'auto');
         $selectedFormat = studio_tattoo_image_choice((string)($formState['format'] ?? $job['format'] ?? $result['format'] ?? 'vertical'), ['vertical','square','wide'], 'vertical');
         $referenceNotes = trim((string)($formState['reference_notes'] ?? $job['reference_notes'] ?? $result['reference_notes'] ?? ''));
         $negativePrompt = trim((string)($formState['negative_prompt'] ?? $job['negative_prompt'] ?? $result['negative_prompt'] ?? ''));
@@ -603,9 +559,11 @@ function studio_tattoo_image_handle_request(): void
             echo '<span class="ti-chip">Alterando imagem do historico</span>';
         }
         if ($isGenerating) {
-            echo '<p class="muted" id="aiWaitText">A IA local esta criando uma previa rapida...</p>';
+            echo '<p class="muted" id="aiWaitText">' . h((string)($job['model'] ?? 'A IA')) . ' esta criando sua imagem...</p>';
         } elseif (empty($localAi['ok'])) {
-            echo '<p class="muted">IA local indisponivel agora: ' . h((string)($localAi['error'] ?? 'servico nao respondeu')) . '</p>';
+            echo '<p class="muted">Gerador indisponivel agora: ' . h((string)($localAi['error'] ?? 'servico nao respondeu')) . '</p>';
+        } else {
+            echo '<span class="ti-chip">Motor: ' . h((string)($localAi['label'] ?? 'IA de imagem')) . '</span>';
         }
         echo '<div class="ti-main-actions"><button class="btn" type="submit" ' . (empty($localAi['ok']) || $isGenerating ? 'disabled' : '') . '>' . ($isGenerating ? 'Gerando...' : 'Gerar imagem') . '</button>';
         if ($isGenerating) {
@@ -618,7 +576,7 @@ function studio_tattoo_image_handle_request(): void
             echo '<details class="ti-options"><summary>Opcoes</summary><div class="ti-options-body">';
             echo '<div class="field"><label>Modo</label><select name="mode"><option value="fast"' . ($selectedMode === 'fast' ? ' selected' : '') . '>Rapido</option><option value="final"' . ($selectedMode === 'final' ? ' selected' : '') . '>Mais detalhado</option></select></div>';
             echo '<div class="field"><label>Estilo</label><select name="style">';
-            foreach (['realistic'=>'Realista','reference'=>'Referencia limpa','stencil'=>'Stencil','blackwork'=>'Blackwork','chicano'=>'Chicano','fineline'=>'Fine line','oldschool'=>'Old school'] as $value => $label) {
+            foreach (['auto'=>'Livre pelo prompt','realistic'=>'Realista','cartoon'=>'Cartoon','illustration'=>'Ilustracao','cinematic'=>'Cinematico','anime'=>'Anime','reference'=>'Referencia limpa','stencil'=>'Stencil','blackwork'=>'Blackwork','chicano'=>'Chicano','fineline'=>'Fine line','oldschool'=>'Old school'] as $value => $label) {
                 echo '<option value="' . h($value) . '"' . ($selectedStyle === $value ? ' selected' : '') . '>' . h($label) . '</option>';
             }
             echo '</select></div>';
@@ -674,7 +632,7 @@ function studio_tattoo_image_handle_request(): void
             }
             echo '</div>';
         }
-        echo '</section><script>(function(){const generating=' . ($isGenerating ? 'true' : 'false') . ';if(!generating)return;const wait=document.getElementById("aiWaitText");const statusUrl=' . json_encode(app_url('studio_tattoo_image_status'), JSON_UNESCAPED_SLASHES) . ';let failures=0;setTimeout(function poll(){fetch(statusUrl,{credentials:"same-origin",cache:"no-store"}).then(r=>r.json()).then(d=>{failures=0;if(["completed","failed","idle"].includes(d.status)){location.reload();return;}if(wait){wait.textContent=d.status==="queued"?"Sua imagem esta na fila da IA local...":"A IA local esta criando sua imagem...";}setTimeout(poll,3000);}).catch(()=>{failures++;if(wait&&failures>2)wait.textContent="A geracao continua. Tentando reconectar...";setTimeout(poll,5000);});},1200);})();</script>';
+        echo '</section><script>(function(){const generating=' . ($isGenerating ? 'true' : 'false') . ';if(!generating)return;const wait=document.getElementById("aiWaitText");const statusUrl=' . json_encode(app_url('studio_tattoo_image_status'), JSON_UNESCAPED_SLASHES) . ';let failures=0;setTimeout(function poll(){fetch(statusUrl,{credentials:"same-origin",cache:"no-store"}).then(r=>r.json()).then(d=>{failures=0;if(["completed","failed","idle"].includes(d.status)){location.reload();return;}if(wait){wait.textContent=d.status==="queued"?"Sua imagem esta na fila...":"A IA esta criando sua imagem...";}setTimeout(poll,3000);}).catch(()=>{failures++;if(wait&&failures>2)wait.textContent="A geracao continua. Tentando reconectar...";setTimeout(poll,5000);});},1200);})();</script>';
     }, flash_get());
     exit;
 }

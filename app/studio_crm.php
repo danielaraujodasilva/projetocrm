@@ -1121,8 +1121,8 @@ function studio_windows_json_string(array $payload): string
 function studio_whatsapp_ai_timeout(array $studio): int
 {
     $settings = studio_settings($studio);
-    $provider = (string)($settings['ai_provider'] ?? 'ollama');
-    return $provider === 'ollama' ? 90 : 60;
+    $provider = (string)($settings['ai_provider'] ?? 'nvidia');
+    return $provider === 'ollama' ? 90 : 75;
 }
 
 function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
@@ -3950,7 +3950,7 @@ function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, ar
 
     $config = studio_openai_config($studio);
     if ($config['api_key'] === '') {
-        return ['ok' => false, 'error' => 'Configure a chave da OpenAI nas configuracoes do estudio.'];
+        return ['ok' => false, 'error' => 'Configure a chave da IA nas configuracoes do estudio.'];
     }
 
     $history = array_slice(array_reverse($messages), 0, 8);
@@ -4684,12 +4684,771 @@ function studio_whatsapp_image_color_mode(string $binary): string
     return ($chromatic / $samples) >= 0.05 ? 'color' : 'black_and_grey';
 }
 
+function studio_nvidia_vision_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $apiKey = studio_setting_secret($settings, 'nvidia_vision_api_key', 'NVIDIA_VISION_API_KEY');
+    if ($apiKey === '') {
+        $apiKey = studio_setting_secret($settings, 'nvidia_api_key', 'NVIDIA_API_KEY');
+    }
+    $model = trim((string)($settings['nvidia_vision_model'] ?? ''));
+    if ($model === '') {
+        $model = 'meta/llama-3.2-90b-vision-instruct';
+    }
+    $baseUrl = trim((string)($settings['nvidia_vision_base_url'] ?? ''));
+    if ($baseUrl === '') {
+        $baseUrl = 'https://integrate.api.nvidia.com/v1';
+    }
+
+    return [
+        'api_key' => $apiKey,
+        'model' => $model,
+        'base_url' => rtrim($baseUrl, '/'),
+    ];
+}
+
+function studio_whatsapp_decode_visual_json(string $content): ?array
+{
+    $content = trim($content);
+    $content = preg_replace('/^```(?:json)?\s*/i', '', $content) ?? $content;
+    $content = preg_replace('/\s*```$/', '', $content) ?? $content;
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded) && preg_match('/\{.*\}/s', $content, $matches)) {
+        $decoded = json_decode($matches[0], true);
+    }
+
+    return is_array($decoded) ? $decoded : null;
+}
+
+function studio_whatsapp_build_image_analysis_result(array $decoded, string $detectedColorMode, string $model): array
+{
+    $humanSkin = !empty($decoded['human_skin_visible']);
+    $tattooInk = !empty($decoded['tattoo_ink_on_skin_visible']);
+    $standaloneArt = !empty($decoded['standalone_art_or_logo_visible']);
+    $bodyArea = mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 60);
+    $style = mb_substr(trim((string)($decoded['style'] ?? '')), 0, 60);
+    $elements = mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 160);
+    $safety = in_array((string)($decoded['safety'] ?? ''), ['safe', 'sensitive', 'unsafe'], true)
+        ? (string)$decoded['safety']
+        : 'sensitive';
+    $visualType = $safety === 'unsafe'
+        ? 'unsafe'
+        : (($tattooInk && ($humanSkin || $bodyArea !== ''))
+            ? 'tattoo_on_skin'
+            : ($standaloneArt || $tattooInk ? 'artwork' : ($humanSkin ? 'body_photo' : 'other')));
+    if (preg_match('/(black\s*(and|&)\s*(white|grey|gray)|preto\s+e\s+(branco|cinza)|blackwork)/i', $style)) {
+        $detectedColorMode = 'black_and_grey';
+    }
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'model' => $model,
+        'visual_type' => $visualType,
+        'body_area' => $bodyArea,
+        'style' => $style,
+        'elements' => $elements,
+        'color_mode' => $detectedColorMode !== 'unknown'
+            ? $detectedColorMode
+            : (in_array((string)($decoded['color_mode'] ?? ''), ['black_and_grey', 'color', 'unknown'], true)
+                ? (string)$decoded['color_mode']
+                : 'unknown'),
+        'safety' => $safety,
+    ];
+}
+
+function studio_whatsapp_analyze_image_with_nvidia(array $studio, string $absolutePath, string $binary, string $mediaMime, string $detectedColorMode): array
+{
+    $settings = studio_settings($studio);
+    if (array_key_exists('nvidia_vision_enabled', $settings) && empty($settings['nvidia_vision_enabled'])) {
+        return ['ok' => false, 'present' => true, 'error' => 'Analise de imagem desativada nas configuracoes.'];
+    }
+
+    $vision = studio_nvidia_vision_config($studio);
+    if ((string)$vision['api_key'] === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Chave NVIDIA Vision nao configurada.'];
+    }
+
+    $mime = strtolower(trim($mediaMime));
+    if ($mime === '' && function_exists('mime_content_type')) {
+        $mime = strtolower((string)@mime_content_type($absolutePath));
+    }
+    if ($mime === '' || !str_starts_with($mime, 'image/')) {
+        $mime = 'image/jpeg';
+    }
+
+    $prompt = 'Analise somente os pixels visiveis desta imagem para um atendimento de estudio de tatuagem no Brasil. '
+        . 'Responda exclusivamente com JSON valido e compacto, sem markdown, neste formato: '
+        . '{"human_skin_visible":true,"tattoo_ink_on_skin_visible":false,"standalone_art_or_logo_visible":false,"body_area":"","style":"","elements":"","color_mode":"unknown","safety":"safe"}. '
+        . 'human_skin_visible=true apenas se houver corpo/pele humana real visivel. '
+        . 'tattoo_ink_on_skin_visible=true apenas se houver tinta de tatuagem aplicada em pele. '
+        . 'standalone_art_or_logo_visible=true para desenho, ilustracao, referencia, logo ou arte fora da pele. '
+        . 'body_area deve ficar vazio se nao houver corpo humano visivel. '
+        . 'Use portugues do Brasil em body_area, style e elements. '
+        . 'elements deve ter no maximo 3 itens visiveis separados por virgula. '
+        . 'color_mode deve ser black_and_grey, color ou unknown. '
+        . 'safety deve ser safe, sensitive ou unsafe. '
+        . 'Nao identifique pessoas, nao infira dados sensiveis e nao faca diagnostico medico.';
+
+    $body = [
+        'model' => (string)$vision['model'],
+        'messages' => [[
+            'role' => 'user',
+            'content' => [
+                ['type' => 'text', 'text' => $prompt],
+                ['type' => 'image_url', 'image_url' => [
+                    'url' => 'data:' . $mime . ';base64,' . base64_encode($binary),
+                ]],
+            ],
+        ]],
+        'max_tokens' => 512,
+        'temperature' => 0.1,
+        'top_p' => 0.7,
+        'frequency_penalty' => 0,
+        'presence_penalty' => 0,
+        'stream' => false,
+    ];
+
+    $ch = curl_init((string)$vision['base_url'] . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . (string)$vision['api_key'],
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'present' => true, 'error' => $error ?: 'Falha na analise visual NVIDIA.'];
+    }
+    $response = json_decode((string)$raw, true);
+    if (!is_array($response) || $status >= 400) {
+        $apiError = is_array($response['error'] ?? null)
+            ? (string)($response['error']['message'] ?? ('Falha HTTP ' . $status . ' na analise visual NVIDIA.'))
+            : (string)($response['error'] ?? ('Falha HTTP ' . $status . ' na analise visual NVIDIA.'));
+        return ['ok' => false, 'present' => true, 'error' => $apiError];
+    }
+
+    $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+    $decoded = studio_whatsapp_decode_visual_json($content);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'present' => true, 'error' => 'Resposta visual NVIDIA invalida: ' . mb_substr($content, 0, 120)];
+    }
+
+    $result = studio_whatsapp_build_image_analysis_result($decoded, $detectedColorMode, (string)$vision['model']);
+    $result['provider'] = 'nvidia';
+    return $result;
+}
+
+function studio_nvidia_document_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $apiKey = studio_setting_secret($settings, 'nvidia_document_api_key', 'NVIDIA_DOCUMENT_API_KEY');
+    if ($apiKey === '') {
+        $apiKey = studio_setting_secret($settings, 'nvidia_api_key', 'NVIDIA_API_KEY');
+    }
+    $model = trim((string)($settings['nvidia_document_model'] ?? ''));
+    if ($model === '') {
+        $model = 'nvidia/nemoretriever-parse';
+    }
+    $baseUrl = trim((string)($settings['nvidia_document_base_url'] ?? ''));
+    if ($baseUrl === '') {
+        $baseUrl = 'https://integrate.api.nvidia.com/v1';
+    }
+
+    return [
+        'api_key' => $apiKey,
+        'model' => $model,
+        'base_url' => rtrim($baseUrl, '/'),
+    ];
+}
+
+function studio_nvidia_video_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $vision = studio_nvidia_vision_config($studio);
+    $model = trim((string)($settings['nvidia_video_model'] ?? ''));
+    if ($model === '') {
+        $model = (string)$vision['model'];
+    }
+    $frameCount = (int)($settings['nvidia_video_frame_count'] ?? 3);
+    $frameCount = max(1, min(6, $frameCount));
+
+    return [
+        'api_key' => (string)$vision['api_key'],
+        'model' => $model,
+        'base_url' => (string)$vision['base_url'],
+        'frame_count' => $frameCount,
+    ];
+}
+
+function studio_find_pdftoppm_binary(): string
+{
+    $candidates = [
+        trim((string)(getenv('PDFTOPPM_BINARY') ?: '')),
+        'pdftoppm',
+        'pdftoppm.exe',
+        'C:\\Users\\server_spd\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override\\pdftoppm.cmd',
+    ];
+    foreach ($candidates as $candidate) {
+        if ($candidate === '') {
+            continue;
+        }
+        if (str_contains($candidate, '\\') || str_contains($candidate, '/')) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+            continue;
+        }
+        $where = trim((string)@shell_exec('where ' . escapeshellarg($candidate) . ' 2>NUL'));
+        if ($where !== '') {
+            $first = trim((string)strtok($where, "\r\n"));
+            if ($first !== '' && is_file($first)) {
+                return $first;
+            }
+        }
+    }
+
+    return '';
+}
+
+function studio_whatsapp_ffprobe_binary(): string
+{
+    $fromEnv = trim((string)(getenv('FFPROBE_BINARY') ?: ''));
+    if ($fromEnv !== '' && is_file($fromEnv)) {
+        return $fromEnv;
+    }
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
+    if ($ffmpeg !== '') {
+        $sameDir = dirname($ffmpeg) . DIRECTORY_SEPARATOR . (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'ffprobe.exe' : 'ffprobe');
+        if (is_file($sameDir)) {
+            return $sameDir;
+        }
+    }
+    $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffprobe 2>NUL' : 'command -v ffprobe 2>/dev/null';
+    $ffprobe = trim((string)@shell_exec($probe));
+    if (str_contains($ffprobe, "\n")) {
+        $ffprobe = trim(strtok($ffprobe, "\n"));
+    }
+
+    return $ffprobe !== '' ? $ffprobe : '';
+}
+
+function studio_video_duration_seconds(string $absolutePath): float
+{
+    $ffprobe = studio_whatsapp_ffprobe_binary();
+    if ($ffprobe === '') {
+        return 0.0;
+    }
+    $command = escapeshellarg($ffprobe)
+        . ' -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '
+        . escapeshellarg($absolutePath)
+        . ' 2>NUL';
+    $raw = trim((string)@shell_exec($command));
+    return is_numeric($raw) ? max(0.0, (float)$raw) : 0.0;
+}
+
+function studio_video_sample_times(float $duration, int $frameCount): array
+{
+    $frameCount = max(1, min(6, $frameCount));
+    if ($duration <= 0.0) {
+        return array_slice([0.5, 2.0, 4.0, 7.0, 10.0, 14.0], 0, $frameCount);
+    }
+    if ($frameCount === 1) {
+        return [max(0.0, min($duration - 0.1, $duration * 0.5))];
+    }
+    $times = [];
+    for ($i = 0; $i < $frameCount; $i++) {
+        $ratio = ($i + 1) / ($frameCount + 1);
+        $times[] = max(0.0, min($duration - 0.1, $duration * $ratio));
+    }
+    return $times;
+}
+
+function studio_extract_video_frames(string $absolutePath, int $frameCount): array
+{
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
+    if ($ffmpeg === '') {
+        return ['ok' => false, 'error' => 'ffmpeg nao encontrado para extrair frames do video.', 'frames' => []];
+    }
+    $duration = studio_video_duration_seconds($absolutePath);
+    $times = studio_video_sample_times($duration, $frameCount);
+    $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'wa_video_frames_' . bin2hex(random_bytes(4));
+    if (!is_dir($tempDir) && !mkdir($tempDir, 0775, true) && !is_dir($tempDir)) {
+        return ['ok' => false, 'error' => 'Nao foi possivel criar pasta temporaria para frames.', 'frames' => []];
+    }
+
+    $frames = [];
+    $errors = [];
+    foreach ($times as $index => $time) {
+        $dest = $tempDir . DIRECTORY_SEPARATOR . 'frame_' . ($index + 1) . '.jpg';
+        $command = escapeshellarg($ffmpeg)
+            . ' -y -ss ' . escapeshellarg(number_format($time, 3, '.', ''))
+            . ' -i ' . escapeshellarg($absolutePath)
+            . ' -frames:v 1 -vf ' . escapeshellarg('scale=768:-2')
+            . ' -q:v 3 '
+            . escapeshellarg($dest)
+            . ' 2>&1';
+        $output = [];
+        $exitCode = null;
+        exec($command, $output, $exitCode);
+        if ($exitCode === 0 && is_file($dest) && (filesize($dest) ?: 0) > 0) {
+            $frames[] = $dest;
+        } else {
+            $errors[] = trim(implode("\n", array_slice($output, -4)));
+        }
+    }
+    if (!$frames) {
+        @rmdir($tempDir);
+        return ['ok' => false, 'error' => 'Nao foi possivel extrair frames do video: ' . mb_substr(implode(' | ', $errors), 0, 240), 'frames' => []];
+    }
+
+    return ['ok' => true, 'frames' => $frames, 'temp_dir' => $tempDir, 'duration' => $duration];
+}
+
+function studio_cleanup_video_frames(array $frameResult): void
+{
+    foreach ($frameResult['frames'] ?? [] as $frame) {
+        if (is_string($frame) && is_file($frame)) {
+            @unlink($frame);
+        }
+    }
+    $tempDir = (string)($frameResult['temp_dir'] ?? '');
+    if ($tempDir !== '' && is_dir($tempDir)) {
+        @rmdir($tempDir);
+    }
+}
+
+function studio_whatsapp_summarize_video_frame_analyses(array $frameAnalyses, string $model): array
+{
+    $valid = array_values(array_filter($frameAnalyses, static fn($item) => is_array($item) && !empty($item['ok'])));
+    if (!$valid) {
+        $lastError = '';
+        foreach ($frameAnalyses as $item) {
+            if (is_array($item) && trim((string)($item['error'] ?? '')) !== '') {
+                $lastError = trim((string)$item['error']);
+            }
+        }
+        return ['ok' => false, 'present' => true, 'error' => $lastError !== '' ? $lastError : 'Nenhum frame do video foi analisado.'];
+    }
+
+    $styles = [];
+    $elements = [];
+    $bodyAreas = [];
+    $tattooVisible = false;
+    $humanSkinVisible = false;
+    $unsafe = false;
+    $sensitive = false;
+    foreach ($valid as $analysis) {
+        $tattooVisible = $tattooVisible || in_array((string)($analysis['visual_type'] ?? ''), ['tattoo_on_skin', 'artwork'], true);
+        $humanSkinVisible = $humanSkinVisible || in_array((string)($analysis['visual_type'] ?? ''), ['tattoo_on_skin', 'body_photo'], true);
+        $unsafe = $unsafe || (string)($analysis['safety'] ?? '') === 'unsafe';
+        $sensitive = $sensitive || (string)($analysis['safety'] ?? '') === 'sensitive';
+        foreach (['style' => &$styles, 'body_area' => &$bodyAreas] as $field => &$target) {
+            $value = trim((string)($analysis[$field] ?? ''));
+            if ($value !== '') {
+                $target[mb_strtolower($value)] = $value;
+            }
+        }
+        unset($target);
+        foreach (array_map('trim', explode(',', (string)($analysis['elements'] ?? ''))) as $element) {
+            if ($element !== '') {
+                $elements[mb_strtolower($element)] = $element;
+            }
+        }
+    }
+    $styleText = implode(', ', array_slice(array_values($styles), 0, 3));
+    $elementText = implode(', ', array_slice(array_values($elements), 0, 5));
+    $bodyAreaText = implode(', ', array_slice(array_values($bodyAreas), 0, 3));
+    $summaryParts = [];
+    if ($elementText !== '') {
+        $summaryParts[] = 'aparecem ' . $elementText;
+    }
+    if ($styleText !== '') {
+        $summaryParts[] = 'com estilo ' . $styleText;
+    }
+    if ($bodyAreaText !== '') {
+        $summaryParts[] = 'na regiao ' . $bodyAreaText;
+    }
+    $summary = $summaryParts
+        ? 'Frames do video indicam que ' . implode('; ', $summaryParts) . '.'
+        : 'Frames do video foram analisados, mas sem detalhes visuais fortes o bastante para resumir.';
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'provider' => 'nvidia',
+        'model' => $model,
+        'summary' => mb_substr($summary, 0, 500),
+        'tattoo_visible' => $tattooVisible,
+        'human_skin_visible' => $humanSkinVisible,
+        'body_area' => mb_substr($bodyAreaText, 0, 80),
+        'style' => mb_substr($styleText, 0, 80),
+        'elements' => mb_substr($elementText, 0, 180),
+        'movement_context' => 'Analise feita por amostras estaticas extraidas do video.',
+        'safety' => $unsafe ? 'unsafe' : ($sensitive ? 'sensitive' : 'safe'),
+        'frames_analyzed' => count($valid),
+    ];
+}
+
+function studio_pdf_first_page_image(string $absolutePath): array
+{
+    $binary = studio_find_pdftoppm_binary();
+    if ($binary === '') {
+        return ['ok' => false, 'error' => 'pdftoppm nao encontrado para converter PDF em imagem.'];
+    }
+    $prefix = tempnam(sys_get_temp_dir(), 'wa_pdf_page_');
+    if ($prefix === false) {
+        return ['ok' => false, 'error' => 'Nao foi possivel criar arquivo temporario para PDF.'];
+    }
+    @unlink($prefix);
+    $command = escapeshellarg($binary)
+        . ' -png -f 1 -l 1 -singlefile '
+        . escapeshellarg($absolutePath)
+        . ' '
+        . escapeshellarg($prefix)
+        . ' 2>&1';
+    $output = [];
+    $exitCode = null;
+    exec($command, $output, $exitCode);
+    $imagePath = $prefix . '.png';
+    if ($exitCode !== 0 || !is_file($imagePath)) {
+        @unlink($imagePath);
+        return ['ok' => false, 'error' => 'Nao foi possivel renderizar a primeira pagina do PDF: ' . mb_substr(trim(implode("\n", $output)), 0, 220)];
+    }
+
+    return ['ok' => true, 'path' => $imagePath, 'mime' => 'image/png'];
+}
+
+function studio_nvidia_document_parse_image(array $studio, string $absolutePath, string $mime): array
+{
+    $document = studio_nvidia_document_config($studio);
+    if ((string)$document['api_key'] === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Chave NVIDIA Document Parse nao configurada.'];
+    }
+    $binary = file_get_contents($absolutePath);
+    if ($binary === false || $binary === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Nao foi possivel ler o documento.'];
+    }
+    if ($mime === '' && function_exists('mime_content_type')) {
+        $mime = (string)@mime_content_type($absolutePath);
+    }
+    if ($mime === '') {
+        $mime = 'image/jpeg';
+    }
+    $toolName = 'markdown_no_bbox';
+    $payload = [
+        'model' => (string)$document['model'],
+        'messages' => [[
+            'role' => 'user',
+            'content' => '<img src="data:' . $mime . ';base64,' . base64_encode($binary) . '" />',
+        ]],
+        'tools' => [[
+            'type' => 'function',
+            'function' => ['name' => $toolName],
+        ]],
+        'tool_choice' => [
+            'type' => 'function',
+            'function' => ['name' => $toolName],
+        ],
+        'max_tokens' => 1536,
+    ];
+
+    $ch = curl_init((string)$document['base_url'] . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . (string)$document['api_key'],
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 120,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'present' => true, 'error' => $error ?: 'Falha no Document Parse NVIDIA.'];
+    }
+    $response = json_decode((string)$raw, true);
+    if (!is_array($response) || $status >= 400) {
+        $apiError = is_array($response['error'] ?? null)
+            ? (string)($response['error']['message'] ?? ('Falha HTTP ' . $status . ' no Document Parse NVIDIA.'))
+            : (string)($response['error'] ?? ('Falha HTTP ' . $status . ' no Document Parse NVIDIA.'));
+        return ['ok' => false, 'present' => true, 'error' => $apiError];
+    }
+
+    $text = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+    $toolCalls = $response['choices'][0]['message']['tool_calls'] ?? [];
+    if ($text === '' && is_array($toolCalls)) {
+        foreach ($toolCalls as $call) {
+            $arguments = (string)($call['function']['arguments'] ?? '');
+            $decoded = json_decode($arguments, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    if (is_array($item) && trim((string)($item['text'] ?? '')) !== '') {
+                        $text .= ($text !== '' ? "\n\n" : '') . trim((string)$item['text']);
+                    }
+                }
+            }
+        }
+    }
+    $text = trim(preg_replace('/\R{3,}/', "\n\n", $text) ?? $text);
+    if ($text === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'O Document Parse nao encontrou texto utilizavel.'];
+    }
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'provider' => 'nvidia',
+        'model' => (string)$document['model'],
+        'text' => mb_substr($text, 0, 4000),
+    ];
+}
+
+function studio_whatsapp_analyze_document(array $studio, array $message): array
+{
+    $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
+    $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    if ($messageType !== 'document' && !str_starts_with($mediaMime, 'application/') && !str_contains($mediaMime, 'pdf')) {
+        return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem documento.'];
+    }
+    $settings = studio_settings($studio);
+    if (array_key_exists('nvidia_document_enabled', $settings) && empty($settings['nvidia_document_enabled'])) {
+        return ['ok' => false, 'present' => true, 'error' => 'Leitura de documentos desativada nas configuracoes.'];
+    }
+
+    $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
+    $absolutePath = studio_whatsapp_media_absolute_path($mediaPath);
+    if (!$absolutePath) {
+        return ['ok' => false, 'present' => true, 'error' => 'Arquivo do documento nao encontrado.'];
+    }
+
+    $fileSize = (int)(filesize($absolutePath) ?: 0);
+    if ($fileSize <= 0 || $fileSize > 16 * 1024 * 1024) {
+        return ['ok' => false, 'present' => true, 'error' => 'Documento vazio ou maior que 16 MB.'];
+    }
+
+    $fileName = trim((string)($message['media_file_name'] ?? basename($absolutePath)));
+    if (str_contains($mediaMime, 'pdf') || preg_match('/\.pdf$/i', $absolutePath)) {
+        $page = studio_pdf_first_page_image($absolutePath);
+        if (empty($page['ok'])) {
+            return [
+                'ok' => false,
+                'present' => true,
+                'file_name' => $fileName,
+                'error' => (string)($page['error'] ?? 'Nao foi possivel preparar o PDF.'),
+            ];
+        }
+        $result = studio_nvidia_document_parse_image($studio, (string)$page['path'], (string)$page['mime']);
+        @unlink((string)$page['path']);
+    } elseif (str_starts_with($mediaMime, 'image/') || preg_match('/\.(png|jpe?g|webp)$/i', $absolutePath)) {
+        $result = studio_nvidia_document_parse_image($studio, $absolutePath, $mediaMime);
+    } else {
+        return [
+            'ok' => false,
+            'present' => true,
+            'file_name' => $fileName,
+            'error' => 'Tipo de documento ainda nao suportado para leitura automatica.',
+        ];
+    }
+
+    if (!empty($result['ok'])) {
+        $result['file_name'] = $fileName;
+    }
+    return $result;
+}
+
+function studio_whatsapp_analyze_video_frames_with_nvidia(array $studio, array $framePaths): array
+{
+    $video = studio_nvidia_video_config($studio);
+    if ((string)$video['api_key'] === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Chave NVIDIA Vision nao configurada para analisar video.'];
+    }
+    $fallbackToFrames = static function () use ($studio, $framePaths, $video): array {
+        $analyses = [];
+        foreach ($framePaths as $framePath) {
+            $binary = is_file($framePath) ? file_get_contents($framePath) : false;
+            if ($binary === false || $binary === '') {
+                continue;
+            }
+            $analyses[] = studio_whatsapp_analyze_image_with_nvidia(
+                $studio,
+                $framePath,
+                $binary,
+                'image/jpeg',
+                studio_whatsapp_image_color_mode($binary)
+            );
+        }
+        return studio_whatsapp_summarize_video_frame_analyses($analyses, (string)$video['model']);
+    };
+
+    $content = [[
+        'type' => 'text',
+        'text' => 'Analise estes frames extraidos de um video recebido por WhatsApp para atendimento de um estudio de tatuagem no Brasil. '
+            . 'Eles estao em ordem temporal. Responda exclusivamente com JSON valido e compacto neste formato: '
+            . '{"video_summary":"","tattoo_visible":false,"human_skin_visible":false,"body_area":"","style":"","elements":"","movement_context":"","safety":"safe"}. '
+            . 'video_summary deve resumir o que aparece no video em portugues do Brasil. '
+            . 'body_area deve ficar vazio se nao houver corpo humano visivel. '
+            . 'style e elements devem considerar tatuagem, referencia visual ou desenho quando aparecer. '
+            . 'elements deve ter no maximo 4 itens separados por virgula. '
+            . 'movement_context deve descrever se o video mostra angulo, giro, aproximacao ou detalhes relevantes. '
+            . 'safety deve ser safe, sensitive ou unsafe. '
+            . 'Nao identifique pessoas, nao infira dados sensiveis e nao faca diagnostico medico.',
+    ]];
+    foreach ($framePaths as $framePath) {
+        $binary = is_file($framePath) ? file_get_contents($framePath) : false;
+        if ($binary === false || $binary === '') {
+            continue;
+        }
+        $content[] = [
+            'type' => 'image_url',
+            'image_url' => ['url' => 'data:image/jpeg;base64,' . base64_encode($binary)],
+        ];
+    }
+    if (count($content) <= 1) {
+        return ['ok' => false, 'present' => true, 'error' => 'Nenhum frame valido para analisar.'];
+    }
+
+    $body = [
+        'model' => (string)$video['model'],
+        'messages' => [[
+            'role' => 'user',
+            'content' => $content,
+        ]],
+        'max_tokens' => 700,
+        'temperature' => 0.1,
+        'top_p' => 0.7,
+        'frequency_penalty' => 0,
+        'presence_penalty' => 0,
+        'stream' => false,
+    ];
+
+    $ch = curl_init((string)$video['base_url'] . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . (string)$video['api_key'],
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 120,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        $fallback = $fallbackToFrames();
+        return !empty($fallback['ok']) ? $fallback : ['ok' => false, 'present' => true, 'error' => $error ?: 'Falha na analise de video NVIDIA.'];
+    }
+    $response = json_decode((string)$raw, true);
+    if (!is_array($response) || $status >= 400) {
+        $apiError = is_array($response['error'] ?? null)
+            ? (string)($response['error']['message'] ?? ('Falha HTTP ' . $status . ' na analise de video NVIDIA.'))
+            : (string)($response['error'] ?? ('Falha HTTP ' . $status . ' na analise de video NVIDIA.'));
+        $fallback = $fallbackToFrames();
+        return !empty($fallback['ok']) ? $fallback : ['ok' => false, 'present' => true, 'error' => $apiError];
+    }
+
+    $contentText = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+    $decoded = studio_whatsapp_decode_visual_json($contentText);
+    if (!is_array($decoded)) {
+        $fallback = $fallbackToFrames();
+        return !empty($fallback['ok']) ? $fallback : ['ok' => false, 'present' => true, 'error' => 'Resposta de video NVIDIA invalida: ' . mb_substr($contentText, 0, 120)];
+    }
+    $safety = in_array((string)($decoded['safety'] ?? ''), ['safe', 'sensitive', 'unsafe'], true)
+        ? (string)$decoded['safety']
+        : 'sensitive';
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'provider' => 'nvidia',
+        'model' => (string)$video['model'],
+        'summary' => mb_substr(trim((string)($decoded['video_summary'] ?? '')), 0, 500),
+        'tattoo_visible' => !empty($decoded['tattoo_visible']),
+        'human_skin_visible' => !empty($decoded['human_skin_visible']),
+        'body_area' => mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 80),
+        'style' => mb_substr(trim((string)($decoded['style'] ?? '')), 0, 80),
+        'elements' => mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 180),
+        'movement_context' => mb_substr(trim((string)($decoded['movement_context'] ?? '')), 0, 240),
+        'safety' => $safety,
+        'frames_analyzed' => count($framePaths),
+    ];
+}
+
+function studio_whatsapp_analyze_video(array $studio, array $message): array
+{
+    $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
+    $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    if ($messageType !== 'video' && !str_starts_with($mediaMime, 'video/')) {
+        return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem video.'];
+    }
+    $settings = studio_settings($studio);
+    if (array_key_exists('nvidia_video_enabled', $settings) && empty($settings['nvidia_video_enabled'])) {
+        return ['ok' => false, 'present' => true, 'error' => 'Analise de video desativada nas configuracoes.'];
+    }
+
+    $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
+    $absolutePath = studio_whatsapp_media_absolute_path($mediaPath);
+    if (!$absolutePath) {
+        return ['ok' => false, 'present' => true, 'error' => 'Arquivo do video nao encontrado.'];
+    }
+    $fileSize = (int)(filesize($absolutePath) ?: 0);
+    if ($fileSize <= 0 || $fileSize > 64 * 1024 * 1024) {
+        return ['ok' => false, 'present' => true, 'error' => 'Video vazio ou maior que 64 MB.'];
+    }
+
+    $video = studio_nvidia_video_config($studio);
+    $frameResult = studio_extract_video_frames($absolutePath, (int)$video['frame_count']);
+    if (empty($frameResult['ok'])) {
+        return ['ok' => false, 'present' => true, 'error' => (string)($frameResult['error'] ?? 'Nao foi possivel preparar o video.')];
+    }
+    try {
+        $result = studio_whatsapp_analyze_video_frames_with_nvidia($studio, $frameResult['frames'] ?? []);
+    } finally {
+        studio_cleanup_video_frames($frameResult);
+    }
+    if (!empty($result['ok'])) {
+        $result['duration_seconds'] = (float)($frameResult['duration'] ?? 0);
+        $result['file_name'] = trim((string)($message['media_file_name'] ?? basename($absolutePath)));
+    }
+    return $result;
+}
+
 function studio_whatsapp_analyze_image(array $studio, array $message): array
 {
     $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
     $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
     if ($messageType !== 'image' && !str_starts_with($mediaMime, 'image/')) {
         return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem imagem.'];
+    }
+    $settings = studio_settings($studio);
+    if (array_key_exists('nvidia_vision_enabled', $settings) && empty($settings['nvidia_vision_enabled'])) {
+        return ['ok' => false, 'present' => true, 'error' => 'Analise de imagem desativada nas configuracoes.'];
     }
 
     $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
@@ -4703,17 +5462,22 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         return ['ok' => false, 'present' => true, 'error' => 'Imagem vazia ou maior que 8 MB.'];
     }
 
-    $config = studio_openai_config($studio);
-    $baseUrl = (string)($config['base_url'] ?? '');
-    if ((string)($config['provider'] ?? '') !== 'ollama' || !preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl)) {
-        return ['ok' => false, 'present' => true, 'error' => 'Analise visual local indisponivel.'];
-    }
-
     $binary = file_get_contents($absolutePath);
     if ($binary === false || $binary === '') {
         return ['ok' => false, 'present' => true, 'error' => 'Nao foi possivel ler a imagem.'];
     }
     $detectedColorMode = studio_whatsapp_image_color_mode($binary);
+
+    $nvidiaAnalysis = studio_whatsapp_analyze_image_with_nvidia($studio, $absolutePath, $binary, $mediaMime, $detectedColorMode);
+    if (!empty($nvidiaAnalysis['ok'])) {
+        return $nvidiaAnalysis;
+    }
+
+    $config = studio_openai_config($studio);
+    $baseUrl = (string)($config['base_url'] ?? '');
+    if ((string)($config['provider'] ?? '') !== 'ollama' || !preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl)) {
+        return $nvidiaAnalysis + ['ok' => false, 'present' => true];
+    }
 
     $schema = [
         'type' => 'object',
@@ -4790,47 +5554,13 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
 
     $response = json_decode((string)$raw, true);
     $content = trim((string)($response['message']['content'] ?? ''));
-    $decoded = json_decode($content, true);
-    if (!is_array($decoded) && preg_match('/\{.*\}/s', $content, $matches)) {
-        $decoded = json_decode($matches[0], true);
-    }
+    $decoded = studio_whatsapp_decode_visual_json($content);
     if (!is_array($decoded)) {
         return ['ok' => false, 'present' => true, 'error' => 'Resposta visual invalida.'];
     }
-
-    $humanSkin = !empty($decoded['human_skin_visible']);
-    $tattooInk = !empty($decoded['tattoo_ink_on_skin_visible']);
-    $standaloneArt = !empty($decoded['standalone_art_or_logo_visible']);
-    $bodyArea = mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 60);
-    $style = mb_substr(trim((string)($decoded['style'] ?? '')), 0, 60);
-    $elements = mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 160);
-    $safety = in_array((string)($decoded['safety'] ?? ''), ['safe', 'sensitive', 'unsafe'], true)
-        ? (string)$decoded['safety']
-        : 'sensitive';
-    $visualType = $safety === 'unsafe'
-        ? 'unsafe'
-        : (($tattooInk && ($humanSkin || $bodyArea !== ''))
-            ? 'tattoo_on_skin'
-            : ($standaloneArt || $tattooInk ? 'artwork' : ($humanSkin ? 'body_photo' : 'other')));
-    if (preg_match('/(black\s*(and|&)\s*(white|grey|gray)|preto\s+e\s+(branco|cinza)|blackwork)/i', $style)) {
-        $detectedColorMode = 'black_and_grey';
-    }
-
-    return [
-        'ok' => true,
-        'present' => true,
-        'model' => (string)$body['model'],
-        'visual_type' => $visualType,
-        'body_area' => $bodyArea,
-        'style' => $style,
-        'elements' => $elements,
-        'color_mode' => $detectedColorMode !== 'unknown'
-            ? $detectedColorMode
-            : (in_array((string)($decoded['color_mode'] ?? ''), ['black_and_grey', 'color', 'unknown'], true)
-                ? (string)$decoded['color_mode']
-                : 'unknown'),
-        'safety' => $safety,
-    ];
+    $result = studio_whatsapp_build_image_analysis_result($decoded, $detectedColorMode, (string)$body['model']);
+    $result['provider'] = 'ollama';
+    return $result;
 }
 
 function studio_attempt_whatsapp_audio_transcription(array $studio, string $messageId, string $mediaPath): void
@@ -5099,20 +5829,29 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
 function studio_openai_config(array $studio): array
 {
     $settings = studio_settings($studio);
-    $provider = trim((string)($settings['ai_provider'] ?? 'ollama'));
-    if ($provider !== 'openai' && $provider !== 'ollama') {
-        $provider = 'ollama';
+    $provider = trim((string)($settings['ai_provider'] ?? 'nvidia'));
+    if (!in_array($provider, ['nvidia', 'openai', 'ollama'], true)) {
+        $provider = 'nvidia';
     }
-    $apiKey = studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
+    $apiKey = $provider === 'nvidia'
+        ? studio_setting_secret($settings, 'nvidia_api_key', 'NVIDIA_API_KEY')
+        : studio_setting_secret($settings, 'openai_api_key', 'OPENAI_API_KEY');
     $studioModel = trim((string)($settings['ai_model'] ?? $studio['ai_model'] ?? ''));
     $openAiModel = trim((string)($settings['openai_model'] ?? ''));
-    $model = $provider === 'ollama'
-        ? ($studioModel !== '' ? $studioModel : $openAiModel)
-        : ($openAiModel !== '' ? $openAiModel : $studioModel);
+    $nvidiaModel = trim((string)($settings['nvidia_model'] ?? ''));
+    $model = match ($provider) {
+        'ollama' => $studioModel !== '' ? $studioModel : $openAiModel,
+        'openai' => $openAiModel !== '' ? $openAiModel : $studioModel,
+        default => $nvidiaModel !== '' ? $nvidiaModel : ($openAiModel !== '' ? $openAiModel : $studioModel),
+    };
     if ($provider === 'ollama' && ($model === '' || preg_match('/^(gpt-|chatgpt|o[0-9])/i', $model))) {
         $model = 'llama3.2:3b';
     }
-    $model = $model !== '' ? $model : ($provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2:3b');
+    $model = $model !== '' ? $model : match ($provider) {
+        'openai' => 'gpt-4o-mini',
+        'ollama' => 'llama3.2:3b',
+        default => 'meta/llama-3.1-70b-instruct',
+    };
     $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
     if ($provider === 'ollama') {
         $baseUrl = $baseUrl !== '' ? rtrim($baseUrl, '/') : 'http://127.0.0.1:11434/v1';
@@ -5127,6 +5866,15 @@ function studio_openai_config(array $studio): array
             || preg_match('/^(llama|qwen|mistral|gemma|phi|orca|deepseek|codellama)/i', $model);
         if ($looksLikeOllamaModel) {
             $model = 'gpt-4o-mini';
+        }
+    }
+    if ($provider === 'nvidia') {
+        $looksLikeOtherProvider = $baseUrl === ''
+            || (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl)
+            || stripos($baseUrl, 'api.openai.com') !== false;
+        $baseUrl = $looksLikeOtherProvider ? 'https://integrate.api.nvidia.com/v1' : rtrim($baseUrl, '/');
+        if ($model === '' || preg_match('/^(gpt-|chatgpt|o[0-9]|qwen|llama3\.2|mistral|gemma|phi|orca|deepseek|codellama)/i', $model)) {
+            $model = 'meta/llama-3.1-70b-instruct';
         }
     }
     $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
@@ -5174,14 +5922,37 @@ function studio_setting_secret(array $settings, string $key, string $envKey = ''
 function studio_openai_text(string $apiKey, string $model, string $systemPrompt, string $userPrompt, string $baseUrl = 'https://api.openai.com/v1', ?int $timeoutSeconds = null): array
 {
     if ($apiKey === '') {
-        return ['ok' => false, 'error' => 'Chave da OpenAI nao configurada.'];
+        return ['ok' => false, 'error' => 'Chave da IA nao configurada.'];
     }
 
     $isOllama = (bool)preg_match('#(localhost|127\.0\.0\.1|::1):11434#i', $baseUrl);
+    $isNvidia = stripos($baseUrl, 'integrate.api.nvidia.com') !== false;
     $fallbackModel = $model;
     if (preg_match('/[:]/', $fallbackModel) || preg_match('/^(llama|qwen|mistral|gemma|phi|orca|deepseek|codellama)/i', $fallbackModel)) {
         $fallbackModel = 'gpt-4o-mini';
     }
+    $nvidiaFallbackModels = [];
+    if ($isNvidia) {
+        $nvidiaFallbackModels = array_values(array_filter(
+            ['meta/llama-3.1-70b-instruct', 'meta/llama-3.2-3b-instruct'],
+            static fn(string $candidate): bool => strcasecmp($candidate, $model) !== 0
+        ));
+    }
+    $tryNvidiaFallback = function (string $lastError) use ($isNvidia, $nvidiaFallbackModels, $apiKey, $systemPrompt, $userPrompt, $baseUrl, $timeoutSeconds): ?array {
+        if (!$isNvidia || !$nvidiaFallbackModels) {
+            return null;
+        }
+        $error = $lastError;
+        foreach ($nvidiaFallbackModels as $fallback) {
+            $retry = studio_openai_text($apiKey, $fallback, $systemPrompt, $userPrompt, $baseUrl, $timeoutSeconds !== null ? min($timeoutSeconds, 45) : 45);
+            if (!empty($retry['ok'])) {
+                $retry['fallback_model'] = $fallback;
+                return $retry;
+            }
+            $error = (string)($retry['error'] ?? $error);
+        }
+        return ['ok' => false, 'error' => $error];
+    };
     $responseText = '';
     if ($isOllama) {
         $body = [
@@ -5216,10 +5987,12 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     } else {
         $body = [
             'model' => $model,
-            'temperature' => 0.1,
-            'top_p' => 0.9,
+            'temperature' => $isNvidia ? 0.2 : 0.1,
+            'top_p' => $isNvidia ? 0.7 : 0.9,
             'presence_penalty' => 0.2,
             'frequency_penalty' => 0.35,
+            'max_tokens' => $isNvidia ? 1024 : 700,
+            'stream' => false,
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt . "\n\nResponda somente com JSON valido neste formato: {\"reply_text\":\"...\",\"needs_human\":false,\"lead_score_delta\":0,\"summary\":\"...\"}"],
                 ['role' => 'user', 'content' => $userPrompt],
@@ -5231,11 +6004,12 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => [
+            'Accept: application/json',
             'Content-Type: application/json',
             'Authorization: Bearer ' . $apiKey,
         ],
         CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        CURLOPT_TIMEOUT => $timeoutSeconds ?? ($isOllama ? 180 : 60),
+        CURLOPT_TIMEOUT => $timeoutSeconds ?? ($isOllama ? 180 : ($isNvidia ? 75 : 60)),
     ]);
     $raw = curl_exec($ch);
     $errno = curl_errno($ch);
@@ -5247,6 +6021,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
             return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
+        $fallback = $tryNvidiaFallback($error ?: 'Falha na chamada da IA.');
+        if ($fallback !== null) {
+            return $fallback;
+        }
         return ['ok' => false, 'error' => $error ?: 'Falha na chamada da IA.'];
     }
 
@@ -5254,6 +6032,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     if (!is_array($json)) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
             return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
+        $fallback = $tryNvidiaFallback('Resposta invalida da IA.');
+        if ($fallback !== null) {
+            return $fallback;
         }
         return ['ok' => false, 'error' => 'Resposta invalida da IA.'];
     }
@@ -5266,6 +6048,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
             : (string)($json['error'] ?? ('Erro HTTP ' . $status));
         if ($isOllama && stripos($apiError, 'model') !== false && stripos($apiError, 'not found') !== false) {
             $apiError .= '. Configure um modelo baixado no Ollama, como llama3.2:3b, qwen3:4b, qwen3:14b ou llama3:8b.';
+        }
+        $fallback = $tryNvidiaFallback($apiError);
+        if ($fallback !== null) {
+            return $fallback;
         }
         return ['ok' => false, 'error' => $apiError];
     }
@@ -5280,6 +6066,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
             return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
         }
+        $fallback = $tryNvidiaFallback('A IA nao retornou texto.');
+        if ($fallback !== null) {
+            return $fallback;
+        }
         return ['ok' => false, 'error' => 'A IA nao retornou texto.'];
     }
     $decoded = json_decode($content, true);
@@ -5289,6 +6079,10 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     if (!is_array($decoded)) {
         if ($isOllama && $apiKey !== '' && $apiKey !== 'ollama') {
             return studio_openai_text($apiKey, $fallbackModel, $systemPrompt, $userPrompt, 'https://api.openai.com/v1', $timeoutSeconds);
+        }
+        $fallback = $tryNvidiaFallback('Nao consegui ler o JSON da IA.');
+        if ($fallback !== null) {
+            return $fallback;
         }
         return ['ok' => false, 'error' => 'Nao consegui ler o JSON da IA: ' . mb_substr($content, 0, 120)];
     }
@@ -6414,13 +7208,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 
     $config = studio_openai_config($studio);
     if ($config['api_key'] === '') {
-        return ['ok' => false, 'error' => 'Configure a chave da OpenAI nas configuracoes do estudio.'];
+        return ['ok' => false, 'error' => 'Configure a chave da IA nas configuracoes do estudio.'];
     }
     if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
         return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
     }
     $pdo = studio_db($studio);
     $imageAnalysis = studio_whatsapp_analyze_image($studio, $newMessage);
+    $documentAnalysis = studio_whatsapp_analyze_document($studio, $newMessage);
+    $videoAnalysis = studio_whatsapp_analyze_video($studio, $newMessage);
 
     $stmt = $pdo->prepare(
         'SELECT direction, sender_type, body, transcricao, transcript, message_type, media_mime, media_file_name, sent_at
@@ -6504,7 +7300,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $messageText = implode("\n", $pendingCustomerTexts);
     }
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
-    $currentIntent = studio_whatsapp_ai_detect_intent($messageText, !empty($imageAnalysis['present']), $messageType);
+    $hasVisualReference = !empty($imageAnalysis['present']) || !empty($videoAnalysis['present']);
+    $currentIntent = studio_whatsapp_ai_detect_intent($messageText, $hasVisualReference, $messageType);
     $pendingIntents = [];
     foreach ($pendingCustomerTexts as $pendingText) {
         $pendingIntent = studio_whatsapp_ai_detect_intent($pendingText, false, 'text');
@@ -6595,8 +7392,49 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 . '; estilo ' . ($visualStyle !== '' ? $visualStyle : 'nao identificado')
                 . '; elementos ' . ($visualElements !== '' ? $visualElements : 'nao identificados')
                 . '; cores ' . $colorModeLabel . '.';
-        } else {
+    } else {
             $imageContext = 'Imagem recebida, mas a analise visual local nao ficou disponivel. Nao invente o conteudo da imagem.';
+        }
+    }
+    $videoContext = 'Nenhum video recebido nesta mensagem.';
+    if (!empty($videoAnalysis['present'])) {
+        if (!empty($videoAnalysis['ok'])) {
+            $videoParts = [];
+            if ((string)($videoAnalysis['summary'] ?? '') !== '') {
+                $videoParts[] = 'resumo: ' . (string)$videoAnalysis['summary'];
+            }
+            if ((string)($videoAnalysis['body_area'] ?? '') !== '') {
+                $videoParts[] = 'area: ' . (string)$videoAnalysis['body_area'];
+            }
+            if ((string)($videoAnalysis['style'] ?? '') !== '') {
+                $videoParts[] = 'estilo: ' . (string)$videoAnalysis['style'];
+            }
+            if ((string)($videoAnalysis['elements'] ?? '') !== '') {
+                $videoParts[] = 'elementos: ' . (string)$videoAnalysis['elements'];
+            }
+            if ((string)($videoAnalysis['movement_context'] ?? '') !== '') {
+                $videoParts[] = 'movimento/angulo: ' . (string)$videoAnalysis['movement_context'];
+            }
+            $videoContext = 'Analise do video por frames: ' . ($videoParts ? implode('; ', $videoParts) : 'sem detalhes confirmados')
+                . '; frames analisados: ' . (string)($videoAnalysis['frames_analyzed'] ?? 0) . '.';
+        } else {
+            $videoContext = 'Video recebido, mas a analise automatica nao ficou disponivel: '
+                . (string)($videoAnalysis['error'] ?? 'erro desconhecido')
+                . '. Nao invente o conteudo do video.';
+        }
+    }
+    $documentContext = 'Nenhum documento recebido nesta mensagem.';
+    if (!empty($documentAnalysis['present'])) {
+        if (!empty($documentAnalysis['ok'])) {
+            $documentText = trim((string)($documentAnalysis['text'] ?? ''));
+            $documentContext = 'Documento analisado por ' . (string)($documentAnalysis['provider'] ?? 'nvidia')
+                . ' usando ' . (string)($documentAnalysis['model'] ?? '')
+                . '. Arquivo: ' . (string)($documentAnalysis['file_name'] ?? 'anexo')
+                . ". Conteudo extraido:\n" . mb_substr($documentText, 0, 3000);
+        } else {
+            $documentContext = 'Documento recebido, mas a leitura automatica nao ficou disponivel: '
+                . (string)($documentAnalysis['error'] ?? 'erro desconhecido')
+                . '. Nao invente o conteudo do documento.';
         }
     }
     $dateContext = null;
@@ -6697,6 +7535,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . $scheduleContextBlock
         . "Mensagens pendentes do cliente (prioridade maxima; responda todas): " . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n"
         . "Contexto da imagem atual: " . $imageContext . "\n"
+        . "Contexto do video atual: " . $videoContext . "\n"
+        . "Contexto do documento atual: " . $documentContext . "\n"
         . "Endereco oficial cadastrado: " . ($studioAddress !== '' ? $studioAddress : 'NAO CADASTRADO') . "\n"
         . "Tatuadores ativos cadastrados: " . ($artistNames ? implode(', ', $artistNames) : 'Nenhum cadastrado') . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
@@ -6730,6 +7570,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se for arte, desenho ou logo fora da pele, trate como possivel referencia e pergunte se o cliente quer reproduzir ou adaptar.\n"
         . "- Se for foto de uma regiao do corpo sem tatuagem visivel, pergunte qual tatuagem a pessoa pretende fazer nessa regiao.\n"
         . "- Se a imagem estiver sem analise ou categoria confirmada, pergunte de forma curta o que o cliente quer considerar nela.\n"
+        . "- Se houver documento analisado, use somente o texto extraido no bloco de documento. Se a leitura falhou, diga que nao conseguiu ler o arquivo e peca reenvio ou texto.\n"
+        . "- Se houver video analisado, use somente o resumo dos frames. Nao diga que viu algo que nao esteja no contexto do video.\n"
         . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
@@ -7016,6 +7858,25 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $visualMemory = 'Referência visual: ' . implode('; ', $visualMemoryParts) . '.';
             $updatedMemory = trim($updatedMemory . "\n" . $visualMemory);
         }
+    }
+    if (!empty($documentAnalysis['ok']) && trim((string)($documentAnalysis['text'] ?? '')) !== '') {
+        $documentSummary = trim(preg_replace('/\s+/', ' ', (string)$documentAnalysis['text']) ?? (string)$documentAnalysis['text']);
+        $documentMemory = 'Documento recebido (' . (string)($documentAnalysis['file_name'] ?? 'anexo') . '): '
+            . mb_substr($documentSummary, 0, 260) . '.';
+        $updatedMemory = trim($updatedMemory . "\n" . $documentMemory);
+    }
+    if (!empty($videoAnalysis['ok']) && trim((string)($videoAnalysis['summary'] ?? '')) !== '') {
+        $videoMemoryParts = ['resumo ' . trim((string)$videoAnalysis['summary'])];
+        if (trim((string)($videoAnalysis['style'] ?? '')) !== '') {
+            $videoMemoryParts[] = 'estilo ' . trim((string)$videoAnalysis['style']);
+        }
+        if (trim((string)($videoAnalysis['elements'] ?? '')) !== '') {
+            $videoMemoryParts[] = 'elementos ' . trim((string)$videoAnalysis['elements']);
+        }
+        if (trim((string)($videoAnalysis['body_area'] ?? '')) !== '') {
+            $videoMemoryParts[] = 'local ' . trim((string)$videoAnalysis['body_area']);
+        }
+        $updatedMemory = trim($updatedMemory . "\n" . 'Video recebido: ' . implode('; ', $videoMemoryParts) . '.');
     }
     if ($updatedMemory !== '') {
         $memoryLines = [];
@@ -9707,6 +10568,7 @@ function studio_settings(array $studio): array
 
 function studio_save_settings(array $studio, array $data): void
 {
+    $settings = studio_settings($studio);
     $studioName = trim((string)($data['studio_name'] ?? $studio['name']));
     $studioAddress = trim((string)($data['studio_address'] ?? ''));
     $businessRules = trim((string)($data['business_rules'] ?? ''));
@@ -9715,15 +10577,46 @@ function studio_save_settings(array $studio, array $data): void
     $assistantAutofillEnabled = !empty($data['assistant_autofill_enabled']) ? 1 : 0;
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
     if ($openAiKey === '') {
-        $openAiKey = trim((string)($studio['openai_api_key'] ?? ''));
+        $openAiKey = trim((string)($settings['openai_api_key'] ?? ''));
     }
     $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
+    $nvidiaApiKey = trim((string)($data['nvidia_api_key'] ?? ''));
+    if ($nvidiaApiKey === '') {
+        $nvidiaApiKey = trim((string)($settings['nvidia_api_key'] ?? ''));
+    }
+    $nvidiaModel = trim((string)($data['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct'));
+    $nvidiaVisionApiKey = trim((string)($data['nvidia_vision_api_key'] ?? ''));
+    if ($nvidiaVisionApiKey === '') {
+        $nvidiaVisionApiKey = trim((string)($settings['nvidia_vision_api_key'] ?? ''));
+    }
+    $nvidiaVisionModel = trim((string)($data['nvidia_vision_model'] ?? 'meta/llama-3.2-90b-vision-instruct'));
+    $nvidiaVisionEnabled = !array_key_exists('nvidia_vision_enabled', $data) && !array_key_exists('settings_tab', $data)
+        ? (int)($settings['nvidia_vision_enabled'] ?? 1)
+        : (!empty($data['nvidia_vision_enabled']) ? 1 : 0);
+    $nvidiaDocumentApiKey = trim((string)($data['nvidia_document_api_key'] ?? ''));
+    if ($nvidiaDocumentApiKey === '') {
+        $nvidiaDocumentApiKey = trim((string)($settings['nvidia_document_api_key'] ?? ''));
+    }
+    $nvidiaDocumentModel = trim((string)($data['nvidia_document_model'] ?? 'nvidia/nemoretriever-parse'));
+    $nvidiaDocumentEnabled = !array_key_exists('nvidia_document_enabled', $data) && !array_key_exists('settings_tab', $data)
+        ? (int)($settings['nvidia_document_enabled'] ?? 1)
+        : (!empty($data['nvidia_document_enabled']) ? 1 : 0);
+    $nvidiaVideoEnabled = !array_key_exists('nvidia_video_enabled', $data) && !array_key_exists('settings_tab', $data)
+        ? (int)($settings['nvidia_video_enabled'] ?? 1)
+        : (!empty($data['nvidia_video_enabled']) ? 1 : 0);
+    $nvidiaVideoModel = trim((string)($data['nvidia_video_model'] ?? ($settings['nvidia_video_model'] ?? 'meta/llama-3.2-90b-vision-instruct')));
+    $nvidiaVideoFrameCount = max(1, min(6, (int)($data['nvidia_video_frame_count'] ?? ($settings['nvidia_video_frame_count'] ?? 3))));
     $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
-    $aiProvider = (string)($data['ai_provider'] ?? 'ollama');
-    if (!in_array($aiProvider, ['openai', 'ollama'], true)) {
-        $aiProvider = 'ollama';
+    $aiProvider = (string)($data['ai_provider'] ?? 'nvidia');
+    if (!in_array($aiProvider, ['nvidia', 'openai', 'ollama'], true)) {
+        $aiProvider = 'nvidia';
     }
     $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
+    $defaultAiBaseUrl = match ($aiProvider) {
+        'openai' => 'https://api.openai.com/v1',
+        'ollama' => 'http://localhost:11434/v1',
+        default => 'https://integrate.api.nvidia.com/v1',
+    };
     $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
     $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
     $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'official')));
@@ -9802,9 +10695,22 @@ function studio_save_settings(array $studio, array $data): void
         'pomada_unit_price' => 'DECIMAL(10,2) NOT NULL DEFAULT 100.00',
         'openai_api_key' => 'TEXT NULL',
         'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
+        'nvidia_api_key' => 'TEXT NULL',
+        'nvidia_model' => 'VARCHAR(120) NOT NULL DEFAULT "meta/llama-3.1-70b-instruct"',
+        'nvidia_vision_api_key' => 'TEXT NULL',
+        'nvidia_vision_model' => 'VARCHAR(120) NOT NULL DEFAULT "meta/llama-3.2-90b-vision-instruct"',
+        'nvidia_vision_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
+        'nvidia_vision_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'nvidia_document_api_key' => 'TEXT NULL',
+        'nvidia_document_model' => 'VARCHAR(120) NOT NULL DEFAULT "nvidia/nemoretriever-parse"',
+        'nvidia_document_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
+        'nvidia_document_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'nvidia_video_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'nvidia_video_model' => 'VARCHAR(120) NOT NULL DEFAULT "meta/llama-3.2-90b-vision-instruct"',
+        'nvidia_video_frame_count' => 'TINYINT UNSIGNED NOT NULL DEFAULT 3',
         'ai_whatsapp_prompt' => 'TEXT NULL',
-        'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "ollama"',
-        'ai_api_base_url' => 'VARCHAR(120) NOT NULL DEFAULT "http://localhost:11434/v1"',
+        'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "nvidia"',
+        'ai_api_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
         'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "official"',
@@ -9845,7 +10751,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -9867,9 +10773,20 @@ function studio_save_settings(array $studio, array $data): void
         number_format($pomadaUnitPrice, 2, '.', ''),
         $openAiKey,
         $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
+        $nvidiaApiKey,
+        $nvidiaModel !== '' ? $nvidiaModel : 'meta/llama-3.1-70b-instruct',
+        $nvidiaVisionApiKey,
+        $nvidiaVisionModel !== '' ? $nvidiaVisionModel : 'meta/llama-3.2-90b-vision-instruct',
+        $nvidiaVisionEnabled,
+        $nvidiaDocumentApiKey,
+        $nvidiaDocumentModel !== '' ? $nvidiaDocumentModel : 'nvidia/nemoretriever-parse',
+        $nvidiaDocumentEnabled,
+        $nvidiaVideoEnabled,
+        $nvidiaVideoModel !== '' ? $nvidiaVideoModel : 'meta/llama-3.2-90b-vision-instruct',
+        $nvidiaVideoFrameCount,
         $aiWhatsAppPrompt,
         $aiProvider,
-        $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : 'http://localhost:11434/v1',
+        $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : $defaultAiBaseUrl,
         $whatsappProvider,
         $whatsappOfficialMode,
         $metaAdsEnabled,

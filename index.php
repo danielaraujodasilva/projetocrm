@@ -6415,11 +6415,14 @@ if ($page === 'studio_settings') {
         echo '<a class="btn secondary" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id']])) . '">Abrir atendentes do estúdio</a>';
         echo '</div></div>';
         echo '<div class="settings-overview-grid">';
+        $aiSettingsReady = !empty($settings['nvidia_api_key'])
+            || !empty($settings['openai_api_key'])
+            || (string)($settings['ai_provider'] ?? 'nvidia') === 'ollama';
         $settingsCards = [
             'studio' => ['Estúdio', 'Identidade, dados base e integrações', 'fa-store', 'Dados essenciais'],
             'agenda' => ['Agenda', 'Horários, duração e disponibilidade', 'fa-calendar-days', count($selectedWorkDays) . ' dias ativos'],
             'whatsapp' => ['WhatsApp', 'Conexão e comportamento do atendimento', 'fa-comments', 'API oficial'],
-            'ia' => ['Inteligência artificial', 'Modelo, chave e automações', 'fa-robot', !empty($settings['openai_api_key']) ? 'Configurada' : 'Pendente'],
+            'ia' => ['Inteligência artificial', 'Modelo, chave e automações', 'fa-robot', $aiSettingsReady ? 'Configurada' : 'Pendente'],
             'meta_ads' => ['Meta Ads', 'Conta, token, Pixel e formulários', 'fa-chart-line', !empty($settings['meta_ads_enabled']) ? 'Ativa' : 'Desativada'],
             'quick_replies' => ['Respostas rápidas', 'Biblioteca para agilizar o atendimento', 'fa-reply', 'Conteúdo'],
             'rules' => ['Treinamento da IA', 'Regras usadas em todas as conversas', 'fa-graduation-cap', 'Conteúdo'],
@@ -6614,19 +6617,62 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '</div>';
         echo '</div></div>';
+        $aiProviderCurrent = (string)($settings['ai_provider'] ?? 'nvidia');
+        if (!in_array($aiProviderCurrent, ['nvidia', 'openai', 'ollama'], true)) {
+            $aiProviderCurrent = 'nvidia';
+        }
+        $aiBaseUrlCurrent = trim((string)($settings['ai_api_base_url'] ?? ''));
+        if ($aiBaseUrlCurrent === '') {
+            $aiBaseUrlCurrent = $aiProviderCurrent === 'openai'
+                ? 'https://api.openai.com/v1'
+                : ($aiProviderCurrent === 'ollama' ? 'http://localhost:11434/v1' : 'https://integrate.api.nvidia.com/v1');
+        }
         echo '<div id="settingsSourceIa" hidden><div class="settings-panel" id="settings-ia" data-settings-panel="ia">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">IA</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="panel soft">';
+        echo '<h3 style="margin-top:0">Motor principal do chatbot</h3>';
+        echo '<p class="muted">A NVIDIA fica como padrão para o WhatsApp. OpenAI e Ollama continuam guardados como alternativas, sem misturar as chaves.</p>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Modelo IA</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3:8b') . '"></div>';
-        echo '<div class="field"><label>Fornecedor da IA</label><select name="ai_provider"><option value="ollama"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'ollama' ? ' selected' : '') . '>Ollama local</option><option value="openai"' . ((string)($settings['ai_provider'] ?? 'ollama') === 'openai' ? ' selected' : '') . '>OpenAI</option></select></div>';
+        echo '<div class="field"><label>Fornecedor da IA</label><select name="ai_provider"><option value="nvidia"' . ($aiProviderCurrent === 'nvidia' ? ' selected' : '') . '>NVIDIA API - Llama 70B</option><option value="openai"' . ($aiProviderCurrent === 'openai' ? ' selected' : '') . '>OpenAI</option><option value="ollama"' . ($aiProviderCurrent === 'ollama' ? ' selected' : '') . '>Ollama local</option></select><small class="muted">Este é o provedor usado pelo chatbot do WhatsApp e pelas sugestões de resposta.</small></div>';
+        echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($aiBaseUrlCurrent) . '" placeholder="https://integrate.api.nvidia.com/v1"><small class="muted">NVIDIA: https://integrate.api.nvidia.com/v1 | OpenAI: https://api.openai.com/v1 | Ollama: http://localhost:11434/v1</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($settings['ai_api_base_url'] ?? 'http://localhost:11434/v1') . '" placeholder="http://localhost:11434/v1"><small class="muted">Use a URL do servidor local ou da API escolhida.</small></div>';
-        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="' . h($settings['openai_api_key'] ?? '') . '" placeholder="sk-..."><small class="muted">Preencha só se usar OpenAI.</small></div>';
+        echo '<div class="field"><label>Chave da NVIDIA</label><input name="nvidia_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_api_key'] ?? ''))) . '</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA</label><input name="nvidia_model" value="' . h($settings['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct') . '" placeholder="meta/llama-3.1-70b-instruct"><small class="muted">Padrão operacional testado: meta/llama-3.1-70b-instruct. O 3.3 70B ficou sem resposta nesta máquina.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Modelo da IA no WhatsApp</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'qwen3:4b') . '" placeholder="qwen3:4b"><small class="muted">No Ollama, esse campo também define o modelo local.</small></div>';
+        echo '<div class="field"><label>Chave NVIDIA Vision</label><input name="nvidia_vision_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_vision_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA Vision</label><input name="nvidia_vision_model" value="' . h($settings['nvidia_vision_model'] ?? 'meta/llama-3.2-90b-vision-instruct') . '" placeholder="meta/llama-3.2-90b-vision-instruct"><small class="muted">Usado para entender imagens recebidas pelo WhatsApp.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Chave NVIDIA Document Parse</label><input name="nvidia_document_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_document_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA Document Parse</label><input name="nvidia_document_model" value="' . h($settings['nvidia_document_model'] ?? 'nvidia/nemoretriever-parse') . '" placeholder="nvidia/nemoretriever-parse"><small class="muted">Usado para ler documentos, prints e primeira página de PDFs recebidos no WhatsApp.</small></div>';
+        echo '</div>';
+        echo '<div class="panel soft" style="margin-top:16px">';
+        echo '<h3 style="margin-top:0">IAs multimodais do WhatsApp</h3>';
+        echo '<p class="muted">Aqui você controla quais camadas extras entram na conversa. O texto continua no modelo principal; estas opções servem para quando o cliente manda imagem, documento ou vídeo.</p>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="nvidia_vision_enabled" value="1" ' . ((int)($settings['nvidia_vision_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Entender imagens recebidas</label><label class="checkline"><input type="checkbox" name="nvidia_document_enabled" value="1" ' . ((int)($settings['nvidia_document_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Ler documentos e primeira página de PDF</label><label class="checkline"><input type="checkbox" name="nvidia_video_enabled" value="1" ' . ((int)($settings['nvidia_video_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Analisar vídeos por frames</label></div>';
+        echo '<div class="grid cols-2" style="margin-top:12px">';
+        echo '<div class="field"><label>Modelo NVIDIA para vídeo</label><input name="nvidia_video_model" value="' . h($settings['nvidia_video_model'] ?? 'meta/llama-3.2-90b-vision-instruct') . '" placeholder="meta/llama-3.2-90b-vision-instruct"><small class="muted">Por padrão usa o mesmo tipo de modelo Vision, analisando frames extraídos com FFmpeg.</small></div>';
+        echo '<div class="field"><label>Frames analisados por vídeo</label><select name="nvidia_video_frame_count">';
+        for ($frameOption = 1; $frameOption <= 6; $frameOption++) {
+            $selectedFrameOption = (int)($settings['nvidia_video_frame_count'] ?? 3) === $frameOption ? ' selected' : '';
+            echo '<option value="' . $frameOption . '"' . $selectedFrameOption . '>' . $frameOption . ($frameOption === 3 ? ' - recomendado' : '') . '</option>';
+        }
+        echo '</select><small class="muted">Mais frames entendem melhor o vídeo, mas deixam a resposta mais lenta. Três costuma ser o ponto bom.</small></div>';
+        echo '</div>';
+        echo '</div>';
+        echo '</div>';
+        echo '<div class="panel soft">';
+        echo '<h3 style="margin-top:0">Alternativas opcionais</h3>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Chave da OpenAI</label><input name="openai_api_key" type="password" value="" placeholder="sk-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['openai_api_key'] ?? ''))) . '</small></div>';
+        echo '<div class="field"><label>Modelo OpenAI</label><input name="openai_model" value="' . h($settings['openai_model'] ?? 'gpt-4o-mini') . '" placeholder="gpt-4o-mini"><small class="muted">Usado apenas se você trocar o fornecedor para OpenAI.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Modelo Ollama/local</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3.2:3b') . '" placeholder="llama3.2:3b"><small class="muted">Usado apenas se você trocar o fornecedor para Ollama local.</small></div>';
         echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
+        echo '</div>';
         echo '</div>';
         echo '</div></div>';
         echo '<div id="settingsSourceMetaAds" hidden><div class="settings-panel" id="settings-meta-ads" data-settings-panel="meta_ads">';
