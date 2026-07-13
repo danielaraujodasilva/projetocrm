@@ -1532,6 +1532,13 @@ if ($action === 'studio_login') {
                     flash_set('error', 'Conversa atribuida a outro atendente.');
                 } else {
                     studio_assign_whatsapp_conversation($studio, $conversationId, (int)$user['id'], $actorId);
+                    studio_update_whatsapp_conversation($studio, [
+                        'conversation_id' => $conversationId,
+                        'attendance_mode' => 'human',
+                        'needs_human' => 0,
+                        'ai_last_status' => 'Atendente assumiu a conversa',
+                        'ai_last_at' => date('Y-m-d H:i:s'),
+                    ]);
                     flash_set('success', 'Conversa assumida.');
                 }
             } elseif ($action === 'release_whatsapp_conversation') {
@@ -6678,7 +6685,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">Comportamento do chatbot e reservas</h3>';
-        echo '<p class="muted">Essas regras controlam a dinâmica fina da conversa: agrupamento de mensagens quebradas, volta da IA depois de chamar atendente e reserva por sinal.</p>';
+        echo '<p class="muted">Essas regras controlam a dinâmica fina da conversa: agrupamento de mensagens quebradas, pedido de atendente e reserva por sinal.</p>';
         echo '<div class="grid cols-3">';
         echo '<div class="field"><label>Esperar mensagens quebradas por</label><input type="number" min="2" max="30" name="whatsapp_ai_debounce_seconds" value="' . h((string)($settings['whatsapp_ai_debounce_seconds'] ?? 8)) . '"><small class="muted">Tempo em segundos antes da IA responder. Ajuda quando o cliente manda “oi / boa noite / orçamento” separado.</small></div>';
         echo '<div class="field"><label>Valor do sinal</label><input name="ai_booking_deposit_amount" value="' . h(number_format((float)($settings['ai_booking_deposit_amount'] ?? 50), 2, ',', '.')) . '" placeholder="50,00"><small class="muted">Usado nas respostas e na criação automática do agendamento.</small></div>';
@@ -6688,8 +6695,8 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Chave Pix para sinal</label><input name="ai_booking_pix_key" value="' . h($settings['ai_booking_pix_key'] ?? '363.262.368-60') . '" placeholder="CPF, telefone, email ou aleatória"></div>';
         echo '<div class="field"><label>Favorecido do Pix</label><input name="ai_booking_pix_recipient" value="' . h($settings['ai_booking_pix_recipient'] ?? 'Daniel Araújo da Silva') . '" placeholder="Nome de quem recebe o sinal"></div>';
         echo '</div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_handoff_reactivation_enabled" value="1" ' . ((int)($settings['ai_handoff_reactivation_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Permitir que o cliente reative a IA depois de chamar atendente</label></div>';
-        echo '<div class="field"><label>Palavras/frases que reativam a IA</label><textarea name="ai_handoff_reactivation_keywords" placeholder="ia&#10;bot&#10;assistente&#10;voltar para ia">' . h($settings['ai_handoff_reactivation_keywords'] ?? "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia") . '</textarea><small class="muted">Uma por linha. Ex.: se a conversa ficou em humano, o cliente pode mandar “IA, me responde” para o chatbot voltar.</small></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_keep_active_until_human_reply" value="1" ' . ((int)($settings['ai_keep_active_until_human_reply'] ?? 1) === 1 ? 'checked' : '') . '> Manter a IA respondendo até um atendente assumir</label></div>';
+        echo '<div class="field"><label>Mensagem quando o cliente pede atendente</label><textarea name="ai_handoff_keepalive_message" placeholder="Avisei a equipe que você quer falar com um atendente. Enquanto isso, sigo por aqui se quiser mais alguma informação.">' . h($settings['ai_handoff_keepalive_message'] ?? 'Avisei a equipe que você quer falar com um atendente. Enquanto isso, sigo por aqui se quiser mais alguma informação.') . '</textarea><small class="muted">Quando marcado, pedir atendente só acende o alerta no sistema. A IA continua ativa e só desliga quando alguém assume ou responde como humano.</small></div>';
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">IAs multimodais do WhatsApp</h3>';

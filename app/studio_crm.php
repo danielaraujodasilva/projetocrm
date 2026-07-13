@@ -4684,40 +4684,33 @@ function studio_whatsapp_update_message_status(array $studio, array $payload): a
     return ['ok' => true, 'updated' => $stmt->rowCount()];
 }
 
-function studio_whatsapp_ai_handoff_reactivation_keywords(array $studio): array
+function studio_whatsapp_ai_keep_active_until_human_reply(array $studio): bool
 {
     $settings = studio_settings($studio);
-    $raw = trim((string)($settings['ai_handoff_reactivation_keywords'] ?? ''));
-    if ($raw === '') {
-        $raw = "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia";
-    }
-    $items = preg_split('/[\r\n,;]+/u', $raw) ?: [];
-    $items = array_values(array_filter(array_map(static function (string $item): string {
-        $item = trim(studio_calendar_remove_accents(studio_calendar_lower_text($item)));
-        return preg_replace('/\s+/u', ' ', $item) ?: $item;
-    }, $items), static fn(string $item): bool => $item !== ''));
-
-    return array_values(array_unique($items));
+    return (int)($settings['ai_keep_active_until_human_reply'] ?? 1) === 1;
 }
 
-function studio_whatsapp_ai_should_reactivate_after_handoff(array $studio, string $body): bool
+function studio_whatsapp_ai_handoff_keepalive_message(array $studio): string
 {
     $settings = studio_settings($studio);
-    if ((int)($settings['ai_handoff_reactivation_enabled'] ?? 1) !== 1) {
-        return false;
-    }
-    $normalized = trim(studio_calendar_remove_accents(studio_calendar_lower_text($body)));
-    if ($normalized === '') {
-        return false;
-    }
-    $normalized = preg_replace('/\s+/u', ' ', $normalized) ?: $normalized;
-    foreach (studio_whatsapp_ai_handoff_reactivation_keywords($studio) as $keyword) {
-        if ($keyword !== '' && str_contains($normalized, $keyword)) {
-            return true;
-        }
+    $message = trim((string)($settings['ai_handoff_keepalive_message'] ?? ''));
+    if ($message === '') {
+        $message = 'Avisei a equipe que você quer falar com um atendente. Enquanto isso, sigo por aqui se quiser mais alguma informação.';
     }
 
-    return false;
+    return mb_substr($message, 0, 320);
+}
+
+function studio_whatsapp_ai_append_handoff_keepalive_note(array $studio, string $replyText): string
+{
+    $replyText = trim($replyText);
+    $note = studio_whatsapp_ai_handoff_keepalive_message($studio);
+    $normalizedReply = studio_calendar_remove_accents(studio_calendar_lower_text($replyText));
+    if (str_contains($normalizedReply, 'enquanto isso') || str_contains($normalizedReply, 'avisei a equipe')) {
+        return $replyText !== '' ? $replyText : $note;
+    }
+
+    return trim(($replyText !== '' ? $replyText . ' ' : '') . $note);
 }
 
 function studio_record_whatsapp_message(array $studio, array $payload): array
@@ -4836,6 +4829,17 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
             ->execute([$score, $sentAt, (int)$conversation['lead_id']]);
     }
 
+    if ($fromMe && $senderType === 'human') {
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => (int)$conversation['id'],
+            'attendance_mode' => 'human',
+            'needs_human' => 0,
+            'ai_last_status' => 'Atendente assumiu a conversa',
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        $conversation = studio_find_whatsapp_conversation($studio, (int)$conversation['id']) ?: $conversation;
+    }
+
     if (!$fromMe) {
         try {
             studio_process_appointment_confirmation_reply($studio, $conversation, $body);
@@ -4856,19 +4860,6 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     }
 
     $shouldQueueAi = !$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot';
-    if (!$fromMe && !$shouldQueueAi && studio_whatsapp_ai_should_reactivate_after_handoff($studio, $body)) {
-        try {
-            studio_update_whatsapp_conversation($studio, [
-                'conversation_id' => (int)$conversation['id'],
-                'attendance_mode' => 'bot',
-                'needs_human' => 0,
-                'ai_last_status' => 'IA reativada por pedido do cliente',
-            ]);
-            $conversation = studio_find_whatsapp_conversation($studio, (int)$conversation['id']) ?: $conversation;
-            $shouldQueueAi = true;
-        } catch (Throwable) {
-        }
-    }
 
     if ($shouldQueueAi) {
         try {
@@ -8368,7 +8359,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se houver video analisado, use somente o resumo dos frames. Nao diga que viu algo que nao esteja no contexto do video.\n"
         . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
-        . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
+        . "- Se precisar de humano, marque needs_human=true, avise que a equipe foi sinalizada e continue disponivel ate um atendente assumir.\n"
         . "- Para reserva de horario, primeiro ofereca/valide data e hora; depois explique sinal de " . $bookingDepositLabel . " via Pix " . $bookingPixKey . " em nome de " . $bookingPixRecipient . "; depois aguarde comprovante.\n"
         . "- Quando receber comprovante, nao repita horarios. Confirme recebimento e encaminhe para conferencia humana se nao tiver certeza.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
@@ -8384,7 +8375,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "  * Cliente com imagem: 'quanto custa?' -> Resposta: reconheca a imagem e pergunte tamanho ou cobertura que ainda falta.\n\n"
         . "- Evite listar varias vagas, varios nomes ou varios detalhes. Entregue só o proximo passo mais util.\n"
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
-        . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
+        . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human sem encerrar a conversa.";
 
     $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel): string {
         if (is_array($dateContext)) {
@@ -8652,6 +8643,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => $status, 'ai_last_status' => $status, 'ai_last_message_id' => $incomingMessageId];
     }
 
+    $handoffRequested = !empty($result['needs_human']);
+    $keepAiActiveUntilHumanReply = studio_whatsapp_ai_keep_active_until_human_reply($studio);
+    if ($handoffRequested && $keepAiActiveUntilHumanReply) {
+        $replyText = studio_whatsapp_ai_append_handoff_keepalive_note($studio, $replyText);
+        if (mb_strlen($replyText, 'UTF-8') > 520) {
+            $replyText = mb_substr($replyText, 0, 517, 'UTF-8') . '...';
+        }
+    }
+
     try {
         $sendData = [
             'conversation_id' => (int)$conversation['id'],
@@ -8692,12 +8692,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $currentScore = (int)($conversation['lead_score'] ?? 0);
     $scoreDelta = max(0, (int)($result['lead_score_delta'] ?? 0));
     $newScore = max(0, min(10, $currentScore + $scoreDelta));
-    $aiStatus = $result['needs_human'] ? 'IA sinalizou atendimento humano' : 'IA respondeu automaticamente';
+    $aiStatus = $handoffRequested
+        ? ($keepAiActiveUntilHumanReply ? 'IA sinalizou humano e segue ativa' : 'IA sinalizou atendimento humano')
+        : 'IA respondeu automaticamente';
 
     studio_update_whatsapp_conversation($studio, [
         'conversation_id' => (int)$conversation['id'],
-        'attendance_mode' => !empty($result['needs_human']) ? 'human' : 'bot',
-        'needs_human' => !empty($result['needs_human']) ? 1 : 0,
+        'attendance_mode' => ($handoffRequested && !$keepAiActiveUntilHumanReply) ? 'human' : 'bot',
+        'needs_human' => $handoffRequested ? 1 : 0,
         'lead_score' => $newScore,
         'ai_last_status' => $aiStatus,
         'ai_last_message' => $replyText,
@@ -11517,10 +11519,11 @@ function studio_save_settings(array $studio, array $data): void
         default => 'https://integrate.api.nvidia.com/v1',
     };
     $whatsappAiDebounceSeconds = max(2, min(30, (int)($data['whatsapp_ai_debounce_seconds'] ?? ($settings['whatsapp_ai_debounce_seconds'] ?? 8))));
-    $aiHandoffReactivationEnabled = $boolSetting('ai_handoff_reactivation_enabled', 1);
-    $aiHandoffReactivationKeywords = trim((string)($data['ai_handoff_reactivation_keywords'] ?? ($settings['ai_handoff_reactivation_keywords'] ?? "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia")));
-    if ($aiHandoffReactivationKeywords === '') {
-        $aiHandoffReactivationKeywords = "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia";
+    $defaultHandoffKeepaliveMessage = 'Avisei a equipe que você quer falar com um atendente. Enquanto isso, sigo por aqui se quiser mais alguma informação.';
+    $aiKeepActiveUntilHumanReply = $boolSetting('ai_keep_active_until_human_reply', 1);
+    $aiHandoffKeepaliveMessage = trim((string)($data['ai_handoff_keepalive_message'] ?? ($settings['ai_handoff_keepalive_message'] ?? $defaultHandoffKeepaliveMessage)));
+    if ($aiHandoffKeepaliveMessage === '') {
+        $aiHandoffKeepaliveMessage = $defaultHandoffKeepaliveMessage;
     }
     $aiBookingDepositAmount = (float)money_to_float((string)($data['ai_booking_deposit_amount'] ?? ($settings['ai_booking_deposit_amount'] ?? '50')));
     if ($aiBookingDepositAmount <= 0) {
@@ -11632,8 +11635,8 @@ function studio_save_settings(array $studio, array $data): void
         'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "nvidia"',
         'ai_api_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
         'whatsapp_ai_debounce_seconds' => 'TINYINT UNSIGNED NOT NULL DEFAULT 8',
-        'ai_handoff_reactivation_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
-        'ai_handoff_reactivation_keywords' => 'TEXT NULL',
+        'ai_keep_active_until_human_reply' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'ai_handoff_keepalive_message' => 'TEXT NULL',
         'ai_booking_deposit_amount' => 'DECIMAL(10,2) NOT NULL DEFAULT 50.00',
         'ai_booking_pix_key' => 'VARCHAR(120) NULL',
         'ai_booking_pix_recipient' => 'VARCHAR(160) NULL',
@@ -11678,7 +11681,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_handoff_reactivation_enabled = ?, ai_handoff_reactivation_keywords = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_keep_active_until_human_reply = ?, ai_handoff_keepalive_message = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -11723,8 +11726,8 @@ function studio_save_settings(array $studio, array $data): void
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : $defaultAiBaseUrl,
         $whatsappAiDebounceSeconds,
-        $aiHandoffReactivationEnabled,
-        $aiHandoffReactivationKeywords,
+        $aiKeepActiveUntilHumanReply,
+        $aiHandoffKeepaliveMessage,
         number_format($aiBookingDepositAmount, 2, '.', ''),
         $aiBookingPixKey,
         $aiBookingPixRecipient,
