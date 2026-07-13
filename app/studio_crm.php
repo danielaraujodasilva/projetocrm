@@ -1151,7 +1151,7 @@ function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, arra
     try {
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => (int)$conversation['id'],
-            'ai_last_status' => 'Analisando com IA...',
+            'ai_last_status' => 'Aguardando cliente concluir...',
         ]);
     } catch (Throwable) {
     }
@@ -4502,7 +4502,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         try {
             studio_update_whatsapp_conversation($studio, [
                 'conversation_id' => (int)$conversation['id'],
-                'ai_last_status' => 'Analisando com IA...',
+                'ai_last_status' => 'Aguardando cliente concluir...',
             ]);
             $aiResult = studio_queue_whatsapp_ai_reply($studio, $conversation, [
                 'body' => $body,
@@ -7620,7 +7620,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
     $pendingIntents = array_values(array_unique($pendingIntents));
-    if (count($pendingIntents) > 1) {
+    if (in_array('price', $pendingIntents, true) && in_array('tattoo_idea', $pendingIntents, true)) {
+        $currentIntent = 'price';
+        $pendingIntents = array_values(array_diff($pendingIntents, ['tattoo_idea']));
+    }
+    $combinedRequestIntents = array_values(array_intersect($pendingIntents, ['schedule', 'artist', 'reservation', 'address']));
+    if (count($combinedRequestIntents) > 1) {
         $currentIntent = 'multi_request';
     }
     $needsScheduleContext = $currentIntent === 'schedule' || in_array('schedule', $pendingIntents, true)

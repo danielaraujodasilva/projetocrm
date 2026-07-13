@@ -38,19 +38,45 @@ try {
 
     $pdo = studio_db($studio);
     $lockName = 'crm_ai_' . (int)$studio['id'] . '_' . $conversationId;
-    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 180)');
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 1)');
     $lockStmt->execute([$lockName]);
     if ((int)$lockStmt->fetchColumn() !== 1) {
-        worker_log('Conversa ocupada; IA nao obteve a fila', ['conversationId' => $conversationId, 'messageId' => $messageId]);
+        worker_log('Conversa ja tem worker aguardando agrupamento', ['conversationId' => $conversationId, 'messageId' => $messageId]);
         exit(0);
     }
-    usleep(3000000);
+
+    $debounceSeconds = 8;
+    $maxDebounceSeconds = 28;
+    $startedAt = time();
+    $lastChangeAt = time();
+    $latestMessageId = $messageId;
     $latestStmt = $pdo->prepare('SELECT message_id FROM whatsapp_messages WHERE conversation_id = ? AND direction = "in" ORDER BY id DESC LIMIT 1');
-    $latestStmt->execute([$conversationId]);
-    $latestMessageId = trim((string)($latestStmt->fetchColumn() ?: ''));
+    do {
+        $latestStmt->execute([$conversationId]);
+        $currentLatestMessageId = trim((string)($latestStmt->fetchColumn() ?: ''));
+        if ($currentLatestMessageId !== '' && $currentLatestMessageId !== $latestMessageId) {
+            worker_log('Mensagem nova agrupada antes da resposta', [
+                'conversationId' => $conversationId,
+                'previousMessageId' => $latestMessageId,
+                'latestMessageId' => $currentLatestMessageId,
+            ]);
+            $latestMessageId = $currentLatestMessageId;
+            $lastChangeAt = time();
+        }
+
+        if ((time() - $lastChangeAt) >= $debounceSeconds) {
+            break;
+        }
+        sleep(1);
+    } while ((time() - $startedAt) < $maxDebounceSeconds);
+
     if ($latestMessageId !== '' && $latestMessageId !== $messageId) {
-        worker_log('Mensagem agrupada em entrada mais recente', ['conversationId' => $conversationId, 'messageId' => $messageId, 'latestMessageId' => $latestMessageId]);
-        exit(0);
+        worker_log('Processando bloco pela mensagem mais recente', [
+            'conversationId' => $conversationId,
+            'originalMessageId' => $messageId,
+            'latestMessageId' => $latestMessageId,
+        ]);
+        $messageId = $latestMessageId;
     }
 
     $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
@@ -58,6 +84,11 @@ try {
         worker_log('Conversa nao encontrada', ['conversationId' => $conversationId]);
         exit(1);
     }
+
+    studio_update_whatsapp_conversation($studio, [
+        'conversation_id' => (int)$conversation['id'],
+        'ai_last_status' => 'Analisando com IA...',
+    ]);
 
     $stmt = $pdo->prepare('SELECT * FROM whatsapp_messages WHERE conversation_id = ? AND message_id = ? LIMIT 1');
     $stmt->execute([$conversationId, $messageId]);
