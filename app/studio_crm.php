@@ -10884,49 +10884,45 @@ function studio_settings(array $studio): array
 function studio_save_settings(array $studio, array $data): void
 {
     $settings = studio_settings($studio);
-    $studioName = trim((string)($data['studio_name'] ?? $studio['name']));
-    $studioAddress = trim((string)($data['studio_address'] ?? ''));
-    $businessRules = trim((string)($data['business_rules'] ?? ''));
-    $aiModel = trim((string)($data['ai_model'] ?? 'llama3:8b'));
-    $aiEnabled = !empty($data['ai_enabled']) ? 1 : 0;
-    $assistantAutofillEnabled = !empty($data['assistant_autofill_enabled']) ? 1 : 0;
+    $boolSetting = static function (string $key, int $default = 0) use ($data, $settings): int {
+        if (!array_key_exists($key, $data)) {
+            return (int)($settings[$key] ?? $default);
+        }
+        return !empty($data[$key]) ? 1 : 0;
+    };
+    $studioName = trim((string)($data['studio_name'] ?? ($settings['studio_name'] ?? $studio['name'])));
+    $studioAddress = trim((string)($data['studio_address'] ?? ($settings['studio_address'] ?? '')));
+    $businessRules = trim((string)($data['business_rules'] ?? ($settings['business_rules'] ?? '')));
+    $aiModel = trim((string)($data['ai_model'] ?? ($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3.2:3b')));
+    $aiEnabled = $boolSetting('ai_enabled', 0);
+    $assistantAutofillEnabled = $boolSetting('assistant_autofill_enabled', 0);
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
     if ($openAiKey === '') {
         $openAiKey = trim((string)($settings['openai_api_key'] ?? ''));
     }
-    $openAiModel = trim((string)($data['openai_model'] ?? 'gpt-4o-mini'));
+    $openAiModel = trim((string)($data['openai_model'] ?? ($settings['openai_model'] ?? 'gpt-4o-mini')));
     $nvidiaApiKey = trim((string)($data['nvidia_api_key'] ?? ''));
     if ($nvidiaApiKey === '') {
         $nvidiaApiKey = trim((string)($settings['nvidia_api_key'] ?? ''));
     }
-    $nvidiaModel = trim((string)($data['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct'));
+    $nvidiaModel = trim((string)($data['nvidia_model'] ?? ($settings['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct')));
     $nvidiaVisionApiKey = trim((string)($data['nvidia_vision_api_key'] ?? ''));
     if ($nvidiaVisionApiKey === '') {
         $nvidiaVisionApiKey = trim((string)($settings['nvidia_vision_api_key'] ?? ''));
     }
-    $nvidiaVisionModel = trim((string)($data['nvidia_vision_model'] ?? 'meta/llama-3.2-90b-vision-instruct'));
-    $nvidiaVisionEnabled = !array_key_exists('nvidia_vision_enabled', $data) && !array_key_exists('settings_tab', $data)
-        ? (int)($settings['nvidia_vision_enabled'] ?? 1)
-        : (!empty($data['nvidia_vision_enabled']) ? 1 : 0);
+    $nvidiaVisionModel = trim((string)($data['nvidia_vision_model'] ?? ($settings['nvidia_vision_model'] ?? 'meta/llama-3.2-90b-vision-instruct')));
+    $nvidiaVisionEnabled = $boolSetting('nvidia_vision_enabled', 1);
     $nvidiaDocumentApiKey = trim((string)($data['nvidia_document_api_key'] ?? ''));
     if ($nvidiaDocumentApiKey === '') {
         $nvidiaDocumentApiKey = trim((string)($settings['nvidia_document_api_key'] ?? ''));
     }
-    $nvidiaDocumentModel = trim((string)($data['nvidia_document_model'] ?? 'nvidia/nemoretriever-parse'));
-    $nvidiaDocumentEnabled = !array_key_exists('nvidia_document_enabled', $data) && !array_key_exists('settings_tab', $data)
-        ? (int)($settings['nvidia_document_enabled'] ?? 1)
-        : (!empty($data['nvidia_document_enabled']) ? 1 : 0);
-    $nvidiaVideoEnabled = !array_key_exists('nvidia_video_enabled', $data) && !array_key_exists('settings_tab', $data)
-        ? (int)($settings['nvidia_video_enabled'] ?? 1)
-        : (!empty($data['nvidia_video_enabled']) ? 1 : 0);
+    $nvidiaDocumentModel = trim((string)($data['nvidia_document_model'] ?? ($settings['nvidia_document_model'] ?? 'nvidia/nemoretriever-parse')));
+    $nvidiaDocumentEnabled = $boolSetting('nvidia_document_enabled', 1);
+    $nvidiaVideoEnabled = $boolSetting('nvidia_video_enabled', 1);
     $nvidiaVideoModel = trim((string)($data['nvidia_video_model'] ?? ($settings['nvidia_video_model'] ?? 'meta/llama-3.2-90b-vision-instruct')));
     $nvidiaVideoFrameCount = max(1, min(6, (int)($data['nvidia_video_frame_count'] ?? ($settings['nvidia_video_frame_count'] ?? 3))));
-    $aiVoiceReplyEnabled = !array_key_exists('ai_voice_reply_enabled', $data) && !array_key_exists('settings_tab', $data)
-        ? (int)($settings['ai_voice_reply_enabled'] ?? 0)
-        : (!empty($data['ai_voice_reply_enabled']) ? 1 : 0);
-    $aiVoiceReplyWhenAudioOnly = !array_key_exists('ai_voice_reply_when_audio_only', $data) && !array_key_exists('settings_tab', $data)
-        ? (int)($settings['ai_voice_reply_when_audio_only'] ?? 1)
-        : (!empty($data['ai_voice_reply_when_audio_only']) ? 1 : 0);
+    $aiVoiceReplyEnabled = $boolSetting('ai_voice_reply_enabled', 0);
+    $aiVoiceReplyWhenAudioOnly = $boolSetting('ai_voice_reply_when_audio_only', 1);
     $aiVoiceReplyEngine = strtolower(trim((string)($data['ai_voice_reply_engine'] ?? ($settings['ai_voice_reply_engine'] ?? 'sapi'))));
     if (!in_array($aiVoiceReplyEngine, ['sapi', 'xtts'], true)) {
         $aiVoiceReplyEngine = 'sapi';
@@ -10939,29 +10935,29 @@ function studio_save_settings(array $studio, array $data): void
     $aiVoiceReplyVoice = mb_substr(trim((string)($data['ai_voice_reply_voice'] ?? ($settings['ai_voice_reply_voice'] ?? ''))), 0, 120);
     $aiVoiceReplyRate = max(-10, min(10, (int)($data['ai_voice_reply_rate'] ?? ($settings['ai_voice_reply_rate'] ?? 0))));
     $aiVoiceReplyVolume = max(0, min(100, (int)($data['ai_voice_reply_volume'] ?? ($settings['ai_voice_reply_volume'] ?? 100))));
-    $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ''));
-    $aiProvider = (string)($data['ai_provider'] ?? 'nvidia');
+    $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ($settings['ai_whatsapp_prompt'] ?? '')));
+    $aiProvider = (string)($data['ai_provider'] ?? ($settings['ai_provider'] ?? 'nvidia'));
     if (!in_array($aiProvider, ['nvidia', 'openai', 'ollama'], true)) {
         $aiProvider = 'nvidia';
     }
-    $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ''));
+    $aiApiBaseUrl = trim((string)($data['ai_api_base_url'] ?? ($settings['ai_api_base_url'] ?? '')));
     $defaultAiBaseUrl = match ($aiProvider) {
         'openai' => 'https://api.openai.com/v1',
         'ollama' => 'http://localhost:11434/v1',
         default => 'https://integrate.api.nvidia.com/v1',
     };
-    $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ''));
-    $whatsappEnabled = !empty($data['whatsapp_enabled']) ? 1 : 0;
+    $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ($settings['appointment_confirmation_message'] ?? '')));
+    $whatsappEnabled = $boolSetting('whatsapp_enabled', 0);
     $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'official')));
     if (!in_array($whatsappProvider, ['official'], true)) {
         $whatsappProvider = 'official';
     }
-    $whatsappOfficialMode = strtolower(trim((string)($data['whatsapp_official_mode'] ?? 'production')));
+    $whatsappOfficialMode = strtolower(trim((string)($data['whatsapp_official_mode'] ?? ($settings['whatsapp_official_mode'] ?? 'production'))));
     if (!in_array($whatsappOfficialMode, ['production', 'sandbox'], true)) {
         $whatsappOfficialMode = 'production';
     }
-    $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
-    $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? 'http://localhost:3010')), '/') ?: 'http://localhost:3010';
+    $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? ($settings['whatsapp_default_mode'] ?? 'human')) === 'bot' ? 'bot' : 'human';
+    $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? ($settings['whatsapp_service_url'] ?? 'http://localhost:3010'))), '/') ?: 'http://localhost:3010';
     $whatsappOfficialAppId = trim((string)($data['whatsapp_official_app_id'] ?? ''));
     $whatsappOfficialAppSecret = trim((string)($data['whatsapp_official_app_secret'] ?? ''));
     $whatsappOfficialBusinessAccountId = trim((string)($data['whatsapp_official_business_account_id'] ?? ''));
@@ -10971,18 +10967,18 @@ function studio_save_settings(array $studio, array $data): void
     $whatsappOfficialAccessToken = trim((string)($data['whatsapp_official_access_token'] ?? ''));
     $whatsappOfficialVerifyToken = trim((string)($data['whatsapp_official_verify_token'] ?? ''));
     $whatsappOfficialCallbackUrl = trim((string)($data['whatsapp_official_callback_url'] ?? ''));
-    $whatsappOfficialApiVersion = trim((string)($data['whatsapp_official_api_version'] ?? 'v22.0'));
-    $whatsappOfficialWebhookSecret = trim((string)($data['whatsapp_official_webhook_secret'] ?? ''));
-    $whatsappOfficialNotes = trim((string)($data['whatsapp_official_notes'] ?? ''));
-    $whatsappFlowId = trim((string)($data['whatsapp_flow_id'] ?? ''));
-    $whatsappFlowCta = trim((string)($data['whatsapp_flow_cta'] ?? 'Preencher'));
-    $whatsappFlowScreen = trim((string)($data['whatsapp_flow_screen'] ?? 'FIRST_ENTRY_SCREEN'));
-    $appointmentWorkDaysRaw = $data['appointment_work_days'] ?? '1,2,3,4,5';
+    $whatsappOfficialApiVersion = trim((string)($data['whatsapp_official_api_version'] ?? ($settings['whatsapp_official_api_version'] ?? 'v22.0')));
+    $whatsappOfficialWebhookSecret = trim((string)($data['whatsapp_official_webhook_secret'] ?? ($settings['whatsapp_official_webhook_secret'] ?? '')));
+    $whatsappOfficialNotes = trim((string)($data['whatsapp_official_notes'] ?? ($settings['whatsapp_official_notes'] ?? '')));
+    $whatsappFlowId = trim((string)($data['whatsapp_flow_id'] ?? ($settings['whatsapp_flow_id'] ?? '')));
+    $whatsappFlowCta = trim((string)($data['whatsapp_flow_cta'] ?? ($settings['whatsapp_flow_cta'] ?? 'Preencher')));
+    $whatsappFlowScreen = trim((string)($data['whatsapp_flow_screen'] ?? ($settings['whatsapp_flow_screen'] ?? 'FIRST_ENTRY_SCREEN')));
+    $appointmentWorkDaysRaw = $data['appointment_work_days'] ?? ($settings['appointment_work_days'] ?? '1,2,3,4,5');
     $appointmentWorkDays = is_array($appointmentWorkDaysRaw)
         ? implode(',', array_values(array_filter(array_map('trim', $appointmentWorkDaysRaw), static fn($value) => $value !== '')))
         : trim((string)$appointmentWorkDaysRaw);
-    $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? '10:00,15:00'));
-    $pomadaUnitPrice = (float)money_to_float((string)($data['pomada_unit_price'] ?? '100'));
+    $appointmentTimeSlots = trim((string)($data['appointment_time_slots'] ?? ($settings['appointment_time_slots'] ?? '10:00,15:00')));
+    $pomadaUnitPrice = (float)money_to_float((string)($data['pomada_unit_price'] ?? ($settings['pomada_unit_price'] ?? '100')));
     if ($pomadaUnitPrice < 0) {
         $pomadaUnitPrice = 100;
     }
@@ -10991,11 +10987,11 @@ function studio_save_settings(array $studio, array $data): void
     if ($durationHours > 0 || $durationMinutesPart > 0) {
         $appointmentDurationMinutes = max(0, ($durationHours * 60) + $durationMinutesPart);
     } else {
-        $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? '300'));
+        $appointmentDurationMinutes = (int)trim((string)($data['appointment_duration_minutes'] ?? ($settings['appointment_duration_minutes'] ?? '300')));
     }
-    $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ''));
-    $metaCampaignPhrases = trim((string)($data['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!"));
-    $metaAdsEnabled = !empty($data['meta_ads_enabled']) ? 1 : 0;
+    $appointmentOverwriteMessage = trim((string)($data['appointment_overwrite_message'] ?? ($settings['appointment_overwrite_message'] ?? '')));
+    $metaCampaignPhrases = trim((string)($data['meta_campaign_phrases'] ?? ($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!")));
+    $metaAdsEnabled = $boolSetting('meta_ads_enabled', 0);
     $metaAdsAppIdInput = trim((string)($data['meta_ads_app_id'] ?? ''));
     $metaAdsAppSecretInput = trim((string)($data['meta_ads_app_secret'] ?? ''));
     $metaAdsAccessTokenInput = trim((string)($data['meta_ads_access_token'] ?? ''));
@@ -11003,9 +10999,9 @@ function studio_save_settings(array $studio, array $data): void
     $metaAdsAdAccountId = trim((string)($data['meta_ads_ad_account_id'] ?? ''));
     $metaAdsPixelId = trim((string)($data['meta_ads_pixel_id'] ?? ''));
     $metaAdsLeadFormId = trim((string)($data['meta_ads_lead_form_id'] ?? ''));
-    $metaAdsApiVersion = trim((string)($data['meta_ads_api_version'] ?? 'v22.0'));
-    $metaAdsRedirectUri = trim((string)($data['meta_ads_redirect_uri'] ?? ''));
-    $metaAdsNotes = trim((string)($data['meta_ads_notes'] ?? ''));
+    $metaAdsApiVersion = trim((string)($data['meta_ads_api_version'] ?? ($settings['meta_ads_api_version'] ?? 'v22.0')));
+    $metaAdsRedirectUri = trim((string)($data['meta_ads_redirect_uri'] ?? ($settings['meta_ads_redirect_uri'] ?? '')));
+    $metaAdsNotes = trim((string)($data['meta_ads_notes'] ?? ($settings['meta_ads_notes'] ?? '')));
     $metaAdsBusinessId = $metaAdsBusinessId !== '' ? $metaAdsBusinessId : (string)($settings['meta_ads_business_id'] ?? '');
     $metaAdsAdAccountId = $metaAdsAdAccountId !== '' ? $metaAdsAdAccountId : (string)($settings['meta_ads_ad_account_id'] ?? '');
     $metaAdsPixelId = $metaAdsPixelId !== '' ? $metaAdsPixelId : (string)($settings['meta_ads_pixel_id'] ?? '');
