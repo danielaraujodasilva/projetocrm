@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
   `phone` VARCHAR(40) NOT NULL,
   `name` VARCHAR(160) NULL,
   `remote_jid` VARCHAR(180) NULL,
-  `attendance_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human',
+  `attendance_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'bot',
   `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
   `lead_score` TINYINT UNSIGNED NULL,
   `ai_last_status` VARCHAR(80) NULL,
@@ -51,4 +51,3 @@ CREATE TABLE IF NOT EXISTS `whatsapp_messages` (
     FOREIGN KEY (`conversation_id`) REFERENCES `whatsapp_conversations` (`id`)
     ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-

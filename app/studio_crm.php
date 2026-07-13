@@ -59,7 +59,7 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `phone` VARCHAR(40) NOT NULL,
             `name` VARCHAR(160) NULL,
             `remote_jid` VARCHAR(180) NULL,
-            `attendance_mode` ENUM("human", "bot") NOT NULL DEFAULT "human",
+            `attendance_mode` ENUM("human", "bot") NOT NULL DEFAULT "bot",
             `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
             `assigned_user_id` BIGINT UNSIGNED NULL,
             `assigned_at` DATETIME NULL,
@@ -2760,7 +2760,11 @@ function studio_find_whatsapp_conversation_by_phone(array $studio, string $phone
 function studio_whatsapp_default_mode(array $studio): string
 {
     $settings = studio_settings($studio);
-    return (string)($settings['whatsapp_default_mode'] ?? 'human') === 'bot' ? 'bot' : 'human';
+    if (!empty($settings['ai_enabled'])) {
+        return 'bot';
+    }
+
+    return 'human';
 }
 
 function studio_schedule_days(array $studio): array
@@ -4277,17 +4281,33 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
     $customer = studio_find_customer_by_phone($studio, $phone);
     $lead = studio_find_lead_by_phone($studio, $phone);
     if (!$lead && !$fromMe) {
-        $leadId = studio_save_lead($studio, [
-            'name' => $customer['name'] ?? 'Cliente WhatsApp',
-            'phone' => $phone,
-            'interest' => $text !== '' ? mb_substr($text, 0, 180) : 'Contato WhatsApp',
-            'status' => 'novo',
-            'pipeline_stage' => 'entrada',
-            'lead_score' => $score,
-            'estimated_value' => '0',
-            'source' => 'WhatsApp',
-        ]);
-        $lead = ['id' => $leadId, 'name' => $customer['name'] ?? 'Cliente WhatsApp'];
+        try {
+            $leadId = studio_save_lead($studio, [
+                'name' => $customer['name'] ?? 'Cliente WhatsApp',
+                'phone' => $phone,
+                'interest' => $text !== '' ? mb_substr($text, 0, 180) : 'Contato WhatsApp',
+                'status' => 'novo',
+                'pipeline_stage' => 'entrada',
+                'lead_score' => $score,
+                'estimated_value' => '0',
+                'source' => 'WhatsApp',
+            ]);
+            $lead = ['id' => $leadId, 'name' => $customer['name'] ?? 'Cliente WhatsApp'];
+        } catch (RuntimeException $exception) {
+            if (stripos($exception->getMessage(), 'plano atual permite') === false) {
+                throw $exception;
+            }
+
+            studio_whatsapp_event_log($studio, [
+                'provider' => 'system',
+                'event_type' => 'lead_limit_skipped',
+                'direction' => 'system',
+                'phone' => $phone,
+                'status' => 'conversation_without_lead',
+                'error' => $exception->getMessage(),
+            ]);
+            $lead = null;
+        }
     }
 
     $name = trim((string)($payload['name'] ?? $payload['nome'] ?? ''));
@@ -4295,10 +4315,13 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
         $name = (string)($customer['name'] ?? $lead['name'] ?? 'Cliente WhatsApp');
     }
 
+    $defaultMode = studio_whatsapp_default_mode($studio);
+    $initialAiStatus = $defaultMode === 'bot' ? 'IA pronta para responder' : 'IA inativa';
+
     $stmt = $pdo->prepare(
         'INSERT INTO whatsapp_conversations
-            (lead_id, customer_id, phone, name, remote_jid, attendance_mode, needs_human, lead_score, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (lead_id, customer_id, phone, name, remote_jid, attendance_mode, needs_human, lead_score, ai_last_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
         (int)($lead['id'] ?? 0) ?: null,
@@ -4306,9 +4329,10 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
         $phone,
         $name,
         $remoteJid,
-        studio_whatsapp_default_mode($studio),
+        $defaultMode,
         $needsHuman ? 1 : 0,
         $score,
+        $initialAiStatus,
     ]);
 
     $id = (int)$pdo->lastInsertId();
@@ -10956,7 +10980,7 @@ function studio_save_settings(array $studio, array $data): void
     if (!in_array($whatsappOfficialMode, ['production', 'sandbox'], true)) {
         $whatsappOfficialMode = 'production';
     }
-    $whatsappDefaultMode = (string)($data['whatsapp_default_mode'] ?? ($settings['whatsapp_default_mode'] ?? 'human')) === 'bot' ? 'bot' : 'human';
+    $whatsappDefaultMode = $aiEnabled ? 'bot' : 'human';
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? ($settings['whatsapp_service_url'] ?? 'http://localhost:3010'))), '/') ?: 'http://localhost:3010';
     $whatsappOfficialAppId = trim((string)($data['whatsapp_official_app_id'] ?? ''));
     $whatsappOfficialAppSecret = trim((string)($data['whatsapp_official_app_secret'] ?? ''));
