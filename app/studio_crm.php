@@ -4006,6 +4006,54 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
     return 'general';
 }
 
+function studio_whatsapp_ai_denies_payment_proof(string $text): bool
+{
+    $text = mb_strtolower(trim($text), 'UTF-8');
+    $text = strtr($text, [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'é' => 'e', 'ê' => 'e', 'è' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c',
+    ]);
+    if ($text === '') {
+        return false;
+    }
+    if (preg_match('/\b(foto|imagem|referencia|referência|desenho|arte)\b/u', $text)
+        && !preg_match('/\b(comprovante|pix|sinal|pagamento|paguei|pago)\b/u', $text)) {
+        return false;
+    }
+
+    return (bool)preg_match(
+        '/\b(nao\s+(enviei|mandei|paguei)|ainda\s+nao\s+(enviei|mandei|paguei)|nao\s+(enviei|mandei)\s+nao|nunca\s+(enviei|mandei|paguei))\b/u',
+        $text
+    ) || (bool)preg_match(
+        '/\b(como\s+(ta|esta)\s+tudo\s+certo|ta\s+doido|nao\s+entendi)\b.{0,100}\b(comprovante|paguei|pagamento|sinal|agendad[oa])\b/u',
+        $text
+    );
+}
+
+function studio_whatsapp_ai_fixed_closing_offer_label(string $rules): string
+{
+    $rules = trim($rules);
+    if ($rules === '') {
+        return '';
+    }
+    if (preg_match('/R\$\s*([0-9][0-9.]*)(?:,([0-9]{2}))?\s+por\s+sess[aã]o/iu', $rules, $match)) {
+        $amount = str_replace('.', '', (string)$match[1]);
+        $cents = isset($match[2]) && $match[2] !== '' ? ',' . $match[2] : '';
+        return 'R$' . $amount . $cents . ' por sessão';
+    }
+    if (preg_match('/R\$\s*([0-9][0-9.]*)(?:,([0-9]{2}))?/u', $rules, $match)) {
+        $amount = str_replace('.', '', (string)$match[1]);
+        $cents = isset($match[2]) && $match[2] !== '' ? ',' . $match[2] : '';
+        return 'R$' . $amount . $cents;
+    }
+
+    return '';
+}
+
 function studio_whatsapp_ai_extract_time_choice(string $text): string
 {
     $text = mb_strtolower(trim($text), 'UTF-8');
@@ -4708,6 +4756,9 @@ function studio_whatsapp_ai_append_handoff_keepalive_note(array $studio, string 
     $normalizedReply = studio_calendar_remove_accents(studio_calendar_lower_text($replyText));
     if (str_contains($normalizedReply, 'enquanto isso') || str_contains($normalizedReply, 'avisei a equipe')) {
         return $replyText !== '' ? $replyText : $note;
+    }
+    if (preg_match('/\b(cham(ar|ei)|avisei|sinalizei|encaminh(ei|ar)|pedir)\b.*\bequipe\b/u', $normalizedReply)) {
+        return trim(($replyText !== '' ? $replyText . ' ' : '') . 'Enquanto isso, sigo por aqui se quiser mais alguma informação.');
     }
 
     return trim(($replyText !== '' ? $replyText . ' ' : '') . $note);
@@ -8070,6 +8121,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $stateText);
     $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $stateText);
     $currentText = mb_strtolower($messageText, 'UTF-8');
+    $paymentCorrectionContext = (bool)preg_match('/\b(comprovante|pix|sinal|pagamento|reserva|reservar|agend|paguei|pago)\b/u', $currentText . ' ' . $stateText);
+    $customerDeniesPaymentProof = $paymentCorrectionContext && studio_whatsapp_ai_denies_payment_proof($messageText);
+    $fixedClosingOfferLabel = studio_whatsapp_ai_fixed_closing_offer_label($studioRules);
+    $asksFixedClosingOffer = $fixedClosingOfferLabel !== ''
+        && (bool)preg_match('/\b(fechamento|fechar|costas|bra[cç]o|perna|peito|peitoral|promo[cç][aã]o|valor\s+fixo|sess[aã]o)\b/u', $currentText)
+        && (bool)preg_match('/(quanto|valor|pre[cç]o|custa|fica|promo[cç][aã]o|fixo)/u', $currentText . ' ' . $stateText);
+    if ($customerDeniesPaymentProof) {
+        $currentIntent = 'payment_proof_denial';
+    } elseif ($asksFixedClosingOffer) {
+        $currentIntent = 'fixed_closing_price';
+    }
     $currentChoosesFullCoverage = preg_match('/(\b[aá]rea\s+inteira\b|costas?\s+(completa|inteira|toda)|fechamento\s+(completo\s+)?(de\s+)?costas)/u', $currentText);
     $currentChoosesPartialCoverage = preg_match('/(\bapenas\s+uma\s+parte\b|\bs[oó]\s+uma\s+parte\b|\b[aá]rea\s+parcial\b)/u', $currentText);
     $desiredBodyArea = '';
@@ -8087,9 +8149,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             }
         }
     }
-    if ($currentIntent !== 'schedule' && $hasReference && $pricingDiscussed && $currentChoosesFullCoverage && $desiredBodyArea !== '') {
+    $canSwitchToQuoteFlow = !in_array($currentIntent, ['schedule', 'fixed_closing_price', 'payment_proof_denial'], true);
+    if ($canSwitchToQuoteFlow && $hasReference && $pricingDiscussed && $currentChoosesFullCoverage && $desiredBodyArea !== '') {
         $currentIntent = 'quote_ready';
-    } elseif ($currentIntent !== 'schedule' && $hasReference && $pricingDiscussed && $currentChoosesPartialCoverage && $desiredBodyArea !== '') {
+    } elseif ($canSwitchToQuoteFlow && $hasReference && $pricingDiscussed && $currentChoosesPartialCoverage && $desiredBodyArea !== '') {
         $currentIntent = 'quote_partial';
     }
     $memoryState = mb_strtolower($conversationMemory . ' ' . $stateText, 'UTF-8');
@@ -8110,7 +8173,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $needsScheduleContext = $currentIntent === 'schedule' || in_array('schedule', $pendingIntents, true)
         || in_array('artist', $pendingIntents, true) || in_array('reservation', $pendingIntents, true)
-        || $currentIntent === 'reservation';
+        || $currentIntent === 'reservation' || $currentIntent === 'payment_proof_denial';
     $guardrailReason = studio_whatsapp_ai_guardrail_reason($messageText);
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
         $guardrailReason = 'Imagem sinalizada para revisao humana.';
@@ -8197,7 +8260,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
     $paymentProof = studio_whatsapp_analyze_payment_proof($studio, $newMessage, $documentAnalysis, $memoryState . ' ' . $messageText);
-    if (!empty($paymentProof['present'])) {
+    if (!empty($paymentProof['present']) && !$customerDeniesPaymentProof) {
         $currentIntent = 'payment_proof';
         $needsScheduleContext = true;
         $proofLabel = !empty($paymentProof['confirmed'])
@@ -8293,7 +8356,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'address' => $studioAddress !== '' ? 'Informe diretamente o endereço oficial cadastrado.' : 'O endereço não está cadastrado. Não invente nem use placeholder; encaminhe para uma pessoa.',
         'artist' => 'A agenda mostra horários, mas não associa automaticamente um tatuador. Não invente um nome; encaminhe a confirmação para a equipe.',
         'reservation' => 'Conduza a reserva: confirme o horario escolhido, explique que a vaga so fica garantida com sinal de ' . $bookingDepositLabel . ' via Pix e peca o comprovante aqui no WhatsApp.',
+        'payment_proof_denial' => 'O cliente corrigiu que ainda nao enviou comprovante. Peça desculpa pela confusao, nao trate comprovante antigo como valido e explique que a reserva so confirma apos o comprovante real.',
         'payment_proof' => 'A mensagem atual contem possivel comprovante. Se o comprovante for confirmado, crie o agendamento e avise que a equipe vai conferir; se nao for confirmado, peca conferencia humana.',
+        'fixed_closing_price' => 'Use a promocao/valor fixo cadastrado na base do estudio e avance para referencia, data ou reserva, sem dizer que o valor precisa ser definido do zero.',
         'image_price_style' => 'Responda qual e o estilo visto na imagem e avance o orcamento sem repetir dados ja informados.',
         'image_style' => 'Diga em portugues qual e o estilo visto na imagem, citando no maximo dois elementos concretos.',
         'image_price' => 'A pergunta atual e sobre preco e inclui imagem. Reconheca elementos concretos da imagem, explique que o valor depende de tamanho, cobertura e adaptacao, e pergunte apenas o dado que ainda falta. Nao diga que faltou referencia.',
@@ -8337,6 +8402,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Regras de resposta:\n"
         . "- Responda todas as mensagens pendentes enviadas desde a última resposta do atendente.\n"
         . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
+        . "- Se a mensagem atual corrigir algo do historico, a correcao atual prevalece. Especialmente: se o cliente disser que nao enviou comprovante, nao diga que o comprovante ja foi recebido nem que a agenda esta confirmada.\n"
         . "- Nao repita nenhuma resposta anterior do atendente.\n"
         . $scheduleRules
         . "- Responda como atendente de tatuagem, sem soar robotico.\n"
@@ -8403,7 +8469,26 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return 'Não encontrei vaga livre no período consultado.';
     };
 
-    if ($currentIntent === 'payment_proof') {
+    if ($currentIntent === 'payment_proof_denial') {
+        $slotText = is_array($selectedReservationSlot)
+            ? ' Para segurar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ','
+            : ' Para reservar o horário,';
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Você tem razão, me confundi: ainda não vou considerar nenhum comprovante como válido.' . $slotText . ' me envia o comprovante do Pix de ' . $bookingDepositLabel . ' por aqui.',
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente corrigiu que ainda nao enviou comprovante; aguardar comprovante real do sinal antes de confirmar agenda.',
+        ];
+    } elseif ($currentIntent === 'fixed_closing_price') {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Tem sim: a regra cadastrada é ' . $fixedClosingOfferLabel . ' para fechamento. Se for fechar as costas inteiras, posso conferir a agenda e te passar o Pix do sinal de ' . $bookingDepositLabel . ' para reservar.',
+            'needs_human' => false,
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente perguntou sobre valor fixo/promocao de fechamento; informar regra cadastrada de ' . $fixedClosingOfferLabel . ' e conduzir para agenda/reserva.',
+        ];
+    } elseif ($currentIntent === 'payment_proof') {
         if (!is_array($selectedReservationSlot)) {
             $result = [
                 'ok' => true,
@@ -8645,7 +8730,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 
     $handoffRequested = !empty($result['needs_human']);
     $keepAiActiveUntilHumanReply = studio_whatsapp_ai_keep_active_until_human_reply($studio);
-    if ($handoffRequested && $keepAiActiveUntilHumanReply) {
+    $alreadyWaitingForHuman = !empty($conversation['needs_human']);
+    if ($handoffRequested && $keepAiActiveUntilHumanReply && !$alreadyWaitingForHuman) {
         $replyText = studio_whatsapp_ai_append_handoff_keepalive_note($studio, $replyText);
         if (mb_strlen($replyText, 'UTF-8') > 520) {
             $replyText = mb_substr($replyText, 0, 517, 'UTF-8') . '...';
@@ -8692,14 +8778,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $currentScore = (int)($conversation['lead_score'] ?? 0);
     $scoreDelta = max(0, (int)($result['lead_score_delta'] ?? 0));
     $newScore = max(0, min(10, $currentScore + $scoreDelta));
+    $nextNeedsHuman = ($handoffRequested || $alreadyWaitingForHuman) ? 1 : 0;
     $aiStatus = $handoffRequested
         ? ($keepAiActiveUntilHumanReply ? 'IA sinalizou humano e segue ativa' : 'IA sinalizou atendimento humano')
-        : 'IA respondeu automaticamente';
+        : ($alreadyWaitingForHuman ? 'IA respondeu enquanto aguarda atendente' : 'IA respondeu automaticamente');
 
     studio_update_whatsapp_conversation($studio, [
         'conversation_id' => (int)$conversation['id'],
         'attendance_mode' => ($handoffRequested && !$keepAiActiveUntilHumanReply) ? 'human' : 'bot',
-        'needs_human' => $handoffRequested ? 1 : 0,
+        'needs_human' => $nextNeedsHuman,
         'lead_score' => $newScore,
         'ai_last_status' => $aiStatus,
         'ai_last_message' => $replyText,
@@ -8746,6 +8833,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $memoryLines = [];
         foreach (preg_split('/\R+|\\\\n/u', $conversationMemory) ?: [] as $memoryLine) {
             $memoryLine = trim($memoryLine);
+            if ($currentIntent === 'payment_proof_denial'
+                && preg_match('/\b(comprovante|pagamento|confer[eê]ncia|confirmad[oa]|agendamento\s+registrado)\b/ui', $memoryLine)) {
+                continue;
+            }
             if ($memoryLine !== '' && !preg_match('/^atualiza[cç][aã]o\s*:/ui', $memoryLine)) {
                 $memoryLines[] = $memoryLine;
             }
@@ -8783,7 +8874,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'ok' => true,
         'reply' => $reply,
         'ai_last_status' => $aiStatus,
-        'needs_human' => !empty($result['needs_human']),
+        'needs_human' => $nextNeedsHuman === 1,
         'ai_last_message_id' => $incomingMessageId,
         'intent' => $currentIntent,
         'image_analysis' => !empty($imageAnalysis['ok']) ? [
