@@ -5723,14 +5723,42 @@ if ($page === 'studio_finance') {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
-        $summary = studio_finance_summary($studio);
-        $expenses = studio_list_expenses($studio);
-        echo '<section class="grid cols-3">';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda no mes</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_month'])) . '</p><p class="muted">Despesas no mes</p><span class="muted">Lancar despesa</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado simples</p><span class="muted">Abrir detalhes</span></button>';
+        $defaultStart = date('Y-m-01');
+        $defaultEnd = date('Y-m-t');
+        $dateFrom = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date_from'] ?? '')) ? (string)$_GET['date_from'] : $defaultStart;
+        $dateTo = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($_GET['date_to'] ?? '')) ? (string)$_GET['date_to'] : $defaultEnd;
+        if ($dateTo < $dateFrom) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+        $summary = studio_finance_summary($studio, $dateFrom, $dateTo);
+        $expenses = studio_list_expenses($studio, $dateFrom, $dateTo);
+        $periodLabel = format_date_pt($dateFrom, false) . ' até ' . format_date_pt($dateTo, false);
+        echo '<section class="panel finance-hero">';
+        echo '<div><span class="section-eyebrow">Financeiro</span><h2 style="margin:4px 0">Resultado do período</h2><p class="muted mb-0">' . h($periodLabel) . '</p></div>';
+        echo '<form class="filter-bar finance-period-form" method="get"><input type="hidden" name="page" value="studio_finance">';
+        echo '<label>De<input type="date" name="date_from" value="' . h($dateFrom) . '"></label>';
+        echo '<label>Até<input type="date" name="date_to" value="' . h($dateTo) . '"></label>';
+        echo '<button class="btn secondary" type="submit">Aplicar</button><a class="btn secondary" href="' . h(app_url('studio_finance')) . '">Este mês</a>';
+        echo '</form></section>';
+        echo '<section class="grid cols-3 finance-kpi-grid">';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start finance-kpi-primary" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['appointments_period'])) . '</p><p class="muted">Receita lançada no período</p><span class="muted">' . h((string)$summary['appointments_count']) . ' agendamentos · ticket médio ' . h(format_money($summary['average_ticket'])) . '</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="agenda"><p class="metric">' . h(format_money($summary['deposits_period'])) . '</p><p class="muted">Sinais recebidos</p><span class="muted">Valor já pago/abatido nos agendamentos</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="expense-form"><p class="metric">' . h(format_money($summary['expenses_period'])) . '</p><p class="muted">Despesas no período</p><span class="muted">Lançar despesa</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-finance-overlay="recent"><p class="metric">' . h(format_money($summary['balance_period'])) . '</p><p class="muted">Resultado previsto</p><span class="muted">Receita lançada - despesas</span></button>';
+        echo '<div class="panel dashboard-stat h-100 text-start"><p class="metric">' . h(format_money($summary['appointments_month'])) . '</p><p class="muted">Agenda deste mês</p><span class="muted">Comparativo rápido do mês atual</span></div>';
+        echo '<div class="panel dashboard-stat h-100 text-start"><p class="metric">' . h(format_money($summary['balance_month'])) . '</p><p class="muted">Resultado deste mês</p><span class="muted">Mês calendário atual</span></div>';
         echo '</section>';
-        echo '<div id="financeAgendaSource" hidden><div class="panel shadow-sm border-0" style="margin:0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Agenda no mês</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Resumo financeiro ligado aos agendamentos do período.</p></div></div>';
+        echo '<div id="financeAgendaSource" hidden><div class="panel shadow-sm border-0" style="margin:0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Agenda no período</h2><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Abrir agenda</a></div><p class="muted">Receita lançada, sinais e status dos agendamentos em ' . h($periodLabel) . '.</p>';
+        if (!empty($summary['appointments_by_status'])) {
+            echo '<div class="table-responsive"><table class="data-table"><thead><tr><th>Status</th><th>Qtd</th><th>Receita</th><th>Sinal</th></tr></thead><tbody>';
+            foreach ($summary['appointments_by_status'] as $row) {
+                echo '<tr><td>' . h((string)($row['status'] ?? '-')) . '</td><td>' . h((string)($row['qtd'] ?? 0)) . '</td><td>' . h(format_money((float)($row['total'] ?? 0))) . '</td><td>' . h(format_money((float)($row['sinal'] ?? 0))) . '</td></tr>';
+            }
+            echo '</tbody></table></div>';
+        } else {
+            echo '<p class="muted">Nenhum agendamento financeiro no período.</p>';
+        }
+        echo '</div></div>';
         echo '<div id="financeExpenseSource" hidden><form class="form panel" method="post" id="nova-despesa">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_expense">';
@@ -5741,13 +5769,13 @@ if ($page === 'studio_finance') {
         echo '<div class="field"><label>Observacoes</label><textarea name="notes"></textarea></div>';
         echo '<button class="btn" type="submit">Salvar despesa</button>';
         echo '</form></div>';
-        echo '<div id="financeRecentSource" hidden><div class="panel shadow-sm border-0" style="margin:0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Despesas por categoria</h2><span class="muted">Abrir detalhes e lista</span></div>';
+        echo '<div id="financeRecentSource" hidden><div class="panel shadow-sm border-0" style="margin:0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Despesas por categoria</h2><span class="muted">' . h($periodLabel) . '</span></div>';
         render_category_totals($summary['by_category']);
         echo '<div class="panel shadow-sm border-0" style="margin-top:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Despesas recentes</h2><span class="muted">Lista completa do mês</span></div>';
         render_expenses_table($expenses);
         echo '</div></div></div>';
         echo '<div id="financeOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="financeOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="financeOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closeFinanceOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="financeOverlayBody" class="p-4"></div></div></div>';
-        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no mês";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no período";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -6647,6 +6675,21 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave NVIDIA Document Parse</label><input name="nvidia_document_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_document_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
         echo '<div class="field"><label>Modelo NVIDIA Document Parse</label><input name="nvidia_document_model" value="' . h($settings['nvidia_document_model'] ?? 'nvidia/nemoretriever-parse') . '" placeholder="nvidia/nemoretriever-parse"><small class="muted">Usado para ler documentos, prints e primeira página de PDFs recebidos no WhatsApp.</small></div>';
+        echo '</div>';
+        echo '<div class="panel soft" style="margin-top:16px">';
+        echo '<h3 style="margin-top:0">Comportamento do chatbot e reservas</h3>';
+        echo '<p class="muted">Essas regras controlam a dinâmica fina da conversa: agrupamento de mensagens quebradas, volta da IA depois de chamar atendente e reserva por sinal.</p>';
+        echo '<div class="grid cols-3">';
+        echo '<div class="field"><label>Esperar mensagens quebradas por</label><input type="number" min="2" max="30" name="whatsapp_ai_debounce_seconds" value="' . h((string)($settings['whatsapp_ai_debounce_seconds'] ?? 8)) . '"><small class="muted">Tempo em segundos antes da IA responder. Ajuda quando o cliente manda “oi / boa noite / orçamento” separado.</small></div>';
+        echo '<div class="field"><label>Valor do sinal</label><input name="ai_booking_deposit_amount" value="' . h(number_format((float)($settings['ai_booking_deposit_amount'] ?? 50), 2, ',', '.')) . '" placeholder="50,00"><small class="muted">Usado nas respostas e na criação automática do agendamento.</small></div>';
+        echo '<div class="field"><label>Criar agenda após comprovante</label><label class="checkline"><input type="checkbox" name="ai_auto_create_appointment_after_proof" value="1" ' . ((int)($settings['ai_auto_create_appointment_after_proof'] ?? 1) === 1 ? 'checked' : '') . '> Se comprovante bater, lançar horário automaticamente</label></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Chave Pix para sinal</label><input name="ai_booking_pix_key" value="' . h($settings['ai_booking_pix_key'] ?? '363.262.368-60') . '" placeholder="CPF, telefone, email ou aleatória"></div>';
+        echo '<div class="field"><label>Favorecido do Pix</label><input name="ai_booking_pix_recipient" value="' . h($settings['ai_booking_pix_recipient'] ?? 'Daniel Araújo da Silva') . '" placeholder="Nome de quem recebe o sinal"></div>';
+        echo '</div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_handoff_reactivation_enabled" value="1" ' . ((int)($settings['ai_handoff_reactivation_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Permitir que o cliente reative a IA depois de chamar atendente</label></div>';
+        echo '<div class="field"><label>Palavras/frases que reativam a IA</label><textarea name="ai_handoff_reactivation_keywords" placeholder="ia&#10;bot&#10;assistente&#10;voltar para ia">' . h($settings['ai_handoff_reactivation_keywords'] ?? "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia") . '</textarea><small class="muted">Uma por linha. Ex.: se a conversa ficou em humano, o cliente pode mandar “IA, me responde” para o chatbot voltar.</small></div>';
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">IAs multimodais do WhatsApp</h3>';
@@ -8108,6 +8151,8 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus, ?f
     while ($cursor <= $end) {
         $date = $cursor->format('Y-m-d');
         $outside = $cursor->format('m') !== $focus->format('m') ? ' muted-day' : '';
+        $isToday = $date === date('Y-m-d');
+        $todayClass = $isToday ? ' is-today' : '';
         $dayAppointments = $byDay[$date] ?? [];
         $dayCount = count($dayAppointments);
         $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
@@ -8125,7 +8170,7 @@ function render_calendar_month(array $appointments, DateTimeImmutable $focus, ?f
             }
         }
         $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
-        echo '<div class="calendar-cell' . h($outside) . '"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($cursor->format('d')) . '</strong></a><span class="badge ' . h($dayTone) . '">' . h((string)$dayCount) . '</span></div>';
+        echo '<div class="calendar-cell' . h($outside . $todayClass) . '"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($cursor->format('d')) . '</strong>' . ($isToday ? '<em>Hoje</em>' : '') . '</a><span class="badge ' . h($isToday ? 'ok' : $dayTone) . '">' . h((string)$dayCount) . '</span></div>';
         echo '<div class="calendar-day-summary"><small>' . h(format_money($dayValue)) . '</small><span class="muted">previsto no dia</span></div>';
         foreach (array_slice($dayAppointments, 0, 4) as $appointment) {
             render_calendar_event($appointment);
@@ -8148,10 +8193,11 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus, ?fl
     for ($i = 0; $i < 7; $i++) {
         $day = $start->modify('+' . $i . ' days');
         $date = $day->format('Y-m-d');
+        $isToday = $date === date('Y-m-d');
         $dayAppointments = $byDay[$date] ?? [];
         $dayValue = array_reduce($dayAppointments, static fn(float $sum, array $appointment): float => $sum + appointment_effective_value($appointment, $pomadaUnit), 0.0);
         $dayHref = app_url('studio_agenda', ['cal_view' => 'day', 'date' => $date]);
-        echo '<div class="calendar-cell"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong></a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
+        echo '<div class="calendar-cell' . ($isToday ? ' is-today' : '') . '"><div class="calendar-date"><a href="' . h($dayHref) . '"><strong>' . h($day->format('d/m')) . '</strong>' . ($isToday ? '<em>Hoje</em>' : '') . '</a><br><span class="muted">' . h(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'][$i]) . '</span></div>';
         echo '<div class="calendar-day-summary"><small>' . h(count($dayAppointments) . ' agendamentos · ' . format_money($dayValue)) . '</small></div>';
         foreach ($dayAppointments as $appointment) {
             render_calendar_event($appointment);
@@ -8166,7 +8212,8 @@ function render_calendar_week(array $appointments, DateTimeImmutable $focus, ?fl
 
 function render_calendar_day(array $appointments, DateTimeImmutable $focus, ?float $pomadaUnit = null): void
 {
-    echo '<h3 class="calendar-title">' . h($focus->format('d/m/Y')) . '</h3>';
+    $isToday = $focus->format('Y-m-d') === date('Y-m-d');
+    echo '<h3 class="calendar-title' . ($isToday ? ' is-today-title' : '') . '">' . h($focus->format('d/m/Y')) . ($isToday ? ' <span class="badge ok">Hoje</span>' : '') . '</h3>';
     if (!$appointments) {
         echo '<p class="muted">Nenhum agendamento neste dia.</p>';
         return;

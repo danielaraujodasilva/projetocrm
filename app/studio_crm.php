@@ -405,13 +405,22 @@ function studio_whatsapp_provider(array $studio): string
 function studio_whatsapp_official_configured(array $studio): bool
 {
     $settings = studio_settings($studio);
+    $zapConfig = studio_whatsapp_zap_local_config();
     $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
     if (!in_array($mode, ['production', 'sandbox'], true)) {
         $mode = 'production';
     }
+    $accessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    if ($accessToken === '') {
+        $accessToken = trim((string)($zapConfig['access_token'] ?? ''));
+    }
+    $phoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
+    if ($phoneNumberId === '') {
+        $phoneNumberId = trim((string)($zapConfig['phone_number_id'] ?? ''));
+    }
     return trim((string)($settings['whatsapp_official_app_id'] ?? '')) !== ''
-        && trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))) !== ''
-        && trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== ''
+        && $phoneNumberId !== ''
+        && $accessToken !== ''
         && trim((string)($settings['whatsapp_official_callback_url'] ?? '')) !== '';
 }
 
@@ -631,14 +640,23 @@ function crm_whatsapp_official_apply_defaults(array $studio): void
 function studio_whatsapp_official_status(array $studio): array
 {
     $settings = studio_settings($studio);
+    $provider = studio_whatsapp_provider($studio);
+    $zapConfig = studio_whatsapp_zap_local_config();
     $mode = strtolower(trim((string)($settings['whatsapp_official_mode'] ?? 'production')));
     if (!in_array($mode, ['production', 'sandbox'], true)) {
         $mode = 'production';
     }
+    $crmAccessToken = trim((string)($settings['whatsapp_official_access_token'] ?? ''));
+    $localAccessToken = trim((string)($zapConfig['access_token'] ?? ''));
+    $effectiveAccessToken = $crmAccessToken !== '' ? $crmAccessToken : $localAccessToken;
+    $effectiveTokenSource = $crmAccessToken !== '' ? 'configurações do CRM' : ($localAccessToken !== '' ? 'arquivo local do servidor' : '');
+    $crmPhoneNumberId = trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? '')));
+    $localPhoneNumberId = trim((string)($zapConfig['phone_number_id'] ?? ''));
+    $effectivePhoneNumberId = $crmPhoneNumberId !== '' ? $crmPhoneNumberId : $localPhoneNumberId;
     $checks = [
         'provider' => [
             'label' => 'Provedor selecionado',
-            'ok' => true,
+            'ok' => $provider === 'official',
             'value' => 'API oficial',
         ],
         'mode' => [
@@ -653,13 +671,13 @@ function studio_whatsapp_official_status(array $studio): array
         ],
         'phone_number_id' => [
             'label' => 'Phone Number ID',
-            'ok' => trim((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))) !== '',
-            'value' => studio_meta_ads_mask_secret((string)($mode === 'sandbox' ? ($settings['whatsapp_official_test_phone_number_id'] ?? '') : ($settings['whatsapp_official_phone_number_id'] ?? ''))),
+            'ok' => $effectivePhoneNumberId !== '',
+            'value' => studio_meta_ads_mask_secret($effectivePhoneNumberId),
         ],
         'access_token' => [
             'label' => 'Access Token',
-            'ok' => trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== '',
-            'value' => trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== '' ? '••••••' . mb_substr(trim((string)($settings['whatsapp_official_access_token'] ?? '')), -6) : '',
+            'ok' => $effectiveAccessToken !== '',
+            'value' => $effectiveAccessToken !== '' ? '••••••' . mb_substr($effectiveAccessToken, -6) . ($effectiveTokenSource !== '' ? ' (' . $effectiveTokenSource . ')' : '') : '',
         ],
         'verify_token' => [
             'label' => 'Webhook Verify Token',
@@ -1916,41 +1934,109 @@ function studio_calendar_appointments(array $studio, string $startDate, string $
     return $stmt->fetchAll() ?: [];
 }
 
-function studio_finance_summary(array $studio): array
+function studio_finance_summary(array $studio, ?string $startDate = null, ?string $endDate = null): array
 {
     $pdo = studio_db($studio);
     $pomadaUnit = studio_pomada_unit_price($studio);
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $today = new DateTimeImmutable('today', $tz);
+    $periodStart = $startDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)
+        ? $startDate
+        : $today->modify('first day of this month')->format('Y-m-d');
+    $periodEnd = $endDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)
+        ? $endDate
+        : $today->modify('last day of this month')->format('Y-m-d');
+    if ($periodEnd < $periodStart) {
+        [$periodStart, $periodEnd] = [$periodEnd, $periodStart];
+    }
     $summary = [
+        'period_start' => $periodStart,
+        'period_end' => $periodEnd,
         'appointments_month' => 0.0,
+        'appointments_period' => 0.0,
+        'appointments_count' => 0,
+        'deposits_period' => 0.0,
+        'received_period' => 0.0,
+        'average_ticket' => 0.0,
         'expenses_month' => 0.0,
+        'expenses_period' => 0.0,
         'expenses_total' => 0.0,
         'balance_month' => 0.0,
+        'balance_period' => 0.0,
         'by_category' => [],
+        'appointments_by_status' => [],
     ];
-    $stmt = $pdo->prepare(
+    $monthStmt = $pdo->prepare(
         "SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0)
          FROM appointments
          WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
            AND status NOT IN ('cancelado')"
     );
-    $stmt->execute([$pomadaUnit]);
-    $summary['appointments_month'] = (float)$stmt->fetchColumn();
+    $monthStmt->execute([$pomadaUnit]);
+    $summary['appointments_month'] = (float)$monthStmt->fetchColumn();
+
+    $stmt = $pdo->prepare(
+        "SELECT
+            COUNT(*) AS qtd,
+            COALESCE(SUM(COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?)), 0) AS gross_total,
+            COALESCE(SUM(COALESCE(deposit_value, 0)), 0) AS deposits_total,
+            COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0) AS remaining_total
+         FROM appointments
+         WHERE appointment_date BETWEEN ? AND ?
+           AND status NOT IN ('cancelado')"
+    );
+    $stmt->execute([$pomadaUnit, $pomadaUnit, $periodStart, $periodEnd]);
+    $appointmentTotals = $stmt->fetch() ?: [];
+    $summary['appointments_count'] = (int)($appointmentTotals['qtd'] ?? 0);
+    $summary['appointments_period'] = (float)($appointmentTotals['gross_total'] ?? 0);
+    $summary['deposits_period'] = (float)($appointmentTotals['deposits_total'] ?? 0);
+    $summary['received_period'] = (float)($appointmentTotals['deposits_total'] ?? 0);
+    $summary['average_ticket'] = $summary['appointments_count'] > 0 ? $summary['appointments_period'] / $summary['appointments_count'] : 0.0;
+
     $summary['expenses_month'] = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE DATE_FORMAT(expense_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")->fetchColumn();
+    $expenseStmt = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date BETWEEN ? AND ?');
+    $expenseStmt->execute([$periodStart, $periodEnd]);
+    $summary['expenses_period'] = (float)$expenseStmt->fetchColumn();
     $summary['expenses_total'] = (float)$pdo->query('SELECT COALESCE(SUM(amount), 0) FROM expenses')->fetchColumn();
     $summary['balance_month'] = $summary['appointments_month'] - $summary['expenses_month'];
-    $summary['by_category'] = $pdo->query(
+    $summary['balance_period'] = $summary['appointments_period'] - $summary['expenses_period'];
+
+    $categoryStmt = $pdo->prepare(
         "SELECT category, COUNT(*) AS qtd, COALESCE(SUM(amount), 0) AS total
          FROM expenses
+         WHERE expense_date BETWEEN ? AND ?
          GROUP BY category
          ORDER BY total DESC, category ASC
          LIMIT 12"
-    )->fetchAll() ?: [];
+    );
+    $categoryStmt->execute([$periodStart, $periodEnd]);
+    $summary['by_category'] = $categoryStmt->fetchAll() ?: [];
+
+    $statusStmt = $pdo->prepare(
+        "SELECT status, COUNT(*) AS qtd, COALESCE(SUM(COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?)), 0) AS total, COALESCE(SUM(COALESCE(deposit_value, 0)), 0) AS sinal
+         FROM appointments
+         WHERE appointment_date BETWEEN ? AND ?
+           AND status NOT IN ('cancelado')
+         GROUP BY status
+         ORDER BY qtd DESC, status ASC"
+    );
+    $statusStmt->execute([$pomadaUnit, $periodStart, $periodEnd]);
+    $summary['appointments_by_status'] = $statusStmt->fetchAll() ?: [];
 
     return $summary;
 }
 
-function studio_list_expenses(array $studio): array
+function studio_list_expenses(array $studio, ?string $startDate = null, ?string $endDate = null): array
 {
+    if ($startDate && $endDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
+        if ($endDate < $startDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
+        }
+        $stmt = studio_db($studio)->prepare('SELECT * FROM expenses WHERE expense_date BETWEEN ? AND ? ORDER BY expense_date DESC, id DESC LIMIT 200');
+        $stmt->execute([$startDate, $endDate]);
+        return $stmt->fetchAll() ?: [];
+    }
+
     return studio_db($studio)->query('SELECT * FROM expenses ORDER BY expense_date DESC, id DESC LIMIT 120')->fetchAll() ?: [];
 }
 
@@ -2819,6 +2905,18 @@ function studio_schedule_add_minutes(string $date, string $time, int $minutes): 
     return $start->modify('+' . max(0, $minutes) . ' minutes')->format('H:i');
 }
 
+function studio_schedule_slot_is_future(string $date, string $slot, ?DateTimeImmutable $now = null): bool
+{
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $now = $now ?: new DateTimeImmutable('now', $tz);
+    $slotStart = DateTimeImmutable::createFromFormat('Y-m-d H:i', $date . ' ' . substr(trim($slot), 0, 5), $tz);
+    if (!$slotStart) {
+        return false;
+    }
+
+    return $slotStart > $now;
+}
+
 function studio_weekday_label_pt(DateTimeImmutable $date): string
 {
     return [
@@ -3149,16 +3247,22 @@ function studio_schedule_next_slots(array $studio, int $daysAhead = 7): array
 {
     $slots = studio_schedule_slots($studio);
     $allowedDays = studio_schedule_days($studio);
-    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $now = new DateTimeImmutable('now', $tz);
+    $today = new DateTimeImmutable('today', $tz);
     $result = [];
     for ($offset = 0; $offset < max(1, $daysAhead); $offset++) {
         $day = $today->modify('+' . $offset . ' days');
+        $date = $day->format('Y-m-d');
         if (!in_array((string)$day->format('N'), $allowedDays, true)) {
             continue;
         }
         foreach ($slots as $slot) {
+            if (!studio_schedule_slot_is_future($date, $slot, $now)) {
+                continue;
+            }
             $result[] = [
-                'date' => $day->format('Y-m-d'),
+                'date' => $date,
                 'weekday' => $day->format('D'),
                 'time' => $slot,
             ];
@@ -3169,7 +3273,9 @@ function studio_schedule_next_slots(array $studio, int $daysAhead = 7): array
 
 function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?DateTimeImmutable $startDate = null): array
 {
-    $today = $startDate ?: new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $now = new DateTimeImmutable('now', $tz);
+    $today = $startDate ?: new DateTimeImmutable('today', $tz);
     $endDate = $today->modify('+' . max(1, $daysAhead - 1) . ' days');
     $allowedSlots = studio_schedule_slots($studio);
     $allowedDays = studio_schedule_days($studio);
@@ -3200,7 +3306,7 @@ function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?Da
                     break;
                 }
             }
-            if (!$occupied) {
+            if ($allowed && !$occupied && studio_schedule_slot_is_future($date, $slot, $now)) {
                 $freeSlots[] = $slot;
             }
         }
@@ -3323,6 +3429,38 @@ function studio_whatsapp_schedule_suggestion(array $conversation, array $message
     ];
 }
 
+function studio_whatsapp_booking_deposit_amount(array $studio): float
+{
+    $settings = studio_settings($studio);
+    $amount = (float)($settings['ai_booking_deposit_amount'] ?? 50);
+    return $amount > 0 ? $amount : 50.0;
+}
+
+function studio_whatsapp_booking_deposit_label(array $studio): string
+{
+    return format_money(studio_whatsapp_booking_deposit_amount($studio));
+}
+
+function studio_whatsapp_booking_pix_key(array $studio): string
+{
+    $settings = studio_settings($studio);
+    $key = trim((string)($settings['ai_booking_pix_key'] ?? ''));
+    return $key !== '' ? $key : '363.262.368-60';
+}
+
+function studio_whatsapp_booking_pix_recipient(array $studio): string
+{
+    $settings = studio_settings($studio);
+    $recipient = trim((string)($settings['ai_booking_pix_recipient'] ?? ''));
+    return $recipient !== '' ? $recipient : 'Daniel Araújo da Silva';
+}
+
+function studio_whatsapp_booking_auto_create_enabled(array $studio): bool
+{
+    $settings = studio_settings($studio);
+    return (int)($settings['ai_auto_create_appointment_after_proof'] ?? 1) === 1;
+}
+
 function studio_whatsapp_try_create_deposit_appointment(array $studio, array $conversation, array $slot, string $proofSummary = ''): array
 {
     $date = trim((string)($slot['date'] ?? ''));
@@ -3370,6 +3508,7 @@ function studio_whatsapp_try_create_deposit_appointment(array $studio, array $co
     }
 
     try {
+        $depositValue = studio_whatsapp_booking_deposit_amount($studio);
         $appointmentId = studio_save_appointment($studio, [
             'customer_id' => $customerId,
             'lead_id' => $leadId,
@@ -3379,7 +3518,7 @@ function studio_whatsapp_try_create_deposit_appointment(array $studio, array $co
             'start_time' => $time,
             'status' => 'agendado',
             'value' => (string)$value,
-            'deposit_value' => '50',
+            'deposit_value' => number_format($depositValue, 2, '.', ''),
             'source' => 'WhatsApp',
             'import_source' => 'whatsapp_ai',
             'raw_title' => 'WhatsApp IA - conversa ' . (string)($conversation['id'] ?? ''),
@@ -3951,20 +4090,37 @@ function studio_whatsapp_ai_latest_offered_slot(array $history): ?array
     return null;
 }
 
-function studio_whatsapp_ai_payment_text_indicates_receipt(string $text): array
+function studio_whatsapp_ai_payment_text_indicates_receipt(string $text, float $expectedAmount = 50.0, string $expectedPixKey = '', string $expectedRecipient = ''): array
 {
     $normalized = mb_strtolower(trim($text), 'UTF-8');
     $normalized = str_replace(["\xc2\xa0", ' '], ' ', $normalized);
     $hasReceiptSignal = (bool)preg_match('/\b(comprovante|pix|transfer[eê]ncia|pagamento|pago|valor|favorecido|destinat[aá]rio|recebedor|autentica[cç][aã]o|transa[cç][aã]o)\b/u', $normalized);
-    $hasAmount = (bool)preg_match('/(?:r\$\s*)?50(?:[,.]00)?\b/u', $normalized);
-    $hasExpectedCpf = (bool)preg_match('/363\D*262\D*368\D*60/u', $normalized);
-    $hasExpectedName = (bool)preg_match('/daniel\s+ara[uú]jo\s+da\s+silva/u', $normalized);
+    $amountWhole = (string)((int)round($expectedAmount));
+    $amountPattern = '/(?:r\$\s*)?' . preg_quote($amountWhole, '/') . '(?:[,.]00)?\b/u';
+    $hasAmount = (bool)preg_match($amountPattern, $normalized);
+    $digitsKey = preg_replace('/\D+/', '', $expectedPixKey);
+    $hasExpectedKey = $digitsKey !== ''
+        ? (bool)preg_match('/' . implode('\D*', str_split($digitsKey)) . '/u', $normalized)
+        : false;
+    $recipientNeedles = [];
+    $recipientClean = trim(studio_calendar_remove_accents(mb_strtolower($expectedRecipient, 'UTF-8')));
+    if ($recipientClean !== '') {
+        $recipientNeedles[] = preg_replace('/\s+/u', ' ', $recipientClean) ?: $recipientClean;
+    }
+    $normalizedAscii = studio_calendar_remove_accents($normalized);
+    $hasExpectedName = false;
+    foreach ($recipientNeedles as $needle) {
+        if ($needle !== '' && str_contains($normalizedAscii, $needle)) {
+            $hasExpectedName = true;
+            break;
+        }
+    }
 
     return [
         'looks_like_receipt' => $hasReceiptSignal,
         'amount_ok' => $hasAmount,
-        'recipient_ok' => $hasExpectedCpf || $hasExpectedName,
-        'confirmed' => $hasReceiptSignal && $hasAmount && ($hasExpectedCpf || $hasExpectedName),
+        'recipient_ok' => $hasExpectedKey || $hasExpectedName,
+        'confirmed' => $hasReceiptSignal && $hasAmount && ($hasExpectedKey || $hasExpectedName),
     ];
 }
 
@@ -4528,6 +4684,42 @@ function studio_whatsapp_update_message_status(array $studio, array $payload): a
     return ['ok' => true, 'updated' => $stmt->rowCount()];
 }
 
+function studio_whatsapp_ai_handoff_reactivation_keywords(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $raw = trim((string)($settings['ai_handoff_reactivation_keywords'] ?? ''));
+    if ($raw === '') {
+        $raw = "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia";
+    }
+    $items = preg_split('/[\r\n,;]+/u', $raw) ?: [];
+    $items = array_values(array_filter(array_map(static function (string $item): string {
+        $item = trim(studio_calendar_remove_accents(studio_calendar_lower_text($item)));
+        return preg_replace('/\s+/u', ' ', $item) ?: $item;
+    }, $items), static fn(string $item): bool => $item !== ''));
+
+    return array_values(array_unique($items));
+}
+
+function studio_whatsapp_ai_should_reactivate_after_handoff(array $studio, string $body): bool
+{
+    $settings = studio_settings($studio);
+    if ((int)($settings['ai_handoff_reactivation_enabled'] ?? 1) !== 1) {
+        return false;
+    }
+    $normalized = trim(studio_calendar_remove_accents(studio_calendar_lower_text($body)));
+    if ($normalized === '') {
+        return false;
+    }
+    $normalized = preg_replace('/\s+/u', ' ', $normalized) ?: $normalized;
+    foreach (studio_whatsapp_ai_handoff_reactivation_keywords($studio) as $keyword) {
+        if ($keyword !== '' && str_contains($normalized, $keyword)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function studio_record_whatsapp_message(array $studio, array $payload): array
 {
     $payload = studio_normalize_whatsapp_message_payload($payload);
@@ -4663,7 +4855,22 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         }
     }
 
-    if (!$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot') {
+    $shouldQueueAi = !$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot';
+    if (!$fromMe && !$shouldQueueAi && studio_whatsapp_ai_should_reactivate_after_handoff($studio, $body)) {
+        try {
+            studio_update_whatsapp_conversation($studio, [
+                'conversation_id' => (int)$conversation['id'],
+                'attendance_mode' => 'bot',
+                'needs_human' => 0,
+                'ai_last_status' => 'IA reativada por pedido do cliente',
+            ]);
+            $conversation = studio_find_whatsapp_conversation($studio, (int)$conversation['id']) ?: $conversation;
+            $shouldQueueAi = true;
+        } catch (Throwable) {
+        }
+    }
+
+    if ($shouldQueueAi) {
         try {
             studio_update_whatsapp_conversation($studio, [
                 'conversation_id' => (int)$conversation['id'],
@@ -5469,11 +5676,17 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
 {
     $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
     $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    $messageText = mb_strtolower(trim((string)($message['body'] ?? $message['mensagem'] ?? '')), 'UTF-8');
+    $explicitProofText = (bool)preg_match('/\b(comprovante|pix|paguei|pago|pagamento|sinal|transfer[eê]ncia|recibo)\b/u', $messageText);
+    $looksLikeVisualReference = (bool)preg_match('/\b(desenho|refer[eê]ncia|arte|tatuagem|tattoo|quero\s+ess[ea]|modelo|ideia)\b/u', $messageText);
     $hasPaymentContext = (bool)preg_match('/\b(sinal|pix|comprovante|pagamento|reserva|reservar|agendar|marcar)\b/u', mb_strtolower($conversationState, 'UTF-8'));
     $hasAttachment = in_array($messageType, ['image', 'document'], true)
         || str_starts_with($mediaMime, 'image/')
         || str_contains($mediaMime, 'pdf');
     if (!$hasPaymentContext || !$hasAttachment) {
+        return ['present' => false, 'confirmed' => false];
+    }
+    if ($looksLikeVisualReference && !$explicitProofText) {
         return ['present' => false, 'confirmed' => false];
     }
 
@@ -5507,7 +5720,13 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
         ];
     }
 
-    $signals = studio_whatsapp_ai_payment_text_indicates_receipt($text);
+    $depositLabel = studio_whatsapp_booking_deposit_label($studio);
+    $signals = studio_whatsapp_ai_payment_text_indicates_receipt(
+        $text,
+        studio_whatsapp_booking_deposit_amount($studio),
+        studio_whatsapp_booking_pix_key($studio),
+        studio_whatsapp_booking_pix_recipient($studio)
+    );
     return [
         'present' => true,
         'confirmed' => !empty($signals['confirmed']),
@@ -5516,7 +5735,7 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
         'text' => mb_substr($text, 0, 1500),
         'signals' => $signals,
         'reason' => !empty($signals['confirmed'])
-            ? 'Comprovante parece conter Pix de R$50 para o favorecido esperado.'
+            ? 'Comprovante parece conter Pix de ' . $depositLabel . ' para o favorecido esperado.'
             : 'Anexo parece comprovante, mas faltou confirmar valor ou favorecido automaticamente.',
     ];
 }
@@ -7799,6 +8018,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
     $studioAddress = trim((string)($settings['studio_address'] ?? ''));
     $studioName = (string)($studio['name'] ?? 'Estudio');
+    $bookingDepositLabel = studio_whatsapp_booking_deposit_label($studio);
+    $bookingPixKey = studio_whatsapp_booking_pix_key($studio);
+    $bookingPixRecipient = studio_whatsapp_booking_pix_recipient($studio);
+    $bookingAutoCreateEnabled = studio_whatsapp_booking_auto_create_enabled($studio);
     $activeArtists = array_values(array_filter(studio_list_artists($studio), static fn(array $artist): bool => !isset($artist['is_active']) || !empty($artist['is_active'])));
     $artistNames = array_values(array_filter(array_map(static fn(array $artist): string => trim((string)($artist['name'] ?? '')), $activeArtists)));
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
@@ -8078,7 +8301,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'multi_request' => 'O cliente enviou várias mensagens antes da resposta. Responda todos os pedidos pendentes em uma única mensagem curta, sem ignorar nenhum.',
         'address' => $studioAddress !== '' ? 'Informe diretamente o endereço oficial cadastrado.' : 'O endereço não está cadastrado. Não invente nem use placeholder; encaminhe para uma pessoa.',
         'artist' => 'A agenda mostra horários, mas não associa automaticamente um tatuador. Não invente um nome; encaminhe a confirmação para a equipe.',
-        'reservation' => 'Conduza a reserva: confirme o horario escolhido, explique que a vaga so fica garantida com sinal de R$50 via Pix e peca o comprovante aqui no WhatsApp.',
+        'reservation' => 'Conduza a reserva: confirme o horario escolhido, explique que a vaga so fica garantida com sinal de ' . $bookingDepositLabel . ' via Pix e peca o comprovante aqui no WhatsApp.',
         'payment_proof' => 'A mensagem atual contem possivel comprovante. Se o comprovante for confirmado, crie o agendamento e avise que a equipe vai conferir; se nao for confirmado, peca conferencia humana.',
         'image_price_style' => 'Responda qual e o estilo visto na imagem e avance o orcamento sem repetir dados ja informados.',
         'image_style' => 'Diga em portugues qual e o estilo visto na imagem, citando no maximo dois elementos concretos.',
@@ -8146,7 +8369,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true e explique em uma frase curta.\n"
-        . "- Para reserva de horario, primeiro ofereca/valide data e hora; depois explique sinal de R$50 via Pix CPF 363.262.368-60 em nome de Daniel Araujo da Silva; depois aguarde comprovante.\n"
+        . "- Para reserva de horario, primeiro ofereca/valide data e hora; depois explique sinal de " . $bookingDepositLabel . " via Pix " . $bookingPixKey . " em nome de " . $bookingPixRecipient . "; depois aguarde comprovante.\n"
         . "- Quando receber comprovante, nao repita horarios. Confirme recebimento e encaminhe para conferencia humana se nao tiver certeza.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
         . "- Nunca escreva placeholders como [endereço], [nome] ou campos entre colchetes.\n"
@@ -8163,7 +8386,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human.";
 
-    $scheduleReply = static function () use ($dateContext, $availability, $messageText): string {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel): string {
         if (is_array($dateContext)) {
             $date = (string)($dateContext['date'] ?? '');
             $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
@@ -8172,18 +8395,18 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 ? 'amanhã'
                 : (str_contains($lowerMessage, 'hoje') ? 'hoje' : ($date !== '' ? format_date_pt($date) : 'nessa data'));
             if ($freeSlots) {
-                return 'Tenho ' . implode(' e ', array_slice($freeSlots, 0, 3)) . ' livres ' . $dateLabel . '. Para reservar, o sinal é R$50 via Pix e o comprovante pode ser enviado aqui.';
+                return 'Tenho ' . implode(' e ', array_slice($freeSlots, 0, 3)) . ' livres ' . $dateLabel . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
             }
             foreach ($availability as $day) {
                 if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-                    return 'Não tenho vaga ' . $dateLabel . '. O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '; para reservar, o sinal é R$50 via Pix.';
+                    return 'Não tenho vaga ' . $dateLabel . '. O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
                 }
             }
             return 'Não encontrei vaga livre nessa data nem no período consultado.';
         }
         foreach ($availability as $day) {
             if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-                return 'O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '. Para reservar, o sinal é R$50 via Pix e o comprovante pode ser enviado aqui.';
+                return 'O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
             }
         }
         return 'Não encontrei vaga livre no período consultado.';
@@ -8197,6 +8420,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'needs_human' => true,
                 'lead_score_delta' => 2,
                 'summary' => 'Cliente enviou comprovante de sinal, mas o horario da reserva nao foi identificado automaticamente.',
+            ];
+        } elseif (!empty($paymentProof['confirmed']) && !$bookingAutoCreateEnabled) {
+            $result = [
+                'ok' => true,
+                'reply_text' => 'Recebi o comprovante do sinal. Vou chamar a equipe para conferir e lançar o horário na agenda certinho.',
+                'needs_human' => true,
+                'lead_score_delta' => 2,
+                'summary' => 'Comprovante de sinal confirmado; criação automática de agenda está desativada nas configurações.',
             ];
         } elseif (!empty($paymentProof['confirmed'])) {
             $appointmentResult = studio_whatsapp_try_create_deposit_appointment($studio, $conversation, $selectedReservationSlot, (string)($paymentProof['reason'] ?? ''));
@@ -8222,7 +8453,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         } else {
             $result = [
                 'ok' => true,
-                'reply_text' => 'Recebi o comprovante, mas não consegui confirmar automaticamente o valor de R$50 ou o favorecido. Vou chamar a equipe para conferir e finalizar o agendamento.',
+                'reply_text' => 'Recebi o comprovante, mas não consegui confirmar automaticamente o valor de ' . $bookingDepositLabel . ' ou o favorecido. Vou chamar a equipe para conferir e finalizar o agendamento.',
                 'needs_human' => true,
                 'lead_score_delta' => 2,
                 'summary' => 'Cliente enviou comprovante de sinal; precisa de conferencia humana do valor/favorecido.',
@@ -8238,7 +8469,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
         if (in_array('reservation', $pendingIntents, true)) {
             $parts[] = is_array($selectedReservationSlot)
-                ? 'Para reservar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é R$50 via Pix e o comprovante pode ser enviado aqui.'
+                ? 'Para reservar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.'
                 : 'Para reservar, me diga a data e o horário que você prefere.';
         }
         if (in_array('address', $pendingIntents, true)) {
@@ -8274,10 +8505,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $dateLabel = format_date_pt((string)$selectedReservationSlot['date']);
             $result = [
                 'ok' => true,
-                'reply_text' => 'Perfeito, para reservar ' . $dateLabel . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é R$50 via Pix CPF 363.262.368-60 em nome de Daniel Araújo da Silva. Me envia o comprovante por aqui que eu deixo tudo encaminhado para a equipe conferir.',
+                'reply_text' => 'Perfeito, para reservar ' . $dateLabel . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix ' . $bookingPixKey . ' em nome de ' . $bookingPixRecipient . '. Me envia o comprovante por aqui que eu deixo tudo encaminhado para a equipe conferir.',
                 'needs_human' => false,
                 'lead_score_delta' => 2,
-                'summary' => 'Cliente quer reservar o horario de ' . (string)$selectedReservationSlot['date'] . ' ' . (string)$selectedReservationSlot['time'] . '; aguardando comprovante do sinal de R$50 via Pix.',
+                'summary' => 'Cliente quer reservar o horario de ' . (string)$selectedReservationSlot['date'] . ' ' . (string)$selectedReservationSlot['time'] . '; aguardando comprovante do sinal de ' . $bookingDepositLabel . ' via Pix.',
             ];
         } else {
             $result = [
@@ -11285,6 +11516,19 @@ function studio_save_settings(array $studio, array $data): void
         'ollama' => 'http://localhost:11434/v1',
         default => 'https://integrate.api.nvidia.com/v1',
     };
+    $whatsappAiDebounceSeconds = max(2, min(30, (int)($data['whatsapp_ai_debounce_seconds'] ?? ($settings['whatsapp_ai_debounce_seconds'] ?? 8))));
+    $aiHandoffReactivationEnabled = $boolSetting('ai_handoff_reactivation_enabled', 1);
+    $aiHandoffReactivationKeywords = trim((string)($data['ai_handoff_reactivation_keywords'] ?? ($settings['ai_handoff_reactivation_keywords'] ?? "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia")));
+    if ($aiHandoffReactivationKeywords === '') {
+        $aiHandoffReactivationKeywords = "ia\nbot\nchatbot\nassistente\nvoltar para ia\nfalar com a ia";
+    }
+    $aiBookingDepositAmount = (float)money_to_float((string)($data['ai_booking_deposit_amount'] ?? ($settings['ai_booking_deposit_amount'] ?? '50')));
+    if ($aiBookingDepositAmount <= 0) {
+        $aiBookingDepositAmount = 50.0;
+    }
+    $aiBookingPixKey = trim((string)($data['ai_booking_pix_key'] ?? ($settings['ai_booking_pix_key'] ?? '363.262.368-60')));
+    $aiBookingPixRecipient = trim((string)($data['ai_booking_pix_recipient'] ?? ($settings['ai_booking_pix_recipient'] ?? 'Daniel Araújo da Silva')));
+    $aiAutoCreateAppointmentAfterProof = $boolSetting('ai_auto_create_appointment_after_proof', 1);
     $appointmentConfirmationMessage = trim((string)($data['appointment_confirmation_message'] ?? ($settings['appointment_confirmation_message'] ?? '')));
     $whatsappEnabled = $boolSetting('whatsapp_enabled', 0);
     $whatsappProvider = strtolower(trim((string)($data['whatsapp_provider'] ?? 'official')));
@@ -11387,6 +11631,13 @@ function studio_save_settings(array $studio, array $data): void
         'ai_whatsapp_prompt' => 'TEXT NULL',
         'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "nvidia"',
         'ai_api_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
+        'whatsapp_ai_debounce_seconds' => 'TINYINT UNSIGNED NOT NULL DEFAULT 8',
+        'ai_handoff_reactivation_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'ai_handoff_reactivation_keywords' => 'TEXT NULL',
+        'ai_booking_deposit_amount' => 'DECIMAL(10,2) NOT NULL DEFAULT 50.00',
+        'ai_booking_pix_key' => 'VARCHAR(120) NULL',
+        'ai_booking_pix_recipient' => 'VARCHAR(160) NULL',
+        'ai_auto_create_appointment_after_proof' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
         'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "official"',
@@ -11427,7 +11678,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_handoff_reactivation_enabled = ?, ai_handoff_reactivation_keywords = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -11471,6 +11722,13 @@ function studio_save_settings(array $studio, array $data): void
         $aiWhatsAppPrompt,
         $aiProvider,
         $aiApiBaseUrl !== '' ? rtrim($aiApiBaseUrl, '/') : $defaultAiBaseUrl,
+        $whatsappAiDebounceSeconds,
+        $aiHandoffReactivationEnabled,
+        $aiHandoffReactivationKeywords,
+        number_format($aiBookingDepositAmount, 2, '.', ''),
+        $aiBookingPixKey,
+        $aiBookingPixRecipient,
+        $aiAutoCreateAppointmentAfterProof,
         $whatsappProvider,
         $whatsappOfficialMode,
         $metaAdsEnabled,

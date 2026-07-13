@@ -45,8 +45,9 @@ try {
         exit(0);
     }
 
-    $debounceSeconds = 8;
-    $maxDebounceSeconds = 28;
+    $settings = studio_settings($studio);
+    $debounceSeconds = max(2, min(30, (int)($settings['whatsapp_ai_debounce_seconds'] ?? 8)));
+    $maxDebounceSeconds = max(28, $debounceSeconds + 20);
     $startedAt = time();
     $lastChangeAt = time();
     $latestMessageId = $messageId;

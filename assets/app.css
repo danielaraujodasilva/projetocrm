@@ -2094,6 +2094,73 @@ textarea {
     letter-spacing: -.02em;
 }
 
+.finance-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    overflow: hidden;
+    position: relative;
+    background:
+        radial-gradient(circle at 8% 10%, rgba(77, 155, 118, .18), transparent 34%),
+        linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(241, 247, 242, .92));
+}
+
+.finance-hero::after {
+    content: "";
+    position: absolute;
+    right: -70px;
+    top: -95px;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    border: 34px solid rgba(19, 114, 82, .08);
+    pointer-events: none;
+}
+
+.finance-period-form {
+    position: relative;
+    z-index: 1;
+    align-items: end;
+    margin: 0;
+}
+
+.finance-period-form label {
+    display: grid;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+.finance-kpi-grid .dashboard-stat {
+    border: 1px solid rgba(21, 61, 43, .08);
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.finance-kpi-grid button.dashboard-stat:hover {
+    border-color: rgba(22, 128, 92, .22);
+    box-shadow: 0 20px 42px rgba(20, 46, 35, .12);
+    transform: translateY(-2px);
+}
+
+.finance-kpi-primary {
+    background:
+        linear-gradient(135deg, rgba(18, 111, 81, .96), rgba(36, 141, 102, .88)),
+        radial-gradient(circle at 90% 20%, rgba(255, 255, 255, .3), transparent 28%);
+}
+
+.finance-kpi-primary .metric,
+.finance-kpi-primary .muted {
+    color: #fff;
+}
+
+.finance-kpi-primary .muted {
+    opacity: .84;
+}
+
 .home-action-card .metric {
     font-size: 19px;
     font-weight: 800;
@@ -2662,6 +2729,46 @@ textarea {
 
 .calendar-cell.muted-day {
     opacity: .55;
+}
+
+.calendar-cell.is-today {
+    position: relative;
+    border: 2px solid #0f8b63;
+    background:
+        radial-gradient(circle at 12% 8%, rgba(16, 185, 129, .18), transparent 34%),
+        linear-gradient(180deg, #ffffff, #f0fdf7);
+    box-shadow: 0 16px 36px rgba(15, 139, 99, .16);
+}
+
+.calendar-cell.is-today::before {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border: 1px dashed rgba(15, 139, 99, .35);
+    border-radius: 11px;
+    pointer-events: none;
+}
+
+.calendar-cell.is-today .calendar-date {
+    border-bottom-color: rgba(15, 139, 99, .22);
+}
+
+.calendar-date a em,
+.calendar-title.is-today-title .badge {
+    margin-left: 8px;
+}
+
+.calendar-date a em {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    background: #0f8b63;
+    color: #fff;
+    font-size: 10px;
+    font-style: normal;
+    letter-spacing: .08em;
+    text-transform: uppercase;
 }
 
 .calendar-date {
@@ -8501,6 +8608,20 @@ input[type="time"]:focus {
 
     .home-kpi-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .finance-hero {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .finance-period-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .finance-period-form .btn {
+        width: 100%;
     }
 
     .home-kpi-card {
