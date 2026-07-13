@@ -6664,11 +6664,20 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="panel soft" style="margin-top:16px">';
         echo '<h3 style="margin-top:0">Resposta em áudio</h3>';
-        echo '<p class="muted">Primeira versão usando a voz instalada no próprio Windows. Quando ativado, o CRM gera um WAV local, converte para OGG/Opus com FFmpeg e envia como áudio do WhatsApp.</p>';
+        echo '<p class="muted">Controle se a IA responde em áudio. Windows SAPI é leve e simples; Coqui XTTS v2 é offline, mais natural e consegue usar uma amostra autorizada da Fran.</p>';
         echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_voice_reply_enabled" value="1" ' . (!empty($settings['ai_voice_reply_enabled']) ? 'checked' : '') . '> IA pode responder em áudio</label><label class="checkline"><input type="checkbox" name="ai_voice_reply_when_audio_only" value="1" ' . ((int)($settings['ai_voice_reply_when_audio_only'] ?? 1) === 1 ? 'checked' : '') . '> Só responder em áudio quando o cliente mandar áudio</label></div>';
         echo '<div class="grid cols-2" style="margin-top:12px">';
-        echo '<div class="field"><label>Motor de voz</label><select name="ai_voice_reply_engine"><option value="sapi"' . ((string)($settings['ai_voice_reply_engine'] ?? 'sapi') === 'sapi' ? ' selected' : '') . '>Windows SAPI local</option></select><small class="muted">Grátis e offline. A naturalidade depende das vozes instaladas no Windows.</small></div>';
-        echo '<div class="field"><label>Nome exato da voz</label><input name="ai_voice_reply_voice" value="' . h($settings['ai_voice_reply_voice'] ?? '') . '" placeholder="Ex.: Microsoft Maria Desktop"><small class="muted">Se ficar vazio, usa a voz padrão do Windows. Para listar vozes: PowerShell com GetInstalledVoices.</small></div>';
+        $voiceEngineCurrent = (string)($settings['ai_voice_reply_engine'] ?? 'sapi');
+        echo '<div class="field"><label>Motor de voz</label><select name="ai_voice_reply_engine"><option value="sapi"' . ($voiceEngineCurrent === 'sapi' ? ' selected' : '') . '>Windows SAPI local</option><option value="xtts"' . ($voiceEngineCurrent === 'xtts' ? ' selected' : '') . '>Coqui XTTS v2 - voz clonada local</option></select><small class="muted">Se o XTTS falhar ou estiver sem amostra, o sistema tenta SAPI como plano B.</small></div>';
+        echo '<div class="field"><label>Amostra autorizada da Fran</label><input name="ai_voice_reply_xtts_sample_path" value="' . h($settings['ai_voice_reply_xtts_sample_path'] ?? '') . '" placeholder="C:\\AI\\voice-samples\\fran.wav"><small class="muted">Use 10 a 30 segundos limpos, sem música. Também aceito: storage/voice-samples/fran.wav.</small></div>';
+        echo '</div>';
+        echo '<div class="grid cols-2">';
+        echo '<div class="field"><label>Idioma do XTTS</label><select name="ai_voice_reply_xtts_language">';
+        foreach (['pt' => 'Português', 'en' => 'Inglês', 'es' => 'Espanhol', 'fr' => 'Francês', 'de' => 'Alemão', 'it' => 'Italiano'] as $langValue => $langLabel) {
+            echo '<option value="' . h($langValue) . '"' . ((string)($settings['ai_voice_reply_xtts_language'] ?? 'pt') === $langValue ? ' selected' : '') . '>' . h($langLabel) . '</option>';
+        }
+        echo '</select><small class="muted">Para atendimento em português, deixe Português.</small></div>';
+        echo '<div class="field"><label>Nome exato da voz SAPI</label><input name="ai_voice_reply_voice" value="' . h($settings['ai_voice_reply_voice'] ?? '') . '" placeholder="Ex.: Microsoft Maria Desktop"><small class="muted">Usado pelo Windows SAPI ou como fallback quando o XTTS não conseguir gerar.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Velocidade da voz</label><input type="number" min="-10" max="10" name="ai_voice_reply_rate" value="' . h((string)($settings['ai_voice_reply_rate'] ?? 0)) . '"><small class="muted">0 é natural. Use negativo para mais lento e positivo para mais rápido.</small></div>';

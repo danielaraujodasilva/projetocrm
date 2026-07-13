@@ -5619,13 +5619,20 @@ function studio_whatsapp_ai_voice_config(array $studio): array
 {
     $settings = studio_settings($studio);
     $engine = strtolower(trim((string)($settings['ai_voice_reply_engine'] ?? 'sapi')));
-    if (!in_array($engine, ['sapi'], true)) {
+    if (!in_array($engine, ['sapi', 'xtts'], true)) {
         $engine = 'sapi';
+    }
+    $language = strtolower(trim((string)($settings['ai_voice_reply_xtts_language'] ?? 'pt')));
+    if (!in_array($language, ['pt', 'en', 'es', 'fr', 'de', 'it'], true)) {
+        $language = 'pt';
     }
     return [
         'enabled' => !empty($settings['ai_voice_reply_enabled']),
         'when_audio_only' => (int)($settings['ai_voice_reply_when_audio_only'] ?? 1) === 1,
         'engine' => $engine,
+        'xtts_sample_path' => trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? '')),
+        'xtts_language' => $language,
+        'xtts_python' => trim((string)(getenv('XTTS_PYTHON') ?: 'C:\\AI\\xtts\\Scripts\\python.exe')),
         'voice' => trim((string)($settings['ai_voice_reply_voice'] ?? '')),
         'rate' => max(-10, min(10, (int)($settings['ai_voice_reply_rate'] ?? 0))),
         'volume' => max(0, min(100, (int)($settings['ai_voice_reply_volume'] ?? 100))),
@@ -5635,7 +5642,7 @@ function studio_whatsapp_ai_voice_config(array $studio): array
 function studio_whatsapp_ai_voice_should_reply(array $studio, array $newMessage, array $sendData): bool
 {
     $config = studio_whatsapp_ai_voice_config($studio);
-    if (empty($config['enabled']) || (string)$config['engine'] !== 'sapi') {
+    if (empty($config['enabled'])) {
         return false;
     }
     if (!empty($sendData['interactive_type'])) {
@@ -5653,6 +5660,60 @@ function studio_whatsapp_ai_voice_clean_text(string $text): string
     $text = preg_replace('/https?:\/\/\S+/i', 'link', $text) ?? $text;
     $text = preg_replace('/\s+/', ' ', $text) ?? $text;
     return mb_substr($text, 0, 420);
+}
+
+function studio_run_command_with_timeout(string $command, int $timeoutSeconds = 180): array
+{
+    if (!function_exists('proc_open')) {
+        $output = [];
+        $exitCode = 1;
+        @exec($command . ' 2>&1', $output, $exitCode);
+        return ['exitCode' => $exitCode, 'output' => implode("\n", $output), 'timedOut' => false];
+    }
+
+    $descriptor = [
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = @proc_open($command, $descriptor, $pipes, APP_BASE_PATH);
+    if (!is_resource($process)) {
+        return ['exitCode' => 1, 'output' => 'Nao foi possivel iniciar o processo.', 'timedOut' => false];
+    }
+
+    foreach ($pipes as $pipe) {
+        stream_set_blocking($pipe, false);
+    }
+
+    $startedAt = time();
+    $output = '';
+    $exitCode = null;
+    $timedOut = false;
+    while (true) {
+        $output .= stream_get_contents($pipes[1]) ?: '';
+        $output .= stream_get_contents($pipes[2]) ?: '';
+        $status = proc_get_status($process);
+        if (empty($status['running'])) {
+            $exitCode = is_int($status['exitcode'] ?? null) ? (int)$status['exitcode'] : null;
+            break;
+        }
+        if (time() - $startedAt > $timeoutSeconds) {
+            $timedOut = true;
+            @proc_terminate($process);
+            break;
+        }
+        usleep(150000);
+    }
+
+    foreach ($pipes as $pipe) {
+        $output .= stream_get_contents($pipe) ?: '';
+        fclose($pipe);
+    }
+    $closedExit = proc_close($process);
+    if ($exitCode === null || $exitCode < 0) {
+        $exitCode = (int)$closedExit;
+    }
+
+    return ['exitCode' => $exitCode, 'output' => $output, 'timedOut' => $timedOut];
 }
 
 function studio_whatsapp_ai_voice_sapi_generate(array $studio, int $conversationId, string $text): array
@@ -5732,6 +5793,112 @@ PS1;
             'path' => $outputPath,
         ],
     ];
+}
+
+function studio_whatsapp_ai_voice_resolve_xtts_sample(array $config): string
+{
+    $configured = trim((string)($config['xtts_sample_path'] ?? ''));
+    if ($configured !== '') {
+        $resolved = studio_whatsapp_media_absolute_path($configured);
+        if ($resolved !== null) {
+            return $resolved;
+        }
+    }
+
+    foreach ([
+        APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'voice-samples' . DIRECTORY_SEPARATOR . 'fran.wav',
+        APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'voice-samples' . DIRECTORY_SEPARATOR . 'fran.mp3',
+        APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'voice-samples' . DIRECTORY_SEPARATOR . 'fran.m4a',
+        'C:\\AI\\voice-samples\\fran.wav',
+        'C:\\AI\\voice-samples\\fran.mp3',
+        'C:\\AI\\voice-samples\\fran.m4a',
+    ] as $candidate) {
+        if (is_file($candidate)) {
+            return $candidate;
+        }
+    }
+
+    return '';
+}
+
+function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversationId, string $text): array
+{
+    $config = studio_whatsapp_ai_voice_config($studio);
+    $text = studio_whatsapp_ai_voice_clean_text($text);
+    if ($text === '') {
+        return ['ok' => false, 'error' => 'Texto vazio para gerar audio.'];
+    }
+    if (!studio_shell_exec_available()) {
+        return ['ok' => false, 'error' => 'Execucao de comandos indisponivel para gerar audio XTTS.'];
+    }
+
+    $python = (string)($config['xtts_python'] ?? '');
+    if ($python === '' || !is_file($python)) {
+        return ['ok' => false, 'error' => 'Python do XTTS nao encontrado em C:\\AI\\xtts\\Scripts\\python.exe.'];
+    }
+
+    $script = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . 'tts' . DIRECTORY_SEPARATOR . 'xtts_synthesize.py';
+    if (!is_file($script)) {
+        return ['ok' => false, 'error' => 'Script do XTTS nao encontrado no CRM.'];
+    }
+
+    $speakerPath = studio_whatsapp_ai_voice_resolve_xtts_sample($config);
+    if ($speakerPath === '') {
+        return ['ok' => false, 'error' => 'Amostra de voz da Fran nao configurada.'];
+    }
+
+    $storage = studio_whatsapp_attachment_dir($studio, $conversationId);
+    $fileName = date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '_ai_xtts.wav';
+    $outputPath = $storage['folder'] . DIRECTORY_SEPARATOR . $fileName;
+    $command = escapeshellarg($python)
+        . ' ' . escapeshellarg($script)
+        . ' --text ' . escapeshellarg($text)
+        . ' --speaker-wav ' . escapeshellarg($speakerPath)
+        . ' --out ' . escapeshellarg($outputPath)
+        . ' --language ' . escapeshellarg((string)$config['xtts_language']);
+
+    $result = studio_run_command_with_timeout($command, 240);
+    if (!empty($result['timedOut'])) {
+        @unlink($outputPath);
+        return ['ok' => false, 'error' => 'XTTS demorou demais para gerar audio.'];
+    }
+
+    if ((int)$result['exitCode'] !== 0 || !is_file($outputPath) || (filesize($outputPath) ?: 0) < 1024) {
+        @unlink($outputPath);
+        return ['ok' => false, 'error' => 'Falha ao gerar voz XTTS: ' . mb_substr(trim((string)$result['output']), 0, 500)];
+    }
+
+    return [
+        'ok' => true,
+        'upload' => [
+            'base64' => base64_encode((string)file_get_contents($outputPath)),
+            'mime' => 'audio/wav',
+            'fileName' => $fileName,
+            'kind' => 'audio',
+            'relativePath' => $storage['relativePrefix'] . $fileName,
+            'path' => $outputPath,
+        ],
+    ];
+}
+
+function studio_whatsapp_ai_voice_generate(array $studio, int $conversationId, string $text): array
+{
+    $config = studio_whatsapp_ai_voice_config($studio);
+    if ((string)$config['engine'] === 'xtts') {
+        $xtts = studio_whatsapp_ai_voice_xtts_generate($studio, $conversationId, $text);
+        if (!empty($xtts['ok'])) {
+            return $xtts;
+        }
+        $sapi = studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text);
+        if (!empty($sapi['ok'])) {
+            $sapi['fallbackFrom'] = 'xtts';
+            $sapi['fallbackError'] = (string)($xtts['error'] ?? '');
+            return $sapi;
+        }
+        return $xtts;
+    }
+
+    return studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text);
 }
 
 function studio_send_whatsapp_message(array $studio, array $data): array
@@ -7935,7 +8102,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             }
         }
         if (studio_whatsapp_ai_voice_should_reply($studio, $newMessage, $sendData)) {
-            $voice = studio_whatsapp_ai_voice_sapi_generate($studio, (int)$conversation['id'], $replyText);
+            $voice = studio_whatsapp_ai_voice_generate($studio, (int)$conversation['id'], $replyText);
             if (!empty($voice['ok']) && is_array($voice['upload'] ?? null)) {
                 $sendData['media_upload'] = $voice['upload'];
             }
@@ -10761,8 +10928,13 @@ function studio_save_settings(array $studio, array $data): void
         ? (int)($settings['ai_voice_reply_when_audio_only'] ?? 1)
         : (!empty($data['ai_voice_reply_when_audio_only']) ? 1 : 0);
     $aiVoiceReplyEngine = strtolower(trim((string)($data['ai_voice_reply_engine'] ?? ($settings['ai_voice_reply_engine'] ?? 'sapi'))));
-    if (!in_array($aiVoiceReplyEngine, ['sapi'], true)) {
+    if (!in_array($aiVoiceReplyEngine, ['sapi', 'xtts'], true)) {
         $aiVoiceReplyEngine = 'sapi';
+    }
+    $aiVoiceReplyXttsSamplePath = mb_substr(trim((string)($data['ai_voice_reply_xtts_sample_path'] ?? ($settings['ai_voice_reply_xtts_sample_path'] ?? ''))), 0, 500);
+    $aiVoiceReplyXttsLanguage = strtolower(trim((string)($data['ai_voice_reply_xtts_language'] ?? ($settings['ai_voice_reply_xtts_language'] ?? 'pt'))));
+    if (!in_array($aiVoiceReplyXttsLanguage, ['pt', 'en', 'es', 'fr', 'de', 'it'], true)) {
+        $aiVoiceReplyXttsLanguage = 'pt';
     }
     $aiVoiceReplyVoice = mb_substr(trim((string)($data['ai_voice_reply_voice'] ?? ($settings['ai_voice_reply_voice'] ?? ''))), 0, 120);
     $aiVoiceReplyRate = max(-10, min(10, (int)($data['ai_voice_reply_rate'] ?? ($settings['ai_voice_reply_rate'] ?? 0))));
@@ -10872,6 +11044,8 @@ function studio_save_settings(array $studio, array $data): void
         'ai_voice_reply_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'ai_voice_reply_when_audio_only' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_voice_reply_engine' => 'VARCHAR(40) NOT NULL DEFAULT "sapi"',
+        'ai_voice_reply_xtts_sample_path' => 'VARCHAR(500) NULL',
+        'ai_voice_reply_xtts_language' => 'VARCHAR(12) NOT NULL DEFAULT "pt"',
         'ai_voice_reply_voice' => 'VARCHAR(120) NULL',
         'ai_voice_reply_rate' => 'TINYINT NOT NULL DEFAULT 0',
         'ai_voice_reply_volume' => 'TINYINT UNSIGNED NOT NULL DEFAULT 100',
@@ -10918,7 +11092,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -10954,6 +11128,8 @@ function studio_save_settings(array $studio, array $data): void
         $aiVoiceReplyEnabled,
         $aiVoiceReplyWhenAudioOnly,
         $aiVoiceReplyEngine,
+        $aiVoiceReplyXttsSamplePath !== '' ? $aiVoiceReplyXttsSamplePath : null,
+        $aiVoiceReplyXttsLanguage,
         $aiVoiceReplyVoice !== '' ? $aiVoiceReplyVoice : null,
         $aiVoiceReplyRate,
         $aiVoiceReplyVolume,
