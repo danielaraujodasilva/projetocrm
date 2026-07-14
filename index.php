@@ -2502,7 +2502,6 @@ if ($page === 'public_plans') {
         $compareRows = [
             ['label' => 'Usuários', 'key' => 'user_limit'],
             ['label' => 'Tatuadores', 'key' => 'tattoo_artist_limit'],
-            ['label' => 'Clientes/leads', 'key' => 'lead_limit'],
             ['label' => 'WhatsApp', 'key' => 'allow_whatsapp'],
             ['label' => 'IA', 'key' => 'allow_ai'],
             ['label' => 'Automações', 'key' => 'allow_automations'],
@@ -3315,7 +3314,6 @@ if ($page === 'studio_home') {
             $planLimits = [
                 'max_users' => ['label' => 'usuários', 'count' => studio_user_count((int)$studio['id'])],
                 'max_tattooers' => ['label' => 'tatuadores', 'count' => studio_artist_count($studio)],
-                'max_clients' => ['label' => 'clientes/leads', 'count' => studio_lead_count($studio)],
                 'max_whatsapp_sessions' => ['label' => 'sessões WhatsApp', 'count' => studio_whatsapp_session_count($studio)],
             ];
             foreach ($planLimits as $limitKey => $info) {
@@ -7865,11 +7863,10 @@ if ($page === 'plans') {
                 }
                 echo '</div>';
                 echo '<p class="muted" style="margin-top:10px">Limites: ' . h(trim(sprintf(
-                    'estudios: %s | usuarios: %s | tatuadores: %s | leads: %s | WhatsApp: %s',
+                    'estudios: %s | usuarios: %s | tatuadores: %s | WhatsApp: %s',
                     $plan['studio_limit'] === null ? 'ilimitado' : (string)$plan['studio_limit'],
                     $plan['user_limit'] === null ? 'ilimitado' : (string)$plan['user_limit'],
                     $plan['tattoo_artist_limit'] === null ? 'ilimitado' : (string)$plan['tattoo_artist_limit'],
-                    $plan['lead_limit'] === null ? 'ilimitado' : (string)$plan['lead_limit'],
                     $plan['whatsapp_session_limit'] === null ? 'ilimitado' : (string)$plan['whatsapp_session_limit']
                 ))) . '</p>';
                 echo '<div class="actions"><a class="btn secondary" href="' . h(app_url('edit_plan', ['id' => (int)$plan['id']])) . '">Editar</a></div>';
@@ -8212,7 +8209,6 @@ function render_commercial_plan_form(?array $plan): void
     echo '<div class="field"><label>Limite de estúdios</label><input type="number" min="0" name="studio_limit" value="' . h($plan['studio_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
     echo '<div class="field"><label>Limite de usuários</label><input type="number" min="0" name="user_limit" value="' . h($plan['user_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
     echo '<div class="field"><label>Limite de tatuadores</label><input type="number" min="0" name="tattoo_artist_limit" value="' . h($plan['tattoo_artist_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
-    echo '<div class="field"><label>Limite de clientes/leads</label><input type="number" min="0" name="lead_limit" value="' . h($plan['lead_limit'] ?? '') . '" placeholder="0 = ilimitado"></div>';
     echo '<div class="field"><label>Limite de sessões WhatsApp</label><input type="number" min="0" name="whatsapp_session_limit" value="' . h($plan['whatsapp_session_limit'] ?? '') . '" placeholder="0 = sem WhatsApp"></div>';
     echo '</div>';
     echo '<div class="field"><label>Descricao completa</label><textarea name="description" placeholder="Resumo comercial do plano para o gerente.">' . h($plan['description'] ?? '') . '</textarea></div>';

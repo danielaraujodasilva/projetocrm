@@ -350,7 +350,7 @@ function seed_default_commercial_plans(): void
                 1,
                 2,
                 1,
-                500,
+                null,
                 0,
                 0,
                 1,
@@ -363,7 +363,7 @@ function seed_default_commercial_plans(): void
                 0,
                 0,
                 "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos",
-                "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado",
+                "Usuarios: 2\nTatuadores: 1\nBase de clientes/leads: ilimitada\nWhatsApp: limitado",
                 1,
             ],
             [
@@ -377,7 +377,7 @@ function seed_default_commercial_plans(): void
                 1,
                 5,
                 5,
-                3000,
+                null,
                 1,
                 1,
                 1,
@@ -390,7 +390,7 @@ function seed_default_commercial_plans(): void
                 0,
                 0,
                 "Tudo do Bsico\nWhatsApp oficial\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido",
-                "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso",
+                "Usuarios: 5\nTatuadores: 5\nBase de clientes/leads: ilimitada\nWhatsApp: 1 sesso",
                 2,
             ],
             [
@@ -404,7 +404,7 @@ function seed_default_commercial_plans(): void
                 3,
                 15,
                 15,
-                20000,
+                null,
                 3,
                 1,
                 1,
@@ -417,7 +417,7 @@ function seed_default_commercial_plans(): void
                 1,
                 1,
                 "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil",
-                "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sesses",
+                "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nBase de clientes/leads: ilimitada\nWhatsApp: 3 sesses",
                 3,
             ],
         ];
@@ -430,9 +430,9 @@ function seed_default_commercial_plans(): void
         );
 
         $defaults = [
-            ['Basico', 'basico', 'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos", "Usuarios: 2\nTatuadores: 1\nClientes/leads: 500\nWhatsApp: limitado", 1],
-            ['Profissional', 'profissional', 'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Bsico\nWhatsApp oficial\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nClientes/leads: 3000\nWhatsApp: 1 sesso", 2],
-            ['Avancado', 'avancado', 'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil", "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nClientes/leads: 20000\nWhatsApp: 3 sesses", 3],
+            ['Basico', 'basico', 'Para tatuadores solo ou estdios pequenos comeando a organizar atendimento e agenda.', 79.00, 790.00, "Cadastro de clientes\nLeads e funil\nAgenda\nFinanceiro simples\nRespostas rpidas\nRelatrios bsicos", "Usuarios: 2\nTatuadores: 1\nBase de clientes/leads: ilimitada\nWhatsApp: limitado", 1],
+            ['Profissional', 'profissional', 'Para estdios que recebem muitos leads e precisam controlar WhatsApp, agenda, equipe e vendas.', 149.00, 1490.00, "Tudo do Bsico\nWhatsApp oficial\nCentral de atendimento\nRespostas rpidas avanadas\nAgenda com controle de conflitos\nRelatrios gerenciais\nPermisses por usurio\nFollow-up manual/assistido", "Usuarios: 5\nTatuadores: 5\nBase de clientes/leads: ilimitada\nWhatsApp: 1 sesso", 2],
+            ['Avancado', 'avancado', 'Para estdios maiores, redes ou operaes que querem automao, IA e relatrios avanados.', 299.00, 2990.00, "Tudo do Profissional\nIA para classificao de leads\nAssistente de dados\nSugesto de respostas por IA\nAutomaes de follow-up\nRelatrios avanados/BI\nMulti-estdio\nIntegraes externas/API\nPersonalizao avanada do funil", "Estdios: 3\nUsuarios: 15\nTatuadores: 15\nBase de clientes/leads: ilimitada\nWhatsApp: 3 sesses", 3],
         ];
     }
 
@@ -757,7 +757,6 @@ function plan_limit_map(): array
         'max_studios' => ['column' => 'studio_limit', 'default' => 1],
         'max_users' => ['column' => 'user_limit', 'default' => 1],
         'max_tattooers' => ['column' => 'tattoo_artist_limit', 'default' => 1],
-        'max_clients' => ['column' => 'lead_limit', 'default' => 100],
         'max_whatsapp_sessions' => ['column' => 'whatsapp_session_limit', 'default' => 0],
         'max_ai_requests_month' => ['column' => null, 'default' => 0],
     ];
@@ -797,7 +796,7 @@ function current_studio_plan(): ?array
         'studio_limit' => 1,
         'user_limit' => 1,
         'tattoo_artist_limit' => 1,
-        'lead_limit' => 100,
+        'lead_limit' => null,
         'whatsapp_session_limit' => 0,
         'allow_whatsapp' => 1,
         'allow_ai' => 0,
@@ -1042,7 +1041,6 @@ function commercial_plan_public_limits(array $plan): array
         ['label' => 'Estdios', 'value' => $toLabel($plan['studio_limit'] ?? null)],
         ['label' => 'Usurios', 'value' => $toLabel($plan['user_limit'] ?? null)],
         ['label' => 'Tatuadores', 'value' => $toLabel($plan['tattoo_artist_limit'] ?? null)],
-        ['label' => 'Clientes/leads', 'value' => $toLabel($plan['lead_limit'] ?? null)],
         ['label' => 'Sesses WhatsApp', 'value' => $toLabel($plan['whatsapp_session_limit'] ?? null)],
     ];
 }

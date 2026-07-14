@@ -5423,19 +5423,7 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
             ]);
             $lead = ['id' => $leadId, 'name' => $customer['name'] ?? 'Cliente WhatsApp'];
         } catch (RuntimeException $exception) {
-            if (stripos($exception->getMessage(), 'plano atual permite') === false) {
-                throw $exception;
-            }
-
-            studio_whatsapp_event_log($studio, [
-                'provider' => 'system',
-                'event_type' => 'lead_limit_skipped',
-                'direction' => 'system',
-                'phone' => $phone,
-                'status' => 'conversation_without_lead',
-                'error' => $exception->getMessage(),
-            ]);
-            $lead = null;
+            throw $exception;
         }
     }
 
@@ -10917,11 +10905,6 @@ function studio_save_customer(array $studio, array $data): int
         return $id;
     }
 
-    $limit = plan_limit_for_studio($studio, 'max_clients');
-    if ($limit > 0 && studio_customer_count($studio) >= $limit) {
-        throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
-    }
-
     $stmt = $pdo->prepare('INSERT INTO customers (' . implode(', ', $columns) . ', created_at, updated_at) VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ', NOW(), NOW())');
     $stmt->execute($values);
 
@@ -11179,11 +11162,6 @@ function studio_save_lead(array $studio, array $data): int
         $stmt->execute([...$values, $token, $id]);
         studio_upsert_public_lead_link($studio, $id, $token, (int)($values[0] ?? 0) ?: null);
         return $id;
-    }
-
-    $limit = plan_limit_for_studio($studio, 'max_clients');
-    if ($limit > 0 && studio_lead_count($studio) >= $limit) {
-        throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
     }
 
     $stmt = $pdo->prepare(
