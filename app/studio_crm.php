@@ -11828,13 +11828,8 @@ function studio_data_assistant_schema(array $studio): array
 {
     $pdo = studio_db($studio);
     $database = (string)studio_db_config($studio)['database'];
-    $blockedTables = [
-        'studio_settings',
-        'google_calendar_integration',
-        'whatsapp_event_log',
-        'crm_alert_state',
-    ];
-    $blockedColumnPattern = '/(api[_-]?key|token|secret|password|encrypted|webhook|access[_-]?token|refresh[_-]?token|sync[_-]?token)/i';
+    $blockedTables = [];
+    $blockedColumnPattern = studio_data_assistant_sensitive_key_pattern();
     $stmt = $pdo->prepare(
         "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
          FROM INFORMATION_SCHEMA.COLUMNS
@@ -11864,9 +11859,18 @@ function studio_data_assistant_schema(array $studio): array
             'expenses.amount representa despesa.',
             'customers sao clientes cadastrados; leads sao oportunidades/compras em potencial.',
             'whatsapp_conversations resume conversas; whatsapp_messages guarda mensagens.',
+            'studio_settings contem configuracoes seguras do estudio; colunas sensiveis foram removidas do schema.',
+            'google_calendar_integration mostra status de integracao, mas tokens e dados sensiveis foram removidos.',
+            'whatsapp_event_log pode ser usado para diagnosticar eventos/status, mas payloads brutos foram removidos.',
+            'Nunca use SELECT *; liste apenas colunas necessarias.',
             'Use somente SELECT/WITH e limite resultados detalhados.',
         ],
     ];
+}
+
+function studio_data_assistant_sensitive_key_pattern(): string
+{
+    return '/(api[_-]?key|token|secret|password|encrypted|webhook|access[_-]?token|refresh[_-]?token|sync[_-]?token|payload(_json)?|calendars_json)/i';
 }
 
 function studio_data_assistant_sql_is_safe(string $sql, array $schema): array
@@ -11882,6 +11886,9 @@ function studio_data_assistant_sql_is_safe(string $sql, array $schema): array
     if (!preg_match('/^\s*(select|with)\b/i', $sql)) {
         return ['ok' => false, 'error' => 'Somente consultas SELECT/WITH são permitidas.'];
     }
+    if (preg_match('/\bselect\s+\*/i', $sql) || preg_match('/\b[a-zA-Z_][a-zA-Z0-9_]*\s*\.\s*\*/', $sql)) {
+        return ['ok' => false, 'error' => 'SELECT * não é permitido; liste apenas as colunas necessárias.'];
+    }
     if (preg_match('/\b(insert|update|delete|drop|alter|truncate|replace|create|grant|revoke|set|load|outfile|infile|call|execute|prepare|handler|lock|unlock|optimize|repair)\b/i', $sql)) {
         return ['ok' => false, 'error' => 'A consulta contém operação proibida.'];
     }
@@ -11895,7 +11902,7 @@ function studio_data_assistant_sql_is_safe(string $sql, array $schema): array
     if ($blockedTables && preg_match('/\b(' . implode('|', $blockedTables) . ')\b/i', $sql)) {
         return ['ok' => false, 'error' => 'A consulta tenta acessar uma tabela restrita.'];
     }
-    if (preg_match('/\b(api[_-]?key|token|secret|password|encrypted|webhook|access[_-]?token|refresh[_-]?token|sync[_-]?token)\b/i', $sql)) {
+    if (preg_match(studio_data_assistant_sensitive_key_pattern(), $sql)) {
         return ['ok' => false, 'error' => 'A consulta tenta acessar campo sensível.'];
     }
 
@@ -12330,6 +12337,9 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
         'horarios_agenda' => (string)($context['settings']['appointment_time_slots'] ?? '10:00,15:00'),
         'duracao_atendimento_minutos' => (int)($context['settings']['appointment_duration_minutes'] ?? 300),
         'regras_do_estudio' => mb_substr(trim((string)($context['settings']['business_rules'] ?? '')), 0, 2500, 'UTF-8'),
+        'configuracoes_seguras' => $context['settings'] ?? [],
+        'integracoes' => $context['integrations'] ?? [],
+        'inventario_de_dados' => $context['data_inventory'] ?? [],
     ];
     $canonicalQueries = studio_data_assistant_canonical_queries($question);
     $isCanonicalPlan = is_array($canonicalQueries);
@@ -12348,6 +12358,10 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
             'Gere de 1 a 3 consultas SQL MySQL somente leitura para responder a pergunta.',
             'Use apenas tabelas e colunas presentes no schema_disponivel.',
             'Nunca consulte campos sensíveis, tokens, chaves, secrets ou tabelas restritas.',
+            'Nunca use SELECT *; liste explicitamente as colunas permitidas.',
+            'Pode responder sobre configuracoes usando studio_settings, mas apenas colunas presentes no schema_disponivel.',
+            'Para saber se uma chave/token existe, use configuracoes_seguras.segredos_status ou integracoes; nunca tente ler o valor.',
+            'Use quick_replies para respostas rápidas, whatsapp_tags e whatsapp_conversation_tags para etiquetas, pipeline_stages para etapas do funil, whatsapp_stickers para figurinhas, whatsapp_event_log para eventos/status sem payload bruto.',
             'Prefira agregações quando a pergunta pedir contagem, soma, maior cliente, previsão ou ranking.',
             'Definição fixa: receita prevista/faturamento/ganhar = SUM(appointments.value) no período, excluindo status cancelado/cancelada/cancelled.',
             'Definição fixa: despesas = SUM(expenses.amount) pelo campo expense_date no período.',
@@ -12361,7 +12375,7 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
     ];
     $plannerSystem = "Você transforma perguntas de negócio em SQL MySQL seguro para um CRM de estúdio de tatuagem.\n"
         . "A resposta deve colocar no campo reply_text um JSON válido exatamente neste formato: {\"queries\":[{\"title\":\"...\",\"sql\":\"SELECT ...\"}],\"reason\":\"...\"}.\n"
-        . "Nunca use INSERT, UPDATE, DELETE, DROP, ALTER, comandos administrativos, schemas internos ou tabelas/campos restritos.";
+        . "Nunca use INSERT, UPDATE, DELETE, DROP, ALTER, comandos administrativos, schemas internos, SELECT * ou campos sensíveis.";
     $plannerResult = studio_openai_text(
         (string)$config['api_key'],
         (string)$config['model'],
@@ -12460,13 +12474,132 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
     ];
 }
 
+function studio_data_assistant_safe_settings(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $safe = [];
+    $secretStatus = [];
+    $sensitivePattern = studio_data_assistant_sensitive_key_pattern();
+    foreach ($settings as $key => $value) {
+        $key = (string)$key;
+        if (preg_match($sensitivePattern, $key)) {
+            $secretStatus[$key] = trim((string)$value) !== '' ? 'configurado' : 'vazio';
+            continue;
+        }
+        if (is_string($value)) {
+            $safe[$key] = mb_substr($value, 0, 4000, 'UTF-8');
+        } else {
+            $safe[$key] = $value;
+        }
+    }
+    if ($secretStatus) {
+        $safe['segredos_status'] = $secretStatus;
+    }
+
+    return $safe;
+}
+
+function studio_data_assistant_data_inventory(array $studio): array
+{
+    $pdo = studio_db($studio);
+    $database = (string)studio_db_config($studio)['database'];
+    $stmt = $pdo->prepare(
+        "SELECT TABLE_NAME
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
+         ORDER BY TABLE_NAME"
+    );
+    $stmt->execute([$database]);
+    $inventory = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $table) {
+        $table = (string)$table;
+        if ($table === '' || !preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+            continue;
+        }
+        try {
+            $count = (int)$pdo->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();
+        } catch (Throwable) {
+            $count = 0;
+        }
+        $inventory[] = ['table' => $table, 'rows' => $count];
+    }
+
+    return $inventory;
+}
+
+function studio_data_assistant_integration_status(array $studio): array
+{
+    $pdo = studio_db($studio);
+    $settings = studio_settings($studio);
+    $calendar = [];
+    try {
+        $row = $pdo->query(
+            'SELECT enabled, calendar_id, calendar_name, account_email, last_sync_at, last_sync_status, last_sync_message,
+                    outbound_enabled, outbound_last_status, outbound_last_message, outbound_last_at, updated_at
+             FROM google_calendar_integration
+             WHERE id = 1
+             LIMIT 1'
+        )->fetch(PDO::FETCH_ASSOC);
+        $calendar = is_array($row) ? $row : [];
+    } catch (Throwable) {
+        $calendar = ['enabled' => 0, 'last_sync_status' => 'indisponivel'];
+    }
+
+    return [
+        'whatsapp' => [
+            'enabled' => !empty($settings['whatsapp_enabled']),
+            'provider' => (string)($settings['whatsapp_provider'] ?? ''),
+            'official_mode' => (string)($settings['whatsapp_official_mode'] ?? ''),
+            'default_mode' => (string)($settings['whatsapp_default_mode'] ?? ''),
+            'display_number' => (string)($settings['whatsapp_official_display_number'] ?? ''),
+            'phone_number_id_configurado' => trim((string)($settings['whatsapp_official_phone_number_id'] ?? '')) !== '',
+            'access_token_configurado' => trim((string)($settings['whatsapp_official_access_token'] ?? '')) !== '',
+        ],
+        'ai' => [
+            'enabled' => !empty($settings['ai_enabled']),
+            'provider' => (string)($settings['ai_provider'] ?? ''),
+            'model' => (string)($settings['ai_model'] ?? ''),
+            'nvidia_model' => (string)($settings['nvidia_model'] ?? ''),
+            'vision_enabled' => !empty($settings['nvidia_vision_enabled']),
+            'vision_model' => (string)($settings['nvidia_vision_model'] ?? ''),
+            'document_enabled' => !empty($settings['nvidia_document_enabled']),
+            'document_model' => (string)($settings['nvidia_document_model'] ?? ''),
+            'video_enabled' => !empty($settings['nvidia_video_enabled']),
+            'video_model' => (string)($settings['nvidia_video_model'] ?? ''),
+            'voice_reply_enabled' => !empty($settings['ai_voice_reply_enabled']),
+            'voice_engine' => (string)($settings['ai_voice_reply_engine'] ?? ''),
+        ],
+        'meta_ads' => [
+            'enabled' => !empty($settings['meta_ads_enabled']),
+            'ad_account_id_configurado' => trim((string)($settings['meta_ads_ad_account_id'] ?? '')) !== '',
+            'lead_form_id_configurado' => trim((string)($settings['meta_ads_lead_form_id'] ?? '')) !== '',
+            'pixel_id_configurado' => trim((string)($settings['meta_ads_pixel_id'] ?? '')) !== '',
+            'api_version' => (string)($settings['meta_ads_api_version'] ?? ''),
+        ],
+        'google_calendar' => $calendar,
+        'pricing_page' => [
+            'enabled' => !empty($settings['ai_pricing_page_enabled']),
+            'url' => (string)($settings['ai_pricing_page_url'] ?? ''),
+            'last_sync_at' => (string)($settings['ai_pricing_page_synced_at'] ?? ''),
+            'last_error' => (string)($settings['ai_pricing_page_error'] ?? ''),
+        ],
+    ];
+}
+
 function studio_data_assistant_context(array $studio): array
 {
     $pdo = studio_db($studio);
     return [
         'stats' => studio_stats($studio),
-        'settings' => studio_settings($studio),
+        'settings' => studio_data_assistant_safe_settings($studio),
+        'integrations' => studio_data_assistant_integration_status($studio),
+        'data_inventory' => studio_data_assistant_data_inventory($studio),
         'artists' => studio_list_artists($studio),
+        'pipeline_stages' => $pdo->query('SELECT name, sort_order, color, is_active FROM pipeline_stages ORDER BY sort_order ASC, name ASC')->fetchAll() ?: [],
+        'quick_replies' => $pdo->query('SELECT title, shortcut, category, is_active, created_at, updated_at FROM quick_replies ORDER BY updated_at DESC, id DESC LIMIT 30')->fetchAll() ?: [],
+        'whatsapp_tags' => $pdo->query('SELECT name, color, created_at, updated_at FROM whatsapp_tags ORDER BY name ASC LIMIT 50')->fetchAll() ?: [],
+        'stickers_summary' => $pdo->query('SELECT COUNT(*) AS total, COALESCE(SUM(usage_count), 0) AS usos, MAX(last_used_at) AS ultimo_uso FROM whatsapp_stickers')->fetch() ?: [],
+        'recent_whatsapp_events' => $pdo->query('SELECT provider, event_type, direction, status, error, created_at FROM whatsapp_event_log ORDER BY created_at DESC LIMIT 20')->fetchAll() ?: [],
         'leads_by_status' => $pdo->query('SELECT status, COUNT(*) AS qtd, COALESCE(SUM(estimated_value), 0) AS total FROM leads GROUP BY status ORDER BY qtd DESC')->fetchAll() ?: [],
         'leads_by_source' => $pdo->query('SELECT source, COUNT(*) AS qtd, COALESCE(SUM(estimated_value), 0) AS total FROM leads GROUP BY source ORDER BY qtd DESC LIMIT 12')->fetchAll() ?: [],
         'hot_leads' => $pdo->query('SELECT name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source FROM leads ORDER BY COALESCE(lead_score, 0) DESC, updated_at DESC LIMIT 10')->fetchAll() ?: [],
@@ -12489,6 +12622,129 @@ function studio_data_assistant_is_meta_ads_question(string $question): bool
 {
     $plain = studio_data_assistant_plain_text($question);
     return (bool)preg_match('/\b(meta\s*ads|facebook\s*ads|anuncios?|campanhas?|conjuntos?|adsets?|ads?\b|ctr|cpc|cpm|alcance|impressoes|cliques?|pixel|lead\s*ads)\b/u', $plain);
+}
+
+function studio_data_assistant_is_inventory_question(string $question): bool
+{
+    $plain = studio_data_assistant_plain_text($question);
+    return (bool)preg_match('/\b(o que|quais|qual).*\b(consegue|pode).*\b(consultar|ver|acessar|responder)\b/u', $plain)
+        || (str_contains($plain, 'tabelas') && (str_contains($plain, 'consultar') || str_contains($plain, 'acessar') || str_contains($plain, 'sistema')))
+        || (str_contains($plain, 'areas do sistema') && (str_contains($plain, 'consultar') || str_contains($plain, 'acessar')));
+}
+
+function studio_data_assistant_inventory_answer(array $context): array
+{
+    $inventory = array_values(array_filter($context['data_inventory'] ?? [], 'is_array'));
+    $tableNames = array_map(static fn(array $row): string => (string)($row['table'] ?? ''), $inventory);
+    $tableNames = array_values(array_filter($tableNames, static fn(string $name): bool => $name !== ''));
+    $areas = [
+        'agenda e agendamentos',
+        'clientes e leads',
+        'financeiro e despesas',
+        'WhatsApp, conversas, mensagens, tags e figurinhas',
+        'respostas rápidas e playbook',
+        'configurações seguras do estúdio',
+        'integrações como Meta Ads, WhatsApp oficial e Google Calendar',
+        'eventos recentes e alertas operacionais',
+    ];
+    $totalRows = array_sum(array_map(static fn(array $row): int => (int)($row['rows'] ?? 0), $inventory));
+    $answer = 'Consigo consultar ' . count($tableNames) . ' tabelas do sistema, somando ' . number_format($totalRows, 0, ',', '.') . ' registros. '
+        . 'Áreas principais: ' . implode('; ', $areas) . '. '
+        . 'Tabelas liberadas: ' . implode(', ', $tableNames) . '. '
+        . 'Campos sensíveis como tokens, chaves, senhas, secrets, webhooks e payloads brutos ficam bloqueados; nesses casos eu só informo se estão configurados ou vazios.';
+
+    return [
+        'ok' => true,
+        'answer' => $answer,
+        'source' => 'system_inventory',
+        'queries' => [[
+            'title' => 'Inventário seguro do sistema',
+            'tables' => $inventory,
+            'sensitive_policy' => 'tokens, chaves, senhas, secrets, webhooks e payloads brutos bloqueados',
+        ]],
+    ];
+}
+
+function studio_data_assistant_find_inventory_rows(array $context, string $table): int
+{
+    foreach ($context['data_inventory'] ?? [] as $row) {
+        if (is_array($row) && (string)($row['table'] ?? '') === $table) {
+            return (int)($row['rows'] ?? 0);
+        }
+    }
+
+    return 0;
+}
+
+function studio_data_assistant_direct_context_answer(string $question, array $context): ?array
+{
+    $plain = studio_data_assistant_plain_text($question);
+    $integrations = is_array($context['integrations'] ?? null) ? $context['integrations'] : [];
+    if ((preg_match('/\b(ia|inteligencia artificial|modelo|modelos)\b/u', $plain)) && (str_contains($plain, 'config') || str_contains($plain, 'qual') || str_contains($plain, 'ativa') || str_contains($plain, 'habilitada'))) {
+        $ai = is_array($integrations['ai'] ?? null) ? $integrations['ai'] : [];
+        $parts = [
+            'IA principal: ' . (!empty($ai['enabled']) ? 'ativa' : 'inativa'),
+            'provedor ' . ((string)($ai['provider'] ?? '') !== '' ? (string)$ai['provider'] : 'não informado'),
+            'modelo de conversa ' . ((string)($ai['nvidia_model'] ?? '') !== '' ? (string)$ai['nvidia_model'] : ((string)($ai['model'] ?? '') !== '' ? (string)$ai['model'] : 'não informado')),
+            'visão ' . (!empty($ai['vision_enabled']) ? 'ativa' : 'inativa'),
+            'documentos ' . (!empty($ai['document_enabled']) ? 'ativos' : 'inativos'),
+            'vídeo ' . (!empty($ai['video_enabled']) ? 'ativo' : 'inativo'),
+            'resposta por voz ' . (!empty($ai['voice_reply_enabled']) ? 'ativa' : 'inativa'),
+        ];
+        return [
+            'ok' => true,
+            'source' => 'safe_context',
+            'answer' => implode('; ', $parts) . '.',
+            'queries' => [['title' => 'Configuração segura de IA', 'source' => 'context.integrations.ai']],
+        ];
+    }
+    if (str_contains($plain, 'whatsapp') && (str_contains($plain, 'config') || str_contains($plain, 'oficial') || str_contains($plain, 'ativo') || str_contains($plain, 'habilitado'))) {
+        $whatsapp = is_array($integrations['whatsapp'] ?? null) ? $integrations['whatsapp'] : [];
+        $answer = 'WhatsApp: ' . (!empty($whatsapp['enabled']) ? 'ativo' : 'inativo')
+            . '; provedor ' . ((string)($whatsapp['provider'] ?? '') !== '' ? (string)$whatsapp['provider'] : 'não informado')
+            . '; modo oficial ' . ((string)($whatsapp['official_mode'] ?? '') !== '' ? (string)$whatsapp['official_mode'] : 'não informado')
+            . '; número exibido ' . ((string)($whatsapp['display_number'] ?? '') !== '' ? (string)$whatsapp['display_number'] : 'não informado')
+            . '; phone number id ' . (!empty($whatsapp['phone_number_id_configurado']) ? 'configurado' : 'vazio')
+            . '; token de acesso ' . (!empty($whatsapp['access_token_configurado']) ? 'configurado' : 'vazio') . '.';
+        return [
+            'ok' => true,
+            'source' => 'safe_context',
+            'answer' => $answer,
+            'queries' => [['title' => 'Configuração segura de WhatsApp', 'source' => 'context.integrations.whatsapp']],
+        ];
+    }
+    if (preg_match('/\b(respostas?\s+rapidas?|respostas?\s+rápidas?|quick\s*replies)\b/u', $plain) && preg_match('/\b(quantas?|total|existem|tem)\b/u', $plain)) {
+        $total = studio_data_assistant_find_inventory_rows($context, 'quick_replies');
+        return [
+            'ok' => true,
+            'source' => 'safe_context',
+            'answer' => 'Existem ' . number_format($total, 0, ',', '.') . ' respostas rápidas cadastradas no sistema.',
+            'queries' => [['title' => 'Total de respostas rápidas', 'table' => 'quick_replies', 'rows' => $total]],
+        ];
+    }
+    if (preg_match('/\b(figurinhas?|stickers?)\b/u', $plain) && preg_match('/\b(quantas?|total|existem|tem|salvas?)\b/u', $plain)) {
+        $summary = is_array($context['stickers_summary'] ?? null) ? $context['stickers_summary'] : [];
+        $total = (int)($summary['total'] ?? studio_data_assistant_find_inventory_rows($context, 'whatsapp_stickers'));
+        $uses = (int)($summary['usos'] ?? 0);
+        $lastUsed = trim((string)($summary['ultimo_uso'] ?? ''));
+        return [
+            'ok' => true,
+            'source' => 'safe_context',
+            'answer' => 'Existem ' . number_format($total, 0, ',', '.') . ' figurinhas salvas, com ' . number_format($uses, 0, ',', '.') . ' usos registrados' . ($lastUsed !== '' ? '. Último uso: ' . $lastUsed . '.' : '.'),
+            'queries' => [['title' => 'Resumo de figurinhas', 'source' => 'context.stickers_summary']],
+        ];
+    }
+    if (preg_match('/\b(tags?|etiquetas?)\b/u', $plain) && preg_match('/\b(quantas?|total|existem|tem)\b/u', $plain)) {
+        $total = studio_data_assistant_find_inventory_rows($context, 'whatsapp_tags');
+        return [
+            'ok' => true,
+            'source' => 'safe_context',
+            'answer' => 'Existem ' . number_format($total, 0, ',', '.') . ' tags de WhatsApp cadastradas no sistema.',
+            'queries' => [['title' => 'Total de tags', 'table' => 'whatsapp_tags', 'rows' => $total]],
+        ];
+    }
+
+    return null;
 }
 
 function studio_data_assistant_meta_period(string $question): array
@@ -12731,6 +12987,28 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $context = studio_data_assistant_context($studio);
     $pdo = studio_db($studio);
     $config = studio_openai_config($studio);
+    if (studio_data_assistant_is_inventory_question($question)) {
+        $inventoryResult = studio_data_assistant_inventory_answer($context);
+        return [
+            'question' => $question,
+            'answer' => (string)$inventoryResult['answer'],
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => (string)$inventoryResult['source'],
+            'queries' => $inventoryResult['queries'] ?? [],
+        ];
+    }
+    $directContextResult = studio_data_assistant_direct_context_answer($question, $context);
+    if (is_array($directContextResult) && !empty($directContextResult['ok'])) {
+        return [
+            'question' => $question,
+            'answer' => (string)$directContextResult['answer'],
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => (string)$directContextResult['source'],
+            'queries' => $directContextResult['queries'] ?? [],
+        ];
+    }
     if (studio_data_assistant_is_meta_ads_question($question)) {
         $metaAdsResult = studio_data_assistant_meta_ads_answer($studio, $question);
         if (!empty($metaAdsResult['ok'])) {
@@ -12756,9 +13034,11 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $isLeadQuestion = str_contains($lower, 'lead') || str_contains($lower, 'funil') || str_contains($lower, 'pipeline') || str_contains($lower, 'orçamento') || str_contains($lower, 'orcamento') || str_contains($lower, 'prioridade') || str_contains($lower, 'quente') || str_contains($lower, 'oportunidade') || str_contains($lower, 'prospec') || str_contains($lower, 'venda');
     $isCustomerQuestion = str_contains($lower, 'cliente') || str_contains($lower, 'clientes') || str_contains($lower, 'cadastro') || str_contains($lower, 'contato') || str_contains($lower, 'contatos');
     $isArtistQuestion = str_contains($lower, 'tatuador') || str_contains($lower, 'artista') || str_contains($lower, 'tatuadores') || str_contains($lower, 'equipe');
+    $isSettingsQuestion = str_contains($lower, 'config') || str_contains($lower, 'integra') || str_contains($lower, 'token') || str_contains($lower, 'chave') || str_contains($lower, 'api') || str_contains($lower, 'modelo') || str_contains($lower, 'ia') || str_contains($lower, 'voz') || str_contains($lower, 'calendario') || str_contains($lower, 'calendário');
+    $isOperationQuestion = str_contains($lower, 'tag') || str_contains($lower, 'etiqueta') || str_contains($lower, 'figurinha') || str_contains($lower, 'sticker') || str_contains($lower, 'resposta rápida') || str_contains($lower, 'resposta rapida') || str_contains($lower, 'playbook') || str_contains($lower, 'evento') || str_contains($lower, 'erro') || str_contains($lower, 'log');
     $wantsNextAppointmentName = (str_contains($lower, 'próximo') || str_contains($lower, 'proximo') || str_contains($lower, 'seguinte') || str_contains($lower, 'primeiro')) && (str_contains($lower, 'cliente') || str_contains($lower, 'agend') || str_contains($lower, 'atendimento') || str_contains($lower, 'horário') || str_contains($lower, 'horario') || str_contains($lower, 'consulta') || str_contains($lower, 'sessão') || str_contains($lower, 'sessao') || str_contains($lower, 'cita') || str_contains($lower, 'marcado'));
     $isAgendaQuestion = $isAgendaQuestion || $wantsNextAppointmentName;
-    $hasRecognizedTopic = $isAgendaQuestion || $isFinanceQuestion || $isWhatsappQuestion || $isLeadQuestion || $isCustomerQuestion || $isArtistQuestion;
+    $hasRecognizedTopic = $isAgendaQuestion || $isFinanceQuestion || $isWhatsappQuestion || $isLeadQuestion || $isCustomerQuestion || $isArtistQuestion || $isSettingsQuestion || $isOperationQuestion;
     $needsClarification = !$hasRecognizedTopic;
 
     $summarizeAppointment = static function (array $appointment): array {
@@ -12844,6 +13124,16 @@ function studio_data_assistant_answer(array $studio, string $question): array
             'duracao_atendimento_minutos' => (int)($context['settings']['appointment_duration_minutes'] ?? 300),
         ],
         'resumo' => $context['stats'],
+        'sistema' => [
+            'configuracoes_seguras' => $context['settings'] ?? [],
+            'integracoes' => $context['integrations'] ?? [],
+            'inventario_de_dados' => $context['data_inventory'] ?? [],
+            'etapas_funil' => $context['pipeline_stages'] ?? [],
+            'respostas_rapidas' => array_slice($context['quick_replies'] ?? [], 0, 20),
+            'tags_whatsapp' => array_slice($context['whatsapp_tags'] ?? [], 0, 30),
+            'figurinhas' => $context['stickers_summary'] ?? [],
+            'eventos_recentes' => array_slice($context['recent_whatsapp_events'] ?? [], 0, 12),
+        ],
     ];
     if ($isAgendaQuestion || (!$isFinanceQuestion && !$isWhatsappQuestion)) {
         $assistantContext['agenda'] = [
@@ -12896,17 +13186,17 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $assistantContextJson = json_encode($assistantContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $assistantContextJson = is_string($assistantContextJson) ? $assistantContextJson : '{}';
 
-    $configPrompt = trim((string)($context['settings']['business_rules'] ?? ''));
     $systemPrompt = "Você é o assistente interno de dados do CRM de um estúdio de tatuagem no Brasil.\n"
+        . "Você não é o chatbot de atendimento ao cliente e não deve usar persona comercial, nome de atendente virtual ou frase de boas-vindas do WhatsApp.\n"
         . "Responda apenas com base no contexto fornecido no JSON.\n"
         . "Se a pergunta for curta e objetiva, responda de forma curta e objetiva, sem acrescentar tópicos não solicitados.\n"
         . "Se a pergunta for sobre agenda ou disponibilidade, use o recorte de data e os agendamentos listados, sem inventar horário.\n"
         . "Se a data citada estiver lotada, diga isso de forma curta e aponte o próximo horário livre real, se houver.\n"
-        . "Se a pergunta não for claramente sobre agenda, finanças, WhatsApp, leads, clientes ou tatuadores, responda que precisa de mais contexto e sugira reformular.\n"
+        . "Você também pode responder sobre configurações, integrações, modelos de IA, voz, agenda, tags, respostas rápidas, figurinhas, logs e inventário de dados quando isso estiver no JSON.\n"
+        . "Nunca revele valores de tokens, chaves, secrets ou senhas; se perguntarem, diga apenas se está configurado ou vazio.\n"
         . "Se faltar dado, diga que não há informação suficiente.\n"
         . "Nunca exponha dados de outros clientes além do recorte fornecido.\n"
-        . "Responda em português do Brasil, com tom humano, direto e útil, sem dizer que você é IA.\n"
-        . ($configPrompt !== '' ? "\nRegras adicionais do estúdio:\n" . $configPrompt . "\n" : '')
+        . "Responda em português do Brasil, como analista interno: direto, útil e sem se apresentar.\n"
         . "\nFormato esperado: uma resposta curta, clara e prática. Se não houver dados suficientes, responda explicitamente com isso e faça uma única pergunta de clarificação.";
 
     if ($config['api_key'] !== '') {

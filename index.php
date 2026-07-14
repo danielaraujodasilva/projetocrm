@@ -1566,6 +1566,7 @@ if ($action === 'studio_login') {
                 }
                 throw $e;
             }
+            unset($result['context']);
             if ($expectsJson) {
                 header('Content-Type: application/json; charset=utf-8');
                 echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
