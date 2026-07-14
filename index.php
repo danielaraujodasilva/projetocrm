@@ -6912,6 +6912,7 @@ if ($page === 'studio_settings') {
         echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
         echo '</div>';
         echo '</div>';
+        echo '<div class="settings-save-row"><div class="muted">Salva provedor, chaves, modelos, visão, documentos, vídeo, automações e voz da IA.</div><button class="btn" type="button" data-settings-submit>Salvar inteligência artificial</button></div>';
         echo '</div></div>';
         echo '<div id="settingsSourceMetaAds" hidden><div class="settings-panel" id="settings-meta-ads" data-settings-panel="meta_ads">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Meta Ads</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
