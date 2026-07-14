@@ -379,10 +379,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             if ($loginContext === 'studio') {
                 if (login_studio_user($email, $password)) {
                     flash_set('success', 'Login do estudio realizado.');
-                    if ($returnTo !== '' && $isStudioReturn) {
+                    if ($returnTo !== '' && $isStudioReturn && str_contains($returnTo, 'page=studio_whatsapp_mobile')) {
                         redirect_to_url($returnTo);
                     }
-                    redirect_to('studio_agenda');
+                    redirect_to('studio_home');
                 }
                 flash_set('error', 'Email ou senha invalidos para o estudio.');
                 redirect_to('login');
@@ -405,10 +405,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
                     $studioId = (int)($user['studio_id'] ?? 0);
                     if ($studioId > 0) {
                         flash_set('success', 'Login do estudio realizado.');
-                        if ($returnTo !== '') {
+                        if ($returnTo !== '' && str_contains($returnTo, 'page=studio_whatsapp_mobile')) {
                             redirect_to_url($returnTo);
                         }
-                        redirect_to('studio_whatsapp_workspace');
+                        redirect_to('studio_home');
                     }
                 }
                 flash_set('error', 'Email ou senha invalidos para o estudio.');
@@ -423,10 +423,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !
             }
             if (login_studio_user($email, $password)) {
                 flash_set('success', 'Login do estudio realizado.');
-                if ($returnTo !== '') {
+                if ($returnTo !== '' && str_contains($returnTo, 'page=studio_whatsapp_mobile')) {
                     redirect_to_url($returnTo);
                 }
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_home');
             }
             flash_set('error', 'Email ou senha invalidos ou sem acesso cadastrado.');
             redirect_to('login');
@@ -440,10 +440,10 @@ if ($action === 'studio_login') {
             if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
                 flash_set('success', 'Login do estudio realizado.');
                 unset($_SESSION['studio_return_to']);
-                if ($returnTo !== '') {
+                if ($returnTo !== '' && str_contains($returnTo, 'page=studio_whatsapp_mobile')) {
                     redirect_to_url($returnTo);
                 }
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_home');
             }
             flash_set('error', 'Email ou senha invalidos para o estudio.');
             redirect_to('studio_login');
@@ -621,7 +621,9 @@ if ($action === 'studio_login') {
                 ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_workspace'])) {
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_whatsapp_mobile', array_filter([
+                    'id' => (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0) ?: null,
+                ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_conversation'])) {
                 redirect_to('studio_whatsapp_conversation', ['id' => (int)$_POST['return_to_conversation']]);
@@ -984,7 +986,7 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             $conversationId = (int)($_POST['conversation_id'] ?? 0);
             studio_toggle_whatsapp_conversation_tag($studio, $conversationId, (int)($_POST['tag_id'] ?? 0));
-            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
+            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_mobile' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
         }
 
         if ($action === 'start_whatsapp_session') {
@@ -1103,7 +1105,7 @@ if ($action === 'studio_login') {
                 flash_set('success', 'Template enviado pela API oficial do WhatsApp.' . ($messageId !== '' ? ' ID: ' . $messageId : ''));
             }
             if (!empty($_POST['return_to_workspace'])) {
-                redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+                redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
             }
             if ($conversationId > 0) {
                 redirect_to('studio_whatsapp_conversation', ['id' => $conversationId]);
@@ -1122,7 +1124,7 @@ if ($action === 'studio_login') {
             } else {
                 flash_set('success', 'Mensagem interativa enviada pela API oficial.');
             }
-            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
+            redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_mobile' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
         }
 
         if ($action === 'save_whatsapp_sticker') {
@@ -1207,7 +1209,7 @@ if ($action === 'studio_login') {
                         redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
                     }
                     if (!empty($_POST['return_to_workspace'])) {
-                        redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+                        redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
                     }
                     redirect_to($conversationId > 0 ? 'studio_whatsapp_conversation' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
                 }
@@ -1223,7 +1225,7 @@ if ($action === 'studio_login') {
                     redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
                 }
                 if (!empty($_POST['return_to_workspace'])) {
-                    redirect_to('studio_whatsapp_workspace', $conversationId > 0 ? ['id' => $conversationId] : []);
+                    redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
                 }
                 redirect_to($conversationId > 0 ? 'studio_whatsapp_conversation' : 'studio_whatsapp', $conversationId > 0 ? ['id' => $conversationId] : []);
 
@@ -1267,7 +1269,7 @@ if ($action === 'studio_login') {
                         exit;
                     }
                     if ($conversationId > 0) {
-                        redirect_to('studio_whatsapp_workspace');
+                        redirect_to('studio_whatsapp_mobile', ['id' => $conversationId]);
                     }
 
                     redirect_to('studio_whatsapp');
@@ -1308,7 +1310,7 @@ if ($action === 'studio_login') {
                         exit;
                     }
                     if ($conversationId > 0) {
-                        redirect_to('studio_whatsapp_workspace');
+                        redirect_to('studio_whatsapp_mobile', ['id' => $conversationId]);
                     }
 
                     redirect_to('studio_whatsapp');
@@ -1339,7 +1341,7 @@ if ($action === 'studio_login') {
                     exit;
                 }
                 if ($conversationId > 0) {
-                    redirect_to('studio_whatsapp_workspace');
+                    redirect_to('studio_whatsapp_mobile', ['id' => $conversationId]);
                 }
 
                 redirect_to('studio_whatsapp');
@@ -1356,7 +1358,7 @@ if ($action === 'studio_login') {
                 exit;
             }
             if (!empty($_POST['return_to_workspace'])) {
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_whatsapp_mobile', !empty($_POST['conversation_id']) ? ['id' => (int)$_POST['conversation_id']] : []);
             }
             if (!empty($_POST['conversation_id'])) {
                 redirect_to('studio_whatsapp_conversation', ['id' => (int)$_POST['conversation_id']]);
@@ -1458,7 +1460,7 @@ if ($action === 'studio_login') {
             studio_update_whatsapp_conversation($studio, $_POST);
             flash_set('success', 'Conversa atualizada.');
             if (!empty($_POST['return_to_workspace'])) {
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_whatsapp_mobile', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
             }
             redirect_to('studio_whatsapp_conversation', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
         }
@@ -1529,7 +1531,7 @@ if ($action === 'studio_login') {
                 ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_workspace'])) {
-                redirect_to('studio_whatsapp_workspace');
+                redirect_to('studio_whatsapp_mobile', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
             }
             redirect_to('studio_whatsapp_conversation', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
         }
@@ -1633,7 +1635,7 @@ if ($action === 'studio_login') {
                     'id' => $conversationId > 0 ? $conversationId : null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
-            redirect_to('studio_whatsapp_workspace');
+            redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
         }
 
         if ($action === 'test_whatsapp_official') {
@@ -2836,7 +2838,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $displayName = $labelForConversation($conversation);
         echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
         $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
-        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
+        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
         echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
         $mobileAiModeActive = ((string)($conversation['attendance_mode'] ?? 'human') === 'bot');
         echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" id="m2AiModeButton" class="' . ($mobileAiModeActive ? 'is-active' : '') . '" title="' . h($mobileAiModeActive ? 'IA ligada nesta conversa' : 'IA desligada nesta conversa') . '" aria-label="' . h($mobileAiModeActive ? 'IA ligada' : 'IA desligada') . '" data-next-mode="' . h($mobileAiModeActive ? 'human' : 'bot') . '"><i class="fa-solid ' . h($mobileAiModeActive ? 'fa-toggle-on' : 'fa-toggle-off') . '"></i></button>';
@@ -2845,7 +2847,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
         if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
         if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
-        echo '<a href="' . h(app_url('studio_whatsapp_workspace', ['id' => $conversationId])) . '" target="_blank" rel="noopener" title="Desktop" aria-label="Desktop"><i class="fa-solid fa-display"></i></a></div>';
+        echo '</div>';
         echo '<div class="m2-menu hidden" id="m2Menu">';
         if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
             echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-hand-pointer"></i>Assumir</button></form>';
@@ -4561,6 +4563,38 @@ if ($page === 'studio_whatsapp') {
         $conversationsPage = min($conversationsPage, $conversationsTotalPages);
         $conversationsOffset = ($conversationsPage - 1) * $conversationsPerPage;
         $conversationsPageRows = array_slice($conversations, $conversationsOffset, $conversationsPerPage);
+        $statusBadgeClass = !empty($serviceStatus['ready']) ? 'ok' : 'danger';
+        $statusSummary = !empty($serviceStatus['ready']) ? 'API oficial pronta' : 'Configuração incompleta';
+        $statusDetail = !empty($serviceStatus['ready'])
+            ? 'Webhook e envios estão configurados para a Meta Cloud API.'
+            : 'Revise credenciais, phone number ID, webhook e token em Configurações.';
+        echo '<section class="panel whatsapp-hero">';
+        echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estúdio</div><h2>Atendimento oficial</h2><p class="muted">Esta tela agora é só uma entrada limpa para o atendimento. As conversas ficam oficialmente no app mobile/PWA.</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_mobile')) . '"><i class="fa-solid fa-mobile-screen-button"></i> Abrir atendimento</a><a class="btn secondary" href="' . h(app_url('studio_settings', ['tab' => 'whatsapp'])) . '#settings-whatsapp"><i class="fa-solid fa-gear"></i> Configurações</a></div></div>';
+        echo '<div class="whatsapp-hero-sidebar"><div class="whatsapp-session-summary-card"><span class="badge ' . h($statusBadgeClass) . '">' . h($statusSummary) . '</span><strong>' . h($statusDetail) . '</strong><span class="muted">Último webhook: ' . h((string)($serviceStatus['last_webhook_at'] ?? '') !== '' ? (string)$serviceStatus['last_webhook_at'] : 'sem registro') . '</span></div>';
+        echo '<div class="whatsapp-hero-stats"><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['total']) . '</strong><span>Conversas</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['human']) . '</strong><span>Humano</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)$summary['analyzed']) . '</strong><span>IA</span></div><div class="whatsapp-hero-stat"><strong>' . h((string)($summary['avg_score'] ?: '-')) . '</strong><span>Nota média</span></div></div></div>';
+        echo '</section>';
+        echo '<section class="panel whatsapp-list-panel"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2>Conversas recentes</h2><p class="muted">Atalhos rápidos para continuar no atendimento oficial.</p></div><a class="btn tiny secondary" href="' . h(app_url('studio_whatsapp_mobile')) . '">Ver todas</a></div>';
+        if (!$conversationsPageRows) {
+            echo '<p class="muted">Nenhuma conversa registrada ainda.</p>';
+        } else {
+            echo '<div class="drilldown-grid">';
+            foreach (array_slice($conversationsPageRows, 0, 8) as $row) {
+                $rowId = (int)($row['id'] ?? 0);
+                $rowName = trim((string)($row['customer_name'] ?? ''));
+                if ($rowName === '') { $rowName = trim((string)($row['lead_name'] ?? '')); }
+                if ($rowName === '') { $rowName = trim((string)($row['name'] ?? '')); }
+                if ($rowName === '' || $rowName === 'Cliente WhatsApp' || $rowName === 'Contato WhatsApp') {
+                    $rowName = trim((string)($row['phone'] ?? 'Contato WhatsApp'));
+                }
+                $preview = trim((string)($row['latest_message_preview'] ?? $row['last_message_preview'] ?? 'Sem prévia'));
+                $mode = (string)($row['attendance_mode'] ?? 'bot') === 'human' ? 'Humano' : 'IA';
+                $needsHuman = !empty($row['needs_human']);
+                echo '<a class="drilldown-card compact" href="' . h(app_url('studio_whatsapp_mobile', ['id' => $rowId])) . '"><span class="badge ' . h($needsHuman ? 'warn' : 'ok') . '">' . h($needsHuman ? 'Atenção' : $mode) . '</span><strong>' . h($rowName) . '</strong><div class="muted">' . h(mb_substr($preview, 0, 120)) . '</div><small class="muted">' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</small></a>';
+            }
+            echo '</div>';
+        }
+        echo '</section>';
+        return;
         echo '<section class="panel whatsapp-hero">';
         echo '<div class="whatsapp-hero-copy"><div class="topbar-kicker">WhatsApp do estudio</div><h2>Central de conversas e API oficial</h2><p class="muted">Acompanhe a saude da Meta Cloud API, webhooks, envios e conversas do CRM em um unico lugar.</p><div class="actions whatsapp-hero-actions"><a class="btn" href="' . h(app_url('studio_whatsapp_workspace')) . '">Abrir workspace</a><button type="button" class="btn secondary" id="openWhatsAppStatusOverlay">Ver status</button><button type="button" class="btn secondary" id="openManualMessageOverlay">Mensagem manual</button></div></div>';
         echo '<div class="whatsapp-hero-sidebar">';
@@ -4779,6 +4813,11 @@ if ($page === 'studio_whatsapp_debug') {
 }
 
 if ($page === 'studio_whatsapp_workspace') {
+    $params = $_GET;
+    unset($params['page']);
+    redirect_to('studio_whatsapp_mobile', array_filter($params, static fn($value): bool => $value !== null && $value !== ''));
+    exit;
+
     $studio = require_studio();
     render_studio_shell('Workspace WhatsApp', 'Leitura tipo WhatsApp Web com ferramentas do CRM.', 'whatsapp', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
