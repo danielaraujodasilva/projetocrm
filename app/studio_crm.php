@@ -12010,6 +12010,30 @@ function studio_data_assistant_ranking_direction(string $text): string
     return 'desc';
 }
 
+function studio_data_assistant_period_sql(?array $period, string $dateColumn, string $defaultMode = 'past'): array
+{
+    if (is_array($period)) {
+        return [
+            'select' => "'" . $period['label'] . "' AS periodo, '" . $period['start'] . "' AS inicio_inclusivo, '" . $period['end'] . "' AS fim_exclusivo",
+            'where' => $dateColumn . " >= '" . $period['start'] . "' AND " . $dateColumn . " < '" . $period['end'] . "'",
+            'label' => 'em ' . $period['label'],
+        ];
+    }
+    if ($defaultMode === 'future') {
+        return [
+            'select' => "'a_partir_de_hoje' AS periodo",
+            'where' => $dateColumn . ' >= ' . (preg_match('/_at$|created_at|updated_at|last_message_at/i', $dateColumn) ? 'NOW()' : 'CURDATE()'),
+            'label' => 'a partir de hoje',
+        ];
+    }
+
+    return [
+        'select' => "'ate_hoje' AS periodo",
+        'where' => $dateColumn . ' <= ' . (preg_match('/_at$|created_at|updated_at|last_message_at/i', $dateColumn) ? 'NOW()' : 'CURDATE()'),
+        'label' => 'até hoje',
+    ];
+}
+
 function studio_data_assistant_canonical_queries(string $question): ?array
 {
     $text = studio_data_assistant_plain_text($question);
@@ -12017,6 +12041,7 @@ function studio_data_assistant_canonical_queries(string $question): ?array
     $asksExpense = (bool)preg_match('/\b(despesa|despesas|gasto|gastos|custo|custos)\b/u', $text);
     $asksResult = (bool)preg_match('/\b(resultado|lucro|saldo|balanco|balanço)\b/u', $text);
     $asksCount = (bool)preg_match('/\b(quantos|quantas|qtd|quantidade|total)\b/u', $text);
+    $hasRanking = (bool)preg_match('/\b(mais|maior|maiores|menos|menor|menores|top|melhor|pior|alto|alta|baixo|baixa)\b/u', $text);
     $period = studio_data_assistant_period_from_question($question, $asksMoney || $asksExpense || $asksResult || $asksCount);
     $notCancelled = "LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled')";
 
@@ -12039,6 +12064,107 @@ function studio_data_assistant_canonical_queries(string $question): ?array
             'title' => 'Cliente com ' . $directionLabel . ' gasto canônico ' . $titleSuffix,
             'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') HAVING total_gasto > 0 ORDER BY " . $orderSql . " LIMIT 10",
         ]];
+    }
+
+    if ($hasRanking && preg_match('/\b(tatuador|tatuadora|tatuadores|artista|artistas|equipe)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $orderSql = $direction === 'asc' ? 'valor_total ASC, quantidade ASC' : 'valor_total DESC, quantidade DESC';
+        $rankingPeriod = studio_data_assistant_period_from_question($question, false);
+        $periodSql = studio_data_assistant_period_sql($rankingPeriod, 'a.appointment_date', str_contains($text, 'futuro') || str_contains($text, 'proximo') ? 'future' : 'past');
+        $metricLabel = preg_match('/\b(agenda|agendamentos?|horarios?|sess(?:ao|oes|ão|ões)|atendeu|atendimentos?)\b/u', $text)
+            ? 'volume de agendamentos'
+            : 'receita';
+        $orderSql = str_contains($metricLabel, 'agendamento')
+            ? ($direction === 'asc' ? 'quantidade ASC, valor_total ASC' : 'quantidade DESC, valor_total DESC')
+            : $orderSql;
+        return [[
+            'title' => 'Tatuador com ' . $directionLabel . ' ' . $metricLabel . ' canônico ' . $periodSql['label'],
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'tatuador' AS ranking_entidade, '" . $metricLabel . "' AS metric_label, " . $periodSql['select'] . ", ta.name AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a INNER JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE " . $periodSql['where'] . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY ta.id, ta.name ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
+
+    if ($hasRanking && preg_match('/\b(leads?|orcamentos?|orçamentos?|oportunidades?)\b/u', $text)
+        && !preg_match('/\b(origem|origens|canal|canais|fonte|fontes|status|etapa|funil|pipeline)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $rankingPeriod = studio_data_assistant_period_from_question($question, false);
+        $periodSql = studio_data_assistant_period_sql($rankingPeriod, 'created_at', 'past');
+        $metricColumn = preg_match('/\b(quente|nota|score|prioridade)\b/u', $text) ? 'lead_score' : 'estimated_value';
+        $metricLabel = $metricColumn === 'lead_score' ? 'nota' : 'valor estimado';
+        $orderSql = $direction === 'asc' ? $metricColumn . ' ASC' : $metricColumn . ' DESC';
+        return [[
+            'title' => 'Lead com ' . $directionLabel . ' ' . $metricLabel . ' canônico ' . $periodSql['label'],
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'lead' AS ranking_entidade, '" . $metricLabel . "' AS metric_label, " . $periodSql['select'] . ", COALESCE(name, phone, 'Sem nome') AS item_nome, phone AS telefone, COALESCE(lead_score, 0) AS nota, COALESCE(estimated_value, 0) AS valor_total, status, pipeline_stage FROM leads WHERE " . $periodSql['where'] . " ORDER BY " . $orderSql . ", updated_at DESC LIMIT 10",
+        ]];
+    }
+
+    if (($hasRanking || $asksCount) && preg_match('/\b(origem|origens|canal|canais|fonte|fontes)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $rankingPeriod = studio_data_assistant_period_from_question($question, false);
+        $periodSql = studio_data_assistant_period_sql($rankingPeriod, 'created_at', 'past');
+        $orderSql = $direction === 'asc' ? 'quantidade ASC, valor_total ASC' : 'quantidade DESC, valor_total DESC';
+        return [[
+            'title' => 'Origem com ' . $directionLabel . ' volume de leads ' . $periodSql['label'],
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'origem' AS ranking_entidade, 'volume de leads' AS metric_label, " . $periodSql['select'] . ", COALESCE(NULLIF(source, ''), 'Sem origem') AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(estimated_value), 0) AS valor_total FROM leads WHERE " . $periodSql['where'] . " GROUP BY COALESCE(NULLIF(source, ''), 'Sem origem') ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
+
+    if (($hasRanking || $asksCount) && preg_match('/\b(status|etapa|funil|pipeline)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $rankingPeriod = studio_data_assistant_period_from_question($question, false);
+        $periodSql = studio_data_assistant_period_sql($rankingPeriod, 'created_at', 'past');
+        $field = str_contains($text, 'etapa') || str_contains($text, 'pipeline') || str_contains($text, 'funil') ? 'pipeline_stage' : 'status';
+        $label = $field === 'pipeline_stage' ? 'etapa do funil' : 'status';
+        $orderSql = $direction === 'asc' ? 'quantidade ASC, valor_total ASC' : 'quantidade DESC, valor_total DESC';
+        return [[
+            'title' => ucfirst($label) . ' com ' . $directionLabel . ' volume de leads ' . $periodSql['label'],
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, '" . $label . "' AS ranking_entidade, 'volume de leads' AS metric_label, " . $periodSql['select'] . ", COALESCE(NULLIF(" . $field . ", ''), 'Sem " . $label . "') AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(estimated_value), 0) AS valor_total FROM leads WHERE " . $periodSql['where'] . " GROUP BY COALESCE(NULLIF(" . $field . ", ''), 'Sem " . $label . "') ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
+
+    if (($hasRanking || $asksExpense) && preg_match('/\b(categoria|categorias)\b/u', $text) && preg_match('/\b(despesa|despesas|gasto|gastos|custo|custos)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $rankingPeriod = studio_data_assistant_period_from_question($question, true);
+        $periodSql = studio_data_assistant_period_sql($rankingPeriod, 'expense_date', 'past');
+        $orderSql = $direction === 'asc' ? 'valor_total ASC, quantidade ASC' : 'valor_total DESC, quantidade DESC';
+        return [[
+            'title' => 'Categoria de despesa com ' . $directionLabel . ' gasto ' . $periodSql['label'],
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'categoria de despesa' AS ranking_entidade, 'gasto' AS metric_label, " . $periodSql['select'] . ", COALESCE(NULLIF(category, ''), 'Geral') AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(amount), 0) AS valor_total FROM expenses WHERE " . $periodSql['where'] . " GROUP BY COALESCE(NULLIF(category, ''), 'Geral') ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
+
+    if (preg_match('/\b(whatsapp|conversas?|chat|mensagens?)\b/u', $text)) {
+        $waPeriod = studio_data_assistant_period_from_question($question, false);
+        $periodSql = studio_data_assistant_period_sql($waPeriod, 'last_message_at', 'past');
+        if (!is_array($waPeriod)) {
+            $periodSql = [
+                'select' => "'ate_hoje' AS periodo",
+                'where' => 'last_message_at IS NOT NULL',
+                'label' => 'até hoje',
+            ];
+        }
+        if (preg_match('/\b(sem resposta|pendente|pendentes|nao respondidas|não respondidas)\b/u', $text)) {
+            return [[
+                'title' => 'Conversas de WhatsApp sem resposta ' . $periodSql['label'],
+                'sql' => "SELECT " . $periodSql['select'] . ", COUNT(*) AS conversas_sem_resposta FROM whatsapp_conversations WHERE " . $periodSql['where'] . " AND last_message_direction = 'in'",
+            ]];
+        }
+        if (preg_match('/\b(humano|atendente|pediram atendimento|needs human)\b/u', $text)) {
+            return [[
+                'title' => 'Conversas de WhatsApp sinalizadas para humano ' . $periodSql['label'],
+                'sql' => "SELECT " . $periodSql['select'] . ", COUNT(*) AS conversas_pedindo_humano FROM whatsapp_conversations WHERE " . $periodSql['where'] . " AND needs_human = 1",
+            ]];
+        }
+        if ($asksCount) {
+            return [[
+                'title' => 'Conversas de WhatsApp ' . $periodSql['label'],
+                'sql' => "SELECT " . $periodSql['select'] . ", COUNT(*) AS conversas, SUM(CASE WHEN attendance_mode = 'bot' THEN 1 ELSE 0 END) AS em_ia, SUM(CASE WHEN attendance_mode = 'human' THEN 1 ELSE 0 END) AS em_humano, SUM(CASE WHEN needs_human = 1 THEN 1 ELSE 0 END) AS pedindo_humano FROM whatsapp_conversations WHERE " . $periodSql['where'],
+            ]];
+        }
     }
 
     if ($asksResult && $period) {
@@ -12095,12 +12221,12 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
     $result = $executed[0]['result'] ?? [];
     $title = (string)($executed[0]['title'] ?? '');
     $rows = is_array($result['rows'] ?? null) ? $result['rows'] : [];
-    if (!$rows && str_contains(studio_data_assistant_plain_text($title), 'cliente com')) {
-        return 'Não encontrei cliente com gasto registrado nesse recorte.';
+    if (!$rows && preg_match('/\b(cliente|tatuador|lead|origem|status|etapa|categoria)\b/u', studio_data_assistant_plain_text($title))) {
+        return 'Não encontrei dados para esse ranking no recorte consultado.';
     }
     $row = is_array($rows[0] ?? null) ? $rows[0] : [];
-    $period = trim((string)($row['periodo'] ?? ''));
-    $periodText = $period !== '' ? $period : 'o período consultado';
+    $periodRaw = trim((string)($row['periodo'] ?? ''));
+    $periodText = $periodRaw !== '' ? ($periodRaw === 'ate_hoje' ? 'até hoje' : $periodRaw) : 'o período consultado';
     $rangeText = '';
     if (!empty($row['inicio_inclusivo']) && !empty($row['fim_exclusivo'])) {
         $rangeText = ' (' . (string)$row['inicio_inclusivo'] . ' até antes de ' . (string)$row['fim_exclusivo'] . ')';
@@ -12129,13 +12255,46 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
             . ', com valor estimado total de ' . format_money((float)($row['valor_estimado'] ?? 0))
             . $rangeText . '.';
     }
+    if (array_key_exists('ranking_entidade', $row) && array_key_exists('item_nome', $row)) {
+        $rankingType = (string)($row['ranking_tipo'] ?? 'maior');
+        $rankingLabel = $rankingType === 'menor' ? 'menor' : 'maior';
+        $entity = (string)($row['ranking_entidade'] ?? 'item');
+        $metric = (string)($row['metric_label'] ?? 'resultado');
+        $periodLabel = $periodRaw === 'ate_hoje' ? 'até hoje' : 'em ' . $periodText;
+        $metricPlain = studio_data_assistant_plain_text($metric);
+        $valueText = '';
+        $extra = '';
+        if (str_contains($metricPlain, 'agendamento') || str_contains($metricPlain, 'volume')) {
+            $quantity = (int)($row['quantidade'] ?? 0);
+            $valueText = $quantity . ' registro' . ($quantity === 1 ? '' : 's');
+            if (array_key_exists('valor_total', $row) && (float)$row['valor_total'] > 0) {
+                $extra = ', somando ' . format_money((float)$row['valor_total']);
+            }
+        } elseif ($metricPlain === 'nota') {
+            $valueText = (string)(int)($row['nota'] ?? 0) . '/10';
+            if (array_key_exists('valor_total', $row) && (float)$row['valor_total'] > 0) {
+                $extra = ', com valor estimado de ' . format_money((float)$row['valor_total']);
+            }
+        } elseif (array_key_exists('valor_total', $row)) {
+            $valueText = format_money((float)$row['valor_total']);
+        } elseif (array_key_exists('quantidade', $row)) {
+            $valueText = (string)(int)$row['quantidade'];
+        } elseif (array_key_exists('nota', $row)) {
+            $valueText = (string)(int)$row['nota'];
+        }
+        if ($extra === '' && array_key_exists('quantidade', $row) && array_key_exists('valor_total', $row) && !str_contains($metricPlain, 'agendamento') && !str_contains($metricPlain, 'volume')) {
+            $extra = ', com ' . (int)$row['quantidade'] . ' registro' . ((int)$row['quantidade'] === 1 ? '' : 's');
+        }
+        return ucfirst($entity) . ' com ' . $rankingLabel . ' ' . $metric . ' canônico ' . $periodLabel . ': '
+            . (string)$row['item_nome'] . ($valueText !== '' ? ', com ' . $valueText : '') . $extra . '.';
+    }
     if (array_key_exists('total_gasto', $row)) {
         if (!$row) {
             return 'Não encontrei cliente com gasto registrado até hoje.';
         }
         $rankingType = (string)($row['ranking_tipo'] ?? 'maior');
         $rankingLabel = $rankingType === 'menor' ? 'menor gasto' : 'maior gasto';
-        $rankingPeriod = $periodText === 'ate_hoje' ? 'até hoje' : 'em ' . $periodText;
+        $rankingPeriod = $periodRaw === 'ate_hoje' ? 'até hoje' : 'em ' . $periodText;
         return 'Cliente com ' . $rankingLabel . ' canônico ' . $rankingPeriod . ': ' . (string)($row['cliente'] ?? 'Sem nome')
             . ', com ' . format_money((float)$row['total_gasto'])
             . ' em ' . (int)($row['agendamentos'] ?? 0) . ' agendamento' . ((int)($row['agendamentos'] ?? 0) === 1 ? '' : 's') . '.';
@@ -12144,6 +12303,17 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
         return 'Agendamentos em ' . $periodText . ': ' . (int)$row['agendamentos']
             . ', somando ' . format_money((float)($row['valor_total'] ?? 0))
             . $rangeText . '.';
+    }
+    if (array_key_exists('conversas_sem_resposta', $row)) {
+        return 'Conversas de WhatsApp sem resposta em ' . $periodText . ': ' . (int)$row['conversas_sem_resposta'] . $rangeText . '.';
+    }
+    if (array_key_exists('conversas_pedindo_humano', $row)) {
+        return 'Conversas de WhatsApp pedindo humano em ' . $periodText . ': ' . (int)$row['conversas_pedindo_humano'] . $rangeText . '.';
+    }
+    if (array_key_exists('conversas', $row) && array_key_exists('em_ia', $row)) {
+        return 'Conversas de WhatsApp em ' . $periodText . ': ' . (int)$row['conversas']
+            . ' no total, ' . (int)$row['em_ia'] . ' em IA, ' . (int)$row['em_humano']
+            . ' em humano e ' . (int)$row['pedindo_humano'] . ' pedindo humano' . $rangeText . '.';
     }
 
     return 'Consulta canônica executada. Encontrei ' . count($rows) . ' linha' . (count($rows) === 1 ? '' : 's') . ' de resultado.';
