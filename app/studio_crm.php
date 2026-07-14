@@ -4429,6 +4429,9 @@ function studio_whatsapp_ai_fixed_closing_offer_label(string $rules): string
     if ($rules === '') {
         return '';
     }
+    if (str_contains($rules, 'DADOS ESTRUTURADOS CONFIAVEIS DA PAGINA DE ORCAMENTO')) {
+        return '';
+    }
     if (preg_match('/R\$\s*([0-9][0-9.]*)(?:,([0-9]{2}))?\s+por\s+sess[aã]o/iu', $rules, $match)) {
         $amount = str_replace('.', '', (string)$match[1]);
         $cents = isset($match[2]) && $match[2] !== '' ? ',' . $match[2] : '';
@@ -4441,6 +4444,56 @@ function studio_whatsapp_ai_fixed_closing_offer_label(string $rules): string
     }
 
     return '';
+}
+
+function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextText): ?array
+{
+    $contextText = mb_strtolower(trim($contextText), 'UTF-8');
+    if ($rules === '' || $contextText === '') {
+        return null;
+    }
+
+    $candidates = [
+        ['key' => 'antebraco_externo', 'label' => 'antebraço externo', 'patterns' => ['/antebra[cç]o.{0,60}extern/u', '/extern[ao].{0,60}antebra[cç]o/u']],
+        ['key' => 'antebraco_interno', 'label' => 'antebraço interno', 'patterns' => ['/antebra[cç]o.{0,60}intern/u', '/intern[ao].{0,60}antebra[cç]o/u']],
+        ['key' => 'antebraco_externo', 'label' => 'antebraço externo', 'patterns' => ['/\bantebra[cç]o\b/u']],
+        ['key' => 'braco', 'label' => 'braço', 'patterns' => ['/\bbra[cç]o\b/u']],
+        ['key' => 'costas', 'label' => 'costas', 'patterns' => ['/\bcostas?\b/u']],
+        ['key' => 'peito', 'label' => 'peito', 'patterns' => ['/\b(peito|peitoral)\b/u']],
+        ['key' => 'coxa_frontal', 'label' => 'coxa frontal', 'patterns' => ['/coxa.{0,60}frontal/u']],
+        ['key' => 'coxa_posterior', 'label' => 'coxa posterior', 'patterns' => ['/coxa.{0,60}posterior/u']],
+        ['key' => 'canela', 'label' => 'canela', 'patterns' => ['/\bcanela\b/u']],
+        ['key' => 'panturrilha', 'label' => 'panturrilha', 'patterns' => ['/\bpanturrilha\b/u']],
+        ['key' => 'tornozelo', 'label' => 'tornozelo', 'patterns' => ['/\btornozelo\b/u']],
+        ['key' => 'pulso', 'label' => 'pulso', 'patterns' => ['/\bpulso\b/u']],
+        ['key' => 'mao', 'label' => 'mão', 'patterns' => ['/\bm[aã]o\b/u']],
+        ['key' => 'dedos_mao', 'label' => 'dedos da mão', 'patterns' => ['/dedos?.{0,30}m[aã]o/u']],
+        ['key' => 'dedos_pe', 'label' => 'dedos do pé', 'patterns' => ['/dedos?.{0,30}p[eé]/u']],
+        ['key' => 'pe', 'label' => 'pé', 'patterns' => ['/\bp[eé]\b/u']],
+        ['key' => 'perna', 'label' => 'perna', 'patterns' => ['/\bperna\b/u']],
+    ];
+
+    foreach ($candidates as $candidate) {
+        foreach ($candidate['patterns'] as $pattern) {
+            if (!preg_match($pattern, $contextText)) {
+                continue;
+            }
+            $key = (string)$candidate['key'];
+            if (preg_match('/^- [^\n]*\(' . preg_quote($key, '/') . '\):\s*(R\$\s*[0-9.]+(?:,\d{2})?)(?:\s+a\s*(R\$\s*[0-9.]+(?:,\d{2})?))?/imu', $rules, $match)) {
+                $price = trim((string)$match[1]);
+                if (!empty($match[2])) {
+                    $price .= ' a ' . trim((string)$match[2]);
+                }
+                return [
+                    'key' => $key,
+                    'label' => (string)$candidate['label'],
+                    'price' => $price,
+                ];
+            }
+        }
+    }
+
+    return null;
 }
 
 function studio_whatsapp_ai_extract_time_choice(string $text): string
@@ -10592,11 +10645,18 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $fixedClosingOfferLabel = studio_whatsapp_ai_fixed_closing_offer_label($effectiveStudioRules);
     $currentAsksPrice = studio_whatsapp_ai_text_asks_price($currentText);
     $currentRejectsFixedClosing = studio_whatsapp_ai_current_rejects_fixed_closing($currentText);
+    $specificPricingQuote = studio_whatsapp_ai_pricing_area_quote($effectiveStudioRules, $messageText);
+    if (!is_array($specificPricingQuote)) {
+        $specificPricingQuote = studio_whatsapp_ai_pricing_area_quote($effectiveStudioRules, $stateText . ' ' . $conversationMemory);
+    }
+    $specificPricingIsPartialArea = is_array($specificPricingQuote)
+        && in_array((string)$specificPricingQuote['key'], ['antebraco_externo', 'antebraco_interno', 'pulso', 'mao', 'canela', 'panturrilha', 'tornozelo'], true);
     $currentMentionsFixedClosing = (bool)preg_match('/\b(fechamento|costas?\s+(completa|inteira|toda)|fechar\s+(as?\s+)?costas|peit(?:o|oral)\s+(completo|inteiro)|valor\s+fixo|promo[cç][aã]o)\b/u', $currentText);
     $contextMentionsFixedClosing = (bool)preg_match('/\b(fechamento|costas?\s+(completa|inteira|toda)|peit(?:o|oral)\s+(completo|inteiro)|valor\s+fixo|promo[cç][aã]o)\b/u', $stateText);
     $asksFixedClosingOffer = $fixedClosingOfferLabel !== ''
         && $currentAsksPrice
         && !$currentRejectsFixedClosing
+        && !$specificPricingIsPartialArea
         && ($currentMentionsFixedClosing || ($currentIntent === 'price' && $contextMentionsFixedClosing));
     if ($customerDeniesPaymentProof) {
         $currentIntent = 'payment_proof_denial';
@@ -11037,6 +11097,18 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'needs_human' => true,
             'lead_score_delta' => 2,
             'summary' => 'Cliente quer cobertura de tatuagem já enviada por imagem; precisa de avaliação humana do Daniel, faltando confirmar tamanho/cobertura desejada.',
+        ];
+    } elseif ($currentAsksPrice
+        && is_array($specificPricingQuote)
+        && !in_array($currentIntent, ['schedule', 'artist', 'reservation', 'address', 'payment_proof', 'payment_proof_denial', 'payment_amount_variation'], true)) {
+        $quoteLabel = (string)$specificPricingQuote['label'];
+        $quotePrice = (string)$specificPricingQuote['price'];
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Pela tabela oficial do orçamento, ' . $quoteLabel . ' fica em ' . $quotePrice . '. Se for exatamente essa referência, me confirma o tamanho aproximado para eu deixar a equipe conferir se entra certinho nesse valor.',
+            'needs_human' => !empty($hasVisualReference),
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente perguntou valor de ' . $quoteLabel . '; fonte oficial de orçamento informa ' . $quotePrice . '. Confirmar tamanho/detalhe e validar com equipe se houver referência visual.',
         ];
     } elseif ($currentRejectsFixedClosing && $currentAsksPrice) {
         $areaLabel = $desiredBodyArea !== '' ? str_replace('antebraco', 'antebraço', $desiredBodyArea) : 'essa área';
