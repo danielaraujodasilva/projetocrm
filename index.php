@@ -1553,7 +1553,25 @@ if ($action === 'studio_login') {
 
         if ($action === 'ask_studio_data_assistant') {
             $studio = require_studio();
-            $_SESSION['studio_data_assistant_result'] = studio_data_assistant_answer($studio, (string)($_POST['question'] ?? ''));
+            $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
+            try {
+                $result = studio_data_assistant_answer($studio, (string)($_POST['question'] ?? ''));
+            } catch (Throwable $e) {
+                if ($expectsJson) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    http_response_code(400);
+                    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    exit;
+                }
+                throw $e;
+            }
+            if ($expectsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => true] + $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            $_SESSION['studio_data_assistant_result'] = $result;
             redirect_to('studio_data_assistant');
         }
 
@@ -6407,51 +6425,58 @@ if ($page === 'studio_data_assistant') {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
-        if (!plan_allows('ai_data_assistant')) {
-            echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Assistente IA de dados</h2><p class="muted">Os recursos de IA estão disponíveis no plano Avançado.</p></div><span class="badge warn">Bloqueado</span></div><p class="muted">Esse assistente continua somente leitura e não altera dados. Para usar as respostas por IA, altere para um plano superior.</p></section>';
-            return;
-        }
         $result = $_SESSION['studio_data_assistant_result'] ?? null;
         unset($_SESSION['studio_data_assistant_result']);
-        $suggestions = studio_data_assistant_suggestions();
-        echo '<section class="grid cols-2">';
-        echo '<form class="form panel" method="post">';
+        echo '<style>
+            .data-assistant-wrap{max-width:980px;margin:0 auto}
+            .data-ask-panel{padding:26px;border-radius:28px;background:linear-gradient(145deg,#ffffff 0%,#f6faf7 55%,#eef6f1 100%);border:1px solid rgba(13,64,46,.12);box-shadow:0 22px 70px rgba(15,44,34,.10)}
+            .data-ask-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+            .data-ask-title h2{font-size:28px;margin:0 0 6px}
+            .data-ask-title p{margin:0;color:#61736b}
+            .data-safe-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(15,118,87,.18);background:#f3fbf6;color:#0f6b4f;border-radius:999px;padding:9px 13px;font-weight:800;font-size:12px;white-space:nowrap}
+            .data-safe-pill:before{content:"";width:8px;height:8px;border-radius:999px;background:#16a34a;box-shadow:0 0 0 5px rgba(22,163,74,.10)}
+            .data-prompt-box{display:grid;gap:12px}
+            .data-prompt-box textarea{width:100%;min-height:154px;border-radius:22px;border:1px solid rgba(15,44,34,.18);padding:18px 20px;font-size:18px;line-height:1.45;resize:vertical;background:rgba(255,255,255,.88);box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}
+            .data-prompt-actions{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+            .data-prompt-hint{color:#61736b;font-size:13px}
+            .data-progress{margin-top:18px;border-radius:22px;border:1px solid rgba(15,44,34,.12);background:rgba(255,255,255,.74);padding:16px;display:none}
+            .data-progress.active{display:block}
+            .data-progress-top{display:flex;justify-content:space-between;gap:14px;font-size:13px;font-weight:800;color:#10251d}
+            .data-progress-track{height:12px;background:#e4eee8;border-radius:999px;overflow:hidden;margin:12px 0 10px}
+            .data-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#0f7a5b,#33d39a);border-radius:999px;transition:width .35s ease}
+            .data-progress-sub{display:flex;justify-content:space-between;gap:14px;color:#61736b;font-size:12px;flex-wrap:wrap}
+            .data-answer-panel{margin-top:18px;padding:24px;border-radius:28px;background:#ffffff;border:1px solid rgba(15,44,34,.10);box-shadow:0 16px 50px rgba(15,44,34,.08)}
+            .data-answer-panel.empty{border-style:dashed;background:rgba(255,255,255,.55)}
+            .data-answer-title{display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:14px}
+            .data-answer-title h2{margin:0}
+            .data-answer-text{white-space:pre-wrap;font-size:17px;line-height:1.65;color:#10251d}
+            .data-tech{margin-top:18px;border-top:1px solid rgba(15,44,34,.09);padding-top:12px}
+            .data-tech summary{cursor:pointer;color:#61736b;font-weight:800}
+            .data-tech pre{white-space:pre-wrap;background:#10251d;color:#dff8ea;border-radius:18px;padding:14px;overflow:auto;font-size:12px}
+            @media(max-width:720px){.data-ask-panel,.data-answer-panel{border-radius:20px;padding:18px}.data-ask-head{display:block}.data-safe-pill{margin-top:12px}.data-prompt-box textarea{font-size:16px}}
+        </style>';
+        echo '<div class="data-assistant-wrap">';
+        echo '<section class="data-ask-panel">';
+        echo '<div class="data-ask-head"><div class="data-ask-title"><h2>Assistente de dados</h2><p>Pergunte qualquer coisa sobre clientes, agenda, WhatsApp, leads e financeiro. Ele consulta somente leitura e responde direto.</p></div><span class="data-safe-pill">Somente leitura</span></div>';
+        echo '<form id="dataAssistantForm" class="data-prompt-box" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="ask_studio_data_assistant">';
-        echo '<h2>Perguntar aos dados</h2>';
-        echo '<div class="field"><label>Pergunta</label><textarea name="question" required placeholder="Ex: Quais leads merecem prioridade hoje?">' . h($result['question'] ?? '') . '</textarea></div>';
-        echo '<button class="btn" type="submit">Perguntar</button>';
-        echo '<p class="muted">Este assistente e somente leitura: ele consulta resumos do banco isolado do estudio e nao altera dados.</p>';
+        echo '<textarea id="dataAssistantQuestion" name="question" required placeholder="Ex: Quantos clientes houve mês passado? Quanto está previsto para ganhar semana que vem? Qual cliente mais gastou até hoje?">' . h($result['question'] ?? '') . '</textarea>';
+        echo '<div class="data-prompt-actions"><span class="data-prompt-hint">Quanto mais específica for a pergunta, mais precisa fica a resposta.</span><button id="dataAssistantSubmit" class="btn" type="submit">Enviar pergunta</button></div>';
         echo '</form>';
-        echo '<div class="panel"><h2>Sugestoes por assunto</h2>';
-        foreach ($suggestions as $group => $items) {
-            echo '<details class="suggestion-group"><summary>' . h($group) . '</summary><div class="suggestion-list">';
-            foreach ($items as $item) {
-                echo '<form method="post" class="inline-form">';
-                echo csrf_field();
-                echo '<input type="hidden" name="action" value="ask_studio_data_assistant">';
-                echo '<input type="hidden" name="question" value="' . h($item) . '">';
-                echo '<button class="btn secondary" type="submit">' . h($item) . '</button>';
-                echo '</form>';
-            }
-            echo '</div></details>';
-        }
-        echo '</div></section>';
-        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between"><h2>Resposta</h2>';
-        if ($result) {
-            echo '<span class="badge">Gerado em ' . h($result['generated_at']) . '</span>';
-        }
+        echo '<div id="dataAssistantProgress" class="data-progress" aria-live="polite">';
+        echo '<div class="data-progress-top"><span id="dataAssistantPhase">Preparando consulta...</span><span id="dataAssistantPercent">0%</span></div>';
+        echo '<div class="data-progress-track"><div id="dataAssistantBar" class="data-progress-bar"></div></div>';
+        echo '<div class="data-progress-sub"><span id="dataAssistantElapsed">Tempo corrido: 0s</span><span id="dataAssistantEta">Estimativa: calculando...</span></div>';
         echo '</div>';
-        if (!$result) {
-            echo '<p class="muted">Faca uma pergunta ou use uma sugestao para gerar uma leitura do negocio.</p>';
-        } else {
-            if (!empty($result['source'])) {
-                $sourceLabel = $result['source'] === 'ai' ? 'Resposta por IA' : 'Leitura direta dos dados';
-                echo '<p class="muted" style="margin:0 0 8px">' . h($sourceLabel) . '</p>';
-            }
-            echo '<pre class="answer-box">' . h($result['answer']) . '</pre>';
-        }
         echo '</section>';
+        $initialAnswer = is_array($result) ? trim((string)($result['answer'] ?? '')) : '';
+        echo '<section id="dataAssistantAnswerPanel" class="data-answer-panel' . ($initialAnswer === '' ? ' empty' : '') . '">';
+        echo '<div class="data-answer-title"><h2>Resposta</h2><span id="dataAssistantGenerated" class="badge">' . ($initialAnswer !== '' ? h((string)($result['generated_at'] ?? 'gerado agora')) : 'Aguardando pergunta') . '</span></div>';
+        echo '<div id="dataAssistantAnswer" class="data-answer-text">' . ($initialAnswer !== '' ? h($initialAnswer) : 'Faça uma pergunta acima para consultar os dados do estúdio.') . '</div>';
+        echo '<details id="dataAssistantTech" class="data-tech"' . (!empty($result['queries']) ? '' : ' style="display:none"') . '><summary>Detalhes técnicos das consultas</summary><pre id="dataAssistantQueries">' . (!empty($result['queries']) ? h(json_encode($result['queries'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '') : '') . '</pre></details>';
+        echo '</section></div>';
+        echo '<script>(function(){const form=document.getElementById("dataAssistantForm");const button=document.getElementById("dataAssistantSubmit");const progress=document.getElementById("dataAssistantProgress");const bar=document.getElementById("dataAssistantBar");const percent=document.getElementById("dataAssistantPercent");const phase=document.getElementById("dataAssistantPhase");const elapsed=document.getElementById("dataAssistantElapsed");const eta=document.getElementById("dataAssistantEta");const answerPanel=document.getElementById("dataAssistantAnswerPanel");const answer=document.getElementById("dataAssistantAnswer");const generated=document.getElementById("dataAssistantGenerated");const tech=document.getElementById("dataAssistantTech");const queries=document.getElementById("dataAssistantQueries");if(!form)return;const phases=["Entendendo sua pergunta...","Mapeando tabelas do sistema...","Montando consultas somente leitura...","Validando segurança das consultas...","Buscando os dados no banco...","Organizando a resposta..."];let timer=null;let started=0;let current=0;function setProgress(value,text){current=Math.max(current,Math.min(value,96));bar.style.width=current+\"%\";percent.textContent=Math.round(current)+\"%\";if(text)phase.textContent=text;}function startLoading(){started=Date.now();current=0;progress.classList.add("active");button.disabled=true;button.textContent="Consultando...";setProgress(6,phases[0]);timer=setInterval(()=>{const seconds=Math.max(1,Math.round((Date.now()-started)/1000));const phaseIndex=Math.min(phases.length-1,Math.floor(seconds/3));const target=Math.min(92,8+seconds*7);setProgress(target,phases[phaseIndex]);elapsed.textContent="Tempo corrido: "+seconds+"s";const remaining=Math.max(3,Math.round((100-current)/9));eta.textContent=current<90?"Estimativa: cerca de "+remaining+"s":"Estimativa: finalizando...";},600);}function stopLoading(){if(timer)clearInterval(timer);timer=null;setProgress(100,"Pronto.");elapsed.textContent="Tempo corrido: "+Math.max(1,Math.round((Date.now()-started)/1000))+"s";eta.textContent="Concluído";setTimeout(()=>progress.classList.remove("active"),850);button.disabled=false;button.textContent="Enviar pergunta";}function showError(message){answerPanel.classList.remove("empty");generated.textContent="Erro";answer.textContent=message||"Não consegui responder agora.";if(tech)tech.style.display="none";}form.addEventListener("submit",async(event)=>{event.preventDefault();const data=new FormData(form);if(!String(data.get("question")||"").trim())return;startLoading();answerPanel.classList.remove("empty");generated.textContent="Consultando...";answer.textContent="";try{const response=await fetch(window.location.href,{method:"POST",body:data,headers:{"Accept":"application/json","X-Requested-With":"XMLHttpRequest"}});const json=await response.json();if(!response.ok||!json.ok)throw new Error(json.error||"Falha ao consultar os dados.");answer.textContent=json.answer||"Não encontrei uma resposta para essa pergunta.";generated.textContent=json.generated_at?("Gerado em "+json.generated_at):"Gerado agora";if(Array.isArray(json.queries)&&json.queries.length){tech.style.display="";queries.textContent=JSON.stringify(json.queries,null,2);}else{tech.style.display="none";queries.textContent="";}}catch(error){showError(error.message||"Não consegui consultar agora.");}finally{stopLoading();}});})();</script>';
     }, $flash);
     exit;
 }

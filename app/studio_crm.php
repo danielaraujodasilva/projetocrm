@@ -11824,6 +11824,215 @@ function studio_report_data(array $studio): array
     ];
 }
 
+function studio_data_assistant_schema(array $studio): array
+{
+    $pdo = studio_db($studio);
+    $database = (string)studio_db_config($studio)['database'];
+    $blockedTables = [
+        'studio_settings',
+        'google_calendar_integration',
+        'whatsapp_event_log',
+        'crm_alert_state',
+    ];
+    $blockedColumnPattern = '/(api[_-]?key|token|secret|password|encrypted|webhook|access[_-]?token|refresh[_-]?token|sync[_-]?token)/i';
+    $stmt = $pdo->prepare(
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ?
+         ORDER BY TABLE_NAME, ORDINAL_POSITION"
+    );
+    $stmt->execute([$database]);
+    $tables = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $table = (string)($row['TABLE_NAME'] ?? '');
+        $column = (string)($row['COLUMN_NAME'] ?? '');
+        if ($table === '' || $column === '' || in_array($table, $blockedTables, true) || preg_match($blockedColumnPattern, $column)) {
+            continue;
+        }
+        $tables[$table][] = [
+            'name' => $column,
+            'type' => (string)($row['DATA_TYPE'] ?? ''),
+        ];
+    }
+
+    return [
+        'database' => $database,
+        'tables' => $tables,
+        'blocked_tables' => $blockedTables,
+        'notes' => [
+            'appointments.value representa valor previsto/registrado em agendamentos.',
+            'expenses.amount representa despesa.',
+            'customers sao clientes cadastrados; leads sao oportunidades/compras em potencial.',
+            'whatsapp_conversations resume conversas; whatsapp_messages guarda mensagens.',
+            'Use somente SELECT/WITH e limite resultados detalhados.',
+        ],
+    ];
+}
+
+function studio_data_assistant_sql_is_safe(string $sql, array $schema): array
+{
+    $sql = trim($sql);
+    if ($sql === '') {
+        return ['ok' => false, 'error' => 'Consulta vazia.'];
+    }
+    $sql = rtrim($sql, " \t\n\r\0\x0B;");
+    if (str_contains($sql, ';')) {
+        return ['ok' => false, 'error' => 'A consulta deve ter apenas uma instrução.'];
+    }
+    if (!preg_match('/^\s*(select|with)\b/i', $sql)) {
+        return ['ok' => false, 'error' => 'Somente consultas SELECT/WITH são permitidas.'];
+    }
+    if (preg_match('/\b(insert|update|delete|drop|alter|truncate|replace|create|grant|revoke|set|load|outfile|infile|call|execute|prepare|handler|lock|unlock|optimize|repair)\b/i', $sql)) {
+        return ['ok' => false, 'error' => 'A consulta contém operação proibida.'];
+    }
+    if (preg_match('/(--|#|\/\*)/', $sql)) {
+        return ['ok' => false, 'error' => 'Comentários SQL não são permitidos.'];
+    }
+    if (preg_match('/\b(information_schema|mysql|performance_schema|sys)\b/i', $sql)) {
+        return ['ok' => false, 'error' => 'Consulta a schemas internos não é permitida.'];
+    }
+    $blockedTables = array_map('preg_quote', array_map('strval', $schema['blocked_tables'] ?? []));
+    if ($blockedTables && preg_match('/\b(' . implode('|', $blockedTables) . ')\b/i', $sql)) {
+        return ['ok' => false, 'error' => 'A consulta tenta acessar uma tabela restrita.'];
+    }
+    if (preg_match('/\b(api[_-]?key|token|secret|password|encrypted|webhook|access[_-]?token|refresh[_-]?token|sync[_-]?token)\b/i', $sql)) {
+        return ['ok' => false, 'error' => 'A consulta tenta acessar campo sensível.'];
+    }
+
+    return ['ok' => true, 'sql' => $sql];
+}
+
+function studio_data_assistant_run_readonly_sql(array $studio, string $sql): array
+{
+    $pdo = studio_db($studio);
+    $started = microtime(true);
+    $stmt = $pdo->query($sql);
+    $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+    $truncated = false;
+    if (count($rows) > 200) {
+        $rows = array_slice($rows, 0, 200);
+        $truncated = true;
+    }
+
+    return [
+        'sql' => $sql,
+        'rows' => $rows,
+        'row_count' => count($rows),
+        'truncated' => $truncated,
+        'elapsed_ms' => (int)round((microtime(true) - $started) * 1000),
+    ];
+}
+
+function studio_data_assistant_ai_sql_answer(array $studio, string $question, array $config, array $context): array
+{
+    if (trim((string)($config['api_key'] ?? '')) === '') {
+        return ['ok' => false, 'error' => 'Chave da IA não configurada.'];
+    }
+    $schema = studio_data_assistant_schema($studio);
+    $safeSettings = [
+        'dias_agenda' => (string)($context['settings']['appointment_work_days'] ?? '1,2,3,4,5'),
+        'horarios_agenda' => (string)($context['settings']['appointment_time_slots'] ?? '10:00,15:00'),
+        'duracao_atendimento_minutos' => (int)($context['settings']['appointment_duration_minutes'] ?? 300),
+        'regras_do_estudio' => mb_substr(trim((string)($context['settings']['business_rules'] ?? '')), 0, 2500, 'UTF-8'),
+    ];
+    $plannerPayload = [
+        'hoje' => (new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d H:i:s'),
+        'pergunta' => $question,
+        'schema_disponivel' => $schema,
+        'configuracao_segura' => $safeSettings,
+        'instrucoes' => [
+            'Gere de 1 a 3 consultas SQL MySQL somente leitura para responder a pergunta.',
+            'Use apenas tabelas e colunas presentes no schema_disponivel.',
+            'Nunca consulte campos sensíveis, tokens, chaves, secrets ou tabelas restritas.',
+            'Prefira agregações quando a pergunta pedir contagem, soma, maior cliente, previsão ou ranking.',
+            'Inclua LIMIT em consultas detalhadas.',
+        ],
+    ];
+    $plannerSystem = "Você transforma perguntas de negócio em SQL MySQL seguro para um CRM de estúdio de tatuagem.\n"
+        . "A resposta deve colocar no campo reply_text um JSON válido exatamente neste formato: {\"queries\":[{\"title\":\"...\",\"sql\":\"SELECT ...\"}],\"reason\":\"...\"}.\n"
+        . "Nunca use INSERT, UPDATE, DELETE, DROP, ALTER, comandos administrativos, schemas internos ou tabelas/campos restritos.";
+    $plannerResult = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $plannerSystem,
+        json_encode($plannerPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
+        (string)$config['base_url'],
+        75
+    );
+    if (empty($plannerResult['ok'])) {
+        return ['ok' => false, 'error' => (string)($plannerResult['error'] ?? 'Falha ao planejar consulta.')];
+    }
+    $planText = trim((string)($plannerResult['reply_text'] ?? ''));
+    $plan = json_decode($planText, true);
+    if (!is_array($plan) && preg_match('/\{.*\}/s', $planText, $matches)) {
+        $plan = json_decode($matches[0], true);
+    }
+    if (!is_array($plan) || !is_array($plan['queries'] ?? null)) {
+        return ['ok' => false, 'error' => 'A IA não gerou um plano SQL legível.'];
+    }
+
+    $executed = [];
+    foreach (array_slice($plan['queries'], 0, 3) as $query) {
+        $sql = trim((string)($query['sql'] ?? ''));
+        $safe = studio_data_assistant_sql_is_safe($sql, $schema);
+        if (empty($safe['ok'])) {
+            return ['ok' => false, 'error' => 'Consulta bloqueada: ' . (string)($safe['error'] ?? 'não segura')];
+        }
+        $executed[] = [
+            'title' => trim((string)($query['title'] ?? 'Consulta')),
+            'result' => studio_data_assistant_run_readonly_sql($studio, (string)$safe['sql']),
+        ];
+    }
+    if (!$executed) {
+        return ['ok' => false, 'error' => 'Nenhuma consulta foi gerada.'];
+    }
+
+    $answerPayload = [
+        'hoje' => (new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d H:i:s'),
+        'pergunta' => $question,
+        'plano' => [
+            'motivo' => (string)($plan['reason'] ?? ''),
+            'consultas' => array_map(static fn(array $item): array => [
+                'titulo' => $item['title'],
+                'sql' => $item['result']['sql'],
+                'linhas' => $item['result']['rows'],
+                'quantidade_linhas' => $item['result']['row_count'],
+                'truncado' => $item['result']['truncated'],
+            ], $executed),
+        ],
+    ];
+    $answerSystem = "Você é um analista de dados interno de um estúdio de tatuagem.\n"
+        . "Responda em português do Brasil, de forma simples, direta e informativa.\n"
+        . "Use somente os resultados das consultas recebidas. Não invente dado que não esteja nelas.\n"
+        . "Quando houver valores em dinheiro, formate como R$ no padrão brasileiro.\n"
+        . "Se a resposta tiver uma conclusão clara, comece por ela. Se houver limitação, diga em uma frase curta.";
+    $answerResult = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $answerSystem,
+        json_encode($answerPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}',
+        (string)$config['base_url'],
+        75
+    );
+    if (empty($answerResult['ok']) || trim((string)($answerResult['reply_text'] ?? '')) === '') {
+        return ['ok' => false, 'error' => (string)($answerResult['error'] ?? 'Falha ao resumir resultado.')];
+    }
+
+    return [
+        'ok' => true,
+        'question' => $question,
+        'answer' => trim((string)$answerResult['reply_text']),
+        'generated_at' => date('Y-m-d H:i:s'),
+        'source' => 'ai_sql',
+        'queries' => array_map(static fn(array $item): array => [
+            'title' => $item['title'],
+            'sql' => $item['result']['sql'],
+            'row_count' => $item['result']['row_count'],
+            'elapsed_ms' => $item['result']['elapsed_ms'],
+        ], $executed),
+    ];
+}
+
 function studio_data_assistant_context(array $studio): array
 {
     $pdo = studio_db($studio);
@@ -11856,13 +12065,13 @@ function studio_data_assistant_answer(array $studio, string $question): array
         throw new RuntimeException('Digite uma pergunta para o assistente.');
     }
 
-    if (!plan_allows('ai_data_assistant')) {
-        throw new RuntimeException('Os recursos de IA estão disponíveis no plano Avançado.');
-    }
-
     $context = studio_data_assistant_context($studio);
     $pdo = studio_db($studio);
     $config = studio_openai_config($studio);
+    $sqlAiResult = studio_data_assistant_ai_sql_answer($studio, $question, $config, $context);
+    if (!empty($sqlAiResult['ok'])) {
+        return $sqlAiResult + ['context' => $context];
+    }
     $tz = new DateTimeZone('America/Sao_Paulo');
     $lower = function_exists('mb_strtolower') ? mb_strtolower($question, 'UTF-8') : strtolower($question);
     $isAgendaQuestion = str_contains($lower, 'agenda') || str_contains($lower, 'agendamento') || str_contains($lower, 'horario') || str_contains($lower, 'horários') || str_contains($lower, 'calendario') || str_contains($lower, 'calendário') || str_contains($lower, 'vaga') || str_contains($lower, 'vagas') || str_contains($lower, 'livre') || str_contains($lower, 'disponivel') || str_contains($lower, 'disponível') || str_contains($lower, 'marcar') || str_contains($lower, 'remarcar');
