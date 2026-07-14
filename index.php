@@ -1516,6 +1516,15 @@ if ($action === 'studio_login') {
             redirect_to('studio_settings', ['tab' => $settingsTab]);
         }
 
+        if ($action === 'upload_voice_sample') {
+            $studio = require_studio();
+            csrf_verify();
+            header('Content-Type: application/json; charset=utf-8');
+            $result = studio_store_voice_sample_upload($studio, $_FILES['voice_sample'] ?? []);
+            echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         if ($action === 'assign_whatsapp_conversation' || $action === 'release_whatsapp_conversation' || $action === 'transfer_whatsapp_conversation') {
             csrf_verify();
             $studio = require_studio();
@@ -6719,7 +6728,28 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-2" style="margin-top:12px">';
         $voiceEngineCurrent = (string)($settings['ai_voice_reply_engine'] ?? 'sapi');
         echo '<div class="field"><label>Motor de voz</label><select name="ai_voice_reply_engine"><option value="sapi"' . ($voiceEngineCurrent === 'sapi' ? ' selected' : '') . '>Windows SAPI local</option><option value="xtts"' . ($voiceEngineCurrent === 'xtts' ? ' selected' : '') . '>Coqui XTTS v2 - voz clonada local</option></select><small class="muted">Se o XTTS falhar ou estiver sem amostra, o sistema tenta SAPI como plano B.</small></div>';
-        echo '<div class="field"><label>Amostra autorizada da Fran</label><input name="ai_voice_reply_xtts_sample_path" value="' . h($settings['ai_voice_reply_xtts_sample_path'] ?? '') . '" placeholder="C:\\AI\\voice-samples\\fran.wav"><small class="muted">Use 10 a 30 segundos limpos, sem música. Também aceito: storage/voice-samples/fran.wav.</small></div>';
+        $voiceSamplePath = trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? ''));
+        $voiceSampleResolved = studio_whatsapp_ai_voice_resolve_xtts_sample(studio_whatsapp_ai_voice_config($studio));
+        $voiceSampleRelative = str_replace('\\', '/', $voiceSamplePath);
+        $voiceSampleCanPreview = $voiceSampleRelative !== '' && str_starts_with($voiceSampleRelative, 'storage/');
+        $voiceSampleAbsolute = $voiceSampleRelative !== '' && str_starts_with($voiceSampleRelative, 'storage/')
+            ? APP_BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $voiceSampleRelative)
+            : $voiceSampleResolved;
+        $voiceSampleStatus = $voiceSampleResolved !== ''
+            ? 'Amostra pronta: ' . ($voiceSamplePath !== '' ? $voiceSamplePath : basename($voiceSampleResolved))
+            : 'Nenhuma amostra encontrada ainda.';
+        echo '<div class="field voice-sample-card"><label>Amostra autorizada da Fran</label><input name="ai_voice_reply_xtts_sample_path" data-voice-sample-path value="' . h($voiceSamplePath) . '" placeholder="storage/voice-samples/fran.wav"><small class="muted" data-voice-sample-status>' . h($voiceSampleStatus) . '</small></div>';
+        echo '</div>';
+        echo '<div class="panel soft voice-sample-card" style="margin-top:12px;border-style:dashed">';
+        echo '<h4 style="margin:0 0 8px">Gravar amostra da Fran aqui</h4>';
+        echo '<p class="muted" style="margin:0 0 10px"><strong>TIP:</strong> essa amostra serve para as duas coisas: é o registro prático de que a Fran autorizou o uso da voz neste sistema e também é o modelo de referência que o XTTS usa para imitar timbre, ritmo e jeito de falar. Ela não treina uma IA permanente; o sistema só usa esse áudio como referência local na hora de gerar respostas em voz. Importante: isso não substitui um combinado formal com ela fora do sistema. Grave com autorização clara, ambiente silencioso e 10 a 30 segundos de fala natural.</p>';
+        echo '<div class="actions" style="gap:8px;align-items:center"><button type="button" class="btn secondary" data-voice-record-start><i class="fa-solid fa-microphone"></i> Gravar</button><button type="button" class="btn secondary" data-voice-record-stop disabled><i class="fa-solid fa-stop"></i> Parar e salvar</button><label class="btn secondary" style="margin:0"><i class="fa-solid fa-upload"></i> Enviar arquivo<input type="file" data-voice-sample-file accept="audio/*" hidden></label><span class="muted" data-voice-record-state>Pronto para gravar.</span></div>';
+        if ($voiceSampleCanPreview && is_file((string)$voiceSampleAbsolute)) {
+            echo '<audio controls style="width:100%;margin-top:12px" data-voice-sample-audio src="' . h($voiceSampleRelative . '?v=' . (string)filemtime((string)$voiceSampleAbsolute)) . '"></audio>';
+        } else {
+            echo '<audio controls style="width:100%;margin-top:12px;display:none" data-voice-sample-audio></audio>';
+        }
+        echo '<small class="muted">Dica de gravação: peça para ela falar algo simples, por exemplo: “Oi, aqui é a Fran. Essa é uma amostra autorizada da minha voz para responder clientes do estúdio.”</small>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Idioma do XTTS</label><select name="ai_voice_reply_xtts_language">';
@@ -6734,6 +6764,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Volume</label><input type="number" min="0" max="100" name="ai_voice_reply_volume" value="' . h((string)($settings['ai_voice_reply_volume'] ?? 100)) . '"><small class="muted">0 a 100.</small></div>';
         echo '</div>';
         echo '</div>';
+        echo '<script>(function(){let recorder=null;let chunks=[];let activePanel=null;let activeStream=null;function closestPanel(el){return el&&el.closest?el.closest(".voice-sample-card"):null;}function findScope(el){return (el&&el.closest&&el.closest(".settings-panel"))||document;}function csrf(scope){return (scope.querySelector("input[name=csrf_token]")||document.querySelector("input[name=csrf_token]"))?.value||"";}function setState(panel,text){const scope=findScope(panel);scope.querySelectorAll("[data-voice-record-state]").forEach((node)=>node.textContent=text);}function setBusy(panel,busy){const scope=findScope(panel);scope.querySelectorAll("[data-voice-record-start],[data-voice-record-stop],[data-voice-sample-file]").forEach((node)=>{if(node.matches("[data-voice-record-stop]")){node.disabled=!busy;}else{node.disabled=busy;}});}function updateSampleUi(scope,data){scope=document;scope.querySelectorAll("[data-voice-sample-path]").forEach((input)=>input.value=data.path||"");scope.querySelectorAll("[data-voice-sample-status]").forEach((node)=>node.textContent=data.path?("Amostra pronta: "+data.path):"Amostra salva.");scope.querySelectorAll("select[name=ai_voice_reply_engine]").forEach((select)=>select.value="xtts");scope.querySelectorAll("[data-voice-sample-audio]").forEach((audio)=>{if(data.path&&String(data.path).startsWith("storage/")){audio.src=data.path+"?v="+Date.now();audio.style.display="block";audio.load();}})}async function uploadVoiceSample(file,panel){const scope=findScope(panel);const formData=new FormData();formData.append("action","upload_voice_sample");formData.append("csrf_token",csrf(scope));formData.append("voice_sample",file,file.name||"fran.webm");setState(panel,"Salvando amostra...");const response=await fetch(window.location.pathname+window.location.search,{method:"POST",headers:{"X-Requested-With":"XMLHttpRequest","Accept":"application/json"},body:formData});const data=await response.json().catch(()=>null);if(!response.ok||!data||!data.ok){throw new Error((data&&data.error)||"Não foi possível salvar a amostra.");}updateSampleUi(scope,data);setState(panel,"Amostra salva. Salve as configurações para manter os demais ajustes desta tela.");}document.addEventListener("click",async(event)=>{const start=event.target instanceof Element?event.target.closest("[data-voice-record-start]"):null;const stop=event.target instanceof Element?event.target.closest("[data-voice-record-stop]"):null;if(start){const panel=closestPanel(start);try{if(!navigator.mediaDevices||!window.MediaRecorder){throw new Error("Este navegador não liberou gravação de áudio.");}activePanel=panel;chunks=[];activeStream=await navigator.mediaDevices.getUserMedia({audio:true});recorder=new MediaRecorder(activeStream);recorder.ondataavailable=(ev)=>{if(ev.data&&ev.data.size>0)chunks.push(ev.data);};recorder.onstop=async()=>{try{const type=chunks[0]?.type||"audio/webm";const blob=new Blob(chunks,{type});const file=new File([blob],"fran.webm",{type});await uploadVoiceSample(file,activePanel);}catch(error){setState(activePanel,error.message||"Erro ao salvar amostra.");alert(error.message||"Erro ao salvar amostra.");}finally{activeStream&&activeStream.getTracks().forEach((track)=>track.stop());activeStream=null;recorder=null;chunks=[];setBusy(activePanel,false);}};recorder.start();setBusy(panel,true);setState(panel,"Gravando... fale por 10 a 30 segundos e clique em Parar e salvar.");}catch(error){setBusy(panel,false);setState(panel,error.message||"Não foi possível iniciar gravação.");alert(error.message||"Não foi possível iniciar gravação.");}}if(stop&&recorder){event.preventDefault();if(recorder.state!=="inactive")recorder.stop();}});document.addEventListener("change",async(event)=>{const input=event.target instanceof Element?event.target.closest("[data-voice-sample-file]"):null;if(!input||!input.files||!input.files[0])return;const panel=closestPanel(input);try{await uploadVoiceSample(input.files[0],panel);}catch(error){setState(panel,error.message||"Erro ao enviar arquivo.");alert(error.message||"Erro ao enviar arquivo.");}finally{input.value="";}});})();</script>';
         echo '</div>';
         echo '<div class="panel soft">';
         echo '<h3 style="margin-top:0">Alternativas opcionais</h3>';

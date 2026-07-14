@@ -6181,6 +6181,93 @@ function studio_whatsapp_ai_voice_config(array $studio): array
     ];
 }
 
+function studio_store_voice_sample_upload(array $studio, array $file): array
+{
+    if (empty($file['tmp_name']) || !is_uploaded_file((string)$file['tmp_name'])) {
+        return ['ok' => false, 'error' => 'Nenhum áudio recebido.'];
+    }
+    if (!empty($file['error'])) {
+        return ['ok' => false, 'error' => 'Falha no upload do áudio: código ' . (string)$file['error']];
+    }
+    $size = (int)($file['size'] ?? 0);
+    if ($size <= 0) {
+        return ['ok' => false, 'error' => 'O áudio recebido está vazio.'];
+    }
+    if ($size > 25 * 1024 * 1024) {
+        return ['ok' => false, 'error' => 'A amostra ficou grande demais. Grave entre 10 e 30 segundos.'];
+    }
+
+    $storageDir = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'voice-samples';
+    if (!is_dir($storageDir) && !mkdir($storageDir, 0775, true) && !is_dir($storageDir)) {
+        return ['ok' => false, 'error' => 'Não foi possível criar a pasta de amostras de voz.'];
+    }
+
+    $originalName = strtolower((string)($file['name'] ?? 'sample.webm'));
+    $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    if ($extension === '') {
+        $extension = 'webm';
+    }
+    $allowed = ['wav', 'mp3', 'm4a', 'ogg', 'webm', 'opus'];
+    if (!in_array($extension, $allowed, true)) {
+        return ['ok' => false, 'error' => 'Formato não aceito. Use gravação do navegador, WAV, MP3 ou M4A.'];
+    }
+
+    $rawPath = $storageDir . DIRECTORY_SEPARATOR . 'fran_source_' . date('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.' . $extension;
+    if (!move_uploaded_file((string)$file['tmp_name'], $rawPath)) {
+        return ['ok' => false, 'error' => 'Não foi possível salvar o áudio enviado.'];
+    }
+
+    $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran.wav';
+    $relativePath = 'storage/voice-samples/fran.wav';
+    $conversionError = '';
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
+    if ($ffmpeg !== '') {
+        $command = escapeshellarg($ffmpeg)
+            . ' -y -i ' . escapeshellarg($rawPath)
+            . ' -ac 1 -ar 22050 -t 30 '
+            . escapeshellarg($finalPath)
+            . ' 2>&1';
+        $output = [];
+        $exitCode = null;
+        @exec($command, $output, $exitCode);
+        if ($exitCode === 0 && is_file($finalPath) && (filesize($finalPath) ?: 0) > 0) {
+            @unlink($rawPath);
+        } else {
+            $conversionError = trim(implode("\n", array_slice($output, -6)));
+        }
+    } else {
+        $conversionError = 'ffmpeg não encontrado para converter a gravação para WAV.';
+    }
+
+    if (!is_file($finalPath) || (filesize($finalPath) ?: 0) <= 0) {
+        if (in_array($extension, ['wav', 'mp3', 'm4a'], true)) {
+            $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran.' . $extension;
+            $relativePath = 'storage/voice-samples/fran.' . $extension;
+            @rename($rawPath, $finalPath);
+        } else {
+            @unlink($rawPath);
+            return ['ok' => false, 'error' => 'Não consegui converter a gravação para WAV. ' . mb_substr($conversionError, 0, 500)];
+        }
+    }
+
+    try {
+        $pdo = studio_db($studio);
+        $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ai_voice_reply_xtts_sample_path VARCHAR(500) NULL');
+        $pdo->prepare('UPDATE studio_settings SET ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_engine = "xtts", updated_at = NOW() WHERE id = 1')
+            ->execute([$relativePath]);
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => 'A amostra foi salva, mas não consegui atualizar a configuração: ' . $exception->getMessage()];
+    }
+
+    return [
+        'ok' => true,
+        'path' => $relativePath,
+        'absolute_path' => $finalPath,
+        'size' => is_file($finalPath) ? (int)filesize($finalPath) : 0,
+        'converted' => $relativePath === 'storage/voice-samples/fran.wav',
+    ];
+}
+
 function studio_whatsapp_ai_voice_should_reply(array $studio, array $newMessage, array $sendData): bool
 {
     $config = studio_whatsapp_ai_voice_config($studio);
