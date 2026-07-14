@@ -7079,6 +7079,23 @@ if ($page === 'studio_settings') {
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><div><h3 style="margin:0">Treinamento da IA</h3><p class="muted" style="margin:4px 0 0">Ensine uma vez; o chatbot consulta este conteúdo em todas as conversas.</p></div><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="panel soft" style="margin-top:14px"><strong>O que colocar aqui</strong><p class="muted" style="margin:6px 0 0">Preços, promoções com validade, regras de sinal, estilos atendidos, endereço, formas de pagamento, políticas de retoque e exemplos de respostas corretas. Quando algo mudar, basta editar e salvar.</p></div>';
         echo '<div class="panel soft" style="margin-top:14px"><strong>Aprendizado com atendentes ativo</strong><p class="muted" style="margin:6px 0 0">A IA procura respostas humanas reais em casos parecidos e usa apenas o jeito de falar e conduzir. Mensagens de teste, links e conversas sem relação com atendimento são ignoradas; fatos como preço, endereço e agenda continuam vindo desta base e do banco.</p></div>';
+        $pricingPageSynced = trim((string)($settings['ai_pricing_page_synced_at'] ?? ''));
+        $pricingPageSummary = trim((string)($settings['ai_pricing_page_summary'] ?? ''));
+        $pricingPageError = trim((string)($settings['ai_pricing_page_error'] ?? ''));
+        echo '<div class="panel soft" style="margin-top:14px">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><strong>Fonte oficial de preços e promoções</strong><p class="muted" style="margin:6px 0 0">Cadastre aqui a página de orçamento deste estúdio. Cada login usa a sua própria URL, então outro estúdio não herda a página do Daniel.</p></div><label class="switch"><input type="checkbox" name="ai_pricing_page_enabled" value="1" ' . (!empty($settings['ai_pricing_page_enabled']) ? 'checked' : '') . '><span>Usar no WhatsApp</span></label></div>';
+        echo '<div class="field" style="margin-top:12px"><label>URL da página de orçamento deste estúdio</label><input name="ai_pricing_page_url" value="' . h($settings['ai_pricing_page_url'] ?? '') . '" placeholder="https://seudominio.com/orcamento"><small class="muted">A IA lê essa página como fonte gerenciável de preços, promoções e regras comerciais. Se a página mudar, o sistema relê automaticamente em até algumas horas.</small></div>';
+        if ($pricingPageSynced !== '' || $pricingPageSummary !== '' || $pricingPageError !== '') {
+            echo '<div class="panel" style="margin-top:12px"><strong>Status da leitura</strong><p class="muted" style="margin:6px 0 0">Última leitura: ' . h($pricingPageSynced !== '' ? $pricingPageSynced : 'ainda não lida') . '</p>';
+            if ($pricingPageError !== '') {
+                echo '<p class="muted" style="margin:6px 0 0;color:#b45309">Aviso: ' . h($pricingPageError) . '</p>';
+            }
+            if ($pricingPageSummary !== '') {
+                echo '<p class="muted" style="margin:8px 0 0">' . h(mb_substr($pricingPageSummary, 0, 520, 'UTF-8')) . (mb_strlen($pricingPageSummary, 'UTF-8') > 520 ? '...' : '') . '</p>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
         echo '<div class="actions" style="margin:14px 0 8px"><button class="btn tiny secondary" type="button" data-ai-knowledge-template>Inserir modelo organizado</button><span class="muted" data-ai-rules-count>0 caracteres</span></div>';
         echo '<div class="field"><label>Base de conhecimento do estúdio</label><textarea name="business_rules" rows="20" style="min-height:420px" placeholder="Exemplo:\n\n[PREÇOS]\nO valor mínimo é R$ ...\n\n[PROMOÇÕES]\nAté 31/07, fechamento de costas ...\n\n[ATENDIMENTO]\n...\n\n[COMO RESPONDER]\nQuando o cliente enviar uma referência e informar o local, ...">' . h($settings['business_rules'] ?? $studio['business_rules'] ?? '') . '</textarea><small class="muted">Use frases diretas. Inclua datas nas promoções e escreva exatamente como espera que a IA responda. As informações da agenda em tempo real continuam vindo do banco de dados.</small></div>';
         echo '<details class="panel soft" style="margin-top:14px"><summary><strong>Personalidade avançada da IA</strong></summary><div class="field" style="margin-top:12px"><label>Texto-base do WhatsApp</label><textarea name="ai_whatsapp_prompt" placeholder="Você é o assistente do estúdio...">' . h($settings['ai_whatsapp_prompt'] ?? '') . '</textarea><small class="muted">Opcional. Se ficar vazio, o sistema usa a personalidade padrão em português. As informações comerciais devem ficar na base acima.</small></div></details>';
