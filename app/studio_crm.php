@@ -7113,6 +7113,83 @@ function studio_whatsapp_ai_voice_should_reply(array $studio, array $newMessage,
     return empty($config['when_audio_only']) || $incomingIsAudio;
 }
 
+function studio_whatsapp_ai_voice_spoken_date(int $day, int $month, int $year, bool $includeYear = false): string
+{
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', sprintf('%04d-%02d-%02d', $year, $month, $day), $tz);
+    $weekdays = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+    $months = [1 => 'janeiro', 2 => 'fevereiro', 3 => 'março', 4 => 'abril', 5 => 'maio', 6 => 'junho', 7 => 'julho', 8 => 'agosto', 9 => 'setembro', 10 => 'outubro', 11 => 'novembro', 12 => 'dezembro'];
+    $weekday = $date instanceof DateTimeImmutable ? $weekdays[(int)$date->format('w')] : '';
+    $label = trim($weekday . ', dia ' . $day . ' de ' . ($months[$month] ?? (string)$month));
+    if ($includeYear) {
+        $label .= ' de ' . $year;
+    }
+
+    return $label;
+}
+
+function studio_whatsapp_ai_voice_spoken_time(int $hour, int $minute): string
+{
+    if ($minute === 0) {
+        return $hour . ' horas';
+    }
+
+    return $hour . ' horas e ' . $minute;
+}
+
+function studio_whatsapp_ai_voice_spoken_money(string $raw): string
+{
+    $normalized = str_replace(['.', ','], ['', '.'], $raw);
+    $amount = is_numeric($normalized) ? (float)$normalized : 0.0;
+    $reais = (int)floor($amount);
+    $centavos = (int)round(($amount - $reais) * 100);
+    if ($centavos <= 0) {
+        return $reais . ' ' . ($reais === 1 ? 'real' : 'reais');
+    }
+
+    return $reais . ' ' . ($reais === 1 ? 'real' : 'reais') . ' e ' . $centavos . ' centavos';
+}
+
+function studio_whatsapp_ai_voice_spoken_text(string $text): string
+{
+    $text = trim(strip_tags($text));
+    if ($text === '') {
+        return '';
+    }
+
+    $currentYear = (int)date('Y');
+    $dateReplacement = static function (array $matches) use ($currentYear): string {
+        $day = (int)$matches[1];
+        $month = (int)$matches[2];
+        $year = (int)$matches[3];
+        $label = studio_whatsapp_ai_voice_spoken_date($day, $month, $year, $year !== $currentYear);
+        if (isset($matches[4], $matches[5]) && $matches[4] !== '' && $matches[5] !== '') {
+            $label .= ', às ' . studio_whatsapp_ai_voice_spoken_time((int)$matches[4], (int)$matches[5]);
+        }
+
+        return $label;
+    };
+
+    $text = preg_replace_callback('/\b(?:DOM|SEG|TER|QUA|QUI|SEX|S[ÁA]B|SB)\s*-\s*(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*(?:às|as)\s*(\d{1,2}):(\d{2}))?/iu', $dateReplacement, $text) ?? $text;
+    $text = preg_replace_callback('/\b(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s*(?:às|as)\s*(\d{1,2}):(\d{2}))?/iu', $dateReplacement, $text) ?? $text;
+    $text = preg_replace_callback('/\b(?:às|as)\s*(\d{1,2}):(\d{2})\b/iu', static function (array $matches): string {
+        return 'às ' . studio_whatsapp_ai_voice_spoken_time((int)$matches[1], (int)$matches[2]);
+    }, $text) ?? $text;
+    $text = preg_replace_callback('/\b(\d{1,2}):(\d{2})\b/u', static function (array $matches): string {
+        return studio_whatsapp_ai_voice_spoken_time((int)$matches[1], (int)$matches[2]);
+    }, $text) ?? $text;
+    $text = preg_replace_callback('/R\$\s*(\d{1,6}(?:[.,]\d{2})?)/u', static function (array $matches): string {
+        return studio_whatsapp_ai_voice_spoken_money((string)$matches[1]);
+    }, $text) ?? $text;
+
+    $text = str_replace(['TER - ', 'SEG - ', 'QUA - ', 'QUI - ', 'SEX - ', 'DOM - ', 'SÁB - ', 'SAB - ', 'SB - '], '', $text);
+    $text = preg_replace('/\s*;\s*/u', '. ', $text) ?? $text;
+    $text = preg_replace('/\s+-\s+/u', ', ', $text) ?? $text;
+    $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+
+    return mb_substr(trim($text), 0, 420);
+}
+
 function studio_whatsapp_ai_voice_clean_text(string $text): string
 {
     $text = trim(strip_tags($text));
@@ -7358,6 +7435,7 @@ function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversation
 function studio_whatsapp_ai_voice_generate(array $studio, int $conversationId, string $text): array
 {
     $config = studio_whatsapp_ai_voice_config($studio);
+    $text = studio_whatsapp_ai_voice_spoken_text($text);
     if ((string)$config['engine'] === 'xtts') {
         $xtts = studio_whatsapp_ai_voice_xtts_generate($studio, $conversationId, $text);
         if (!empty($xtts['ok'])) {
