@@ -6743,9 +6743,10 @@ function studio_attempt_whatsapp_audio_transcription(array $studio, string $mess
     }
 }
 
-function studio_whatsapp_ai_voice_config(array $studio): array
+function studio_whatsapp_ai_voice_config(array $studio, array $overrides = []): array
 {
     $settings = studio_settings($studio);
+    $settings = array_merge($settings, array_filter($overrides, static fn($value): bool => $value !== null));
     $engine = strtolower(trim((string)($settings['ai_voice_reply_engine'] ?? 'sapi')));
     if (!in_array($engine, ['sapi', 'xtts'], true)) {
         $engine = 'sapi';
@@ -6763,7 +6764,7 @@ function studio_whatsapp_ai_voice_config(array $studio): array
         'xtts_language' => $language,
         'xtts_python' => trim((string)(getenv('XTTS_PYTHON') ?: 'C:\\AI\\xtts\\Scripts\\python.exe')),
         'voice' => trim((string)($settings['ai_voice_reply_voice'] ?? '')),
-        'rate' => max(-10, min(10, (int)($settings['ai_voice_reply_rate'] ?? 0))),
+        'rate' => max(-10, min(10, (int)($settings['ai_voice_reply_rate'] ?? 2))),
         'volume' => max(0, min(100, (int)($settings['ai_voice_reply_volume'] ?? 100))),
     ];
 }
@@ -7118,6 +7119,22 @@ function studio_whatsapp_ai_voice_spoken_text(string $text): string
         return '';
     }
 
+    $pixReplacement = static function (array $matches): string {
+        $tail = trim((string)($matches[3] ?? ''));
+        return trim((string)$matches[1]) . '. Deixei a chave escrita na mensagem para você copiar' . ($tail !== '' ? ', ' . $tail : '');
+    };
+    $pixKeyPatterns = [
+        '/\b(via\s+pix)\s+([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})(\s+(?:em\s+nome|no\s+nome)\b)?/iu',
+        '/\b(chave\s+pix|pix)\s*[:\-]\s*([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})/iu',
+        '/\b(via\s+pix)\s+([0-9][0-9.\-\/()+ ]{4,}[0-9])(\s+(?:em\s+nome|no\s+nome)\b)?/iu',
+        '/\b(chave\s+pix|pix)\s*[:\-]\s*([0-9][0-9.\-\/()+ ]{4,}[0-9])/iu',
+        '/\b(via\s+pix)\s+([A-Z0-9._-]{20,})(\s+(?:em\s+nome|no\s+nome)\b)?/iu',
+        '/\b(chave\s+pix|pix)\s*[:\-]\s*([A-Z0-9._-]{20,})/iu',
+    ];
+    foreach ($pixKeyPatterns as $pixKeyPattern) {
+        $text = preg_replace_callback($pixKeyPattern, $pixReplacement, $text) ?? $text;
+    }
+
     $currentYear = (int)date('Y');
     $dateReplacement = static function (array $matches) use ($currentYear): string {
         $day = (int)$matches[1];
@@ -7213,9 +7230,9 @@ function studio_run_command_with_timeout(string $command, int $timeoutSeconds = 
     return ['exitCode' => $exitCode, 'output' => $output, 'timedOut' => $timedOut];
 }
 
-function studio_whatsapp_ai_voice_sapi_generate(array $studio, int $conversationId, string $text): array
+function studio_whatsapp_ai_voice_sapi_generate(array $studio, int $conversationId, string $text, array $overrides = []): array
 {
-    $config = studio_whatsapp_ai_voice_config($studio);
+    $config = studio_whatsapp_ai_voice_config($studio, $overrides);
     $text = studio_whatsapp_ai_voice_clean_text($text);
     if ($text === '') {
         return ['ok' => false, 'error' => 'Texto vazio para gerar audio.'];
@@ -7331,9 +7348,9 @@ function studio_whatsapp_ai_voice_resolve_xtts_samples(array $config): array
     return array_slice($paths, 0, 8);
 }
 
-function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversationId, string $text): array
+function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversationId, string $text, array $overrides = []): array
 {
-    $config = studio_whatsapp_ai_voice_config($studio);
+    $config = studio_whatsapp_ai_voice_config($studio, $overrides);
     $text = studio_whatsapp_ai_voice_clean_text($text);
     if ($text === '') {
         return ['ok' => false, 'error' => 'Texto vazio para gerar audio.'];
@@ -7393,16 +7410,16 @@ function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversation
     ];
 }
 
-function studio_whatsapp_ai_voice_generate(array $studio, int $conversationId, string $text): array
+function studio_whatsapp_ai_voice_generate(array $studio, int $conversationId, string $text, array $overrides = []): array
 {
-    $config = studio_whatsapp_ai_voice_config($studio);
+    $config = studio_whatsapp_ai_voice_config($studio, $overrides);
     $text = studio_whatsapp_ai_voice_spoken_text($text);
     if ((string)$config['engine'] === 'xtts') {
-        $xtts = studio_whatsapp_ai_voice_xtts_generate($studio, $conversationId, $text);
+        $xtts = studio_whatsapp_ai_voice_xtts_generate($studio, $conversationId, $text, $overrides);
         if (!empty($xtts['ok'])) {
             return $xtts;
         }
-        $sapi = studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text);
+        $sapi = studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text, $overrides);
         if (!empty($sapi['ok'])) {
             $sapi['fallbackFrom'] = 'xtts';
             $sapi['fallbackError'] = (string)($xtts['error'] ?? '');
@@ -7411,7 +7428,7 @@ function studio_whatsapp_ai_voice_generate(array $studio, int $conversationId, s
         return $xtts;
     }
 
-    return studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text);
+    return studio_whatsapp_ai_voice_sapi_generate($studio, $conversationId, $text, $overrides);
 }
 
 function studio_send_whatsapp_message(array $studio, array $data): array
@@ -12720,7 +12737,7 @@ function studio_save_settings(array $studio, array $data): void
         $aiVoiceReplyXttsLanguage = 'pt';
     }
     $aiVoiceReplyVoice = mb_substr(trim((string)($data['ai_voice_reply_voice'] ?? ($settings['ai_voice_reply_voice'] ?? ''))), 0, 120);
-    $aiVoiceReplyRate = max(-10, min(10, (int)($data['ai_voice_reply_rate'] ?? ($settings['ai_voice_reply_rate'] ?? 0))));
+    $aiVoiceReplyRate = max(-10, min(10, (int)($data['ai_voice_reply_rate'] ?? ($settings['ai_voice_reply_rate'] ?? 2))));
     $aiVoiceReplyVolume = max(0, min(100, (int)($data['ai_voice_reply_volume'] ?? ($settings['ai_voice_reply_volume'] ?? 100))));
     $aiWhatsAppPrompt = trim((string)($data['ai_whatsapp_prompt'] ?? ($settings['ai_whatsapp_prompt'] ?? '')));
     $aiProvider = (string)($data['ai_provider'] ?? ($settings['ai_provider'] ?? 'nvidia'));
@@ -12845,7 +12862,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_voice_reply_xtts_sample_paths' => 'MEDIUMTEXT NULL',
         'ai_voice_reply_xtts_language' => 'VARCHAR(12) NOT NULL DEFAULT "pt"',
         'ai_voice_reply_voice' => 'VARCHAR(120) NULL',
-        'ai_voice_reply_rate' => 'TINYINT NOT NULL DEFAULT 0',
+        'ai_voice_reply_rate' => 'TINYINT NOT NULL DEFAULT 2',
         'ai_voice_reply_volume' => 'TINYINT UNSIGNED NOT NULL DEFAULT 100',
         'ai_whatsapp_prompt' => 'TEXT NULL',
         'ai_provider' => 'VARCHAR(20) NOT NULL DEFAULT "nvidia"',
