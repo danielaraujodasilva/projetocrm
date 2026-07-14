@@ -1378,7 +1378,7 @@ if ($action === 'studio_login') {
                 exit;
             }
 
-            $messages = studio_whatsapp_messages($studio, $conversationId, 12, $conversation);
+            $messages = studio_whatsapp_messages($studio, $conversationId, 120, $conversation);
             $payload = studio_whatsapp_ai_suggestions($studio, $conversation, $messages);
 
             header('Content-Type: application/json; charset=utf-8');
@@ -6909,8 +6909,9 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo Ollama/local</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3.2:3b') . '" placeholder="llama3.2:3b"><small class="muted">Usado apenas se você trocar o fornecedor para Ollama local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="ai_learn_from_attendants_enabled" value="1" ' . ((int)($settings['ai_learn_from_attendants_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Aprender com respostas reais dos atendentes</label><label class="checkline"><input type="checkbox" name="ai_conversation_summary_enabled" value="1" ' . ((int)($settings['ai_conversation_summary_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Gerar resumo vivo das conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
         echo '</div>';
+        echo '<div class="settings-howto" style="margin-top:12px"><strong>Como esse aprendizado funciona</strong><p class="muted" style="margin:6px 0 0">Quando ativado, a IA lê respostas humanas dos atendentes para aprender tom, ordem das perguntas e condução comercial. Ela não usa fatos de outro cliente como preço, data, comprovante ou endereço particular; esses dados continuam vindo da conversa atual, da agenda e das regras cadastradas.</p></div>';
         echo '</div>';
         echo '<div class="settings-save-row"><div class="muted">Salva provedor, chaves, modelos, visão, documentos, vídeo, automações e voz da IA.</div><button class="btn" type="button" data-settings-submit>Salvar inteligência artificial</button></div>';
         echo '</div></div>';

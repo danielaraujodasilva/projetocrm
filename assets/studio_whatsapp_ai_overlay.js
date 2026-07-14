@@ -76,6 +76,10 @@
         body.style.cssText = "display:grid;gap:14px;padding:20px;background:linear-gradient(180deg,rgba(17,27,33,.98) 0%,rgba(12,19,24,.99) 100%);color:#e9edef;border-radius:14px;box-sizing:border-box";
 
         const summary = String(data?.summary || "").trim();
+        const conversationSummary = String(data?.conversation_summary || summary || "").trim();
+        const conversationSummaryUpdatedAt = String(data?.conversation_memory_updated_at || "").trim();
+        const learnsFromTeam = data?.learns_from_team !== false;
+        const conversationSummaryEnabled = data?.conversation_summary_enabled !== false;
         const suggestedReply = String(data?.suggested_reply || "").trim();
         const aiEnabled = !!data?.ai_enabled;
         const confidence = Number(data?.confidence || 0);
@@ -102,8 +106,11 @@
         const statusTone = analysisStage === "pronta" ? "ok" : (analysisStage === "desativada" ? "warn" : "neutral");
         const statusText = analysisStage === "pronta" ? "Pronta" : (analysisStage === "parcial" ? "Parcial" : (analysisStage === "sem_contexto" ? "Sem contexto" : (analysisStage === "desativada" ? "Desativada" : "Avaliando")));
         const suggestionCards = [];
+        if (conversationSummaryEnabled && hasText(conversationSummary)) {
+            suggestionCards.push(`<div class="ai-box ai-box-summary"><strong>Resumo da conversa</strong><p>${escapeHtml(conversationSummary)}</p>${conversationSummaryUpdatedAt ? `<small>Atualizado em ${escapeHtml(conversationSummaryUpdatedAt)}</small>` : ""}</div>`);
+        }
         if (hasText(nextBestAction)) suggestionCards.push(`<div class="ai-box ai-box-action"><strong>Proxima melhor acao</strong><p>${escapeHtml(nextBestAction)}</p></div>`);
-        if (hasText(summary)) suggestionCards.push(`<div class="ai-box"><strong>Resumo</strong><p>${escapeHtml(summary)}</p></div>`);
+        if (hasText(summary) && summary !== conversationSummary) suggestionCards.push(`<div class="ai-box"><strong>Resumo recente</strong><p>${escapeHtml(summary)}</p></div>`);
         if (hasText(data?.suggested_name)) suggestionCards.push(`<div class="ai-box"><strong>Nome sugerido</strong><span>${escapeHtml(data.suggested_name)}</span></div>`);
         if (hasText(data?.suggested_interest)) suggestionCards.push(`<div class="ai-box"><strong>Interesse sugerido</strong><span>${escapeHtml(data.suggested_interest)}</span></div>`);
         if (hasText(suggestedDate) || hasText(suggestedTime)) suggestionCards.push(`<div class="ai-box"><strong>Data e hora sugeridas</strong><span>${escapeHtml([suggestedDate, suggestedTime].filter(Boolean).join(" ") || "Nao sugerido")}</span></div>`);
@@ -126,8 +133,10 @@
                 .ai-context{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#c9d4da;font-size:.92rem}
                 .ai-box{padding:14px;border-radius:14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);min-width:0}
                 .ai-box-action{background:rgba(18,184,134,.10);border-color:rgba(18,184,134,.28)}
+                .ai-box-summary{background:linear-gradient(180deg,rgba(18,184,134,.13),rgba(255,255,255,.035));border-color:rgba(18,184,134,.32)}
                 .ai-box strong{display:block;font-size:.78rem;text-transform:uppercase;letter-spacing:.02em;opacity:.78;margin-bottom:6px;color:#9fb0b8}
                 .ai-box span,.ai-box p{display:block;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;color:#e9edef}
+                .ai-box small{display:block;margin-top:8px;color:#9aa7af}
                 .ai-box .muted{color:#9aa7af}
                 .ai-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
                 .ai-chip-list{display:flex;flex-wrap:wrap;gap:8px}
@@ -152,6 +161,7 @@
                     </div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         ${renderBadge(source === "ai" ? "IA" : "Heuristica", source === "ai" ? "ok" : "warn")}
+                        ${renderBadge(learnsFromTeam ? "Aprende com equipe" : "Aprendizado off", learnsFromTeam ? "ok" : "warn")}
                         ${renderBadge(statusText, statusTone)}
                         ${renderBadge(`${Math.max(0, Math.min(10, confidence))}/10`, "neutral")}
                         ${needsHuman ? renderBadge("Pede humano", "warn") : renderBadge("Sem alerta", "ok")}
@@ -300,7 +310,7 @@
                 return;
             }
             if (action === "copy-summary") {
-                await copyText(currentData.summary || currentData.suggested_notes || "");
+                await copyText(currentData.conversation_summary || currentData.summary || currentData.suggested_notes || "");
                 return;
             }
             if (action === "copy-reply") {
