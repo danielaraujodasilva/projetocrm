@@ -6216,11 +6216,190 @@ function studio_whatsapp_ai_voice_config(array $studio): array
         'when_audio_only' => (int)($settings['ai_voice_reply_when_audio_only'] ?? 1) === 1,
         'engine' => $engine,
         'xtts_sample_path' => trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? '')),
+        'xtts_sample_paths' => studio_whatsapp_ai_voice_decode_sample_paths((string)($settings['ai_voice_reply_xtts_sample_paths'] ?? '')),
         'xtts_language' => $language,
         'xtts_python' => trim((string)(getenv('XTTS_PYTHON') ?: 'C:\\AI\\xtts\\Scripts\\python.exe')),
         'voice' => trim((string)($settings['ai_voice_reply_voice'] ?? '')),
         'rate' => max(-10, min(10, (int)($settings['ai_voice_reply_rate'] ?? 0))),
         'volume' => max(0, min(100, (int)($settings['ai_voice_reply_volume'] ?? 100))),
+    ];
+}
+
+function studio_whatsapp_ai_voice_decode_sample_paths(string $raw): array
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return [];
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        $decoded = preg_split('/\r\n|\r|\n|,/', $raw) ?: [];
+    }
+    $paths = [];
+    foreach ($decoded as $path) {
+        $path = str_replace('\\', '/', trim((string)$path));
+        if ($path !== '' && !in_array($path, $paths, true)) {
+            $paths[] = $path;
+        }
+    }
+    return array_slice($paths, 0, 12);
+}
+
+function studio_whatsapp_ai_voice_sample_absolute(string $path): ?string
+{
+    $path = trim($path);
+    if ($path === '') {
+        return null;
+    }
+    $normalized = str_replace('\\', '/', $path);
+    if (str_starts_with($normalized, 'storage/')) {
+        $absolute = APP_BASE_PATH . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalized);
+        return is_file($absolute) ? $absolute : null;
+    }
+    return is_file($path) ? $path : null;
+}
+
+function studio_whatsapp_ai_voice_ffprobe_binary(): string
+{
+    if (!function_exists('shell_exec')) {
+        return '';
+    }
+    $fromEnv = trim((string)(getenv('FFPROBE_BINARY') ?: ''));
+    if ($fromEnv !== '') {
+        return $fromEnv;
+    }
+    $ffmpeg = studio_whatsapp_ffmpeg_binary();
+    if ($ffmpeg !== '') {
+        $candidate = preg_replace('/ffmpeg(?:\.exe)?$/i', 'ffprobe.exe', $ffmpeg);
+        if (is_string($candidate) && is_file($candidate)) {
+            return $candidate;
+        }
+        $candidate = preg_replace('/ffmpeg(?:\.exe)?$/i', 'ffprobe', $ffmpeg);
+        if (is_string($candidate) && is_file($candidate)) {
+            return $candidate;
+        }
+    }
+    $probe = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? 'where ffprobe 2>NUL' : 'command -v ffprobe 2>/dev/null';
+    $ffprobe = trim((string)@shell_exec($probe));
+    if (str_contains($ffprobe, "\n")) {
+        $ffprobe = trim(strtok($ffprobe, "\n"));
+    }
+    return $ffprobe;
+}
+
+function studio_whatsapp_ai_voice_sample_probe(string $absolutePath): array
+{
+    $result = [
+        'duration' => 0.0,
+        'sample_rate' => 0,
+        'channels' => 0,
+        'codec' => '',
+    ];
+    $ffprobe = studio_whatsapp_ai_voice_ffprobe_binary();
+    if ($ffprobe === '' || !studio_shell_exec_available()) {
+        return $result;
+    }
+    $command = escapeshellarg($ffprobe)
+        . ' -v error -show_entries format=duration -show_entries stream=codec_name,sample_rate,channels'
+        . ' -of json ' . escapeshellarg($absolutePath) . ' 2>&1';
+    $output = [];
+    $exitCode = 1;
+    @exec($command, $output, $exitCode);
+    if ($exitCode !== 0) {
+        return $result;
+    }
+    $json = json_decode(implode("\n", $output), true);
+    if (!is_array($json)) {
+        return $result;
+    }
+    $result['duration'] = max(0.0, (float)($json['format']['duration'] ?? 0));
+    $streams = is_array($json['streams'] ?? null) ? $json['streams'] : [];
+    foreach ($streams as $stream) {
+        if (!is_array($stream)) {
+            continue;
+        }
+        $result['codec'] = (string)($stream['codec_name'] ?? '');
+        $result['sample_rate'] = (int)($stream['sample_rate'] ?? 0);
+        $result['channels'] = (int)($stream['channels'] ?? 0);
+        break;
+    }
+    return $result;
+}
+
+function studio_whatsapp_ai_voice_sample_inventory(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $configured = trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? ''));
+    $paths = studio_whatsapp_ai_voice_decode_sample_paths((string)($settings['ai_voice_reply_xtts_sample_paths'] ?? ''));
+    if ($configured !== '') {
+        array_unshift($paths, str_replace('\\', '/', $configured));
+    }
+    $paths = array_values(array_unique(array_filter($paths)));
+    $samples = [];
+    $totalDuration = 0.0;
+    foreach ($paths as $path) {
+        $absolute = studio_whatsapp_ai_voice_sample_absolute($path);
+        if ($absolute === null) {
+            continue;
+        }
+        $probe = studio_whatsapp_ai_voice_sample_probe($absolute);
+        $duration = (float)($probe['duration'] ?? 0);
+        $totalDuration += $duration;
+        $samples[] = [
+            'path' => str_replace('\\', '/', $path),
+            'absolute_path' => $absolute,
+            'file_name' => basename($absolute),
+            'size' => (int)(filesize($absolute) ?: 0),
+            'duration' => $duration,
+            'sample_rate' => (int)($probe['sample_rate'] ?? 0),
+            'channels' => (int)($probe['channels'] ?? 0),
+            'codec' => (string)($probe['codec'] ?? ''),
+            'is_primary' => $configured !== '' && str_replace('\\', '/', $configured) === str_replace('\\', '/', $path),
+        ];
+    }
+
+    $count = count($samples);
+    $durationScore = min(45, (int)round(($totalDuration / 90) * 45));
+    $countScore = min(25, (int)round(($count / 4) * 25));
+    $formatGood = 0;
+    foreach ($samples as $sample) {
+        $formatGood += ((int)$sample['sample_rate'] >= 16000 && (int)$sample['channels'] <= 2) ? 1 : 0;
+    }
+    $formatScore = $count > 0 ? (int)round(($formatGood / $count) * 15) : 0;
+    $primaryScore = $configured !== '' && $count > 0 ? 10 : 0;
+    $sizeScore = $count > 0 ? 5 : 0;
+    $score = max(0, min(100, $durationScore + $countScore + $formatScore + $primaryScore + $sizeScore));
+    $tips = [];
+    if ($count === 0) {
+        $tips[] = 'Grave pelo menos 3 amostras curtas da Fran, em ambiente silencioso.';
+    } elseif ($count < 3) {
+        $tips[] = 'Adicione mais ' . (3 - $count) . ' amostra(s) com frases diferentes para estabilizar timbre e ritmo.';
+    }
+    if ($totalDuration < 30) {
+        $tips[] = 'A soma ainda está curta. Mire no mínimo 30 segundos úteis; o ideal é 60 a 120 segundos no total.';
+    } elseif ($totalDuration < 60) {
+        $tips[] = 'Já dá para testar, mas grave mais um pouco para chegar perto de 60 segundos limpos.';
+    } elseif ($totalDuration > 180) {
+        $tips[] = 'Já há bastante material. Priorize qualidade: remova amostras com eco, ruído ou microfone diferente.';
+    }
+    foreach ($samples as $sample) {
+        if ((float)$sample['duration'] > 0 && (float)$sample['duration'] < 8) {
+            $tips[] = 'Evite amostras muito curtas como ' . (string)$sample['file_name'] . '; elas ajudam pouco na clonagem.';
+            break;
+        }
+    }
+    if (!$tips) {
+        $tips[] = 'Conjunto bom para teste: mantenha voz natural, sem música, sem eco e com autorização clara.';
+    }
+
+    $label = $score >= 85 ? 'ótimo' : ($score >= 65 ? 'bom' : ($score >= 40 ? 'usável, mas dá para melhorar' : 'fraco'));
+    return [
+        'samples' => $samples,
+        'count' => $count,
+        'total_duration' => $totalDuration,
+        'score' => $score,
+        'label' => $label,
+        'tips' => array_values(array_unique($tips)),
     ];
 }
 
@@ -6236,8 +6415,8 @@ function studio_store_voice_sample_upload(array $studio, array $file): array
     if ($size <= 0) {
         return ['ok' => false, 'error' => 'O áudio recebido está vazio.'];
     }
-    if ($size > 25 * 1024 * 1024) {
-        return ['ok' => false, 'error' => 'A amostra ficou grande demais. Grave entre 10 e 30 segundos.'];
+    if ($size > 40 * 1024 * 1024) {
+        return ['ok' => false, 'error' => 'A amostra ficou grande demais. Grave trechos curtos, de 15 a 40 segundos cada.'];
     }
 
     $storageDir = APP_BASE_PATH . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'voice-samples';
@@ -6260,14 +6439,15 @@ function studio_store_voice_sample_upload(array $studio, array $file): array
         return ['ok' => false, 'error' => 'Não foi possível salvar o áudio enviado.'];
     }
 
-    $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran.wav';
-    $relativePath = 'storage/voice-samples/fran.wav';
+    $sampleId = date('Ymd_His') . '_' . bin2hex(random_bytes(3));
+    $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran_sample_' . $sampleId . '.wav';
+    $relativePath = 'storage/voice-samples/fran_sample_' . $sampleId . '.wav';
     $conversionError = '';
     $ffmpeg = studio_whatsapp_ffmpeg_binary();
     if ($ffmpeg !== '') {
         $command = escapeshellarg($ffmpeg)
             . ' -y -i ' . escapeshellarg($rawPath)
-            . ' -ac 1 -ar 22050 -t 30 '
+            . ' -ac 1 -ar 22050 -t 45 '
             . escapeshellarg($finalPath)
             . ' 2>&1';
         $output = [];
@@ -6284,8 +6464,8 @@ function studio_store_voice_sample_upload(array $studio, array $file): array
 
     if (!is_file($finalPath) || (filesize($finalPath) ?: 0) <= 0) {
         if (in_array($extension, ['wav', 'mp3', 'm4a'], true)) {
-            $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran.' . $extension;
-            $relativePath = 'storage/voice-samples/fran.' . $extension;
+            $finalPath = $storageDir . DIRECTORY_SEPARATOR . 'fran_sample_' . $sampleId . '.' . $extension;
+            $relativePath = 'storage/voice-samples/fran_sample_' . $sampleId . '.' . $extension;
             @rename($rawPath, $finalPath);
         } else {
             @unlink($rawPath);
@@ -6296,18 +6476,43 @@ function studio_store_voice_sample_upload(array $studio, array $file): array
     try {
         $pdo = studio_db($studio);
         $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ai_voice_reply_xtts_sample_path VARCHAR(500) NULL');
-        $pdo->prepare('UPDATE studio_settings SET ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_engine = "xtts", updated_at = NOW() WHERE id = 1')
-            ->execute([$relativePath]);
+        $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ai_voice_reply_xtts_sample_paths MEDIUMTEXT NULL');
+        $settings = studio_settings($studio);
+        $paths = studio_whatsapp_ai_voice_decode_sample_paths((string)($settings['ai_voice_reply_xtts_sample_paths'] ?? ''));
+        $currentPrimary = str_replace('\\', '/', trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? '')));
+        if ($currentPrimary !== '') {
+            array_unshift($paths, $currentPrimary);
+        }
+        array_unshift($paths, $relativePath);
+        $paths = array_values(array_unique(array_filter($paths)));
+        $paths = array_slice($paths, 0, 12);
+        $pdo->prepare('UPDATE studio_settings SET ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_sample_paths = ?, ai_voice_reply_engine = "xtts", updated_at = NOW() WHERE id = 1')
+            ->execute([$relativePath, json_encode($paths, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
     } catch (Throwable $exception) {
         return ['ok' => false, 'error' => 'A amostra foi salva, mas não consegui atualizar a configuração: ' . $exception->getMessage()];
     }
+
+    $inventory = studio_whatsapp_ai_voice_sample_inventory($studio);
 
     return [
         'ok' => true,
         'path' => $relativePath,
         'absolute_path' => $finalPath,
         'size' => is_file($finalPath) ? (int)filesize($finalPath) : 0,
-        'converted' => $relativePath === 'storage/voice-samples/fran.wav',
+        'converted' => str_ends_with($relativePath, '.wav'),
+        'inventory' => [
+            'count' => (int)$inventory['count'],
+            'total_duration' => (float)$inventory['total_duration'],
+            'score' => (int)$inventory['score'],
+            'label' => (string)$inventory['label'],
+            'tips' => $inventory['tips'],
+            'samples' => array_map(static fn(array $sample): array => [
+                'path' => (string)$sample['path'],
+                'file_name' => (string)$sample['file_name'],
+                'duration' => (float)$sample['duration'],
+                'is_primary' => !empty($sample['is_primary']),
+            ], $inventory['samples']),
+        ],
     ];
 }
 
@@ -6469,11 +6674,24 @@ PS1;
 
 function studio_whatsapp_ai_voice_resolve_xtts_sample(array $config): string
 {
+    $paths = studio_whatsapp_ai_voice_resolve_xtts_samples($config);
+    return $paths[0] ?? '';
+}
+
+function studio_whatsapp_ai_voice_resolve_xtts_samples(array $config): array
+{
+    $paths = [];
     $configured = trim((string)($config['xtts_sample_path'] ?? ''));
     if ($configured !== '') {
-        $resolved = studio_whatsapp_media_absolute_path($configured);
-        if ($resolved !== null) {
-            return $resolved;
+        $resolved = studio_whatsapp_ai_voice_sample_absolute($configured);
+        if ($resolved !== null && !in_array($resolved, $paths, true)) {
+            $paths[] = $resolved;
+        }
+    }
+    foreach ((array)($config['xtts_sample_paths'] ?? []) as $configuredSample) {
+        $resolved = studio_whatsapp_ai_voice_sample_absolute((string)$configuredSample);
+        if ($resolved !== null && !in_array($resolved, $paths, true)) {
+            $paths[] = $resolved;
         }
     }
 
@@ -6485,12 +6703,12 @@ function studio_whatsapp_ai_voice_resolve_xtts_sample(array $config): string
         'C:\\AI\\voice-samples\\fran.mp3',
         'C:\\AI\\voice-samples\\fran.m4a',
     ] as $candidate) {
-        if (is_file($candidate)) {
-            return $candidate;
+        if (is_file($candidate) && !in_array($candidate, $paths, true)) {
+            $paths[] = $candidate;
         }
     }
 
-    return '';
+    return array_slice($paths, 0, 8);
 }
 
 function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversationId, string $text): array
@@ -6514,8 +6732,8 @@ function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversation
         return ['ok' => false, 'error' => 'Script do XTTS nao encontrado no CRM.'];
     }
 
-    $speakerPath = studio_whatsapp_ai_voice_resolve_xtts_sample($config);
-    if ($speakerPath === '') {
+    $speakerPaths = studio_whatsapp_ai_voice_resolve_xtts_samples($config);
+    if (!$speakerPaths) {
         return ['ok' => false, 'error' => 'Amostra de voz da Fran nao configurada.'];
     }
 
@@ -6525,9 +6743,11 @@ function studio_whatsapp_ai_voice_xtts_generate(array $studio, int $conversation
     $command = escapeshellarg($python)
         . ' ' . escapeshellarg($script)
         . ' --text ' . escapeshellarg($text)
-        . ' --speaker-wav ' . escapeshellarg($speakerPath)
         . ' --out ' . escapeshellarg($outputPath)
         . ' --language ' . escapeshellarg((string)$config['xtts_language']);
+    foreach ($speakerPaths as $speakerPath) {
+        $command .= ' --speaker-wav ' . escapeshellarg($speakerPath);
+    }
 
     $result = studio_run_command_with_timeout($command, 240);
     if (!empty($result['timedOut'])) {
@@ -11988,6 +12208,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_voice_reply_when_audio_only' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_voice_reply_engine' => 'VARCHAR(40) NOT NULL DEFAULT "sapi"',
         'ai_voice_reply_xtts_sample_path' => 'VARCHAR(500) NULL',
+        'ai_voice_reply_xtts_sample_paths' => 'MEDIUMTEXT NULL',
         'ai_voice_reply_xtts_language' => 'VARCHAR(12) NOT NULL DEFAULT "pt"',
         'ai_voice_reply_voice' => 'VARCHAR(120) NULL',
         'ai_voice_reply_rate' => 'TINYINT NOT NULL DEFAULT 0',

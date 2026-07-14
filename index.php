@@ -6751,18 +6751,41 @@ if ($page === 'studio_settings') {
         $voiceSampleStatus = $voiceSampleResolved !== ''
             ? 'Amostra pronta: ' . ($voiceSamplePath !== '' ? $voiceSamplePath : basename($voiceSampleResolved))
             : 'Nenhuma amostra encontrada ainda.';
+        $voiceSampleInventory = studio_whatsapp_ai_voice_sample_inventory($studio);
+        $voiceSampleScore = (int)($voiceSampleInventory['score'] ?? 0);
+        $voiceSampleScoreColor = $voiceSampleScore >= 80 ? '#16a34a' : ($voiceSampleScore >= 55 ? '#d97706' : '#dc2626');
         echo '<div class="field voice-sample-card"><label>Amostra autorizada da Fran</label><input name="ai_voice_reply_xtts_sample_path" data-voice-sample-path value="' . h($voiceSamplePath) . '" placeholder="storage/voice-samples/fran.wav"><small class="muted" data-voice-sample-status>' . h($voiceSampleStatus) . '</small></div>';
         echo '</div>';
         echo '<div class="panel soft voice-sample-card" style="margin-top:12px;border-style:dashed">';
-        echo '<h4 style="margin:0 0 8px">Gravar amostra da Fran aqui</h4>';
-        echo '<p class="muted" style="margin:0 0 10px"><strong>TIP:</strong> essa amostra serve para as duas coisas: é o registro prático de que a Fran autorizou o uso da voz neste sistema e também é o modelo de referência que o XTTS usa para imitar timbre, ritmo e jeito de falar. Ela não treina uma IA permanente; o sistema só usa esse áudio como referência local na hora de gerar respostas em voz. Importante: isso não substitui um combinado formal com ela fora do sistema. Grave com autorização clara, ambiente silencioso e 10 a 30 segundos de fala natural.</p>';
-        echo '<div class="actions" style="gap:8px;align-items:center"><button type="button" class="btn secondary" data-voice-record-start><i class="fa-solid fa-microphone"></i> Gravar</button><button type="button" class="btn secondary" data-voice-record-stop disabled><i class="fa-solid fa-stop"></i> Parar e salvar</button><label class="btn secondary" style="margin:0"><i class="fa-solid fa-upload"></i> Enviar arquivo<input type="file" data-voice-sample-file accept="audio/*" hidden></label><span class="muted" data-voice-record-state>Pronto para gravar.</span></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px"><div><h4 style="margin:0 0 8px">Amostras da voz da Fran</h4><p class="muted" style="margin:0"><strong>TIP:</strong> para clonagem de voz no XTTS, uma amostra de 10 a 30 segundos já funciona para teste, mas o melhor resultado costuma vir de 3 a 6 amostras limpas, somando 60 a 120 segundos. Grave frases diferentes, voz natural, sem música, sem eco e sempre com autorização clara. Mais áudio só ajuda se for limpo; áudio ruim, abafado ou com microfones diferentes pode piorar a semelhança. Essas amostras servem como referência local de timbre/ritmo na hora de gerar áudio e também registram a autorização prática, mas não substituem um combinado formal com ela.</p></div><div style="min-width:170px;text-align:right"><strong data-voice-score-label>' . h((string)$voiceSampleScore . '% - ' . (string)($voiceSampleInventory['label'] ?? 'fraco')) . '</strong><div style="height:10px;border-radius:999px;background:#e5e7eb;overflow:hidden;margin-top:8px"><span data-voice-score-bar style="display:block;height:100%;width:' . h((string)$voiceSampleScore) . '%;background:' . h($voiceSampleScoreColor) . ';border-radius:999px"></span></div><small class="muted" data-voice-score-meta>' . h((string)($voiceSampleInventory['count'] ?? 0) . ' amostra(s), ' . number_format((float)($voiceSampleInventory['total_duration'] ?? 0), 1, ',', '.') . 's úteis') . '</small></div></div>';
+        echo '<div class="actions" style="gap:8px;align-items:center;margin-top:12px"><button type="button" class="btn secondary" data-voice-record-start><i class="fa-solid fa-microphone"></i> Gravar nova amostra</button><button type="button" class="btn secondary" data-voice-record-stop disabled><i class="fa-solid fa-stop"></i> Parar e salvar</button><label class="btn secondary" style="margin:0"><i class="fa-solid fa-upload"></i> Enviar áudio<input type="file" data-voice-sample-file accept="audio/*" hidden></label><span class="muted" data-voice-record-state>Pronto para gravar.</span></div>';
+        echo '<div class="voice-sample-list" data-voice-sample-list style="display:grid;gap:8px;margin-top:12px">';
+        foreach ((array)($voiceSampleInventory['samples'] ?? []) as $sample) {
+            $duration = (float)($sample['duration'] ?? 0);
+            $sampleRelative = (string)($sample['path'] ?? '');
+            $sampleAbsolute = (string)($sample['absolute_path'] ?? '');
+            echo '<div class="panel soft" style="padding:10px;margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center"><div><strong>' . h((string)($sample['file_name'] ?? basename($sampleRelative))) . (!empty($sample['is_primary']) ? ' <span class="badge ok">principal</span>' : '') . '</strong><br><small class="muted">' . h($duration > 0 ? number_format($duration, 1, ',', '.') . 's' : 'duração não medida') . ' · ' . h($sampleRelative) . '</small></div>';
+            if ($sampleRelative !== '' && str_starts_with($sampleRelative, 'storage/') && is_file($sampleAbsolute)) {
+                echo '<audio controls style="width:220px;max-width:100%" src="' . h($sampleRelative . '?v=' . (string)filemtime($sampleAbsolute)) . '"></audio>';
+            } else {
+                echo '<span class="muted">sem prévia</span>';
+            }
+            echo '</div>';
+        }
+        if (empty($voiceSampleInventory['samples'])) {
+            echo '<div class="panel soft" style="padding:10px;margin:0"><span class="muted">Nenhuma amostra salva ainda.</span></div>';
+        }
+        echo '</div><ul class="muted" data-voice-tips style="margin:12px 0 0">';
+        foreach ((array)($voiceSampleInventory['tips'] ?? []) as $tip) {
+            echo '<li>' . h((string)$tip) . '</li>';
+        }
+        echo '</ul>';
         if ($voiceSampleCanPreview && is_file((string)$voiceSampleAbsolute)) {
             echo '<audio controls style="width:100%;margin-top:12px" data-voice-sample-audio src="' . h($voiceSampleRelative . '?v=' . (string)filemtime((string)$voiceSampleAbsolute)) . '"></audio>';
         } else {
             echo '<audio controls style="width:100%;margin-top:12px;display:none" data-voice-sample-audio></audio>';
         }
-        echo '<small class="muted">Dica de gravação: peça para ela falar algo simples, por exemplo: “Oi, aqui é a Fran. Essa é uma amostra autorizada da minha voz para responder clientes do estúdio.”</small>';
+        echo '<small class="muted">Sugestão de texto para uma das gravações: “Oi, aqui é a Fran. Eu autorizo o uso desta amostra da minha voz para responder clientes do estúdio.” Nas outras, peça para ela falar naturalmente frases de atendimento, com pausas normais.</small>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Idioma do XTTS</label><select name="ai_voice_reply_xtts_language">';

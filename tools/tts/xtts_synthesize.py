@@ -8,7 +8,12 @@ from pathlib import Path
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate speech with Coqui XTTS v2.")
     parser.add_argument("--text", required=True, help="Text to synthesize.")
-    parser.add_argument("--speaker-wav", required=True, help="Reference voice sample path.")
+    parser.add_argument(
+        "--speaker-wav",
+        required=True,
+        action="append",
+        help="Reference voice sample path. Can be repeated to provide multiple Fran samples.",
+    )
     parser.add_argument("--out", required=True, help="Output WAV path.")
     parser.add_argument("--language", default="pt", help="XTTS language code, e.g. pt, en, es.")
     parser.add_argument(
@@ -19,13 +24,14 @@ def main() -> int:
     args = parser.parse_args()
 
     text = " ".join(args.text.strip().split())
-    speaker = Path(args.speaker_wav)
+    speakers = [Path(item) for item in args.speaker_wav]
     output = Path(args.out)
     if not text:
         print(json.dumps({"ok": False, "error": "empty_text"}, ensure_ascii=False))
         return 2
-    if not speaker.is_file():
-        print(json.dumps({"ok": False, "error": "speaker_wav_not_found"}, ensure_ascii=False))
+    missing_speakers = [str(speaker) for speaker in speakers if not speaker.is_file()]
+    if missing_speakers:
+        print(json.dumps({"ok": False, "error": "speaker_wav_not_found", "missing": missing_speakers}, ensure_ascii=False))
         return 3
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -38,12 +44,24 @@ def main() -> int:
         from TTS.api import TTS
 
         tts = TTS(args.model_name)
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=str(speaker),
-            language=args.language,
-            file_path=str(output),
-        )
+        speaker_input = [str(speaker) for speaker in speakers] if len(speakers) > 1 else str(speakers[0])
+        try:
+            tts.tts_to_file(
+                text=text,
+                speaker_wav=speaker_input,
+                language=args.language,
+                file_path=str(output),
+            )
+        except Exception:
+            if len(speakers) <= 1:
+                raise
+            # Older/local TTS builds may reject a list of references; keep the bot working.
+            tts.tts_to_file(
+                text=text,
+                speaker_wav=str(speakers[0]),
+                language=args.language,
+                file_path=str(output),
+            )
     except Exception as exc:
         print(json.dumps({"ok": False, "error": str(exc)[:800]}, ensure_ascii=False))
         return 1
