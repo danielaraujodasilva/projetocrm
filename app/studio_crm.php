@@ -6361,6 +6361,122 @@ function studio_ai_pricing_page_money(float $value): string
     return 'R$ ' . number_format($value, 0, ',', '.');
 }
 
+function studio_ai_pricing_page_hotspot_region_map(array $hotspots): array
+{
+    $map = [];
+    foreach ($hotspots as $rows) {
+        if (!is_array($rows)) {
+            continue;
+        }
+        foreach ($rows as $row) {
+            if (is_array($row) && isset($row[0], $row[1])) {
+                $map[(string)$row[0]] = (string)$row[1];
+            }
+        }
+    }
+    return $map;
+}
+
+function studio_ai_pricing_page_normalize_region_key(string $region, array $areas): string
+{
+    if (isset($areas[$region])) {
+        return $region;
+    }
+    $aliases = [
+        'costas_superior' => 'costas',
+        'costas_media' => 'costas',
+        'costas_inferior' => 'costas',
+        'braco_interno' => 'braco',
+        'braco_externo' => 'braco',
+        'mao_palma' => 'mao',
+        'mao_dorso' => 'mao',
+        'pe_dorso' => 'pe',
+        'pe_planta' => 'pe',
+    ];
+    return $aliases[$region] ?? $region;
+}
+
+function studio_ai_pricing_page_structured_summary(array $state, array $rawIdToRegion = [], string $sourceLabel = 'JSON direto'): string
+{
+    $areas = [];
+    foreach (($state['areas'] ?? []) as $key => $area) {
+        if (!is_array($area) || (isset($area['ativa']) && empty($area['ativa']))) {
+            continue;
+        }
+        $price = (float)($area['preco'] ?? $area['min'] ?? $area['max'] ?? 0);
+        if ($price <= 0) {
+            continue;
+        }
+        $min = isset($area['min']) ? (float)$area['min'] : $price;
+        $max = isset($area['max']) ? (float)$area['max'] : $price;
+        $areas[(string)$key] = [
+            'title' => trim((string)($area['titulo'] ?? $key)),
+            'price' => round($price / 50) * 50,
+            'min' => round($min / 50) * 50,
+            'max' => round($max / 50) * 50,
+        ];
+    }
+    if (!$areas) {
+        return '';
+    }
+
+    $lines = [];
+    $lines[] = 'DADOS ESTRUTURADOS CONFIAVEIS DA PAGINA DE ORCAMENTO';
+    $lines[] = 'Fonte dos dados: ' . $sourceLabel . '.';
+    $updatedAt = trim((string)($state['updatedAt'] ?? ''));
+    if ($updatedAt !== '') {
+        $lines[] = 'Atualizado na pagina: ' . $updatedAt;
+    }
+    $intro = trim((string)($state['config']['intro'] ?? ''));
+    if ($intro !== '') {
+        $lines[] = 'Instrucao/intro da pagina: ' . $intro;
+    }
+    $lines[] = 'Regra de calculo: soma os precos das partes/regioes selecionadas; se uma promocao completar todos os IDs exigidos, multiplica pelo fator de desconto da promocao; arredonda para multiplos de R$ 50.';
+    $lines[] = 'Precos por regiao ativa:';
+    foreach ($areas as $key => $area) {
+        $line = '- ' . $area['title'] . ' (' . $key . '): ';
+        if ((float)$area['min'] !== (float)$area['max']) {
+            $line .= studio_ai_pricing_page_money((float)$area['min']) . ' a ' . studio_ai_pricing_page_money((float)$area['max']) . '; estimativa media ' . studio_ai_pricing_page_money((float)$area['price']);
+        } else {
+            $line .= studio_ai_pricing_page_money((float)$area['price']);
+        }
+        $lines[] = $line;
+    }
+
+    $promos = array_values(array_filter($state['promos'] ?? [], static fn($promo): bool => is_array($promo) && (!isset($promo['ativa']) || !empty($promo['ativa']))));
+    if ($promos) {
+        $lines[] = 'Promocoes ativas:';
+        foreach ($promos as $promo) {
+            $ids = array_values(array_filter(array_map('strval', $promo['ids'] ?? [])));
+            $gross = 0.0;
+            $missing = [];
+            foreach ($ids as $id) {
+                $region = studio_ai_pricing_page_normalize_region_key((string)($rawIdToRegion[$id] ?? $id), $areas);
+                if (!isset($areas[$region])) {
+                    $missing[] = $id;
+                    continue;
+                }
+                $gross += (float)$areas[$region]['price'];
+            }
+            $factor = (float)($promo['desconto'] ?? 1);
+            $final = $gross > 0 ? round(($gross * $factor) / 50) * 50 : 0;
+            $offPercent = $factor > 0 && $factor < 1 ? (int)round((1 - $factor) * 100) : 0;
+            $promoLine = '- ' . trim((string)($promo['titulo'] ?? 'Promocao')) . ': ' . trim((string)($promo['desc'] ?? $promo['descricao'] ?? ''));
+            $promoLine .= '; fator ' . number_format($factor, 2, ',', '.') . ($offPercent > 0 ? ' (' . $offPercent . '% de desconto)' : '');
+            if ($gross > 0 && !$missing) {
+                $promoLine .= '; soma sem promocao ' . studio_ai_pricing_page_money($gross) . '; estimativa promocional ' . studio_ai_pricing_page_money($final);
+            } elseif ($gross > 0) {
+                $promoLine .= '; soma parcial ' . studio_ai_pricing_page_money($gross) . '; faltam IDs sem regiao configurada: ' . implode(', ', $missing);
+            } else {
+                $promoLine .= '; IDs de composicao: ' . implode(', ', $ids);
+            }
+            $lines[] = $promoLine;
+        }
+    }
+
+    return implode("\n", $lines);
+}
+
 function studio_ai_pricing_page_extract_structured_summary(string $body): string
 {
     if (!preg_match('~<script\b[^>]*>(.*?)</script>~isu', $body, $scriptMatch)) {
@@ -6392,89 +6508,33 @@ function studio_ai_pricing_page_extract_structured_summary(string $body): string
         }
     }
 
-    $areas = [];
-    $promos = [];
-    $updatedAt = '';
+    $fallbackAreas = [];
     if (preg_match('~const\s+areas\s*=\s*\{(.*?)\};~s', $script, $areasMatch)) {
         if (preg_match_all('~([a-z0-9_]+)\s*:\s*area\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)~iu', (string)$areasMatch[1], $areaMatches, PREG_SET_ORDER)) {
             foreach ($areaMatches as $match) {
-                $areas[(string)$match[1]] = [
-                    'title' => (string)$match[2],
-                    'price' => round((((float)$match[3] + (float)$match[4]) / 2) / 50) * 50,
-                    'range' => [(float)$match[3], (float)$match[4]],
+                $fallbackAreas[(string)$match[1]] = [
+                    'titulo' => (string)$match[2],
+                    'preco' => round((((float)$match[3] + (float)$match[4]) / 2) / 50) * 50,
+                    'min' => (float)$match[3],
+                    'max' => (float)$match[4],
+                    'ativa' => true,
                 ];
             }
         }
     }
     if (is_array($state)) {
-        $updatedAt = trim((string)($state['updatedAt'] ?? ''));
-        foreach (($state['areas'] ?? []) as $key => $area) {
-            if (!is_array($area) || isset($area['ativa']) && empty($area['ativa'])) {
+        $savedAreas = is_array($state['areas'] ?? null) ? $state['areas'] : [];
+        $mergedAreas = $fallbackAreas ?: [];
+        foreach ($savedAreas as $key => $area) {
+            if (!is_array($area) || ($fallbackAreas && !isset($fallbackAreas[(string)$key]))) {
                 continue;
             }
-            $price = (float)($area['preco'] ?? $area['min'] ?? $area['max'] ?? 0);
-            if ($price <= 0) {
-                continue;
-            }
-            if ($areas && !isset($areas[(string)$key])) {
-                continue;
-            }
-            $areas[(string)$key] = [
-                'title' => trim((string)($area['titulo'] ?? $key)),
-                'price' => round($price / 50) * 50,
-            ];
+            $mergedAreas[(string)$key] = array_merge($fallbackAreas[(string)$key] ?? [], $area);
         }
-        foreach (($state['promos'] ?? []) as $promo) {
-            if (!is_array($promo) || isset($promo['ativa']) && empty($promo['ativa'])) {
-                continue;
-            }
-            $promos[] = $promo;
-        }
+        $state['areas'] = $mergedAreas ?: $savedAreas;
     }
 
-    if (!$areas) {
-        return '';
-    }
-
-    $lines = [];
-    $lines[] = 'DADOS ESTRUTURADOS CONFIAVEIS DA PAGINA DE ORCAMENTO';
-    if ($updatedAt !== '') {
-        $lines[] = 'Atualizado na pagina: ' . $updatedAt;
-    }
-    $lines[] = 'Regra de calculo observada no JavaScript: soma os precos das regioes selecionadas; se uma promocao completar todos os IDs exigidos, multiplica pelo fator de desconto da promocao; arredonda para multiplos de R$ 50.';
-    $lines[] = 'Precos por regiao ativa:';
-    foreach ($areas as $key => $area) {
-        $line = '- ' . $area['title'] . ' (' . $key . '): ';
-        if (!empty($area['range']) && is_array($area['range'])) {
-            $line .= studio_ai_pricing_page_money((float)$area['range'][0]) . ' a ' . studio_ai_pricing_page_money((float)$area['range'][1]) . '; estimativa media ' . studio_ai_pricing_page_money((float)$area['price']);
-        } else {
-            $line .= studio_ai_pricing_page_money((float)$area['price']);
-        }
-        $lines[] = $line;
-    }
-
-    if ($promos) {
-        $lines[] = 'Promocoes ativas:';
-        foreach ($promos as $promo) {
-            $ids = array_values(array_filter(array_map('strval', $promo['ids'] ?? [])));
-            $gross = 0.0;
-            foreach ($ids as $id) {
-                $region = $rawIdToRegion[$id] ?? $id;
-                $gross += (float)($areas[$region]['price'] ?? 0);
-            }
-            $factor = (float)($promo['desconto'] ?? 1);
-            $final = $gross > 0 ? round(($gross * $factor) / 50) * 50 : 0;
-            $offPercent = $factor > 0 && $factor < 1 ? (int)round((1 - $factor) * 100) : 0;
-            $promoLine = '- ' . trim((string)($promo['titulo'] ?? 'Promocao')) . ': ' . trim((string)($promo['desc'] ?? $promo['descricao'] ?? ''));
-            $promoLine .= '; fator ' . number_format($factor, 2, ',', '.') . ($offPercent > 0 ? ' (' . $offPercent . '% de desconto)' : '');
-            if ($gross > 0) {
-                $promoLine .= '; soma sem promocao ' . studio_ai_pricing_page_money($gross) . '; estimativa promocional ' . studio_ai_pricing_page_money($final);
-            }
-            $lines[] = $promoLine;
-        }
-    }
-
-    return implode("\n", $lines);
+    return is_array($state) ? studio_ai_pricing_page_structured_summary($state, $rawIdToRegion, 'HTML da pagina como fallback') : '';
 }
 
 function studio_ai_pricing_page_extract_text(string $body): string
@@ -6518,6 +6578,94 @@ function studio_ai_pricing_page_extract_text(string $body): string
     return mb_substr(trim($text), 0, 22000, 'UTF-8');
 }
 
+function studio_ai_pricing_page_json_candidates(string $url): array
+{
+    $parts = parse_url($url);
+    $scheme = (string)($parts['scheme'] ?? 'https');
+    $host = (string)($parts['host'] ?? '');
+    if ($host === '') {
+        return [];
+    }
+    $port = isset($parts['port']) ? ':' . (string)$parts['port'] : '';
+    $path = (string)($parts['path'] ?? '/');
+    $dir = preg_match('~\.json$~i', $path)
+        ? (preg_replace('~/[^/]*$~', '/', $path) ?: '/')
+        : (rtrim(preg_match('~/index\.php$~i', $path) ? (preg_replace('~/[^/]*$~', '', $path) ?: '/') : $path, '/') . '/');
+    $base = $scheme . '://' . $host . $port . $dir;
+    if (preg_match('~\.json$~i', $path)) {
+        $dataUrl = $url;
+    } else {
+        $dataUrl = $base . 'orcamento-data.json';
+    }
+
+    return [
+        'data' => $dataUrl,
+        'hotspots' => $base . 'hotspots.json',
+    ];
+}
+
+function studio_ai_pricing_page_fetch_json(string $url): array
+{
+    if ($url === '' || (!studio_whatsapp_reference_url_allowed($url) && !studio_trusted_local_http_url_allowed($url))) {
+        return ['ok' => false, 'error' => 'URL JSON nao permitida.'];
+    }
+    $fetch = studio_whatsapp_fetch_limited_url($url, 1024 * 1024, 'application/json,text/plain,*/*;q=0.5', true);
+    if (empty($fetch['ok'])) {
+        return ['ok' => false, 'error' => (string)($fetch['error'] ?? 'falha ao abrir JSON')];
+    }
+    $decoded = json_decode((string)($fetch['body'] ?? ''), true);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'error' => 'JSON invalido: ' . json_last_error_msg()];
+    }
+    return [
+        'ok' => true,
+        'data' => $decoded,
+        'raw' => (string)($fetch['body'] ?? ''),
+        'url' => (string)($fetch['url'] ?? $url),
+    ];
+}
+
+function studio_ai_pricing_page_fetch_structured_json_text(string $url): array
+{
+    $candidates = studio_ai_pricing_page_json_candidates($url);
+    $dataUrl = (string)($candidates['data'] ?? '');
+    if ($dataUrl === '') {
+        return ['ok' => false, 'error' => 'Nenhum JSON candidato encontrado.'];
+    }
+
+    $data = studio_ai_pricing_page_fetch_json($dataUrl);
+    if (empty($data['ok'])) {
+        return $data;
+    }
+    $state = $data['data'];
+    if (empty($state['areas']) || !is_array($state['areas'])) {
+        return ['ok' => false, 'error' => 'JSON de orcamento sem areas.'];
+    }
+
+    $hotspotsRaw = '';
+    $hotspotMap = [];
+    $hotspotsUrl = (string)($candidates['hotspots'] ?? '');
+    if ($hotspotsUrl !== '') {
+        $hotspots = studio_ai_pricing_page_fetch_json($hotspotsUrl);
+        if (!empty($hotspots['ok']) && is_array($hotspots['data'] ?? null)) {
+            $hotspotsRaw = (string)($hotspots['raw'] ?? '');
+            $hotspotMap = studio_ai_pricing_page_hotspot_region_map($hotspots['data']);
+        }
+    }
+
+    $summary = studio_ai_pricing_page_structured_summary($state, $hotspotMap, 'orcamento-data.json' . ($hotspotMap ? ' + hotspots.json' : ''));
+    if ($summary === '') {
+        return ['ok' => false, 'error' => 'JSON de orcamento sem dados úteis.'];
+    }
+
+    return [
+        'ok' => true,
+        'text' => $summary,
+        'hash' => hash('sha256', (string)($data['raw'] ?? '') . "\n" . $hotspotsRaw),
+        'url' => (string)($data['url'] ?? $dataUrl),
+    ];
+}
+
 function studio_ai_pricing_page_fetch_text(string $url): array
 {
     $url = trim($url);
@@ -6526,6 +6674,11 @@ function studio_ai_pricing_page_fetch_text(string $url): array
     }
     if (!studio_whatsapp_reference_url_allowed($url) && !studio_trusted_local_http_url_allowed($url)) {
         return ['ok' => false, 'error' => 'URL da pagina de orcamento nao permitida.'];
+    }
+
+    $jsonText = studio_ai_pricing_page_fetch_structured_json_text($url);
+    if (!empty($jsonText['ok'])) {
+        return $jsonText;
     }
 
     $fetch = studio_whatsapp_fetch_limited_url($url, 2 * 1024 * 1024, 'text/html,application/xhtml+xml,text/plain,*/*;q=0.5', true);
