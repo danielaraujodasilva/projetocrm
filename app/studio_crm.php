@@ -5697,7 +5697,9 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         }
     }
 
-    $shouldQueueAi = !$fromMe && (string)($conversation['attendance_mode'] ?? 'human') === 'bot';
+    $shouldQueueAi = !$fromMe
+        && (string)($conversation['attendance_mode'] ?? 'human') === 'bot'
+        && strtolower($messageType) !== 'sticker';
 
     if ($shouldQueueAi) {
         try {
@@ -10166,7 +10168,22 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
 
     if ($incomingMessageId !== '') {
-        $latestIncomingStmt = $pdo->prepare('SELECT message_id FROM whatsapp_messages WHERE conversation_id = ? AND direction = "in" ORDER BY id DESC LIMIT 1');
+        $latestIncomingStmt = $pdo->prepare(
+            'SELECT message_id
+             FROM whatsapp_messages
+             WHERE conversation_id = ?
+               AND direction = "in"
+               AND message_id IS NOT NULL
+               AND message_type <> "sticker"
+               AND (
+                    NULLIF(TRIM(COALESCE(body, "")), "") IS NOT NULL
+                    OR NULLIF(TRIM(COALESCE(transcricao, "")), "") IS NOT NULL
+                    OR NULLIF(TRIM(COALESCE(transcript, "")), "") IS NOT NULL
+                    OR message_type IN ("image", "video", "audio", "document")
+               )
+             ORDER BY id DESC
+             LIMIT 1'
+        );
         $latestIncomingStmt->execute([(int)$conversation['id']]);
         $latestIncomingMessageId = trim((string)($latestIncomingStmt->fetchColumn() ?: ''));
         if ($latestIncomingMessageId !== '' && $latestIncomingMessageId !== $incomingMessageId) {

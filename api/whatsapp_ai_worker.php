@@ -51,7 +51,22 @@ try {
     $startedAt = time();
     $lastChangeAt = time();
     $latestMessageId = $messageId;
-    $latestStmt = $pdo->prepare('SELECT message_id FROM whatsapp_messages WHERE conversation_id = ? AND direction = "in" ORDER BY id DESC LIMIT 1');
+    $latestStmt = $pdo->prepare(
+        'SELECT message_id
+         FROM whatsapp_messages
+         WHERE conversation_id = ?
+           AND direction = "in"
+           AND message_id IS NOT NULL
+           AND message_type <> "sticker"
+           AND (
+                NULLIF(TRIM(COALESCE(body, "")), "") IS NOT NULL
+                OR NULLIF(TRIM(COALESCE(transcricao, "")), "") IS NOT NULL
+                OR NULLIF(TRIM(COALESCE(transcript, "")), "") IS NOT NULL
+                OR message_type IN ("image", "video", "audio", "document")
+           )
+         ORDER BY id DESC
+         LIMIT 1'
+    );
     do {
         $latestStmt->execute([$conversationId]);
         $currentLatestMessageId = trim((string)($latestStmt->fetchColumn() ?: ''));
@@ -101,6 +116,10 @@ process_latest_message:
     if (!is_array($message)) {
         worker_log('Mensagem nao encontrada', ['conversationId' => $conversationId, 'messageId' => $messageId]);
         exit(1);
+    }
+    if (strtolower(trim((string)($message['message_type'] ?? ''))) === 'sticker') {
+        worker_log('Figurinha ignorada pela IA', ['conversationId' => $conversationId, 'messageId' => $messageId]);
+        exit(0);
     }
 
     $messageBody = trim((string)($message['body'] ?? ''));
