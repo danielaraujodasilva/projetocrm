@@ -477,7 +477,6 @@ function whatsapp_official_record_message(array $studio, array $message, array $
     }
 
     $name = '';
-    $profilePictureUrl = '';
     foreach ($contacts as $contact) {
         if (!is_array($contact)) {
             continue;
@@ -485,26 +484,6 @@ function whatsapp_official_record_message(array $studio, array $message, array $
         if ((string)($contact['wa_id'] ?? '') === $from) {
             $profile = is_array($contact['profile'] ?? null) ? $contact['profile'] : [];
             $name = trim((string)($profile['name'] ?? ''));
-            foreach ([
-                $profile['profile_picture_url'] ?? null,
-                $profile['profile_pic_url'] ?? null,
-                $profile['profile_photo_url'] ?? null,
-                $profile['picture'] ?? null,
-                $profile['avatar'] ?? null,
-                $profile['photo_url'] ?? null,
-                $contact['profile_picture_url'] ?? null,
-                $contact['profile_pic_url'] ?? null,
-                $contact['profile_photo_url'] ?? null,
-                $contact['picture'] ?? null,
-                $contact['avatar'] ?? null,
-                $contact['photo_url'] ?? null,
-            ] as $candidatePhoto) {
-                $candidatePhoto = trim((string)$candidatePhoto);
-                if ($candidatePhoto !== '') {
-                    $profilePictureUrl = $candidatePhoto;
-                    break;
-                }
-            }
             break;
         }
     }
@@ -564,7 +543,6 @@ function whatsapp_official_record_message(array $studio, array $message, array $
             'from' => $from,
             'numero' => $from,
             'name' => $name,
-            'profile_picture_url' => $profilePictureUrl,
             'body' => $body,
             'message_id' => $messageId,
             'context_message_id' => $contextMessageId,
@@ -599,7 +577,6 @@ function whatsapp_official_record_message(array $studio, array $message, array $
                 'media_downloaded' => !empty($mediaPayload['mediaBase64']),
                 'has_text' => $body !== '',
                 'contact_name' => $name,
-                'has_profile_picture' => $profilePictureUrl !== '',
             ],
         ]);
         whatsapp_webhook_log([
