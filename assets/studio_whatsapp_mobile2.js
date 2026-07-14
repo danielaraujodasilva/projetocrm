@@ -13,6 +13,8 @@
   var menu = document.getElementById('m2Menu');
   var emojiButton = document.getElementById('m2EmojiButton');
   var emojiPanel = document.getElementById('m2EmojiPanel');
+  var stickerButton = document.getElementById('m2StickerButton');
+  var stickerPanel = document.getElementById('m2StickerPanel');
   var attachButton = document.getElementById('m2AttachButton');
   var fileInput = document.getElementById('m2AttachmentInput');
   var preview = document.getElementById('m2AttachmentPreview');
@@ -43,6 +45,7 @@
   var stream = null;
   var chunks = [];
   var attachmentObjectUrl = '';
+  var stickerGallery = readJsonScript('m2StickersData', []);
 
   if (conversationId > 0) {
     shell.classList.add('has-chat');
@@ -87,9 +90,21 @@
     event.stopPropagation();
   }
 
+  function readJsonScript(id, fallback) {
+    var node = document.getElementById(id);
+    if (!node) return fallback;
+    try {
+      var parsed = JSON.parse(node.textContent || 'null');
+      return parsed == null ? fallback : parsed;
+    } catch (ignore) {
+      return fallback;
+    }
+  }
+
   function closePanels() {
     if (menu) menu.classList.add('hidden');
     if (emojiPanel) emojiPanel.classList.add('hidden');
+    if (stickerPanel) stickerPanel.classList.add('hidden');
     if (toolsPanel) toolsPanel.classList.add('hidden');
     if (appointmentPanel) appointmentPanel.classList.add('hidden');
   }
@@ -100,6 +115,7 @@
     if (appointmentPanel && appointmentPanel !== drawer) appointmentPanel.classList.add('hidden');
     if (menu) menu.classList.add('hidden');
     if (emojiPanel) emojiPanel.classList.add('hidden');
+    if (stickerPanel) stickerPanel.classList.add('hidden');
     drawer.classList.remove('hidden');
   }
 
@@ -285,10 +301,9 @@
   function renderEmojiPanel() {
     if (!emojiPanel) return;
     var emojis = [
-      '\u{1F600}', '\u{1F602}', '\u{1F60D}', '\u{1F525}',
-      '\u{1F44F}', '\u{1F64F}', '\u{1F44D}', '\u{1F440}',
-      '\u{2705}', '\u{2764}\u{FE0F}', '\u{1F3AF}', '\u{1F4C5}',
-      '\u{1F91D}', '\u{1F680}', '\u{1F4AA}', '\u{1F642}'
+      '😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😍','😘','😗','😙','😚','😋','😛','😜','🤪','😎','🥳','😏','😒','😞','😔','😢','😭','😤','😡','🤯','🥺','😬','😮‍💨','😴','🤔','🫠',
+      '🤝','👍','👎','👌','🤌','👏','🙌','🙏','💪','🤘','✌️','👀','🫶','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕','💞','💘',
+      '🔥','✨','⭐','💫','💥','💯','✅','☑️','❌','⚠️','📅','⏰','📍','💰','💳','📸','🎨','🖊️','🌹','🐍','🦁','🐺','🦋','🌙','☀️','⚡','👑','💀','👻','🍒','🍺','☕','🎯','🚀','📲','🤖'
     ];
     emojiPanel.replaceChildren();
     emojis.forEach(function (emoji) {
@@ -298,6 +313,127 @@
       button.textContent = emoji;
       emojiPanel.append(button);
     });
+  }
+
+  function stickerSaved(mediaUrl) {
+    mediaUrl = String(mediaUrl || '');
+    return stickerGallery.some(function (sticker) {
+      return String(sticker?.media_url || '') === mediaUrl;
+    });
+  }
+
+  function renderStickerPanel() {
+    if (!stickerPanel) return;
+    stickerPanel.replaceChildren();
+    var header = document.createElement('div');
+    header.className = 'm2-sticker-head';
+    header.innerHTML = '<strong>Minhas figurinhas</strong><small>Salvas apenas neste login</small>';
+    stickerPanel.append(header);
+    if (!Array.isArray(stickerGallery) || stickerGallery.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'm2-sticker-empty';
+      empty.innerHTML = '<i class="fa-regular fa-note-sticky"></i><span>Nenhuma figurinha salva ainda.</span><small>Quando receber uma figurinha na conversa, toque em “Salvar figurinha”.</small>';
+      stickerPanel.append(empty);
+      return;
+    }
+    var grid = document.createElement('div');
+    grid.className = 'm2-sticker-grid';
+    stickerGallery.forEach(function (sticker) {
+      var mediaUrl = String(sticker?.media_url || '');
+      if (!mediaUrl) return;
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('data-send-sticker', String(sticker.id || ''));
+      button.title = sticker.title || 'Enviar figurinha';
+      button.innerHTML = '<img src="' + escapeHtml(mediaUrl) + '" alt="' + escapeHtml(sticker.title || 'Figurinha') + '">';
+      grid.append(button);
+    });
+    stickerPanel.append(grid);
+  }
+
+  function updateStickerGallery(items) {
+    if (Array.isArray(items)) {
+      stickerGallery = items;
+    }
+    renderStickerPanel();
+    if (!messages) return;
+    messages.querySelectorAll('[data-save-sticker]').forEach(function (button) {
+      var article = button.closest('.m2-msg');
+      var img = article ? article.querySelector('.m2-sticker-media') : null;
+      if (img && stickerSaved(img.getAttribute('src') || '')) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fa-solid fa-bookmark"></i>Salva';
+      }
+    });
+  }
+
+  async function postStickerAction(action, payload) {
+    var body = new FormData();
+    body.set('action', action);
+    body.set('csrf_token', csrfToken);
+    Object.keys(payload || {}).forEach(function (key) {
+      body.set(key, payload[key]);
+    });
+    var response = await fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      body: body,
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    var data = await response.json().catch(function () { return null; });
+    if (!response.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || 'Não foi possível processar a figurinha.');
+    }
+    updateStickerGallery(data.stickers || (data.sticker ? [data.sticker].concat(stickerGallery) : stickerGallery));
+    return data;
+  }
+
+  async function saveSticker(button) {
+    if (!button || button.disabled) return;
+    var messageId = button.getAttribute('data-save-sticker') || '';
+    if (!messageId) return;
+    var oldHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Salvando';
+    try {
+      await postStickerAction('save_whatsapp_sticker', { message_id: messageId });
+      button.innerHTML = '<i class="fa-solid fa-bookmark"></i>Salva';
+    } catch (error) {
+      button.disabled = false;
+      button.innerHTML = oldHtml;
+      alert(error.message || 'Não foi possível salvar a figurinha.');
+    }
+  }
+
+  async function sendSticker(button) {
+    if (!button || button.disabled) return;
+    var stickerId = button.getAttribute('data-send-sticker') || '';
+    if (!stickerId || !conversationId) return;
+    button.disabled = true;
+    button.classList.add('is-sending');
+    if (form) form.setAttribute('data-sending', '1');
+    try {
+      await postStickerAction('send_whatsapp_sticker', {
+        sticker_id: stickerId,
+        conversation_id: String(conversationId)
+      });
+      if (stickerPanel) stickerPanel.classList.add('hidden');
+      await refreshMessages(true);
+      await refreshConversationList(true);
+      window.setTimeout(function () {
+        refreshMessages(true);
+        refreshConversationList(true);
+      }, 900);
+    } catch (error) {
+      alert(error.message || 'Não foi possível enviar a figurinha.');
+    } finally {
+      if (form) form.setAttribute('data-sending', '0');
+      button.disabled = false;
+      button.classList.remove('is-sending');
+    }
   }
 
   function stopStream() {
@@ -535,6 +671,7 @@
     var mediaMime = String(mime || '').toLowerCase();
     var mediaUrl = String(url || '').toLowerCase();
     var messageType = String(type || '').toLowerCase();
+    if (messageType === 'sticker') return 'sticker';
     if (mediaMime.indexOf('image/') === 0 || /\.(png|jpe?g|gif|webp)(\?|$)/i.test(mediaUrl) || messageType === 'image') return 'image';
     if (mediaMime.indexOf('audio/') === 0 || messageType === 'audio') return 'audio';
     if (mediaMime.indexOf('video/') === 0 || messageType === 'video') return 'video';
@@ -634,7 +771,12 @@
       if (!mediaName) {
         mediaName = decodeURIComponent((mediaUrl.split('/').pop() || '').split('?')[0] || '');
       }
-      if (mediaKind === 'image') {
+      if (mediaKind === 'sticker') {
+        html += '<div class="m2-sticker-wrap"><img class="m2-sticker-media" src="' + escapeHtml(mediaUrl) + '" alt="' + escapeHtml(mediaName || 'Figurinha') + '"></div>';
+        if (!stickerSaved(mediaUrl)) {
+          html += '<button class="m2-save-sticker" type="button" data-save-sticker="' + escapeHtml(localId) + '"><i class="fa-regular fa-bookmark"></i>Salvar figurinha</button>';
+        }
+      } else if (mediaKind === 'image') {
         html += '<img class="m2-media" src="' + escapeHtml(mediaUrl) + '" alt="' + escapeHtml(mediaName || 'Midia') + '">';
       } else if (mediaKind === 'video') {
         html += '<video class="m2-media" src="' + escapeHtml(mediaUrl) + '" controls></video>';
@@ -771,6 +913,7 @@
   }
 
   renderEmojiPanel();
+  renderStickerPanel();
   if (messages) {
     messages.dataset.latestKey = latestRenderedKey();
   }
@@ -893,6 +1036,7 @@
     menuButton.addEventListener('click', function (event) {
       stop(event);
       if (emojiPanel) emojiPanel.classList.add('hidden');
+      if (stickerPanel) stickerPanel.classList.add('hidden');
       menu.classList.toggle('hidden');
     });
   }
@@ -901,6 +1045,7 @@
     emojiButton.addEventListener('click', function (event) {
       stop(event);
       if (menu) menu.classList.add('hidden');
+      if (stickerPanel) stickerPanel.classList.add('hidden');
       if (toolsPanel) toolsPanel.classList.add('hidden');
       if (appointmentPanel) appointmentPanel.classList.add('hidden');
       emojiPanel.classList.toggle('hidden');
@@ -993,6 +1138,25 @@
     replyCancelButton.addEventListener('click', function (event) {
       stop(event);
       clearReplyContext();
+    });
+  }
+
+  if (stickerButton && stickerPanel) {
+    stickerButton.addEventListener('click', function (event) {
+      stop(event);
+      if (textarea && textarea.disabled) return;
+      if (menu) menu.classList.add('hidden');
+      if (emojiPanel) emojiPanel.classList.add('hidden');
+      if (toolsPanel) toolsPanel.classList.add('hidden');
+      if (appointmentPanel) appointmentPanel.classList.add('hidden');
+      renderStickerPanel();
+      stickerPanel.classList.toggle('hidden');
+    });
+    stickerPanel.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-send-sticker]');
+      if (!button) return;
+      stop(event);
+      sendSticker(button);
     });
   }
 
@@ -1097,6 +1261,13 @@
       stop(event);
       var drawer = document.getElementById(closeButton.getAttribute('data-close-drawer') || '');
       if (drawer) drawer.classList.add('hidden');
+      return;
+    }
+
+    var saveStickerButton = event.target.closest('[data-save-sticker]');
+    if (saveStickerButton) {
+      stop(event);
+      saveSticker(saveStickerButton);
       return;
     }
 

@@ -1125,6 +1125,58 @@ if ($action === 'studio_login') {
             redirect_to(!empty($_POST['return_to_workspace']) ? 'studio_whatsapp_workspace' : 'studio_whatsapp_conversation', $conversationId > 0 ? ['id' => $conversationId] : []);
         }
 
+        if ($action === 'save_whatsapp_sticker') {
+            $studio = require_studio();
+            $user = current_studio_user();
+            header('Content-Type: application/json; charset=utf-8');
+            if (!$user) {
+                http_response_code(401);
+                echo json_encode(['ok' => false, 'error' => 'Faça login para salvar figurinhas.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            $result = studio_save_whatsapp_sticker_from_message($studio, (int)$user['id'], (int)($_POST['message_id'] ?? 0));
+            if (empty($result['ok'])) {
+                http_response_code(400);
+            }
+            $result['stickers'] = array_map('studio_whatsapp_sticker_payload', studio_list_whatsapp_stickers($studio, (int)$user['id']));
+            echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        if ($action === 'send_whatsapp_sticker') {
+            $studio = require_studio();
+            $user = current_studio_user();
+            header('Content-Type: application/json; charset=utf-8');
+            if (!$user) {
+                http_response_code(401);
+                echo json_encode(['ok' => false, 'error' => 'Faça login para enviar figurinhas.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            if (function_exists('crm_whatsapp_official_apply_defaults')) {
+                crm_whatsapp_official_apply_defaults($studio);
+            }
+            $conversationId = (int)($_POST['conversation_id'] ?? $_GET['id'] ?? 0);
+            $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
+            if (!$conversation) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Conversa não encontrada.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            if (!studio_can_send_whatsapp_conversation($studio, $conversation, $user)) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'error' => 'Você precisa assumir a conversa para enviar figurinhas.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            $result = studio_send_whatsapp_saved_sticker($studio, $conversation, (int)$user['id'], (int)($_POST['sticker_id'] ?? 0));
+            if (empty($result['ok'])) {
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => studio_whatsapp_send_error_message($result), 'stickers' => array_map('studio_whatsapp_sticker_payload', studio_list_whatsapp_stickers($studio, (int)$user['id']))], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'message_id' => (string)($result['messageId'] ?? ''), 'conversation_id' => (int)($result['conversation_id'] ?? $conversationId), 'stickers' => array_map('studio_whatsapp_sticker_payload', studio_list_whatsapp_stickers($studio, (int)$user['id']))], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
         if ($action === 'send_whatsapp_message') {
             $studio = require_studio();
             $wantsWhatsappJson = !empty($_POST['return_to_mobile'])
@@ -2575,6 +2627,8 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     $leads = $conversation ? studio_list_leads($studio) : [];
     $artists = $conversation ? studio_list_artists($studio) : [];
     $quickReplies = $conversation ? array_values(array_filter(studio_list_quick_replies($studio), static fn(array $reply): bool => !empty($reply['is_active']))) : [];
+    $stickers = $conversation ? studio_list_whatsapp_stickers($studio, $currentUserId) : [];
+    $savedStickerUrls = array_fill_keys(array_map(static fn(array $sticker): string => (string)($sticker['media_url'] ?? ''), $stickers), true);
     $assistantAutofillEnabled = !empty(studio_settings($studio)['assistant_autofill_enabled']);
     $assistantConfidence = max(0, min(100, (int)round(((int)($assistantInsights['confidence'] ?? 0)) * 10)));
     if ($assistantAutofillEnabled && $assistantConfidence === 0 && count($messages) > 0) {
@@ -2675,6 +2729,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $mime = strtolower(trim($mime));
         $type = strtolower(trim($type));
         $ext = strtolower(pathinfo((string)(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl), PATHINFO_EXTENSION));
+        if ($type === 'sticker') return 'sticker';
         if (str_starts_with($mime, 'image/') || $type === 'image') return 'image';
         if (str_starts_with($mime, 'audio/') || $type === 'audio') return 'audio';
         if (str_starts_with($mime, 'video/') || $type === 'video') return 'video';
@@ -2828,7 +2883,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
             echo '<article class="m2-msg' . h($class) . '" data-message-key="' . h($messageKey) . '" data-message-id="' . h($messageIdLocal) . '" data-wamid="' . h($messageWamid) . '" data-message-preview="' . h($messagePreview) . '" data-message-sender="' . h($direction === 'out' ? 'Você' : $displayName) . '"><div class="' . h($bubbleClass) . '">';
             if ($contextPreview !== '') echo '<div class="m2-quoted"><span>Respondendo</span><p>' . h(mb_substr($contextPreview, 0, 220, 'UTF-8')) . '</p></div>';
             if ($mediaUrl !== '') {
-                if ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
+                if ($kind === 'sticker') {
+                    echo '<div class="m2-sticker-wrap"><img class="m2-sticker-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Figurinha') . '"></div>';
+                    if (empty($savedStickerUrls[$mediaUrl])) echo '<button class="m2-save-sticker" type="button" data-save-sticker="' . h($messageIdLocal) . '"><i class="fa-regular fa-bookmark"></i>Salvar figurinha</button>';
+                } elseif ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
                 elseif ($kind === 'video') echo '<video class="m2-media" src="' . h($mediaUrl) . '" controls></video>';
                 elseif ($kind === 'audio') {
                     echo '<div class="m2-audio-widget" data-audio-src="' . h($mediaUrl) . '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' . h($mediaUrl) . '" preload="metadata" style="display:none!important"></audio></div>';
@@ -2843,8 +2901,9 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         }
         echo '</div>';
         echo '<div class="m2-emoji hidden" id="m2EmojiPanel" aria-label="Emojis">';
-        foreach (['😀','😂','😍','🔥','👏','🙏','👍','👀','✅','❤️','🎯','📅'] as $emoji) echo '<button type="button" data-emoji="' . h($emoji) . '">' . h($emoji) . '</button>';
+        foreach (['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😍','😘','😗','😙','😚','😋','😛','😜','🤪','😎','🥳','😏','😒','😞','😔','😢','😭','😤','😡','🤯','🥺','😬','😮‍💨','😴','🤔','🫠','🤝','👍','👎','👌','🤌','👏','🙌','🙏','💪','🤘','✌️','👀','🫶','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕','💞','💘','🔥','✨','⭐','💫','💥','💯','✅','☑️','❌','⚠️','🙏','📅','⏰','📍','💰','💳','📸','🎨','🖊️','🖤','🌹','🐍','🦁','🐺','🦋','🌙','☀️','⚡','👑','💀','👻','🍒','🍺','☕','🎯','🚀','📲','🤖'] as $emoji) echo '<button type="button" data-emoji="' . h($emoji) . '">' . h($emoji) . '</button>';
         echo '</div>';
+        echo '<div class="m2-sticker-panel hidden" id="m2StickerPanel" aria-label="Figurinhas"></div>';
         echo '<div class="m2-attachment hidden" id="m2AttachmentPreview"></div>';
         $mobileWindow = studio_whatsapp_customer_service_window($studio, $conversationId);
         $mobileAiSnapshot = studio_whatsapp_ai_suggestions_snapshot($studio, $conversation, $assistantInsights, $messages);
@@ -2852,7 +2911,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
             echo '<div class="m2-card"><strong>Janela oficial encerrada</strong><small>Use um template aprovado para reabrir esta conversa fora das 24h.</small></div>';
         }
         echo '<div class="m2-reply-preview hidden" id="m2ReplyPreview"><div><span>Responder</span><strong id="m2ReplyPreviewSender">Mensagem</strong><p id="m2ReplyPreviewText"></p></div><button type="button" id="m2CancelReply" aria-label="Cancelar resposta"><i class="fa-solid fa-xmark"></i></button></div>';
-        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input type="hidden" name="context_message_id" id="m2ContextMessageId" value=""><input type="hidden" name="context_local_message_id" id="m2ContextLocalMessageId" value=""><input type="hidden" name="context_preview" id="m2ContextPreview" value=""><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input type="hidden" name="context_message_id" id="m2ContextMessageId" value=""><input type="hidden" name="context_local_message_id" id="m2ContextLocalMessageId" value=""><input type="hidden" name="context_preview" id="m2ContextPreview" value=""><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2StickerButton" aria-label="Figurinhas"><i class="fa-regular fa-note-sticky"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
         if (!$canSend) {
             echo '<div class="m2-notice">Voce pode visualizar, mas precisa assumir a conversa para responder.</div>';
         }
@@ -2894,6 +2953,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '<div class="crm-modal hidden" id="m2AiOverlay"><div class="crm-modal-panel ai-modal-panel" style="max-width:min(96vw,760px);background:linear-gradient(180deg,#15232a 0%,#111b21 100%);color:#e9edef;border:1px solid rgba(134,150,160,.22);box-shadow:0 30px 90px rgba(0,0,0,.55)"><div class="crm-panel-header" style="background:linear-gradient(180deg,rgba(19,32,39,.98) 0%,rgba(15,25,31,.98) 100%);border-bottom:1px solid rgba(0,168,132,.16);color:#e9edef"><div><h3 class="crm-panel-title" style="color:#f3f6f7">Sugestoes da IA</h3><p class="muted" style="margin:4px 0 0;color:#9aa7af">Copiloto silencioso para leitura, resumo e apoio ao atendimento.</p></div><button type="button" id="closeM2AiOverlay" class="crm-button crm-icon-button" style="color:#e9edef;border-color:rgba(255,255,255,.1);background:rgba(255,255,255,.04)"><i class="fa-solid fa-xmark"></i></button></div><div id="m2AiOverlayBody" class="p-4" style="padding:20px;background:linear-gradient(180deg,rgba(17,27,33,.98) 0%,rgba(12,19,24,.99) 100%);color:#e9edef"></div></div></div>';
         echo '<script type="application/json" id="m2AiInitialData">' . json_encode($mobileAiSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
         echo '<script type="application/json" id="m2QuickRepliesData">' . json_encode(studio_quick_replies_payload($quickReplies), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
+        echo '<script type="application/json" id="m2StickersData">' . json_encode(array_map('studio_whatsapp_sticker_payload', $stickers), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
     }
     echo '</section></main>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';

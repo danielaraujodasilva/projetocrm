@@ -193,6 +193,41 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
         } catch (Throwable) {
         }
     }
+
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS `whatsapp_stickers` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `studio_id` BIGINT UNSIGNED NOT NULL,
+            `studio_user_id` BIGINT UNSIGNED NOT NULL,
+            `source_message_id` BIGINT UNSIGNED NULL,
+            `title` VARCHAR(120) NULL,
+            `media_url` VARCHAR(500) NOT NULL,
+            `media_mime` VARCHAR(120) NOT NULL DEFAULT "image/webp",
+            `media_file_name` VARCHAR(255) NULL,
+            `media_file_path` VARCHAR(500) NULL,
+            `usage_count` INT UNSIGNED NOT NULL DEFAULT 0,
+            `created_at` DATETIME NOT NULL,
+            `last_used_at` DATETIME NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `uniq_whatsapp_sticker_user_media` (`studio_id`, `studio_user_id`, `media_url`),
+            KEY `idx_whatsapp_stickers_user` (`studio_id`, `studio_user_id`, `last_used_at`, `created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+
+    foreach ([
+        'ALTER TABLE `whatsapp_stickers` ADD COLUMN IF NOT EXISTS `source_message_id` BIGINT UNSIGNED NULL AFTER `studio_user_id`',
+        'ALTER TABLE `whatsapp_stickers` ADD COLUMN IF NOT EXISTS `title` VARCHAR(120) NULL AFTER `source_message_id`',
+        'ALTER TABLE `whatsapp_stickers` ADD COLUMN IF NOT EXISTS `media_file_path` VARCHAR(500) NULL AFTER `media_file_name`',
+        'ALTER TABLE `whatsapp_stickers` ADD COLUMN IF NOT EXISTS `usage_count` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `media_file_path`',
+        'ALTER TABLE `whatsapp_stickers` ADD COLUMN IF NOT EXISTS `last_used_at` DATETIME NULL AFTER `created_at`',
+        'ALTER TABLE `whatsapp_stickers` ADD UNIQUE INDEX IF NOT EXISTS `uniq_whatsapp_sticker_user_media` (`studio_id`, `studio_user_id`, `media_url`)',
+        'ALTER TABLE `whatsapp_stickers` ADD INDEX IF NOT EXISTS `idx_whatsapp_stickers_user` (`studio_id`, `studio_user_id`, `last_used_at`, `created_at`)',
+    ] as $sql) {
+        try {
+            $pdo->exec($sql);
+        } catch (Throwable) {
+        }
+    }
 }
 
 function studio_db_status_for(array $studio): array
@@ -2601,6 +2636,166 @@ function studio_whatsapp_messages(array $studio, int $conversationId, int $limit
     }
 
     return array_reverse($messages);
+}
+
+function studio_list_whatsapp_stickers(array $studio, int $studioUserId, int $limit = 72): array
+{
+    if ($studioUserId <= 0) {
+        return [];
+    }
+    $stmt = studio_db($studio)->prepare(
+        'SELECT *
+         FROM whatsapp_stickers
+         WHERE studio_id = ? AND studio_user_id = ?
+         ORDER BY COALESCE(last_used_at, created_at) DESC, id DESC
+         LIMIT ?'
+    );
+    $stmt->bindValue(1, (int)$studio['id'], PDO::PARAM_INT);
+    $stmt->bindValue(2, $studioUserId, PDO::PARAM_INT);
+    $stmt->bindValue(3, max(1, min(120, $limit)), PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll() ?: [];
+}
+
+function studio_whatsapp_sticker_payload(array $sticker): array
+{
+    return [
+        'id' => (int)($sticker['id'] ?? 0),
+        'title' => (string)($sticker['title'] ?? ''),
+        'media_url' => (string)($sticker['media_url'] ?? ''),
+        'media_mime' => (string)($sticker['media_mime'] ?? 'image/webp'),
+        'media_file_name' => (string)($sticker['media_file_name'] ?? ''),
+        'usage_count' => (int)($sticker['usage_count'] ?? 0),
+        'created_at' => (string)($sticker['created_at'] ?? ''),
+        'last_used_at' => (string)($sticker['last_used_at'] ?? ''),
+    ];
+}
+
+function studio_find_whatsapp_sticker(array $studio, int $studioUserId, int $stickerId): ?array
+{
+    if ($studioUserId <= 0 || $stickerId <= 0) {
+        return null;
+    }
+    $stmt = studio_db($studio)->prepare(
+        'SELECT *
+         FROM whatsapp_stickers
+         WHERE id = ? AND studio_id = ? AND studio_user_id = ?
+         LIMIT 1'
+    );
+    $stmt->execute([$stickerId, (int)$studio['id'], $studioUserId]);
+    $row = $stmt->fetch();
+    return is_array($row) ? $row : null;
+}
+
+function studio_save_whatsapp_sticker_from_message(array $studio, int $studioUserId, int $messageId): array
+{
+    if ($studioUserId <= 0) {
+        return ['ok' => false, 'error' => 'Faça login como atendente para salvar figurinhas.'];
+    }
+    if ($messageId <= 0) {
+        return ['ok' => false, 'error' => 'Mensagem inválida.'];
+    }
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare(
+        'SELECT wm.*
+         FROM whatsapp_messages wm
+         INNER JOIN whatsapp_conversations wc ON wc.id = wm.conversation_id
+         WHERE wm.id = ? AND wc.phone <> "" AND wm.media_url IS NOT NULL AND wm.media_url <> ""
+         LIMIT 1'
+    );
+    $stmt->execute([$messageId]);
+    $message = $stmt->fetch();
+    if (!is_array($message)) {
+        return ['ok' => false, 'error' => 'Não encontrei a figurinha nessa conversa.'];
+    }
+    $type = strtolower(trim((string)($message['message_type'] ?? '')));
+    $mime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    $mediaUrl = trim((string)($message['media_url'] ?? ''));
+    if ($type !== 'sticker' && $mime !== 'image/webp' && !preg_match('/\.webp(?:\?|$)/i', $mediaUrl)) {
+        return ['ok' => false, 'error' => 'Só dá para salvar mensagens que sejam figurinhas WebP.'];
+    }
+
+    $mediaName = trim((string)($message['media_file_name'] ?? ''));
+    if ($mediaName === '') {
+        $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl) ?: 'figurinha.webp';
+    }
+    $title = mb_substr((string)preg_replace('/\.[^.]+$/', '', $mediaName), 0, 120, 'UTF-8');
+    $mediaPath = trim((string)($message['media_file_path'] ?? ''));
+    if ($mediaPath === '') {
+        $mediaPath = $mediaUrl;
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT INTO whatsapp_stickers
+            (studio_id, studio_user_id, source_message_id, title, media_url, media_mime, media_file_name, media_file_path, created_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NULL)
+         ON DUPLICATE KEY UPDATE
+            source_message_id = VALUES(source_message_id),
+            title = COALESCE(NULLIF(VALUES(title), ""), title),
+            media_mime = VALUES(media_mime),
+            media_file_name = VALUES(media_file_name),
+            media_file_path = VALUES(media_file_path)'
+    );
+    $insert->execute([
+        (int)$studio['id'],
+        $studioUserId,
+        (int)$message['id'],
+        $title,
+        $mediaUrl,
+        $mime !== '' ? $mime : 'image/webp',
+        $mediaName,
+        $mediaPath,
+    ]);
+
+    $find = $pdo->prepare(
+        'SELECT *
+         FROM whatsapp_stickers
+         WHERE studio_id = ? AND studio_user_id = ? AND media_url = ?
+         LIMIT 1'
+    );
+    $find->execute([(int)$studio['id'], $studioUserId, $mediaUrl]);
+    $sticker = $find->fetch();
+    if (!is_array($sticker)) {
+        return ['ok' => false, 'error' => 'A figurinha foi salva, mas não consegui recarregar a galeria.'];
+    }
+
+    return ['ok' => true, 'sticker' => studio_whatsapp_sticker_payload($sticker)];
+}
+
+function studio_send_whatsapp_saved_sticker(array $studio, array $conversation, int $studioUserId, int $stickerId): array
+{
+    $sticker = studio_find_whatsapp_sticker($studio, $studioUserId, $stickerId);
+    if (!$sticker) {
+        return ['ok' => false, 'error' => 'Figurinha não encontrada na sua galeria.'];
+    }
+    $relativePath = trim((string)($sticker['media_file_path'] ?? ''));
+    if ($relativePath === '') {
+        $relativePath = trim((string)($sticker['media_url'] ?? ''));
+    }
+    $absolutePath = studio_whatsapp_media_absolute_path($relativePath);
+    if ($absolutePath === null || !is_file($absolutePath)) {
+        return ['ok' => false, 'error' => 'Arquivo da figurinha não encontrado no servidor.'];
+    }
+    $fileName = trim((string)($sticker['media_file_name'] ?? basename($absolutePath))) ?: basename($absolutePath);
+    $mime = trim((string)($sticker['media_mime'] ?? 'image/webp')) ?: 'image/webp';
+    $result = studio_send_whatsapp_message($studio, [
+        'conversation_id' => (int)$conversation['id'],
+        'phone' => (string)($conversation['phone'] ?? ''),
+        'message' => '',
+        'senderType' => 'human',
+        'media_upload' => [
+            'path' => $absolutePath,
+            'mime' => $mime,
+            'fileName' => $fileName,
+            'kind' => 'sticker',
+            'relativePath' => trim((string)($sticker['media_url'] ?? '')),
+        ],
+    ]);
+    if (!empty($result['ok'])) {
+        studio_db($studio)->prepare('UPDATE whatsapp_stickers SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = ? AND studio_id = ? AND studio_user_id = ?')
+            ->execute([$stickerId, (int)$studio['id'], $studioUserId]);
+    }
+    return $result;
 }
 
 function studio_whatsapp_read_state_path(array $studio): string
@@ -8364,7 +8559,7 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
     }
 
     $mediaId = (string)$uploadJson['id'];
-    $messageType = in_array($kind, ['image', 'video', 'audio', 'document'], true) ? $kind : 'document';
+    $messageType = in_array($kind, ['image', 'video', 'audio', 'document', 'sticker'], true) ? $kind : 'document';
     $mediaPayload = ['id' => $mediaId];
     if ($caption !== '' && in_array($messageType, ['image', 'video', 'document'], true)) {
         $mediaPayload['caption'] = $caption;
@@ -9387,7 +9582,7 @@ function studio_prepare_whatsapp_attachment(array $studio, array $data, array $f
             $mime = trim((string)($directUpload['mime'] ?? 'application/octet-stream')) ?: 'application/octet-stream';
             $fileName = trim((string)($directUpload['fileName'] ?? basename($realPath))) ?: basename($realPath);
             $kind = trim((string)($directUpload['kind'] ?? 'document'));
-            if (!in_array($kind, ['image', 'video', 'audio', 'document'], true)) {
+            if (!in_array($kind, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
                 $kind = str_starts_with($mime, 'audio/') ? 'audio' : 'document';
             }
             return [
