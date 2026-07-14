@@ -11923,6 +11923,198 @@ function studio_data_assistant_run_readonly_sql(array $studio, string $sql): arr
     ];
 }
 
+function studio_data_assistant_plain_text(string $text): string
+{
+    $text = mb_strtolower(trim($text), 'UTF-8');
+    $text = strtr($text, [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'é' => 'e', 'ê' => 'e', 'è' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c',
+    ]);
+
+    return preg_replace('/\s+/', ' ', $text) ?? $text;
+}
+
+function studio_data_assistant_period_from_question(string $question, bool $defaultCurrentMonth = false): ?array
+{
+    $text = studio_data_assistant_plain_text($question);
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $today = new DateTimeImmutable('today', $tz);
+    $start = null;
+    $end = null;
+    $label = '';
+
+    if (preg_match('/\b(hoje)\b/u', $text)) {
+        $start = $today;
+        $end = $today->modify('+1 day');
+        $label = 'hoje';
+    } elseif (preg_match('/\b(amanha|amanhã)\b/u', $text)) {
+        $start = $today->modify('+1 day');
+        $end = $today->modify('+2 day');
+        $label = 'amanhã';
+    } elseif (preg_match('/\b(ontem)\b/u', $text)) {
+        $start = $today->modify('-1 day');
+        $end = $today;
+        $label = 'ontem';
+    } elseif (preg_match('/\b(semana que vem|proxima semana|próxima semana)\b/u', $text)) {
+        $start = $today->modify('monday next week');
+        $end = $start->modify('+7 days');
+        $label = 'semana que vem';
+    } elseif (preg_match('/\b(essa semana|esta semana|semana atual)\b/u', $text)) {
+        $start = $today->modify('monday this week');
+        $end = $start->modify('+7 days');
+        $label = 'esta semana';
+    } elseif (preg_match('/\b(mes passado|mês passado)\b/u', $text)) {
+        $start = $today->modify('first day of previous month');
+        $end = $today->modify('first day of this month');
+        $label = 'mês passado';
+    } elseif (preg_match('/\b(esse mes|este mes|mes atual|mês atual|esse mês|este mês)\b/u', $text) || ($defaultCurrentMonth && str_contains($text, 'mes'))) {
+        $start = $today->modify('first day of this month');
+        $end = $start->modify('+1 month');
+        $label = 'este mês';
+    } elseif (preg_match('/\b(proximos|proximas|pr[oó]ximos|pr[oó]ximas)\s+(\d{1,3})\s+dias\b/u', $text, $match)) {
+        $days = max(1, min(120, (int)$match[2]));
+        $start = $today;
+        $end = $today->modify('+' . $days . ' days');
+        $label = 'próximos ' . $days . ' dias';
+    } elseif ($defaultCurrentMonth) {
+        $start = $today->modify('first day of this month');
+        $end = $start->modify('+1 month');
+        $label = 'este mês';
+    }
+
+    if (!$start || !$end) {
+        return null;
+    }
+
+    return [
+        'start' => $start->format('Y-m-d'),
+        'end' => $end->format('Y-m-d'),
+        'label' => $label,
+    ];
+}
+
+function studio_data_assistant_canonical_queries(string $question): ?array
+{
+    $text = studio_data_assistant_plain_text($question);
+    $asksMoney = (bool)preg_match('/\b(previsto|previsao|previsão|ganhar|faturar|faturamento|receita|receber|entrar|vender|vendas)\b/u', $text);
+    $asksExpense = (bool)preg_match('/\b(despesa|despesas|gasto|gastos|custo|custos)\b/u', $text);
+    $asksResult = (bool)preg_match('/\b(resultado|lucro|saldo|balanco|balanço)\b/u', $text);
+    $asksCount = (bool)preg_match('/\b(quantos|quantas|qtd|quantidade|total)\b/u', $text);
+    $period = studio_data_assistant_period_from_question($question, $asksMoney || $asksExpense || $asksResult || $asksCount);
+    $notCancelled = "LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled')";
+
+    if ($asksResult && $period) {
+        return [[
+            'title' => 'Resultado canônico de ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, "
+                . "(SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date >= '{$period['start']}' AND appointment_date < '{$period['end']}' AND {$notCancelled}) AS receita_prevista, "
+                . "(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= '{$period['start']}' AND expense_date < '{$period['end']}') AS despesas, "
+                . "((SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date >= '{$period['start']}' AND appointment_date < '{$period['end']}' AND {$notCancelled}) - "
+                . "(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= '{$period['start']}' AND expense_date < '{$period['end']}')) AS resultado",
+        ]];
+    }
+
+    if ($asksExpense && $period) {
+        return [[
+            'title' => 'Despesas canônicas de ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, COUNT(*) AS quantidade_despesas, COALESCE(SUM(amount), 0) AS total_despesas FROM expenses WHERE expense_date >= '{$period['start']}' AND expense_date < '{$period['end']}'",
+        ]];
+    }
+
+    if ($asksMoney && $period) {
+        return [[
+            'title' => 'Receita prevista canônica de ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, COUNT(*) AS agendamentos_considerados, COALESCE(SUM(value), 0) AS receita_prevista FROM appointments WHERE appointment_date >= '{$period['start']}' AND appointment_date < '{$period['end']}' AND {$notCancelled}",
+        ]];
+    }
+
+    if ($asksCount && preg_match('/\b(clientes?|cadastros?)\b/u', $text) && $period) {
+        return [[
+            'title' => 'Clientes cadastrados em ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, COUNT(*) AS clientes_cadastrados FROM customers WHERE created_at >= '{$period['start']}' AND created_at < '{$period['end']}'",
+        ]];
+    }
+
+    if ($asksCount && preg_match('/\b(leads?|orcamentos?|orçamentos?|oportunidades?)\b/u', $text) && $period) {
+        return [[
+            'title' => 'Leads cadastrados em ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, COUNT(*) AS leads_cadastrados, COALESCE(SUM(estimated_value), 0) AS valor_estimado FROM leads WHERE created_at >= '{$period['start']}' AND created_at < '{$period['end']}'",
+        ]];
+    }
+
+    if ($asksCount && preg_match('/\b(agendamentos?|agenda|horarios?|sess(?:ao|oes|ão|ões))\b/u', $text) && $period) {
+        return [[
+            'title' => 'Agendamentos em ' . $period['label'],
+            'sql' => "SELECT '{$period['label']}' AS periodo, '{$period['start']}' AS inicio_inclusivo, '{$period['end']}' AS fim_exclusivo, COUNT(*) AS agendamentos, COALESCE(SUM(value), 0) AS valor_total FROM appointments WHERE appointment_date >= '{$period['start']}' AND appointment_date < '{$period['end']}' AND {$notCancelled}",
+        ]];
+    }
+
+    if (preg_match('/\b(cliente|clientes)\b/u', $text) && preg_match('/\b(mais|maior|top|gastou|comprou|pagou|faturou)\b/u', $text)) {
+        return [[
+            'title' => 'Cliente com maior gasto canônico',
+            'sql' => "SELECT COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE a.appointment_date <= CURDATE() AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') ORDER BY total_gasto DESC, agendamentos DESC LIMIT 10",
+        ]];
+    }
+
+    return null;
+}
+
+function studio_data_assistant_canonical_answer_text(string $question, array $executed): string
+{
+    $result = $executed[0]['result'] ?? [];
+    $rows = is_array($result['rows'] ?? null) ? $result['rows'] : [];
+    $row = is_array($rows[0] ?? null) ? $rows[0] : [];
+    $period = trim((string)($row['periodo'] ?? ''));
+    $periodText = $period !== '' ? $period : 'o período consultado';
+    $rangeText = '';
+    if (!empty($row['inicio_inclusivo']) && !empty($row['fim_exclusivo'])) {
+        $rangeText = ' (' . (string)$row['inicio_inclusivo'] . ' até antes de ' . (string)$row['fim_exclusivo'] . ')';
+    }
+    if (array_key_exists('receita_prevista', $row) && array_key_exists('despesas', $row) && array_key_exists('resultado', $row)) {
+        return 'Resultado canônico para ' . $periodText . ': receita prevista de ' . format_money((float)$row['receita_prevista'])
+            . ', despesas de ' . format_money((float)$row['despesas'])
+            . ' e saldo de ' . format_money((float)$row['resultado'])
+            . $rangeText . '.';
+    }
+    if (array_key_exists('receita_prevista', $row)) {
+        return 'Receita prevista canônica para ' . $periodText . ': ' . format_money((float)$row['receita_prevista'])
+            . ', considerando ' . (int)($row['agendamentos_considerados'] ?? 0) . ' agendamento' . ((int)($row['agendamentos_considerados'] ?? 0) === 1 ? '' : 's')
+            . $rangeText . '.';
+    }
+    if (array_key_exists('total_despesas', $row)) {
+        return 'Despesas canônicas para ' . $periodText . ': ' . format_money((float)$row['total_despesas'])
+            . ', em ' . (int)($row['quantidade_despesas'] ?? 0) . ' lançamento' . ((int)($row['quantidade_despesas'] ?? 0) === 1 ? '' : 's')
+            . $rangeText . '.';
+    }
+    if (array_key_exists('clientes_cadastrados', $row)) {
+        return 'Clientes cadastrados em ' . $periodText . ': ' . (int)$row['clientes_cadastrados'] . $rangeText . '.';
+    }
+    if (array_key_exists('leads_cadastrados', $row)) {
+        return 'Leads cadastrados em ' . $periodText . ': ' . (int)$row['leads_cadastrados']
+            . ', com valor estimado total de ' . format_money((float)($row['valor_estimado'] ?? 0))
+            . $rangeText . '.';
+    }
+    if (array_key_exists('total_gasto', $row)) {
+        if (!$row) {
+            return 'Não encontrei cliente com gasto registrado até hoje.';
+        }
+        return 'Cliente com maior gasto canônico até hoje: ' . (string)($row['cliente'] ?? 'Sem nome')
+            . ', com ' . format_money((float)$row['total_gasto'])
+            . ' em ' . (int)($row['agendamentos'] ?? 0) . ' agendamento' . ((int)($row['agendamentos'] ?? 0) === 1 ? '' : 's') . '.';
+    }
+    if (array_key_exists('agendamentos', $row)) {
+        return 'Agendamentos em ' . $periodText . ': ' . (int)$row['agendamentos']
+            . ', somando ' . format_money((float)($row['valor_total'] ?? 0))
+            . $rangeText . '.';
+    }
+
+    return 'Consulta canônica executada. Encontrei ' . count($rows) . ' linha' . (count($rows) === 1 ? '' : 's') . ' de resultado.';
+}
+
 function studio_data_assistant_ai_sql_answer(array $studio, string $question, array $config, array $context): array
 {
     if (trim((string)($config['api_key'] ?? '')) === '') {
@@ -11935,6 +12127,14 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
         'duracao_atendimento_minutos' => (int)($context['settings']['appointment_duration_minutes'] ?? 300),
         'regras_do_estudio' => mb_substr(trim((string)($context['settings']['business_rules'] ?? '')), 0, 2500, 'UTF-8'),
     ];
+    $canonicalQueries = studio_data_assistant_canonical_queries($question);
+    $isCanonicalPlan = is_array($canonicalQueries);
+    if ($isCanonicalPlan) {
+        $plan = [
+            'queries' => $canonicalQueries,
+            'reason' => 'Plano canônico do sistema: usa definição fixa para garantir resposta repetível.',
+        ];
+    } else {
     $plannerPayload = [
         'hoje' => (new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo')))->format('Y-m-d H:i:s'),
         'pergunta' => $question,
@@ -11945,6 +12145,13 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
             'Use apenas tabelas e colunas presentes no schema_disponivel.',
             'Nunca consulte campos sensíveis, tokens, chaves, secrets ou tabelas restritas.',
             'Prefira agregações quando a pergunta pedir contagem, soma, maior cliente, previsão ou ranking.',
+            'Definição fixa: receita prevista/faturamento/ganhar = SUM(appointments.value) no período, excluindo status cancelado/cancelada/cancelled.',
+            'Definição fixa: despesas = SUM(expenses.amount) pelo campo expense_date no período.',
+            'Definição fixa: resultado/lucro = receita prevista - despesas no mesmo período.',
+            'Definição fixa: clientes cadastrados = COUNT(customers.id) por customers.created_at.',
+            'Definição fixa: cliente que mais gastou = SUM(appointments.value) agrupado por cliente/lead, apenas appointment_date <= CURDATE(), excluindo cancelados.',
+            'Para mês atual use o primeiro dia do mês até o primeiro dia do mês seguinte, com fim exclusivo.',
+            'Para semana que vem use segunda-feira da próxima semana até a segunda-feira seguinte, com fim exclusivo.',
             'Inclua LIMIT em consultas detalhadas.',
         ],
     ];
@@ -11970,6 +12177,7 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
     if (!is_array($plan) || !is_array($plan['queries'] ?? null)) {
         return ['ok' => false, 'error' => 'A IA não gerou um plano SQL legível.'];
     }
+    }
 
     $executed = [];
     foreach (array_slice($plan['queries'], 0, 3) as $query) {
@@ -11985,6 +12193,21 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
     }
     if (!$executed) {
         return ['ok' => false, 'error' => 'Nenhuma consulta foi gerada.'];
+    }
+    if ($isCanonicalPlan) {
+        return [
+            'ok' => true,
+            'question' => $question,
+            'answer' => studio_data_assistant_canonical_answer_text($question, $executed),
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'canonical_sql',
+            'queries' => array_map(static fn(array $item): array => [
+                'title' => $item['title'],
+                'sql' => $item['result']['sql'],
+                'row_count' => $item['result']['row_count'],
+                'elapsed_ms' => $item['result']['elapsed_ms'],
+            ], $executed),
+        ];
     }
 
     $answerPayload = [
@@ -12023,7 +12246,7 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
         'question' => $question,
         'answer' => trim((string)$answerResult['reply_text']),
         'generated_at' => date('Y-m-d H:i:s'),
-        'source' => 'ai_sql',
+        'source' => $isCanonicalPlan ? 'ai_sql_canonical' : 'ai_sql',
         'queries' => array_map(static fn(array $item): array => [
             'title' => $item['title'],
             'sql' => $item['result']['sql'],
