@@ -2399,6 +2399,42 @@ function studio_toggle_whatsapp_conversation_tag(array $studio, int $conversatio
     return true;
 }
 
+function studio_whatsapp_ensure_conversation_tag(array $studio, int $conversationId, string $name, string $color = '#16a34a'): int
+{
+    if ($conversationId <= 0) {
+        return 0;
+    }
+    studio_ensure_whatsapp_tags_schema($studio);
+    $name = trim($name);
+    if ($name === '') {
+        return 0;
+    }
+    if (!preg_match('/^#[0-9a-f]{6}$/i', $color)) {
+        $color = '#16a34a';
+    }
+
+    $pdo = studio_db($studio);
+    $stmt = $pdo->prepare('SELECT id FROM whatsapp_tags WHERE studio_user_id IS NULL AND name = ? LIMIT 1');
+    $stmt->execute([$name]);
+    $tagId = (int)($stmt->fetchColumn() ?: 0);
+    if ($tagId <= 0) {
+        $stmt = $pdo->prepare('INSERT INTO whatsapp_tags (studio_user_id, created_by_user_id, name, color, created_at, updated_at) VALUES (NULL, NULL, ?, ?, NOW(), NOW())');
+        $stmt->execute([mb_substr($name, 0, 80), $color]);
+        $tagId = (int)$pdo->lastInsertId();
+    } else {
+        $pdo->prepare('UPDATE whatsapp_tags SET color = ?, updated_at = NOW() WHERE id = ?')->execute([$color, $tagId]);
+    }
+
+    $stmt = $pdo->prepare('SELECT 1 FROM whatsapp_conversation_tags WHERE conversation_id = ? AND tag_id = ?');
+    $stmt->execute([$conversationId, $tagId]);
+    if (!$stmt->fetchColumn()) {
+        $pdo->prepare('INSERT INTO whatsapp_conversation_tags (conversation_id, tag_id, assigned_by_user_id, created_at) VALUES (?, ?, NULL, NOW())')
+            ->execute([$conversationId, $tagId]);
+    }
+
+    return $tagId;
+}
+
 function studio_whatsapp_summary(array $studio): array
 {
     $pdo = studio_db($studio);
@@ -4411,9 +4447,11 @@ function studio_whatsapp_ai_payment_text_indicates_receipt(string $text, float $
         $recipientNeedles[] = preg_replace('/\s+/u', ' ', $recipientClean) ?: $recipientClean;
     }
     $normalizedAscii = studio_calendar_remove_accents($normalized);
+    $normalizedCompact = preg_replace('/[^\p{L}\p{N}]+/u', '', $normalizedAscii) ?? $normalizedAscii;
     $hasExpectedName = false;
     foreach ($recipientNeedles as $needle) {
-        if ($needle !== '' && str_contains($normalizedAscii, $needle)) {
+        $needleCompact = preg_replace('/[^\p{L}\p{N}]+/u', '', $needle) ?? $needle;
+        if ($needle !== '' && (str_contains($normalizedAscii, $needle) || ($needleCompact !== '' && str_contains($normalizedCompact, $needleCompact)))) {
             $hasExpectedName = true;
             break;
         }
@@ -4426,6 +4464,119 @@ function studio_whatsapp_ai_payment_text_indicates_receipt(string $text, float $
         'detected_amount' => $detectedAmount,
         'recipient_ok' => $hasExpectedKey || $hasExpectedName,
         'confirmed' => $hasReceiptSignal && $hasAmount && ($hasExpectedKey || $hasExpectedName),
+    ];
+}
+
+function studio_whatsapp_payment_ocr_text_is_garbage(string $text): bool
+{
+    $trimmed = trim($text);
+    if ($trimmed === '') {
+        return true;
+    }
+
+    $useful = preg_replace('/[^\p{L}\p{N}]+/u', '', $trimmed) ?? '';
+    if (mb_strlen($useful, 'UTF-8') < 8) {
+        return true;
+    }
+
+    $punctuation = preg_replace('/[\p{L}\p{N}\s]+/u', '', $trimmed) ?? '';
+    $total = max(1, mb_strlen($trimmed, 'UTF-8'));
+    return (mb_strlen($punctuation, 'UTF-8') / $total) > 0.75;
+}
+
+function studio_whatsapp_payment_amount_value(mixed $value): float
+{
+    if (is_int($value) || is_float($value)) {
+        return (float)$value;
+    }
+    return money_to_float((string)$value);
+}
+
+function studio_whatsapp_payment_receipt_text_from_fields(array $receipt): string
+{
+    $lines = [];
+    $map = [
+        'is_receipt' => 'Comprovante',
+        'payment_method' => 'Metodo',
+        'amount' => 'Valor',
+        'recipient_name' => 'Favorecido',
+        'recipient_document_visible' => 'Documento favorecido',
+        'payer_name' => 'Pagador',
+        'paid_at' => 'Data',
+        'transaction_id' => 'Transacao',
+        'raw_text' => 'Texto lido',
+    ];
+    foreach ($map as $key => $label) {
+        $value = $receipt[$key] ?? '';
+        if (is_bool($value)) {
+            $value = $value ? 'sim' : 'nao';
+        }
+        if (is_array($value)) {
+            $value = implode(', ', array_map('strval', $value));
+        }
+        $value = trim((string)$value);
+        if ($value !== '') {
+            $lines[] = $label . ': ' . $value;
+        }
+    }
+
+    return implode("\n", $lines);
+}
+
+function studio_whatsapp_payment_receipt_matches_expected(array $receipt, float $expectedAmount, string $expectedPixKey, string $expectedRecipient): array
+{
+    $amount = studio_whatsapp_payment_amount_value($receipt['amount'] ?? 0);
+    $isReceipt = filter_var($receipt['is_receipt'] ?? false, FILTER_VALIDATE_BOOLEAN)
+        || preg_match('/\b(comprovante|pix|transfer[eê]ncia|pagamento)\b/iu', studio_whatsapp_payment_receipt_text_from_fields($receipt));
+    $method = studio_calendar_remove_accents(mb_strtolower((string)($receipt['payment_method'] ?? ''), 'UTF-8'));
+    $methodOk = $method === '' || str_contains($method, 'pix') || str_contains($method, 'transfer');
+    $amountOk = $amount >= $expectedAmount && $amount <= max($expectedAmount * 20, $expectedAmount + 1000);
+
+    $receiptText = studio_whatsapp_payment_receipt_text_from_fields($receipt);
+    $recipientName = studio_calendar_remove_accents(mb_strtolower(trim((string)($receipt['recipient_name'] ?? '') . ' ' . (string)($receipt['raw_text'] ?? '')), 'UTF-8'));
+    $expectedName = studio_calendar_remove_accents(mb_strtolower($expectedRecipient, 'UTF-8'));
+    $nameOk = false;
+    if ($recipientName !== '' && $expectedName !== '') {
+        $recipientCompact = preg_replace('/[^\p{L}\p{N}]+/u', '', $recipientName) ?? $recipientName;
+        $expectedCompact = preg_replace('/[^\p{L}\p{N}]+/u', '', $expectedName) ?? $expectedName;
+        if (str_contains($recipientName, $expectedName) || str_contains($expectedName, $recipientName) || ($expectedCompact !== '' && str_contains($recipientCompact, $expectedCompact))) {
+            $nameOk = true;
+        } else {
+            preg_match_all('/[\p{L}]{3,}/u', $expectedName, $expectedTokens);
+            $tokens = array_values(array_unique($expectedTokens[0] ?? []));
+            $hits = 0;
+            foreach ($tokens as $token) {
+                if (str_contains($recipientName, $token)) {
+                    $hits++;
+                }
+            }
+            $nameOk = $tokens !== [] && $hits >= min(2, count($tokens));
+        }
+    }
+
+    $expectedDigits = preg_replace('/\D+/', '', $expectedPixKey) ?: '';
+    $visibleDocument = trim((string)($receipt['recipient_document_visible'] ?? '') . ' ' . (string)($receipt['recipient_pix_key_visible'] ?? ''));
+    if ($visibleDocument === '' && preg_match('/(?:destino|favorecido|recebedor|destinat[aá]rio).{0,180}?(?:cpf|cnpj)\s*([*.0-9\/\-\s]{5,40})/iu', $receiptText, $documentMatch)) {
+        $visibleDocument = (string)$documentMatch[1];
+    }
+    $visibleDigits = preg_replace('/\D+/', '', $visibleDocument) ?: '';
+    $docOk = false;
+    if ($expectedDigits !== '' && $visibleDigits !== '') {
+        $docOk = str_contains($expectedDigits, $visibleDigits)
+            || str_contains($visibleDigits, $expectedDigits)
+            || (strlen($visibleDigits) >= 5 && str_contains($expectedDigits, substr($visibleDigits, -5)));
+    }
+
+    return [
+        'looks_like_receipt' => (bool)$isReceipt,
+        'amount_ok' => $amountOk,
+        'amount_at_least_expected' => $amount >= $expectedAmount,
+        'detected_amount' => $amount,
+        'recipient_ok' => $nameOk || $docOk,
+        'recipient_name_ok' => $nameOk,
+        'recipient_document_ok' => $docOk,
+        'method_ok' => $methodOk,
+        'confirmed' => (bool)$isReceipt && $methodOk && $amountOk && ($nameOk || $docOk),
     ];
 }
 
@@ -5910,6 +6061,106 @@ function studio_whatsapp_analyze_image_with_nvidia(array $studio, string $absolu
     return $result;
 }
 
+function studio_whatsapp_analyze_payment_receipt_image_with_nvidia(array $studio, string $absolutePath, string $mediaMime): array
+{
+    $settings = studio_settings($studio);
+    if (array_key_exists('nvidia_vision_enabled', $settings) && empty($settings['nvidia_vision_enabled'])) {
+        return ['ok' => false, 'present' => true, 'error' => 'Analise visual desativada nas configuracoes.'];
+    }
+
+    $vision = studio_nvidia_vision_config($studio);
+    if ((string)$vision['api_key'] === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Chave NVIDIA Vision nao configurada.'];
+    }
+
+    $binary = is_file($absolutePath) ? file_get_contents($absolutePath) : false;
+    if ($binary === false || $binary === '') {
+        return ['ok' => false, 'present' => true, 'error' => 'Nao foi possivel ler a imagem do comprovante.'];
+    }
+
+    $mime = strtolower(trim($mediaMime));
+    if ($mime === '' && function_exists('mime_content_type')) {
+        $mime = strtolower((string)@mime_content_type($absolutePath));
+    }
+    if ($mime === '' || !str_starts_with($mime, 'image/')) {
+        $mime = 'image/jpeg';
+    }
+
+    $prompt = 'Analise a imagem como possivel comprovante de pagamento Pix/transferencia de um agendamento no Brasil. '
+        . 'Extraia somente dados visiveis, sem adivinhar. Responda exclusivamente com JSON valido e compacto, sem markdown, neste formato: '
+        . '{"is_receipt":true,"payment_method":"pix","amount":"50,00","recipient_name":"","recipient_document_visible":"","recipient_pix_key_visible":"","payer_name":"","paid_at":"","transaction_id":"","confidence":"high","raw_text":""}. '
+        . 'is_receipt=true apenas se a imagem realmente parecer comprovante/recibo de pagamento. '
+        . 'amount deve ser o valor pago, preferencialmente no formato 50,00. '
+        . 'recipient_name e recipient_document_visible devem representar o destino/favorecido/recebedor, nao o pagador. '
+        . 'recipient_document_visible deve manter mascaras como ***.262.368-** se estiverem visiveis. '
+        . 'raw_text deve reunir no maximo 500 caracteres de texto relevante visivel. '
+        . 'Se algum campo nao estiver visivel, deixe string vazia. Nao explique fora do JSON.';
+
+    $body = [
+        'model' => (string)$vision['model'],
+        'messages' => [[
+            'role' => 'user',
+            'content' => [
+                ['type' => 'text', 'text' => $prompt],
+                ['type' => 'image_url', 'image_url' => [
+                    'url' => 'data:' . $mime . ';base64,' . base64_encode($binary),
+                ]],
+            ],
+        ]],
+        'max_tokens' => 700,
+        'temperature' => 0.05,
+        'top_p' => 0.5,
+        'frequency_penalty' => 0,
+        'presence_penalty' => 0,
+        'stream' => false,
+    ];
+
+    $ch = curl_init((string)$vision['base_url'] . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . (string)$vision['api_key'],
+            'Accept: application/json',
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'present' => true, 'error' => $error ?: 'Falha na leitura visual do comprovante.'];
+    }
+    $response = json_decode((string)$raw, true);
+    if (!is_array($response) || $status >= 400) {
+        $apiError = is_array($response['error'] ?? null)
+            ? (string)($response['error']['message'] ?? ('Falha HTTP ' . $status . ' na leitura visual do comprovante.'))
+            : (string)($response['error'] ?? ('Falha HTTP ' . $status . ' na leitura visual do comprovante.'));
+        return ['ok' => false, 'present' => true, 'error' => $apiError];
+    }
+
+    $content = trim((string)($response['choices'][0]['message']['content'] ?? ''));
+    $decoded = studio_whatsapp_decode_visual_json($content);
+    if (!is_array($decoded)) {
+        return ['ok' => false, 'present' => true, 'error' => 'Resposta visual do comprovante invalida: ' . mb_substr($content, 0, 120)];
+    }
+
+    return [
+        'ok' => true,
+        'present' => true,
+        'provider' => 'nvidia',
+        'model' => (string)$vision['model'],
+        'receipt' => $decoded,
+        'text' => studio_whatsapp_payment_receipt_text_from_fields($decoded),
+    ];
+}
+
 function studio_nvidia_document_config(array $studio): array
 {
     $settings = studio_settings($studio);
@@ -6356,20 +6607,53 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
 
     $text = '';
     $source = '';
+    $visualReceipt = [];
+    $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
+    $absolutePath = ($messageType === 'image' || str_starts_with($mediaMime, 'image/'))
+        ? studio_whatsapp_media_absolute_path($mediaPath)
+        : null;
     if (!empty($documentAnalysis['ok'])) {
         $text = trim((string)($documentAnalysis['text'] ?? ''));
         $source = 'document';
     }
 
-    if ($text === '' && ($messageType === 'image' || str_starts_with($mediaMime, 'image/'))) {
-        $mediaPath = trim((string)($message['media_file_path'] ?? $message['media_url'] ?? ''));
-        $absolutePath = studio_whatsapp_media_absolute_path($mediaPath);
+    if (($text === '' || studio_whatsapp_payment_ocr_text_is_garbage($text)) && $absolutePath) {
         if ($absolutePath) {
             $ocr = studio_nvidia_document_parse_image($studio, $absolutePath, $mediaMime !== '' ? $mediaMime : 'image/jpeg');
             if (!empty($ocr['ok'])) {
                 $text = trim((string)($ocr['text'] ?? ''));
                 $source = 'image_ocr';
             }
+        }
+    }
+
+    $depositLabel = studio_whatsapp_booking_deposit_label($studio);
+    $expectedAmount = studio_whatsapp_booking_deposit_amount($studio);
+    $expectedPixKey = studio_whatsapp_booking_pix_key($studio);
+    $expectedRecipient = studio_whatsapp_booking_pix_recipient($studio);
+
+    $tryVisualReceipt = static function () use ($studio, $absolutePath, $mediaMime, $expectedAmount, $expectedPixKey, $expectedRecipient): array {
+        if (!$absolutePath) {
+            return [];
+        }
+        $vision = studio_whatsapp_analyze_payment_receipt_image_with_nvidia($studio, $absolutePath, $mediaMime !== '' ? $mediaMime : 'image/jpeg');
+        if (empty($vision['ok']) || !is_array($vision['receipt'] ?? null)) {
+            return $vision;
+        }
+        $vision['signals'] = studio_whatsapp_payment_receipt_matches_expected(
+            $vision['receipt'],
+            $expectedAmount,
+            $expectedPixKey,
+            $expectedRecipient
+        );
+        return $vision;
+    };
+
+    if (($text === '' || studio_whatsapp_payment_ocr_text_is_garbage($text)) && $absolutePath) {
+        $visualReceipt = $tryVisualReceipt();
+        if (!empty($visualReceipt['ok']) && trim((string)($visualReceipt['text'] ?? '')) !== '') {
+            $text = trim((string)$visualReceipt['text']);
+            $source = 'image_vision_receipt';
         }
     }
 
@@ -6384,13 +6668,22 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
         ];
     }
 
-    $depositLabel = studio_whatsapp_booking_deposit_label($studio);
     $signals = studio_whatsapp_ai_payment_text_indicates_receipt(
         $text,
-        studio_whatsapp_booking_deposit_amount($studio),
-        studio_whatsapp_booking_pix_key($studio),
-        studio_whatsapp_booking_pix_recipient($studio)
+        $expectedAmount,
+        $expectedPixKey,
+        $expectedRecipient
     );
+
+    if (empty($signals['confirmed']) && $absolutePath && empty($visualReceipt)) {
+        $visualReceipt = $tryVisualReceipt();
+    }
+    if (empty($signals['confirmed']) && !empty($visualReceipt['ok']) && !empty($visualReceipt['signals']['confirmed'])) {
+        $text = trim((string)($visualReceipt['text'] ?? $text));
+        $source = 'image_vision_receipt';
+        $signals = $visualReceipt['signals'];
+    }
+
     return [
         'present' => true,
         'confirmed' => !empty($signals['confirmed']),
@@ -6398,6 +6691,7 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
         'source' => $source,
         'text' => mb_substr($text, 0, 1500),
         'signals' => $signals,
+        'visual_receipt' => is_array($visualReceipt['receipt'] ?? null) ? $visualReceipt['receipt'] : null,
         'reason' => !empty($signals['confirmed'])
             ? 'Comprovante parece conter Pix de ' . $depositLabel . ' para o favorecido esperado.'
             : 'Anexo parece comprovante, mas faltou confirmar valor ou favorecido automaticamente.',
@@ -9646,12 +9940,22 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             if (!empty($appointmentResult['ok'])) {
                 $dateLabel = format_date_pt((string)$selectedReservationSlot['date']);
                 $timeLabel = (string)$selectedReservationSlot['time'];
+                try {
+                    studio_whatsapp_ensure_conversation_tag($studio, (int)($conversation['id'] ?? 0), 'AGENDADO VIA IA', '#16a34a');
+                } catch (Throwable) {
+                }
+                $clientName = trim((string)($conversation['customer_name'] ?? $conversation['lead_name'] ?? $conversation['name'] ?? ''));
+                $genericName = $clientName === '' || in_array(studio_calendar_remove_accents(mb_strtolower($clientName, 'UTF-8')), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true);
+                $replyText = 'Perfeito, comprovante de ' . $bookingDepositLabel . ' confirmado e horário de ' . $dateLabel . ' às ' . $timeLabel . ' agendado. Obrigado!';
+                if ($genericName) {
+                    $replyText .= ' Me confirma seu nome completo para eu deixar o cadastro certinho?';
+                }
                 $result = [
                     'ok' => true,
-                    'reply_text' => 'Recebi o comprovante e deixei o horário de ' . $dateLabel . ' às ' . $timeLabel . ' registrado. Vou passar para a equipe conferir tudo e finalizar com você.',
-                    'needs_human' => true,
+                    'reply_text' => $replyText,
+                    'needs_human' => false,
                     'lead_score_delta' => 3,
-                    'summary' => 'Comprovante de sinal recebido e agendamento registrado para ' . (string)$selectedReservationSlot['date'] . ' ' . $timeLabel . '. Precisa de conferencia humana.',
+                    'summary' => 'Comprovante de sinal confirmado e agendamento criado via IA para ' . (string)$selectedReservationSlot['date'] . ' ' . $timeLabel . '. Tag AGENDADO VIA IA aplicada.',
                 ];
             } else {
                 $result = [
