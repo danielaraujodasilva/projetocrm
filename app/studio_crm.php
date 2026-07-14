@@ -58,6 +58,7 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `customer_id` BIGINT UNSIGNED NULL,
             `phone` VARCHAR(40) NOT NULL,
             `name` VARCHAR(160) NULL,
+            `profile_picture_url` VARCHAR(500) NULL,
             `remote_jid` VARCHAR(180) NULL,
             `attendance_mode` ENUM("human", "bot") NOT NULL DEFAULT "bot",
             `needs_human` TINYINT(1) NOT NULL DEFAULT 0,
@@ -86,6 +87,7 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
 
     foreach ([
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `name`',
+        'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `profile_picture_url` VARCHAR(500) NULL AFTER `name`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `needs_human` TINYINT(1) NOT NULL DEFAULT 0 AFTER `attendance_mode`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_user_id` BIGINT UNSIGNED NULL AFTER `needs_human`',
         'ALTER TABLE `whatsapp_conversations` ADD COLUMN IF NOT EXISTS `assigned_at` DATETIME NULL AFTER `assigned_user_id`',
@@ -510,6 +512,7 @@ function studio_ensure_whatsapp_assignment_schema(array $studio): void
             'assigned_by_user_id' => 'BIGINT UNSIGNED NULL',
             'released_at' => 'DATETIME NULL',
             'locked_at' => 'DATETIME NULL',
+            'profile_picture_url' => 'VARCHAR(500) NULL',
             'ai_memory' => 'MEDIUMTEXT NULL',
             'ai_memory_updated_at' => 'DATETIME NULL',
         ] as $column => $definition) {
@@ -5116,6 +5119,22 @@ function studio_normalize_whatsapp_message_payload(array $payload): array
     $phone = normalize_phone($pick($payload, ['phone', 'numero', 'wa_id', 'waId', 'from']));
     $waId = $pick($payload, ['wa_id', 'waId', 'phone', 'numero', 'from']);
     $remoteJid = $pick($payload, ['remote_jid', 'remoteJid', 'jidCompleto']);
+    $profilePictureUrl = $pick($payload, [
+        'profile_picture_url',
+        'profilePictureUrl',
+        'profile_pic_url',
+        'profilePicUrl',
+        'profile_photo_url',
+        'profilePhotoUrl',
+        'avatar_url',
+        'avatarUrl',
+        'photo_url',
+        'photoUrl',
+        'picture',
+        'avatar',
+        'profile_image',
+        'profileImage',
+    ]);
     $from = $pick($payload, ['from', 'wa_id', 'waId', 'phone', 'numero']);
     $body = $pick($payload, ['body', 'mensagem', 'message']);
     $messageType = strtolower($pick($payload, ['message_type', 'messageType', 'tipoMensagem'], 'texto'));
@@ -5185,6 +5204,14 @@ function studio_normalize_whatsapp_message_payload(array $payload): array
     $normalized['remote_jid'] = $remoteJid;
     $normalized['remoteJid'] = $remoteJid;
     $normalized['jidCompleto'] = $remoteJid;
+    $normalized['profile_picture_url'] = $profilePictureUrl;
+    $normalized['profilePictureUrl'] = $profilePictureUrl;
+    $normalized['profile_pic_url'] = $profilePictureUrl;
+    $normalized['profile_photo_url'] = $profilePictureUrl;
+    $normalized['avatar_url'] = $profilePictureUrl;
+    $normalized['photo_url'] = $profilePictureUrl;
+    $normalized['picture'] = $profilePictureUrl;
+    $normalized['avatar'] = $profilePictureUrl;
     $normalized['body'] = $body;
     $normalized['mensagem'] = $body;
     $normalized['message'] = $body;
@@ -5225,6 +5252,7 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
     }
 
     $remoteJid = trim((string)($payload['remote_jid'] ?? ''));
+    $profilePictureUrl = trim((string)($payload['profile_picture_url'] ?? ''));
     $fromMe = !empty($payload['from_me']);
     $text = trim((string)($payload['body'] ?? ''));
     $messageType = trim((string)($payload['message_type'] ?? 'texto')) ?: 'texto';
@@ -5234,6 +5262,14 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
 
     $conversation = studio_find_whatsapp_conversation_by_phone($studio, $phone);
     if ($conversation) {
+        if ($profilePictureUrl !== '' && empty($conversation['profile_picture_url'])) {
+            try {
+                $stmt = $pdo->prepare('UPDATE whatsapp_conversations SET profile_picture_url = ?, updated_at = NOW() WHERE id = ?');
+                $stmt->execute([$profilePictureUrl, (int)$conversation['id']]);
+                $conversation['profile_picture_url'] = $profilePictureUrl;
+            } catch (Throwable) {
+            }
+        }
         return $conversation;
     }
 
@@ -5279,14 +5315,15 @@ function studio_upsert_whatsapp_conversation(array $studio, array $payload): arr
 
     $stmt = $pdo->prepare(
         'INSERT INTO whatsapp_conversations
-            (lead_id, customer_id, phone, name, remote_jid, attendance_mode, needs_human, lead_score, ai_last_status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+            (lead_id, customer_id, phone, name, profile_picture_url, remote_jid, attendance_mode, needs_human, lead_score, ai_last_status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
     );
     $stmt->execute([
         (int)($lead['id'] ?? 0) ?: null,
         (int)($customer['id'] ?? 0) ?: null,
         $phone,
         $name,
+        $profilePictureUrl !== '' ? $profilePictureUrl : null,
         $remoteJid,
         $defaultMode,
         $needsHuman ? 1 : 0,
@@ -5430,6 +5467,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     $needsHuman = studio_whatsapp_needs_human($body);
     $hasMedia = !empty($payload['media_base64']) || !empty($payload['media_url']);
     $score = studio_whatsapp_lead_score($body, $hasMedia);
+    $profilePictureUrl = trim((string)($payload['profile_picture_url'] ?? ''));
     $mediaUrl = trim((string)($payload['media_url'] ?? ''));
     $mediaFileName = trim((string)($payload['media_file_name'] ?? ''));
     $mediaFilePath = trim((string)($payload['media_file_path'] ?? ''));
@@ -5482,6 +5520,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     $stmt = $pdo->prepare(
         'UPDATE whatsapp_conversations
          SET remote_jid = COALESCE(NULLIF(?, ""), remote_jid),
+             profile_picture_url = COALESCE(NULLIF(?, ""), profile_picture_url),
              needs_human = GREATEST(needs_human, ?),
              lead_score = GREATEST(COALESCE(lead_score, 0), ?),
              last_message_preview = ?,
@@ -5490,7 +5529,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
              updated_at = NOW()
          WHERE id = ?'
     );
-    $stmt->execute([$remoteJid, $needsHuman ? 1 : 0, $score, $preview, $direction, $sentAt, (int)$conversation['id']]);
+    $stmt->execute([$remoteJid, $profilePictureUrl, $needsHuman ? 1 : 0, $score, $preview, $direction, $sentAt, (int)$conversation['id']]);
 
     if (!empty($conversation['lead_id'])) {
         $pdo->prepare('UPDATE leads SET lead_score = GREATEST(COALESCE(lead_score, 0), ?), last_contact_at = ?, updated_at = NOW() WHERE id = ?')

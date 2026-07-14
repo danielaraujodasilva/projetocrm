@@ -548,6 +548,20 @@ body {
     background: linear-gradient(135deg, #1f7a68, #253d54);
     color: #fff;
     font-weight: 800;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+
+.m2-avatar.has-photo {
+    background: #111f27;
+}
+
+.m2-avatar img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    border-radius: inherit;
 }
 
 .m2-chat {

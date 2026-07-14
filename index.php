@@ -2698,6 +2698,16 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         }
         return $name;
     };
+    $avatarForConversation = static function (array $row, string $name, string $class = 'm2-avatar'): string {
+        $label = trim($name) !== '' ? trim($name) : 'Contato WhatsApp';
+        $photo = trim((string)($row['profile_picture_url'] ?? ''));
+        $initial = mb_strtoupper(mb_substr($label, 0, 1));
+        if ($photo !== '' && preg_match('#^(https?://|/)#i', $photo)) {
+            return '<span class="' . h($class) . ' has-photo"><img src="' . h($photo) . '" alt="' . h($label) . '" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.classList.remove(\'has-photo\');this.remove();"></span>';
+        }
+
+        return '<span class="' . h($class) . '">' . h($initial) . '</span>';
+    };
     $mobileAiStateFor = static function (array $row, int $confidence = 0): array {
         $mode = (string)($row['attendance_mode'] ?? 'human');
         $needsHuman = !empty($row['needs_human']);
@@ -2831,10 +2841,11 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         $rowUnreadCount = studio_whatsapp_unread_count($row, $studio);
         $rowAiState = $mobileAiStateFor($row);
         $searchText = strtolower($rowName . ' ' . ($row['phone'] ?? '') . ' ' . $rowPreview);
+        $rowAvatar = $avatarForConversation($row, $rowName);
         if ($isAdmin) {
-            echo '<div class="m2-item m2-item-admin' . h($active) . '" data-conversation-id="' . h((string)$rowId) . '" data-search="' . h($searchText) . '"><label class="m2-select-row"><input class="m2-conversation-checkbox" type="checkbox" name="conversation_ids[]" value="' . h((string)$rowId) . '"><span></span></label><a class="m2-item-link" href="' . h($href) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a></div>';
+            echo '<div class="m2-item m2-item-admin' . h($active) . '" data-conversation-id="' . h((string)$rowId) . '" data-search="' . h($searchText) . '"><label class="m2-select-row"><input class="m2-conversation-checkbox" type="checkbox" name="conversation_ids[]" value="' . h((string)$rowId) . '"><span></span></label><a class="m2-item-link" href="' . h($href) . '">' . $rowAvatar . '<span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a></div>';
         } else {
-            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h(strtoupper(substr($rowName, 0, 1))) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a>';
+            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '">' . $rowAvatar . '<span><strong>' . h($rowName) . '</strong><small>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b>' . ($rowUnreadCount > 0 ? '<b class="warn">' . h((string)$rowUnreadCount) . '</b>' : '') . '</small><span class="m2-ai-mini-bar ' . h($rowAiState['tone']) . '"><i style="width:' . h((string)$rowAiState['progress']) . '%"></i></span></span><em>' . h($assignmentLabel) . '</em></a>';
         }
     }
     echo '</nav>';
@@ -2848,7 +2859,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '<div class="m2-empty"><i class="fa-solid fa-comments"></i><strong>Escolha uma conversa</strong></div>';
     } else {
         $displayName = $labelForConversation($conversation);
-        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h(strtoupper(substr($displayName, 0, 1))) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a>' . $avatarForConversation($conversation, $displayName) . '<span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
         $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
         echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
         echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
@@ -4991,6 +5002,16 @@ if ($page === 'studio_whatsapp_workspace') {
         echo '<a class="wa-web-filter-pill' . ($rangeActive ? ' active' : '') . '" href="' . h($rangeHref) . '">Período</a>';
         echo '</div>';
         echo '<div class="wa-web-archive-row"><span class="wa-web-archive-icon"><i class="fa-solid fa-box-archive"></i></span><strong>Arquivadas</strong><span class="wa-web-archive-count">2</span></div>';
+        $workspaceAvatarForConversation = static function (array $row, string $name, string $class = 'wa-web-chat-avatar'): string {
+            $label = trim($name) !== '' ? trim($name) : 'Contato WhatsApp';
+            $photo = trim((string)($row['profile_picture_url'] ?? ''));
+            $initial = mb_strtoupper(mb_substr($label, 0, 1));
+            if ($photo !== '' && preg_match('#^(https?://|/)#i', $photo)) {
+                return '<div class="' . h($class) . ' has-photo"><img src="' . h($photo) . '" alt="' . h($label) . '" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentElement.classList.remove(\'has-photo\');this.remove();"></div>';
+            }
+
+            return '<div class="' . h($class) . '">' . h($initial) . '</div>';
+        };
         echo '<div class="wa-web-chat-list">';
         if ($conversations) {
             foreach ($conversations as $row) {
@@ -5005,7 +5026,7 @@ if ($page === 'studio_whatsapp_workspace') {
                 ], static fn($value) => $value !== null && $value !== ''));
                 $rowActive = $rowId === $conversationId ? ' active' : '';
                 echo '<a class="wa-web-chat-item' . h($rowActive) . '" href="' . h($rowHref) . '" data-search-name="' . h($rowName) . '" data-search-phone="' . h((string)($row['phone'] ?? '')) . '" data-search-preview="' . h($rowPreview) . '">';
-                echo '<div class="wa-web-chat-avatar">' . h(strtoupper(substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1))) . '</div>';
+                echo $workspaceAvatarForConversation($row, $rowName);
                 echo '<div class="wa-web-chat-meta"><div class="wa-web-chat-head"><strong>' . h($rowName) . '</strong><span>' . h(format_datetime_pt((string)($row['message_last_at'] ?? $row['updated_at'] ?? ''), false)) . '</span></div>';
                 echo '<p>' . h($rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda') . '</p>';
                 echo '<div class="wa-web-chat-badges">';
@@ -5059,7 +5080,7 @@ if ($page === 'studio_whatsapp_workspace') {
             'finalizado' => 'Finalizado',
             'perdido' => 'Perdido',
         ][$leadStatusKey] ?? ucfirst(str_replace('_', ' ', $leadStatusKey));
-        echo '<div class="wa-web-main-contact"><div class="wa-web-chat-avatar large">' . h(strtoupper(substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1))) . '</div><div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Com atendente') . '</span><span>•</span><span>' . h($leadStatusLabel) . '</span>';
+        echo '<div class="wa-web-main-contact">' . $workspaceAvatarForConversation($conversation, $displayName, 'wa-web-chat-avatar large') . '<div class="wa-web-main-contact-text"><h2>' . h($displayName) . '</h2><p>' . h((string)($conversation['phone'] ?? '')) . '</p><div class="wa-web-main-submeta"><span class="wa-web-status-dot"></span><span>' . h(((string)($conversation['attendance_mode'] ?? 'human')) === 'bot' ? 'IA ativa' : 'Com atendente') . '</span><span>•</span><span>' . h($leadStatusLabel) . '</span>';
         foreach ($conversationTags as $tag) {
             echo '<span class="badge" style="border-color:' . h((string)$tag['color']) . ';color:' . h((string)$tag['color']) . '">' . h((string)$tag['name']) . '</span>';
         }
