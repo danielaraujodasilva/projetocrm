@@ -4354,6 +4354,10 @@ function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, 
         return 'artist';
     }
 
+    if (preg_match('/\b(hor[aá]rio\s+de\s+(funcionamento|atendimento)|funcionamento|que\s+horas\s+(abre|fecha|funciona)|abre\s+que\s+horas|fecha\s+que\s+horas)\b/u', $text)) {
+        return 'business_hours';
+    }
+
     if (preg_match('/(deixa|pode|quero)\s+(reservad[oa]|marcad[oa])|faz(er)?\s+a\s+reserva|reserva\s+(pra|para)\s+mim/u', $text)) {
         return 'reservation';
     }
@@ -4499,7 +4503,17 @@ function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextTex
 function studio_whatsapp_ai_extract_time_choice(string $text): string
 {
     $text = mb_strtolower(trim($text), 'UTF-8');
-    if (preg_match('/\b([01]?\d|2[0-3])[:h]([0-5]\d)?\b/u', $text, $match)) {
+    if (preg_match('/\b([01]?\d|2[0-3]):([0-5]\d)\b/u', $text, $match)) {
+        $hour = str_pad((string)(int)$match[1], 2, '0', STR_PAD_LEFT);
+        $minute = str_pad((string)(int)$match[2], 2, '0', STR_PAD_LEFT);
+        return $hour . ':' . $minute;
+    }
+    if (preg_match('/\b(?:as|às)\s+([01]?\d|2[0-3])(?:\s*h(?:s|rs)?|:([0-5]\d))?\b/u', $text, $match)) {
+        $hour = str_pad((string)(int)$match[1], 2, '0', STR_PAD_LEFT);
+        $minute = isset($match[2]) && $match[2] !== '' ? str_pad((string)(int)$match[2], 2, '0', STR_PAD_LEFT) : '00';
+        return $hour . ':' . $minute;
+    }
+    if (preg_match('/\b([01]?\d|2[0-3])\s*h(?:s|rs)?\s*([0-5]\d)?\b/u', $text, $match)) {
         $hour = str_pad((string)(int)$match[1], 2, '0', STR_PAD_LEFT);
         $minute = isset($match[2]) && $match[2] !== '' ? str_pad((string)(int)$match[2], 2, '0', STR_PAD_LEFT) : '00';
         return $hour . ':' . $minute;
@@ -4543,7 +4557,7 @@ function studio_whatsapp_ai_extract_time_choice(string $text): string
         'vinte e tres' => 23,
         'vinte e três' => 23,
     ];
-    if (preg_match('/\b([01]?\d|2[0-3])\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite)\b/u', $text, $match)) {
+    if (preg_match('/\b([01]?\d|2[0-3])\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite|madrugada)\b/u', $text, $match)) {
         $hour = (int)$match[1];
         $period = (string)$match[2];
         if (($period === 'tarde' || $period === 'noite') && $hour >= 1 && $hour <= 11) {
@@ -4551,7 +4565,7 @@ function studio_whatsapp_ai_extract_time_choice(string $text): string
         }
         return str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
     }
-    if (preg_match('/\b(' . implode('|', array_map(static fn(string $word): string => preg_quote($word, '/'), array_keys($wordHours))) . ')\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite)\b/u', $text, $match)) {
+    if (preg_match('/\b(' . implode('|', array_map(static fn(string $word): string => preg_quote($word, '/'), array_keys($wordHours))) . ')\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite|madrugada)\b/u', $text, $match)) {
         $hour = $wordHours[(string)$match[1]] ?? 0;
         $period = (string)$match[2];
         if (($period === 'tarde' || $period === 'noite') && $hour >= 1 && $hour <= 11) {
@@ -4638,6 +4652,51 @@ function studio_whatsapp_next_available_slot_after(array $availability, string $
     }
 
     return null;
+}
+
+function studio_whatsapp_available_slot_options(array $availability, int $limit = 5): array
+{
+    $options = [];
+    foreach ($availability as $day) {
+        if (empty($day['allowed'])) {
+            continue;
+        }
+        $date = (string)($day['date'] ?? '');
+        foreach (array_values(array_filter(array_map('strval', $day['free_slots'] ?? []))) as $slot) {
+            $options[] = [
+                'date' => $date,
+                'time' => $slot,
+            ];
+            if (count($options) >= $limit) {
+                return $options;
+            }
+        }
+    }
+
+    return $options;
+}
+
+function studio_whatsapp_available_slot_options_label(array $availability, int $limit = 5): string
+{
+    $labels = [];
+    foreach (studio_whatsapp_available_slot_options($availability, $limit) as $slot) {
+        $labels[] = studio_whatsapp_schedule_date_label((string)$slot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$slot['time']);
+    }
+
+    return $labels ? implode('; ', $labels) : '';
+}
+
+function studio_whatsapp_ai_wants_schedule_options(string $text): bool
+{
+    $text = mb_strtolower(trim($text), 'UTF-8');
+    if ($text === '') {
+        return false;
+    }
+
+    return (bool)preg_match(
+        '/\b(qual\s+(voce|você)?\s*tiver|o\s+que\s+((voce|você)|se)?\s*tiver|qualquer\s+(dia|data|hor[aá]rio)|todas?\s+(as\s+)?pr[oó]ximas?\s+(datas?|vagas?|hor[aá]rios?)|pr[oó]ximas?\s+(datas?|vagas?|hor[aá]rios?)\s+dispon[ií]veis|s[oó]\s+tem\s+(essa|esse|dia|data|hor[aá]rio)|que\s+dia\s+tem|me\s+(passa|manda|mostra)\s+(as\s+)?(datas?|vagas?|hor[aá]rios?)|eu\s+s[oó]\s+quero\s+agendar|agenda\s+(pra|para)\s+mim|quero\s+ver\s+(as\s+)?(datas?|vagas?|hor[aá]rios?))\b/u',
+        $text
+    );
 }
 
 function studio_whatsapp_ai_is_reservation_confirmation(string $text): bool
@@ -5458,6 +5517,14 @@ function studio_whatsapp_extract_date_context(string $text, array $studio): ?arr
             $year += 2000;
         }
         $candidate = DateTimeImmutable::createFromFormat('Y-m-d', sprintf('%04d-%02d-%02d', $year, (int)$month, (int)$day), $tz) ?: null;
+    } elseif (preg_match('/\bdia\s+(\d{1,2})\b/', $text, $match)) {
+        $day = (int)$match[1];
+        $month = (int)$today->format('m');
+        $year = (int)$today->format('Y');
+        $candidate = DateTimeImmutable::createFromFormat('Y-m-d', sprintf('%04d-%02d-%02d', $year, $month, $day), $tz) ?: null;
+        if ($candidate && $candidate < $today) {
+            $candidate = $candidate->modify('+1 month');
+        }
     } else {
         $relativeMap = [
             'hoje' => 'today',
@@ -10558,6 +10625,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $scheduleDays = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
     $scheduleSlots = trim((string)($settings['appointment_time_slots'] ?? '10:00,15:00'));
+    $scheduleSlotsList = studio_schedule_slots($studio);
     $durationMinutes = (int)($settings['appointment_duration_minutes'] ?? 300);
     $studioAddress = studio_whatsapp_studio_address($studio);
     $studioName = (string)($studio['name'] ?? 'Estudio');
@@ -10623,6 +10691,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $needsScheduleContext = $currentIntent === 'schedule' || in_array('schedule', $pendingIntents, true)
         || in_array('artist', $pendingIntents, true) || in_array('reservation', $pendingIntents, true);
     $stateText = mb_strtolower(implode(' ', array_slice($historyLines, -8)) . ' ' . $messageText, 'UTF-8');
+    $wantsScheduleOptions = studio_whatsapp_ai_wants_schedule_options($messageText);
+    if ($wantsScheduleOptions && !in_array($currentIntent, ['address', 'artist', 'business_hours', 'price', 'image_price', 'image_price_style', 'payment_proof', 'payment_proof_denial', 'payment_amount_variation'], true)) {
+        $currentIntent = 'schedule';
+    }
     $hasReference = !empty($imageAnalysis['present']) || !empty($linkReferenceAnalysis['present']) || $recentHistoryHasImage
         || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $stateText);
     $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $stateText);
@@ -10938,6 +11010,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'human_handoff' => 'O assunto atual precisa de atendimento humano. Responda de forma curta, sinalize a equipe e nao tente aconselhar nem resolver fora do escopo do estudio.',
         'multi_request' => 'O cliente enviou várias mensagens antes da resposta. Responda todos os pedidos pendentes em uma única mensagem curta, sem ignorar nenhum.',
         'address' => $studioAddress !== '' ? 'Informe diretamente o endereço oficial cadastrado.' : 'O endereço não está cadastrado. Não invente nem use placeholder; encaminhe para uma pessoa.',
+        'business_hours' => 'Explique o funcionamento do estudio sem tratar isso como pedido de data especifica. Se fizer sentido, ofereca conferir as proximas vagas.',
         'artist' => 'A agenda mostra horários, mas não associa automaticamente um tatuador. Não invente um nome; encaminhe a confirmação para a equipe.',
         'reservation' => 'Conduza a reserva: confirme o horario escolhido, explique que a vaga so fica garantida com sinal de ' . $bookingDepositLabel . ' via Pix e peca o comprovante aqui no WhatsApp.',
         'payment_proof_denial' => 'O cliente corrigiu que ainda nao enviou comprovante. Peça desculpa pela confusao, nao trate comprovante antigo como valido e explique que a reserva so confirma apos o comprovante real.',
@@ -11035,12 +11108,23 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human sem encerrar a conversa.";
 
-    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice, $hasReference, $conversationMemory): string {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice, $hasReference, $conversationMemory, $wantsScheduleOptions, $scheduleSlotsList): string {
+        $slotListLabel = studio_whatsapp_available_slot_options_label($availability, 5);
         if (is_array($dateContext)) {
             $date = (string)($dateContext['date'] ?? '');
+            $scopedAvailability = array_values(array_filter($availability, static function (array $day) use ($date): bool {
+                $dayDate = (string)($day['date'] ?? '');
+                return $date === '' || $dayDate >= $date;
+            }));
+            $scopedSlotListLabel = studio_whatsapp_available_slot_options_label($scopedAvailability, 5);
             $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
             $dateLabel = studio_whatsapp_schedule_date_label($date, $messageText);
             $requestedTimeLabel = $timeChoice !== '' ? studio_whatsapp_schedule_time_label($timeChoice) : '';
+            if ($timeChoice !== '' && !in_array($timeChoice, $scheduleSlotsList, true)) {
+                $allowedLabels = array_map('studio_whatsapp_schedule_time_label', $scheduleSlotsList);
+                $allowedText = $allowedLabels ? implode(' e ', array_slice($allowedLabels, 0, 4)) : 'os horários cadastrados';
+                return 'Esse horário fica fora da agenda cadastrada, que hoje trabalha com ' . $allowedText . '. As próximas opções livres são: ' . ($scopedSlotListLabel !== '' ? $scopedSlotListLabel : 'não encontrei vagas no período consultado') . '.';
+            }
             if ($freeSlots) {
                 if ($timeChoice !== '' && !in_array($timeChoice, $freeSlots, true)) {
                     $freeLabels = array_map('studio_whatsapp_schedule_time_label', array_slice($freeSlots, 0, 3));
@@ -11055,6 +11139,11 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 return 'Não tenho vaga ' . $dateLabel . $requested . '. O próximo horário livre depois disso é ' . studio_whatsapp_schedule_date_label((string)$nextSlot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$nextSlot['time']) . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
             }
             return 'Não encontrei vaga livre nessa data nem no período consultado.';
+        }
+        if ($wantsScheduleOptions) {
+            return $slotListLabel !== ''
+                ? 'Tenho estas próximas opções livres: ' . $slotListLabel . '. Qual delas você quer reservar? Para segurar a vaga, o sinal é ' . $bookingDepositLabel . ' via Pix.'
+                : 'Não encontrei vaga livre no período consultado.';
         }
         $scheduleText = mb_strtolower($messageText . ' ' . $conversationMemory, 'UTF-8');
         $hasSpecificScheduleRequest = (bool)preg_match('/\b(tem\s+hor[aá]rio|hor[aá]rio\s+livre|vaga|dispon[ií]vel|amanh[aã]|hoje|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|\d{1,2}[\/\-]\d{1,2}|\d{1,2}\s*(?:h|horas?))\b/u', $scheduleText);
@@ -11281,6 +11370,28 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'lead_score_delta' => 0,
             'summary' => $studioAddress !== '' ? 'Cliente recebeu o endereço do estúdio.' : 'Cliente pediu o endereço; informação ainda não cadastrada.',
         ];
+    } elseif ($currentIntent === 'business_hours') {
+        $weekdayNames = [
+            '1' => 'segunda',
+            '2' => 'terça',
+            '3' => 'quarta',
+            '4' => 'quinta',
+            '5' => 'sexta',
+            '6' => 'sábado',
+            '7' => 'domingo',
+        ];
+        $configuredDays = array_values(array_filter(array_map(static fn(string $day): string => $weekdayNames[$day] ?? '', studio_schedule_days($studio))));
+        $configuredSlots = array_map('studio_whatsapp_schedule_time_label', $scheduleSlotsList);
+        $hoursText = $configuredDays && $configuredSlots
+            ? 'A agenda cadastrada atende de ' . implode(', ', $configuredDays) . ', nos horários ' . implode(' e ', $configuredSlots) . '.'
+            : 'Atendemos com hora marcada, conforme disponibilidade da agenda.';
+        $result = [
+            'ok' => true,
+            'reply_text' => $hoursText . ' Se quiser, eu já te passo as próximas vagas livres.',
+            'needs_human' => false,
+            'lead_score_delta' => 0,
+            'summary' => 'Cliente perguntou horario de funcionamento; informar que o atendimento é com hora marcada conforme agenda cadastrada.',
+        ];
     } elseif ($currentIntent === 'quote_status' || $currentIntent === 'quote_ready') {
         $result = [
             'ok' => true,
@@ -11343,7 +11454,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $deterministicIntent = in_array($currentIntent, [
         'multi_request', 'schedule', 'artist', 'reservation', 'payment_proof_denial', 'payment_amount_variation',
         'payment_proof', 'fixed_closing_price', 'address', 'quote_status', 'quote_ready', 'quote_acknowledgement',
-        'quote_partial', 'image_price_style', 'human_handoff',
+        'quote_partial', 'image_price_style', 'business_hours', 'human_handoff',
     ], true);
     if (!$deterministicIntent && studio_whatsapp_ai_reply_is_repetitive($replyText, $recentBotReplies)) {
         $retryPrompt = $prompt . "\n\n"
@@ -11369,7 +11480,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'image_reference' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Voce quer reproduzir esse desenho ou adaptar algum detalhe?',
                 'tattoo_idea' => 'Entendi a ideia. Qual tamanho aproximado e estilo voce imagina para essa tatuagem?',
                 'audio_unavailable' => 'Nao consegui entender o audio. Pode me mandar por texto ou reenviar o audio?',
-                default => 'Não quero repetir perguntas nem te passar algo errado. Vou pedir para a equipe continuar por aqui.',
+                default => !empty($conversation['needs_human'])
+                    ? 'Combinado. A equipe já está sinalizada para assumir por aqui, mas se quiser eu ainda consigo te passar endereço, valores cadastrados ou próximas vagas.'
+                    : 'Vou deixar a equipe sinalizada para continuar por aqui sem ficar repetindo pergunta.',
             };
             $result['needs_human'] = true;
         }
