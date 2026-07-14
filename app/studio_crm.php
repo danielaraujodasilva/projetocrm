@@ -4263,34 +4263,87 @@ function studio_whatsapp_ai_guardrail_reason(string $text): ?string
         '/\bpessoa\b/u',
         '/falar com algu[eé]m/u',
         '/falar com o daniel/u',
+        '/falar com o dono/u',
+    ] as $pattern) {
+        if (preg_match($pattern, $text)) {
+            return 'Cliente pediu atendimento humano';
+        }
+    }
+
+    foreach ([
         '/\bdesconto\b/u',
         '/reclama[cç][aã]o/u',
         '/\bproblema\b/u',
         '/\berrado\b/u',
         '/\breembolso\b/u',
+    ] as $pattern) {
+        if (preg_match($pattern, $text)) {
+            return 'Tema comercial sensivel para humano';
+        }
+    }
+
+    foreach ([
         '/\bdor\b/u',
         '/\binflamou\b/u',
         '/\binfec[cç][aã]o\b/u',
         '/\balergia\b/u',
         '/\bsangue\b/u',
-        '/cobertura complexa/u',
-        '/cobrir tatuagem/u',
-        '/or[cç]amento fechado/u',
-        '/fechar agora/u',
     ] as $pattern) {
         if (preg_match($pattern, $text)) {
-            return 'IA pausada: precisa de humano';
+            return 'Tema de saude precisa de atendimento humano';
+        }
+    }
+
+    foreach ([
+        '/\bdesabafar\b/u',
+        '/\bseparei\b/u',
+        '/\bsepara[cç][aã]o\b/u',
+        '/ex[-\s]?marid[ao]/u',
+        '/meus?\s+filh[oa]s/u',
+        '/\bdrogad[ao]\b/u',
+        '/\bamea[cç]a\b/u',
+        '/\bviol[eê]ncia\b/u',
+        '/\bdepress[aã]o\b/u',
+        '/\bansiedade\b/u',
+    ] as $pattern) {
+        if (preg_match($pattern, $text)) {
+            return 'Assunto sensivel fora do atendimento de tatuagem';
         }
     }
 
     return null;
 }
 
+function studio_whatsapp_ai_is_coverup_request(string $text): bool
+{
+    $text = mb_strtolower(trim($text), 'UTF-8');
+    if ($text === '') {
+        return false;
+    }
+
+    return (bool)preg_match('/\b(cobrir|cobertura|cover\s*up|coverup|tapar|tampar|arrumar\s+essa\s+tattoo)\b/u', $text);
+}
+
+function studio_whatsapp_ai_current_rejects_fixed_closing(string $text): bool
+{
+    $text = mb_strtolower(trim($text), 'UTF-8');
+    if ($text === '') {
+        return false;
+    }
+
+    return (bool)preg_match('/\b(n[aã]o\s+quero\s+mais|n[aã]o\s+e\s+fechamento|s[oó]\s+|apenas|metade|pequen[ao]|antebra[cç]o|pulso|m[aã]o|dedo|canela|panturrilha|tornozelo)\b/u', $text);
+}
+
+function studio_whatsapp_ai_text_asks_price(string $text): bool
+{
+    return (bool)preg_match('/(quanto\s+(que\s+)?(custa|fica|sai|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da|vai\s+sair)/u', mb_strtolower($text, 'UTF-8'));
+}
+
 function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, string $messageType = 'text'): string
 {
     $text = trim(mb_strtolower($text, 'UTF-8'));
     $messageType = strtolower(trim($messageType));
-    $asksPrice = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da)/u', $text) === 1;
+    $asksPrice = preg_match('/(quanto\s+(que\s+)?(custa|fica|sai|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da|vai\s+sair)/u', $text) === 1;
     $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem|\bestilo\b|\belementos?\b|\bdescrev)/u', $text) === 1;
 
     if (preg_match('/(onde\s+fica|qual\s+(e\s+)?o\s+endere[cç]o|endere[cç]o\s+do\s+est[uú]dio|localiza[cç][aã]o)/u', $text)) {
@@ -10027,9 +10080,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $hasProofContext = (bool)preg_match('/\b(comprovante|pix|sinal|pagamento|reserva|reservar|agend|confer[eê]ncia)\b/u', $conversationMemory . ' ' . $stateText);
     $fixedClosingOfferLabel = studio_whatsapp_ai_fixed_closing_offer_label($studioRules);
+    $currentAsksPrice = studio_whatsapp_ai_text_asks_price($currentText);
+    $currentRejectsFixedClosing = studio_whatsapp_ai_current_rejects_fixed_closing($currentText);
+    $currentMentionsFixedClosing = (bool)preg_match('/\b(fechamento|costas?\s+(completa|inteira|toda)|fechar\s+(as?\s+)?costas|peit(?:o|oral)\s+(completo|inteiro)|valor\s+fixo|promo[cç][aã]o)\b/u', $currentText);
+    $contextMentionsFixedClosing = (bool)preg_match('/\b(fechamento|costas?\s+(completa|inteira|toda)|peit(?:o|oral)\s+(completo|inteiro)|valor\s+fixo|promo[cç][aã]o)\b/u', $stateText);
     $asksFixedClosingOffer = $fixedClosingOfferLabel !== ''
-        && (bool)preg_match('/\b(fechamento|fechar|costas|bra[cç]o|perna|peito|peitoral|promo[cç][aã]o|valor\s+fixo|sess[aã]o)\b/u', $currentText)
-        && (bool)preg_match('/(quanto|valor|pre[cç]o|custa|fica|promo[cç][aã]o|fixo)/u', $currentText . ' ' . $stateText);
+        && $currentAsksPrice
+        && !$currentRejectsFixedClosing
+        && ($currentMentionsFixedClosing || ($currentIntent === 'price' && $contextMentionsFixedClosing));
     if ($customerDeniesPaymentProof) {
         $currentIntent = 'payment_proof_denial';
     } elseif (($mentionsExtraDeposit || $mentionsOverDepositAmount) && $hasProofContext) {
@@ -10040,21 +10098,21 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $currentChoosesFullCoverage = preg_match('/(\b[aá]rea\s+inteira\b|costas?\s+(completa|inteira|toda)|fechamento\s+(completo\s+)?(de\s+)?costas)/u', $currentText);
     $currentChoosesPartialCoverage = preg_match('/(\bapenas\s+uma\s+parte\b|\bs[oó]\s+uma\s+parte\b|\b[aá]rea\s+parcial\b)/u', $currentText);
     $desiredBodyArea = '';
-    foreach (['costas', 'braço', 'perna', 'peito', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
+    foreach (['costas', 'antebraço', 'antebraco', 'braço', 'braco', 'perna', 'canela', 'panturrilha', 'tornozelo', 'coxa', 'peito', 'peitoral', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
         if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', $currentText)) {
             $desiredBodyArea = $bodyArea;
             break;
         }
     }
     if ($desiredBodyArea === '') {
-        foreach (['costas', 'braço', 'perna', 'peito', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
+        foreach (['costas', 'antebraço', 'antebraco', 'braço', 'braco', 'perna', 'canela', 'panturrilha', 'tornozelo', 'coxa', 'peito', 'peitoral', 'ombro', 'pescoço', 'mão'] as $bodyArea) {
             if (preg_match('/\b' . preg_quote($bodyArea, '/') . '\b/u', $stateText)) {
                 $desiredBodyArea = $bodyArea;
                 break;
             }
         }
     }
-    $canSwitchToQuoteFlow = !in_array($currentIntent, ['schedule', 'fixed_closing_price', 'payment_proof_denial'], true);
+    $canSwitchToQuoteFlow = !in_array($currentIntent, ['schedule', 'fixed_closing_price', 'payment_proof_denial', 'human_handoff'], true);
     if ($canSwitchToQuoteFlow && $hasReference && $pricingDiscussed && $currentChoosesFullCoverage && $desiredBodyArea !== '') {
         $currentIntent = 'quote_ready';
     } elseif ($canSwitchToQuoteFlow && $hasReference && $pricingDiscussed && $currentChoosesPartialCoverage && $desiredBodyArea !== '') {
@@ -10087,14 +10145,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $guardrailReason = 'Referencia por link sinalizada para revisao humana.';
     }
     if ($guardrailReason !== null) {
-        studio_update_whatsapp_conversation($studio, [
-            'conversation_id' => (int)$conversation['id'],
-            'needs_human' => 1,
-            'ai_last_status' => $guardrailReason,
-            'ai_last_message_id' => $incomingMessageId,
-            'ai_last_at' => date('Y-m-d H:i:s'),
-        ]);
-        return ['ok' => false, 'error' => $guardrailReason, 'needs_human' => true, 'ai_last_status' => $guardrailReason, 'ai_last_message_id' => $incomingMessageId];
+        $currentIntent = 'human_handoff';
+        $needsScheduleContext = false;
     }
     $imageContext = 'Nenhuma imagem recebida nesta mensagem.';
     $visualBodyArea = '';
@@ -10313,6 +10365,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         : 'Ainda não há exemplos humanos confiáveis e semelhantes.';
     $intentInstruction = match ($currentIntent) {
         'schedule' => 'Responda somente a pergunta atual sobre agenda usando os horarios reais fornecidos.',
+        'human_handoff' => 'O assunto atual precisa de atendimento humano. Responda de forma curta, sinalize a equipe e nao tente aconselhar nem resolver fora do escopo do estudio.',
         'multi_request' => 'O cliente enviou várias mensagens antes da resposta. Responda todos os pedidos pendentes em uma única mensagem curta, sem ignorar nenhum.',
         'address' => $studioAddress !== '' ? 'Informe diretamente o endereço oficial cadastrado.' : 'O endereço não está cadastrado. Não invente nem use placeholder; encaminhe para uma pessoa.',
         'artist' => 'A agenda mostra horários, mas não associa automaticamente um tatuador. Não invente um nome; encaminhe a confirmação para a equipe.',
@@ -10393,6 +10446,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Nunca faca diagnostico medico a partir de imagem. Encaminhe irritacao, infeccao, ferida ou duvida de saude para atendimento humano/profissional.\n"
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true, avise que a equipe foi sinalizada e continue disponivel ate um atendente assumir.\n"
+        . "- Se o cliente sair do escopo de tatuagem/estudio com assunto pessoal, familiar, juridico, saude mental ou conflito, nao aconselhe: acolha em uma frase curta e sinalize humano.\n"
         . "- Para reserva de horario, primeiro ofereca/valide data e hora; depois explique sinal de " . $bookingDepositLabel . " via Pix " . $bookingPixKey . " em nome de " . $bookingPixRecipient . "; depois aguarde comprovante.\n"
         . "- Quando receber comprovante, nao repita horarios. Confirme recebimento e encaminhe para conferencia humana se nao tiver certeza.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
@@ -10410,7 +10464,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human sem encerrar a conversa.";
 
-    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice): string {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice, $hasReference, $conversationMemory): string {
         if (is_array($dateContext)) {
             $date = (string)($dateContext['date'] ?? '');
             $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
@@ -10431,6 +10485,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             }
             return 'Não encontrei vaga livre nessa data nem no período consultado.';
         }
+        $scheduleText = mb_strtolower($messageText . ' ' . $conversationMemory, 'UTF-8');
+        $hasSpecificScheduleRequest = (bool)preg_match('/\b(tem\s+hor[aá]rio|hor[aá]rio\s+livre|vaga|dispon[ií]vel|amanh[aã]|hoje|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo|\d{1,2}[\/\-]\d{1,2}|\d{1,2}\s*(?:h|horas?))\b/u', $scheduleText);
+        if (!$hasSpecificScheduleRequest && !$hasReference) {
+            return 'Perfeito. Me manda a referência ou ideia da tattoo e me diz qual dia/horário você prefere, que eu confiro a agenda certinho.';
+        }
+        if (!$hasSpecificScheduleRequest) {
+            return 'Perfeito. Qual dia e horário você prefere para eu conferir a disponibilidade?';
+        }
         foreach ($availability as $day) {
             if (!empty($day['allowed']) && !empty($day['free_slots'])) {
                 return 'O próximo horário livre é ' . studio_whatsapp_schedule_date_label((string)$day['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$day['free_slots'][0]) . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
@@ -10439,7 +10501,42 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return 'Não encontrei vaga livre no período consultado.';
     };
 
-    if ($currentIntent === 'payment_proof_denial') {
+    if ($currentIntent === 'human_handoff') {
+        $reasonText = mb_strtolower((string)$guardrailReason, 'UTF-8');
+        if (str_contains($reasonText, 'fora do atendimento')) {
+            $reply = 'Sinto muito por isso. Esse canal é do estúdio e eu não consigo te orientar bem nesse assunto, então deixei a equipe sinalizada para um atendente humano assumir por aqui.';
+        } elseif (str_contains($reasonText, 'saude')) {
+            $reply = 'Esse ponto precisa de cuidado humano. Deixei a equipe sinalizada para te orientar melhor por aqui; se for algo urgente ou de saúde, procure atendimento profissional também.';
+        } elseif (str_contains($reasonText, 'comercial')) {
+            $reply = 'Entendi. Como envolve condição especial, desconto ou conferência, deixei a equipe sinalizada para te responder certinho.';
+        } else {
+            $reply = 'Avisei a equipe que você quer falar com um atendente. Enquanto ninguém assume, posso continuar te ajudando com informações básicas do estúdio.';
+        }
+        $result = [
+            'ok' => true,
+            'reply_text' => $reply,
+            'needs_human' => true,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente precisa de atendimento humano. Motivo: ' . (string)$guardrailReason . '.',
+        ];
+    } elseif (studio_whatsapp_ai_is_coverup_request($currentText) && ($recentHistoryHasImage || !empty($imageAnalysis['present']))) {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Entendi, é cobertura dessa tattoo. Cobertura precisa de avaliação do Daniel por causa do desenho antigo e da área, então deixei a conversa sinalizada; me confirma o tamanho aproximado e se quer cobrir ela inteira?',
+            'needs_human' => true,
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente quer cobertura de tatuagem já enviada por imagem; precisa de avaliação humana do Daniel, faltando confirmar tamanho/cobertura desejada.',
+        ];
+    } elseif ($currentRejectsFixedClosing && $currentAsksPrice) {
+        $areaLabel = $desiredBodyArea !== '' ? str_replace('antebraco', 'antebraço', $desiredBodyArea) : 'essa área';
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Entendi, então não é fechamento: é para ' . $areaLabel . '. O valor precisa ser avaliado pelo Daniel conforme tamanho e nível de detalhe; me manda a referência e o tamanho aproximado para eu deixar certinho.',
+            'needs_human' => true,
+            'lead_score_delta' => 2,
+            'summary' => 'Cliente corrigiu o pedido: nao quer mais fechamento e perguntou valor para ' . $areaLabel . '; nao aplicar valor fixo de fechamento.',
+        ];
+    } elseif ($currentIntent === 'payment_proof_denial') {
         $slotText = is_array($selectedReservationSlot)
             ? ' Para segurar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ','
             : ' Para reservar o horário,';
@@ -10663,7 +10760,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $deterministicIntent = in_array($currentIntent, [
         'multi_request', 'schedule', 'artist', 'reservation', 'payment_proof_denial', 'payment_amount_variation',
         'payment_proof', 'fixed_closing_price', 'address', 'quote_status', 'quote_ready', 'quote_acknowledgement',
-        'quote_partial', 'image_price_style',
+        'quote_partial', 'image_price_style', 'human_handoff',
     ], true);
     if (!$deterministicIntent && studio_whatsapp_ai_reply_is_repetitive($replyText, $recentBotReplies)) {
         $retryPrompt = $prompt . "\n\n"
