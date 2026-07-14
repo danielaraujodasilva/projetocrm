@@ -879,6 +879,42 @@ function plan_limit(string $limitKey): int
     return (int)($config['default'] ?? 0);
 }
 
+function plan_limit_for_studio(array $studio, string $limitKey): int
+{
+    $limitKey = strtolower(trim($limitKey));
+    if ($limitKey === '') {
+        return 0;
+    }
+
+    $map = plan_limit_map();
+    $config = $map[$limitKey] ?? null;
+    if (!$config) {
+        return 0;
+    }
+
+    $plan = resolve_studio_plan($studio);
+    if (!$plan) {
+        return (int)($config['default'] ?? 0);
+    }
+
+    $column = (string)($config['column'] ?? '');
+    if ($column !== '' && array_key_exists($column, $plan) && $plan[$column] !== null && $plan[$column] !== '') {
+        return max(0, (int)$plan[$column]);
+    }
+
+    if ($limitKey === 'max_ai_requests_month') {
+        $slug = (string)($plan['slug'] ?? '');
+        return match ($slug) {
+            'avancado' => 10000,
+            'profissional' => 2000,
+            'basico' => 0,
+            default => 0,
+        };
+    }
+
+    return (int)($config['default'] ?? 0);
+}
+
 function plan_blocked_message(string $resource, ?string $minimumPlan = null): string
 {
     $resource = strtolower(trim($resource));

@@ -1730,7 +1730,7 @@ function studio_save_artist(array $studio, array $data): int
     }
 
     if ($id <= 0) {
-        $limit = plan_limit('max_tattooers');
+        $limit = plan_limit_for_studio($studio, 'max_tattooers');
         if ($limit > 0 && studio_artist_count($studio) >= $limit) {
             throw new RuntimeException('Seu plano atual permite até ' . $limit . ' tatuadores. Para adicionar mais tatuadores, altere para um plano superior.');
         }
@@ -10917,7 +10917,7 @@ function studio_save_customer(array $studio, array $data): int
         return $id;
     }
 
-    $limit = plan_limit('max_clients');
+    $limit = plan_limit_for_studio($studio, 'max_clients');
     if ($limit > 0 && studio_customer_count($studio) >= $limit) {
         throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
     }
@@ -11181,7 +11181,7 @@ function studio_save_lead(array $studio, array $data): int
         return $id;
     }
 
-    $limit = plan_limit('max_clients');
+    $limit = plan_limit_for_studio($studio, 'max_clients');
     if ($limit > 0 && studio_lead_count($studio) >= $limit) {
         throw new RuntimeException('Seu plano atual permite até ' . $limit . ' clientes/leads cadastrados. Para continuar cadastrando novos contatos, altere para um plano superior.');
     }
