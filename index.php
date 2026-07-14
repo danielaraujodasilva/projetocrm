@@ -1570,6 +1570,18 @@ if ($action === 'studio_login') {
             redirect_to('studio_settings', ['tab' => $settingsTab]);
         }
 
+        if ($action === 'generate_ai_team_playbook') {
+            $studio = require_studio();
+            csrf_verify();
+            $result = studio_generate_ai_team_playbook($studio);
+            if (empty($result['ok'])) {
+                flash_set('error', (string)($result['error'] ?? 'Nao foi possivel gerar os playbooks da equipe.'));
+            } else {
+                flash_set('success', 'Playbooks da equipe atualizados com ' . (int)($result['examples'] ?? 0) . ' exemplos reais de atendimento.');
+            }
+            redirect_to('studio_settings', ['tab' => 'ia']);
+        }
+
         if ($action === 'upload_voice_sample') {
             $studio = require_studio();
             csrf_verify();
@@ -6912,6 +6924,9 @@ if ($page === 'studio_settings') {
         echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="ai_learn_from_attendants_enabled" value="1" ' . ((int)($settings['ai_learn_from_attendants_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Aprender com respostas reais dos atendentes</label><label class="checkline"><input type="checkbox" name="ai_conversation_summary_enabled" value="1" ' . ((int)($settings['ai_conversation_summary_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Gerar resumo vivo das conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
         echo '</div>';
         echo '<div class="settings-howto" style="margin-top:12px"><strong>Como esse aprendizado funciona</strong><p class="muted" style="margin:6px 0 0">Quando ativado, a IA lê respostas humanas dos atendentes para aprender tom, ordem das perguntas e condução comercial. Ela não usa fatos de outro cliente como preço, data, comprovante ou endereço particular; esses dados continuam vindo da conversa atual, da agenda e das regras cadastradas.</p></div>';
+        echo '<div class="panel soft" style="margin-top:12px;border-style:dashed"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:14px"><div><h3 style="margin:0">Aprendizado operacional da equipe</h3><p class="muted" style="margin:6px 0 0">Aqui ficam os playbooks que a IA usa para entender contexto, objeções, tipos de cliente e formas de contornar situações. Gere automaticamente pelas conversas reais, revise o texto e salve.</p></div><button class="btn secondary" type="submit" name="action" value="generate_ai_team_playbook"><i class="fa-solid fa-wand-magic-sparkles"></i> Gerar/atualizar playbooks</button></div>';
+        echo '<div class="settings-switch-grid" style="margin-top:12px"><label class="checkline"><input type="checkbox" name="ai_team_playbook_enabled" value="1" ' . ((int)($settings['ai_team_playbook_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Usar estes playbooks nas respostas da IA</label></div>';
+        echo '<div class="field" style="margin-top:12px"><label>Playbooks aprendidos</label><textarea name="ai_team_playbook_text" rows="16" style="min-height:320px" placeholder="Clique em Gerar/atualizar playbooks para a IA analisar conversas reais e criar estratégias editáveis.">' . h($settings['ai_team_playbook_text'] ?? '') . '</textarea><small class="muted">Última atualização: ' . h((string)($settings['ai_team_playbook_updated_at'] ?? 'nunca')) . '. Edite livremente. Isso vale como estratégia; fatos oficiais continuam vindo das regras, agenda e conversa atual.</small></div></div>';
         echo '</div>';
         echo '<div class="settings-save-row"><div class="muted">Salva provedor, chaves, modelos, visão, documentos, vídeo, automações e voz da IA.</div><button class="btn" type="button" data-settings-submit>Salvar inteligência artificial</button></div>';
         echo '</div></div>';

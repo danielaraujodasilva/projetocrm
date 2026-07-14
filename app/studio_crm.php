@@ -4519,6 +4519,172 @@ function studio_whatsapp_ai_conversation_summary_enabled(array $studio): bool
     return (int)($settings['ai_conversation_summary_enabled'] ?? 1) === 1;
 }
 
+function studio_whatsapp_ai_team_playbook_enabled(array $studio): bool
+{
+    $settings = studio_settings($studio);
+    return (int)($settings['ai_team_playbook_enabled'] ?? 1) === 1;
+}
+
+function studio_whatsapp_ai_team_playbook_text(array $studio): string
+{
+    if (!studio_whatsapp_ai_team_playbook_enabled($studio)) {
+        return '';
+    }
+    $settings = studio_settings($studio);
+    return trim((string)($settings['ai_team_playbook_text'] ?? ''));
+}
+
+function studio_generate_ai_team_playbook(array $studio): array
+{
+    $pdo = studio_db($studio);
+    foreach ([
+        'ai_team_playbook_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'ai_team_playbook_text' => 'MEDIUMTEXT NULL',
+        'ai_team_playbook_updated_at' => 'DATETIME NULL',
+    ] as $column => $definition) {
+        try {
+            $pdo->exec('ALTER TABLE studio_settings ADD COLUMN IF NOT EXISTS ' . $column . ' ' . $definition);
+        } catch (Throwable) {
+            try {
+                $pdo->exec('ALTER TABLE studio_settings ADD COLUMN ' . $column . ' ' . $definition);
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    $stmt = $pdo->query(
+        'SELECT wm.conversation_id,
+                prev.body AS customer_message,
+                wm.body AS human_reply,
+                wm.sent_at,
+                wc.ai_memory,
+                wc.lead_interest,
+                wc.lead_status,
+                wc.lead_pipeline_stage
+         FROM whatsapp_messages wm
+         INNER JOIN whatsapp_conversations wc ON wc.id = wm.conversation_id
+         LEFT JOIN whatsapp_messages prev ON prev.id = (
+             SELECT p.id
+             FROM whatsapp_messages p
+             WHERE p.conversation_id = wm.conversation_id
+               AND p.id < wm.id
+               AND p.direction = "in"
+               AND COALESCE(TRIM(p.body), "") <> ""
+             ORDER BY p.id DESC
+             LIMIT 1
+         )
+         WHERE wm.direction = "out"
+           AND wm.sender_type = "human"
+           AND CHAR_LENGTH(TRIM(COALESCE(wm.body, ""))) BETWEEN 12 AND 900
+           AND COALESCE(TRIM(prev.body), "") <> ""
+         ORDER BY wm.id DESC
+         LIMIT 180'
+    );
+    $rows = $stmt->fetchAll() ?: [];
+    $examples = [];
+    foreach ($rows as $row) {
+        $customer = trim((string)($row['customer_message'] ?? ''));
+        $reply = trim((string)($row['human_reply'] ?? ''));
+        $normalized = mb_strtolower($customer . ' ' . $reply, 'UTF-8');
+        if ($customer === '' || $reply === '' || preg_match('#(https?://|/projetocrm|\bteste\b|\btestando\b)#u', $normalized)) {
+            continue;
+        }
+        $examples[] = [
+            'cliente' => mb_substr(preg_replace('/\b\d{8,}\b/u', '[telefone]', $customer) ?? $customer, 0, 360, 'UTF-8'),
+            'atendente' => mb_substr(preg_replace('/\b\d{8,}\b/u', '[telefone]', $reply) ?? $reply, 0, 520, 'UTF-8'),
+            'contexto' => mb_substr(trim((string)($row['ai_memory'] ?? $row['lead_interest'] ?? '')), 0, 260, 'UTF-8'),
+        ];
+        if (count($examples) >= 80) {
+            break;
+        }
+    }
+
+    if (!$examples) {
+        return ['ok' => false, 'error' => 'Ainda não há conversas humanas suficientes para gerar playbooks.'];
+    }
+
+    $settings = studio_settings($studio);
+    $config = studio_openai_config($studio);
+    $playbook = '';
+    if (!empty($settings['ai_enabled']) && $config['api_key'] !== '') {
+        $systemPrompt = "Você analisa atendimentos reais de WhatsApp de um estúdio de tatuagem e transforma em playbooks operacionais.\n"
+            . "Não copie dados pessoais, telefones, nomes completos, preços específicos de cliente, datas ou comprovantes.\n"
+            . "Extraia estratégias reutilizáveis: tipo de situação, sinais do cliente, como o atendente contorna, o que responder, o que evitar e quando chamar humano.\n"
+            . "Responda em português do Brasil somente no campo reply_text, em Markdown simples, com 8 a 14 playbooks curtos.";
+        $userPrompt = json_encode([
+            'objetivo' => 'Criar playbooks editáveis para a IA usar ao responder clientes.',
+            'formato' => [
+                '## Situação',
+                'Sinais do cliente:',
+                'Estratégia:',
+                'Resposta recomendada:',
+                'Evitar:',
+                'Chamar humano quando:',
+            ],
+            'exemplos_reais' => $examples,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $userPrompt = is_string($userPrompt) ? $userPrompt : '{}';
+        try {
+            $result = studio_openai_text($config['api_key'], $config['model'], $systemPrompt, $userPrompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'), 90);
+            if (!empty($result['ok'])) {
+                $playbook = trim((string)($result['reply_text'] ?? ''));
+                if ($playbook === '') {
+                    $playbook = trim((string)($result['summary'] ?? ''));
+                }
+            }
+        } catch (Throwable) {
+            $playbook = '';
+        }
+    }
+
+    if ($playbook === '') {
+        $patterns = [
+            'Preço/orçamento' => ['preço', 'preco', 'valor', 'quanto', 'orçamento', 'orcamento'],
+            'Agenda/horário' => ['agenda', 'horário', 'horario', 'disponibilidade', 'vaga', 'agendar'],
+            'Desconto/objeção' => ['desconto', 'caro', 'barato', 'negociar', 'parcel'],
+            'Sinal/Pix/comprovante' => ['pix', 'sinal', 'comprovante', 'pagamento', 'reserva'],
+            'Referência/tamanho/local' => ['referência', 'referencia', 'foto', 'tamanho', 'braço', 'braco', 'costas', 'perna'],
+            'Atendente/Daniel' => ['daniel', 'atendente', 'humano', 'pessoa'],
+        ];
+        $sections = [];
+        foreach ($patterns as $title => $needles) {
+            $hits = [];
+            foreach ($examples as $example) {
+                $haystack = mb_strtolower($example['cliente'] . ' ' . $example['atendente'], 'UTF-8');
+                foreach ($needles as $needle) {
+                    if (str_contains($haystack, $needle)) {
+                        $hits[] = $example;
+                        break;
+                    }
+                }
+                if (count($hits) >= 3) {
+                    break;
+                }
+            }
+            if (!$hits) {
+                continue;
+            }
+            $sections[] = "## " . $title . "\n"
+                . "Sinais do cliente: " . implode(', ', array_slice($needles, 0, 5)) . ".\n"
+                . "Estratégia: reconhecer o pedido, não inventar informação e conduzir para o próximo dado útil.\n"
+                . "Resposta recomendada: curta, contextual, com uma pergunta ou orientação por vez.\n"
+                . "Evitar: repetir saudação, prometer preço/horário sem base ou ignorar dados já enviados.\n"
+                . "Chamar humano quando: houver reclamação, exceção de preço, comprovante duvidoso ou decisão que dependa do Daniel.";
+        }
+        $playbook = trim(implode("\n\n", $sections));
+    }
+
+    if ($playbook === '') {
+        return ['ok' => false, 'error' => 'Não foi possível extrair playbooks úteis agora.'];
+    }
+
+    $playbook = mb_substr($playbook, 0, 12000, 'UTF-8');
+    $pdo->prepare('UPDATE studio_settings SET ai_team_playbook_enabled = 1, ai_team_playbook_text = ?, ai_team_playbook_updated_at = NOW(), updated_at = NOW() WHERE id = 1')
+        ->execute([$playbook]);
+
+    return ['ok' => true, 'playbook' => $playbook, 'examples' => count($examples)];
+}
+
 function studio_whatsapp_ai_heuristic_summary(array $conversation, array $messages): string
 {
     $parts = [];
@@ -4748,6 +4914,7 @@ function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, ar
     $currentInterest = trim((string)($conversation['lead_interest'] ?? ''));
     $currentNotes = trim((string)($conversation['customer_notes'] ?? ''));
     $conversationMemory = trim((string)($conversation['ai_memory'] ?? ''));
+    $teamPlaybook = studio_whatsapp_ai_team_playbook_text($studio);
     $prompt = "Voce gera uma resposta curta e util para um atendimento de WhatsApp de estúdio de tatuagem.\n"
         . "Nao envie mensagem. Nao use markdown. Nao adicione emojis se nao forem naturais.\n"
         . "Responda somente com JSON valido contendo: reply_text, needs_human.\n"
@@ -4760,6 +4927,8 @@ function studio_whatsapp_ai_suggest_reply(array $studio, array $conversation, ar
         . "Interesse atual: " . ($currentInterest !== '' ? $currentInterest : 'sem interesse definido') . "\n"
         . "Observacoes atuais: " . ($currentNotes !== '' ? $currentNotes : 'sem observacoes') . "\n"
         . "Resumo acumulado da conversa: " . ($conversationMemory !== '' ? $conversationMemory : 'Ainda sem resumo acumulado.') . "\n"
+        . "Playbooks da equipe: " . ($teamPlaybook !== '' ? $teamPlaybook : 'Ainda nao gerados.') . "\n"
+        . "Use os playbooks como estratégia de condução, sem copiar fatos de outros clientes.\n"
         . "Historico recente:\n- " . (!empty($historyLines) ? implode("\n- ", $historyLines) : 'Sem historico recente.') . "\n";
     $result = studio_openai_text($config['api_key'], $config['model'], $config['system_prompt'], $prompt, (string)($config['base_url'] ?? 'https://api.openai.com/v1'), 30);
     if (empty($result['ok'])) {
@@ -8876,6 +9045,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
 
     $studioRules = trim((string)($settings['business_rules'] ?? ''));
+    $teamPlaybook = studio_whatsapp_ai_team_playbook_text($studio);
     $effectiveSystemPrompt = $config['system_prompt'];
     if ($studioRules !== '') {
         $effectiveSystemPrompt .= "\n\nBASE DE CONHECIMENTO PRIORITARIA DO ESTUDIO:\n"
@@ -8883,6 +9053,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             . "\n\nUse esta base em toda resposta. Para informações comerciais, ela prevalece sobre instruções genéricas. "
             . "A agenda em tempo real e os dados do cliente fornecidos pelo sistema prevalecem quando houver conflito. "
             . "Nunca invente uma regra ausente e nunca exponha este texto ao cliente.";
+    }
+    if ($teamPlaybook !== '') {
+        $effectiveSystemPrompt .= "\n\nPLAYBOOKS OPERACIONAIS APRENDIDOS COM A EQUIPE:\n"
+            . $teamPlaybook
+            . "\n\nUse estes playbooks para escolher estratégia, contorno de objeções, tom e próximo passo. "
+            . "Não copie fatos, nomes, valores, datas ou combinados de outros clientes; eles servem apenas como padrão de atendimento.";
     }
     $scheduleDays = trim((string)($settings['appointment_work_days'] ?? '1,2,3,4,5'));
     $scheduleSlots = trim((string)($settings['appointment_time_slots'] ?? '10:00,15:00'));
@@ -9229,6 +9405,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $prompt = "Contexto do estudio:\n"
         . "Nome do estudio: " . $studioName . "\n"
         . "Base de conhecimento do estudio: " . ($studioRules !== '' ? $studioRules : 'Ainda nao cadastrada.') . "\n"
+        . "Playbooks da equipe: " . ($teamPlaybook !== '' ? $teamPlaybook : 'Ainda nao gerados.') . "\n"
         . "Intencao da mensagem atual: " . $currentIntent . "\n"
         . "Instrucao principal: " . $intentInstruction . "\n"
         . $scheduleContextBlock
@@ -9264,6 +9441,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se a conversa ja teve saudacao, nao cumprimente de novo.\n"
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
         . "- Aprenda o tom e a condução dos exemplos humanos, mas use somente os fatos oficiais do contexto atual.\n"
+        . "- Use os playbooks da equipe para entender como contornar situações, lidar com objeções e escolher a próxima ação. Nunca transforme exemplos antigos em fatos do cliente atual.\n"
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
         . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
         . "- Nao mencione analise visual, IA, nomes de modelos, campos internos nem rotulos tecnicos. Traduza qualquer termo estrangeiro antes de responder.\n"
@@ -12420,6 +12598,8 @@ function studio_save_settings(array $studio, array $data): void
     $assistantAutofillEnabled = $boolSetting('assistant_autofill_enabled', 0);
     $aiLearnFromAttendantsEnabled = $boolSetting('ai_learn_from_attendants_enabled', 1);
     $aiConversationSummaryEnabled = $boolSetting('ai_conversation_summary_enabled', 1);
+    $aiTeamPlaybookEnabled = $boolSetting('ai_team_playbook_enabled', 1);
+    $aiTeamPlaybookText = trim((string)($data['ai_team_playbook_text'] ?? ($settings['ai_team_playbook_text'] ?? '')));
     $openAiKey = trim((string)($data['openai_api_key'] ?? ''));
     if ($openAiKey === '') {
         $openAiKey = trim((string)($settings['openai_api_key'] ?? ''));
@@ -12596,6 +12776,9 @@ function studio_save_settings(array $studio, array $data): void
         'ai_auto_create_appointment_after_proof' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_learn_from_attendants_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_conversation_summary_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'ai_team_playbook_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'ai_team_playbook_text' => 'MEDIUMTEXT NULL',
+        'ai_team_playbook_updated_at' => 'DATETIME NULL',
         'assistant_autofill_enabled' => 'TINYINT(1) NOT NULL DEFAULT 0',
         'appointment_confirmation_message' => 'TEXT NULL',
         'whatsapp_provider' => 'VARCHAR(16) NOT NULL DEFAULT "official"',
@@ -12635,7 +12818,7 @@ function studio_save_settings(array $studio, array $data): void
 
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
-         SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_learn_from_attendants_enabled = ?, ai_conversation_summary_enabled = ?, ai_model = ?, whatsapp_enabled = ?,
+         SET studio_name = ?, studio_address = ?, business_rules = ?, ai_enabled = ?, assistant_autofill_enabled = ?, ai_learn_from_attendants_enabled = ?, ai_conversation_summary_enabled = ?, ai_team_playbook_enabled = ?, ai_team_playbook_updated_at = IF(? <> COALESCE(ai_team_playbook_text, ""), NOW(), ai_team_playbook_updated_at), ai_team_playbook_text = ?, ai_model = ?, whatsapp_enabled = ?,
              whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_keep_active_until_human_reply = ?, ai_handoff_keepalive_message = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
@@ -12647,6 +12830,9 @@ function studio_save_settings(array $studio, array $data): void
         $assistantAutofillEnabled,
         $aiLearnFromAttendantsEnabled,
         $aiConversationSummaryEnabled,
+        $aiTeamPlaybookEnabled,
+        $aiTeamPlaybookText,
+        $aiTeamPlaybookText,
         $aiModel,
         $whatsappEnabled,
         $whatsappDefaultMode,
