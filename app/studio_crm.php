@@ -2115,6 +2115,19 @@ function studio_save_expense(array $studio, array $data): int
     return (int)$pdo->lastInsertId();
 }
 
+function studio_delete_expense(array $studio, int $id): void
+{
+    if ($id <= 0) {
+        throw new RuntimeException('Despesa inválida.');
+    }
+
+    $stmt = studio_db($studio)->prepare('DELETE FROM expenses WHERE id = ?');
+    $stmt->execute([$id]);
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Despesa não encontrada.');
+    }
+}
+
 function studio_ensure_quick_replies_schema(PDO $pdo): void
 {
     $pdo->exec(
@@ -3088,7 +3101,8 @@ function studio_find_whatsapp_conversation_by_phone(array $studio, string $phone
 function studio_whatsapp_default_mode(array $studio): string
 {
     $settings = studio_settings($studio);
-    if (!empty($settings['ai_enabled'])) {
+    $configuredMode = strtolower(trim((string)($settings['whatsapp_default_mode'] ?? 'human')));
+    if (!empty($settings['ai_enabled']) && $configuredMode === 'bot') {
         return 'bot';
     }
 
@@ -12988,8 +13002,28 @@ function studio_settings(array $studio): array
 function studio_save_settings(array $studio, array $data): void
 {
     $settings = studio_settings($studio);
-    $boolSetting = static function (string $key, int $default = 0) use ($data, $settings): int {
+    $activeTab = strtolower(trim((string)($data['settings_tab'] ?? '')));
+    $booleanTabs = [
+        'whatsapp_enabled' => ['studio', 'ia'],
+        'ai_enabled' => ['ia'],
+        'assistant_autofill_enabled' => ['ia'],
+        'ai_learn_from_attendants_enabled' => ['ia'],
+        'ai_conversation_summary_enabled' => ['ia'],
+        'ai_team_playbook_enabled' => ['ia'],
+        'ai_auto_create_appointment_after_proof' => ['ia'],
+        'ai_keep_active_until_human_reply' => ['ia'],
+        'nvidia_vision_enabled' => ['ia'],
+        'nvidia_document_enabled' => ['ia'],
+        'nvidia_video_enabled' => ['ia'],
+        'ai_voice_reply_enabled' => ['ia'],
+        'ai_voice_reply_when_audio_only' => ['ia'],
+        'meta_ads_enabled' => ['meta_ads'],
+    ];
+    $boolSetting = static function (string $key, int $default = 0) use ($activeTab, $booleanTabs, $data, $settings): int {
         if (!array_key_exists($key, $data)) {
+            if ($activeTab !== '' && in_array($activeTab, $booleanTabs[$key] ?? [], true)) {
+                return 0;
+            }
             return (int)($settings[$key] ?? $default);
         }
         return !empty($data[$key]) ? 1 : 0;
@@ -13078,7 +13112,10 @@ function studio_save_settings(array $studio, array $data): void
     if (!in_array($whatsappOfficialMode, ['production', 'sandbox'], true)) {
         $whatsappOfficialMode = 'production';
     }
-    $whatsappDefaultMode = $aiEnabled ? 'bot' : 'human';
+    $whatsappDefaultMode = strtolower(trim((string)($data['whatsapp_default_mode'] ?? ($settings['whatsapp_default_mode'] ?? 'human'))));
+    if (!in_array($whatsappDefaultMode, ['human', 'bot'], true)) {
+        $whatsappDefaultMode = 'human';
+    }
     $whatsappServiceUrl = rtrim(trim((string)($data['whatsapp_service_url'] ?? ($settings['whatsapp_service_url'] ?? 'http://localhost:3010'))), '/') ?: 'http://localhost:3010';
     $whatsappOfficialAppId = trim((string)($data['whatsapp_official_app_id'] ?? ''));
     $whatsappOfficialAppSecret = trim((string)($data['whatsapp_official_app_secret'] ?? ''));

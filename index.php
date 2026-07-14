@@ -940,6 +940,13 @@ if ($action === 'studio_login') {
             redirect_to('studio_finance');
         }
 
+        if ($action === 'delete_expense') {
+            $studio = require_studio();
+            studio_delete_expense($studio, (int)($_POST['id'] ?? 0));
+            flash_set('success', 'Despesa excluída.');
+            redirect_to('studio_finance');
+        }
+
         if ($action === 'save_quick_reply') {
             $studio = require_studio();
             $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
@@ -2633,6 +2640,16 @@ $studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', '
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
+}
+
+if (in_array($page, ['studio_whatsapp_workspace', 'studio_whatsapp_conversation'], true)) {
+    $mobileParams = [];
+    foreach (['id', 'filter', 'date_from', 'date_to'] as $key) {
+        if (isset($_GET[$key]) && is_scalar($_GET[$key]) && trim((string)$_GET[$key]) !== '') {
+            $mobileParams[$key] = trim((string)$_GET[$key]);
+        }
+    }
+    redirect_to('studio_whatsapp_mobile', $mobileParams);
 }
 
 if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
@@ -5938,12 +5955,13 @@ if ($page === 'studio_finance') {
         echo '<div id="financeExpenseSource" hidden><form class="form panel" method="post" id="nova-despesa">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="save_expense">';
-        echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Nova despesa</h2><span class="badge">Controle rapido</span></div>';
+        echo '<input type="hidden" name="id" value="">';
+        echo '<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2 data-expense-form-title>Nova despesa</h2><span class="badge">Controle rápido</span></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Categoria</label><input name="category" value="Geral"></div><div class="field"><label>Data</label><input type="date" name="expense_date" value="' . h(date('Y-m-d')) . '" required></div></div>';
         echo '<div class="field"><label>Descricao</label><input name="description" required placeholder="Material, aluguel, trafego, insumo..."></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Valor</label><input name="amount" required placeholder="120,00"></div><div class="field"><label>Pagamento</label><input name="payment_method" placeholder="Pix, cartao, dinheiro..."></div></div>';
         echo '<div class="field"><label>Observacoes</label><textarea name="notes"></textarea></div>';
-        echo '<button class="btn" type="submit">Salvar despesa</button>';
+        echo '<div class="actions"><button class="btn" type="submit">Salvar despesa</button><button class="btn secondary" type="button" data-expense-reset hidden>Cancelar edição</button></div>';
         echo '</form></div>';
         echo '<div id="financeRecentSource" hidden><div class="panel shadow-sm border-0" style="margin:0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><h2>Despesas por categoria</h2><span class="muted">' . h($periodLabel) . '</span></div>';
         render_category_totals($summary['by_category']);
@@ -5951,7 +5969,7 @@ if ($page === 'studio_finance') {
         render_expenses_table($expenses);
         echo '</div></div></div>';
         echo '<div id="financeOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1100px)"><div class="crm-panel-header"><div><h3 id="financeOverlayTitle" class="crm-panel-title">Detalhe</h3><p class="muted" id="financeOverlaySummary" style="margin:4px 0 0"></p></div><button type="button" id="closeFinanceOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="financeOverlayBody" class="p-4"></div></div></div>';
-        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function open(kind){if(kind==="agenda"){title.textContent="Agenda no período";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("financeOverlay");const title=document.getElementById("financeOverlayTitle");const summary=document.getElementById("financeOverlaySummary");const body=document.getElementById("financeOverlayBody");const closeBtn=document.getElementById("closeFinanceOverlay");const agenda=document.getElementById("financeAgendaSource");const expense=document.getElementById("financeExpenseSource");const recent=document.getElementById("financeRecentSource");if(!modal||!title||!summary||!body||!agenda||!expense||!recent)return;function resetExpenseForm(){const form=body.querySelector("#nova-despesa");if(!form)return;form.reset();form.querySelector("[name=id]").value="";form.querySelector("[name=category]").value="Geral";form.querySelector("[name=expense_date]").value=new Date().toISOString().slice(0,10);const heading=form.querySelector("[data-expense-form-title]");if(heading)heading.textContent="Nova despesa";const reset=form.querySelector("[data-expense-reset]");if(reset)reset.hidden=true;title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";}function open(kind){if(kind==="agenda"){title.textContent="Agenda no período";summary.textContent="Visão rápida da agenda vinculada ao período.";body.innerHTML=agenda.innerHTML;}else if(kind==="expense-form"){title.textContent="Nova despesa";summary.textContent="Lançamento rápido de despesa.";body.innerHTML=expense.innerHTML;}else{title.textContent="Resultado e despesas";summary.textContent="Categorias e despesas recentes.";body.innerHTML=recent.innerHTML;}modal.classList.remove("hidden");}document.querySelectorAll("[data-finance-overlay]").forEach((btn)=>btn.addEventListener("click",()=>open(btn.getAttribute("data-finance-overlay")||"")));body.addEventListener("click",(event)=>{const edit=event.target.closest("[data-expense-edit]");if(edit){const expenseData=JSON.parse(edit.getAttribute("data-expense-edit")||"{}");body.innerHTML=expense.innerHTML;const form=body.querySelector("#nova-despesa");if(!form)return;Object.entries(expenseData).forEach(([name,value])=>{const field=form.elements.namedItem(name);if(field)field.value=value??"";});const heading=form.querySelector("[data-expense-form-title]");if(heading)heading.textContent="Editar despesa";const reset=form.querySelector("[data-expense-reset]");if(reset)reset.hidden=false;title.textContent="Editar despesa";summary.textContent="Revise os dados e salve sem criar outro lançamento.";return;}if(event.target.closest("[data-expense-reset]"))resetExpenseForm();});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") modal.classList.add("hidden");});})();</script>';
     }, $flash);
     exit;
 }
@@ -6006,7 +6024,54 @@ if ($page === 'studio_people') {
 }
 
 if ($page === 'studio_quick_replies') {
-    redirect_to('studio_settings');
+    $studio = require_studio();
+    render_studio_shell('Respostas rápidas', 'Biblioteca compartilhada e pessoal para agilizar o atendimento.', 'whatsapp', function () use ($studio) {
+        $dbStatus = studio_db_status_for($studio);
+        if (!$dbStatus['ok']) {
+            render_studio_db_missing($studio, $dbStatus['error']);
+            return;
+        }
+
+        $replies = studio_list_quick_replies($studio, null, true);
+        $editId = max(0, (int)($_GET['edit'] ?? 0));
+        $editing = null;
+        foreach ($replies as $reply) {
+            if ((int)$reply['id'] === $editId) {
+                $editing = $reply;
+                break;
+            }
+        }
+        $isAdmin = studio_current_user_is_admin();
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><span class="section-eyebrow">Atendimento</span><h2 style="margin:4px 0">' . ($editing ? 'Editar resposta' : 'Nova resposta rápida') . '</h2><p class="muted">Use atalhos como <strong>/valor</strong>. Respostas pessoais aparecem só para você; as do estúdio ficam disponíveis para toda a equipe.</p></div><a class="btn secondary" href="' . h(app_url('studio_settings', ['tab' => 'quick_replies'])) . '">Voltar às configurações</a></div>';
+        echo '<form class="form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="save_quick_reply"><input type="hidden" name="id" value="' . h((string)($editing['id'] ?? '')) . '">';
+        echo '<div class="grid cols-2"><div class="field"><label>Título</label><input name="title" required maxlength="140" value="' . h((string)($editing['title'] ?? '')) . '" placeholder="Ex.: Como funciona o orçamento"></div><div class="field"><label>Atalho</label><input name="shortcut" maxlength="80" value="' . h((string)($editing['shortcut'] ?? '')) . '" placeholder="/orcamento"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Categoria</label><input name="category" maxlength="80" value="' . h((string)($editing['category'] ?? 'Geral')) . '"></div><div class="field"><label>Visibilidade</label><select name="scope">';
+        render_options($isAdmin ? ['personal' => 'Somente para mim', 'studio' => 'Todo o estúdio'] : ['personal' => 'Somente para mim'], (string)($editing['scope'] ?? 'personal'));
+        echo '</select></div></div>';
+        echo '<div class="field"><label>Texto da resposta</label><textarea name="body" rows="6" required placeholder="Escreva a mensagem que será inserida na conversa.">' . h((string)($editing['body'] ?? '')) . '</textarea></div>';
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" ' . (!isset($editing['is_active']) || !empty($editing['is_active']) ? 'checked' : '') . '> Resposta ativa</label>';
+        echo '<div class="actions" style="margin-top:14px"><button class="btn" type="submit">' . ($editing ? 'Salvar alterações' : 'Criar resposta') . '</button>' . ($editing ? '<a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Cancelar edição</a>' : '') . '</div></form></section>';
+
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">Biblioteca</h2><p class="muted">' . h((string)count($replies)) . ' respostas visíveis para seu login.</p></div><span class="badge">Equipe</span></div>';
+        if (!$replies) {
+            echo '<p class="muted">Nenhuma resposta rápida cadastrada.</p>';
+        } else {
+            echo '<div class="table-responsive"><table class="table"><thead><tr><th>Resposta</th><th>Categoria</th><th>Escopo</th><th>Status</th><th>Ações</th></tr></thead><tbody>';
+            foreach ($replies as $reply) {
+                $editable = !empty($reply['studio_user_id']) || $isAdmin;
+                echo '<tr><td><strong>' . h((string)$reply['title']) . '</strong><br><span class="muted">' . h((string)($reply['shortcut'] ?: 'sem atalho')) . '</span><br>' . nl2br(h((string)$reply['body'])) . '</td>';
+                echo '<td><span class="badge">' . h((string)$reply['category']) . '</span></td><td><span class="badge">' . h((string)($reply['scope'] === 'personal' ? 'pessoal' : 'estúdio')) . '</span></td><td><span class="badge ' . (!empty($reply['is_active']) ? 'ok' : 'warn') . '">' . (!empty($reply['is_active']) ? 'ativa' : 'inativa') . '</span></td><td>';
+                if ($editable) {
+                    echo '<div class="actions"><a class="btn tiny secondary" href="' . h(app_url('studio_quick_replies', ['edit' => (int)$reply['id']])) . '">Editar</a><form method="post" onsubmit="return confirm(\'Excluir esta resposta rápida?\')">' . csrf_field() . '<input type="hidden" name="action" value="delete_quick_reply"><input type="hidden" name="id" value="' . h((string)$reply['id']) . '"><button class="btn tiny danger" type="submit">Excluir</button></form></div>';
+                } else {
+                    echo '<span class="muted">Somente leitura</span>';
+                }
+                echo '</td></tr>';
+            }
+            echo '</tbody></table></div>';
+        }
+        echo '</section>';
+    }, $flash);
     exit;
 }
 
@@ -6327,8 +6392,11 @@ if ($page === 'studio_reports') {
             }
             echo '</div><div id="reportsPivot" class="wdr-frame"></div></div><div class="reports-pivot-note muted">Use a barra superior e a lista de campos para reorganizar a leitura. Se quiser, troque a base entre Leads, Agenda e Despesas.</div></section></div>';
         }
+        echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.min.css')) . '?v=' . h(app_build_version()) . '">';
+        echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.toolbar.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.js')) . '?v=' . h(app_build_version()) . '"></script>';
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rápidos do que precisa de ação agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rápida do mês",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuição do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendário",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mês",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinâmica",summary:"Cruzamentos avançados",source:"reportsSourcePivot"}};function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){setTimeout(()=>{try{const cfg=window.reportsPivotData[window.reportsPivotSource]||window.reportsPivotData.leads;window.reportsPivotInstance=new WebDataRocks({container:"#reportsPivot",toolbar:true,report:{dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice}});}catch(e){}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rápidos do que precisa de ação agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rápida do mês",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuição do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendário",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mês",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinâmica",summary:"Cruzamentos avançados",source:"reportsSourcePivot"}};let pivotInstance=null;function disposePivot(){try{if(pivotInstance&&typeof pivotInstance.dispose==="function")pivotInstance.dispose();}catch(error){}pivotInstance=null;}function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;disposePivot();title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){const mount=body.querySelector("#reportsPivot");if(!mount)return;mount.id="reportsPivotOverlay";const sourceButtons=Array.from(body.querySelectorAll("[data-pivot-source]"));const renderPivot=(sourceKey)=>{const cfg=window.reportsPivotData[sourceKey]||window.reportsPivotData.leads;if(!cfg)return;sourceButtons.forEach((button)=>button.classList.toggle("active",button.getAttribute("data-pivot-source")===sourceKey));const report={dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice};if(pivotInstance){pivotInstance.setReport(report);return;}pivotInstance=new WebDataRocks({container:"#reportsPivotOverlay",height:640,width:"100%",toolbar:true,report:report});};sourceButtons.forEach((button)=>button.addEventListener("click",()=>renderPivot(button.getAttribute("data-pivot-source")||"leads")));setTimeout(()=>{try{renderPivot(window.reportsPivotSource||"leads");}catch(error){mount.innerHTML="<p class=\"muted\">Não foi possível montar a tabela dinâmica agora.</p>";}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn)closeBtn.addEventListener("click",()=>{disposePivot();modal.classList.add("hidden");});if(modal)modal.addEventListener("click",(event)=>{if(event.target===modal){disposePivot();modal.classList.add("hidden");}});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal){disposePivot();modal.classList.add("hidden");}});})();</script>';
     }, $flash);
     exit;
 }
@@ -6606,7 +6674,10 @@ if ($page === 'studio_settings') {
             '5' => 'Sexta',
             '6' => 'Sábado',
         ];
-        $selectedWorkDays = array_values(array_filter(array_map('strval', (array)($settings['appointment_work_days'] ?? ['1', '2', '3', '4', '5']))));
+        $workDaysSetting = $settings['appointment_work_days'] ?? '1,2,3,4,5';
+        $selectedWorkDays = is_array($workDaysSetting)
+            ? array_values(array_filter(array_map('strval', $workDaysSetting), static fn(string $value): bool => $value !== ''))
+            : array_values(array_filter(preg_split('/\s*,\s*/', trim((string)$workDaysSetting)) ?: [], static fn(string $value): bool => $value !== ''));
         $durationHours = max(0, (int)($settings['appointment_duration_hours'] ?? 5));
         $durationMins = max(0, min(45, (int)($settings['appointment_duration_minutes_part'] ?? 0)));
         $activeTab = (string)($_GET['tab'] ?? 'studio');
@@ -6654,6 +6725,7 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integração</label></div>';
         echo '</div>';
         echo '<div class="field"><label>Endereço oficial do estúdio</label><input name="studio_address" value="' . h($settings['studio_address'] ?? '') . '" placeholder="Rua, número, bairro, cidade"><small class="muted">A IA usa exatamente este endereço e nunca inventa um local.</small></div>';
+        echo '<div class="settings-save-row"><span class="muted">Salva somente os dados essenciais exibidos neste painel.</span><button class="btn" type="button" data-settings-submit>Salvar dados do estúdio</button></div>';
         echo '</div></div>';
         echo '<div id="settingsSourceAgenda" hidden><div class="settings-panel" id="settings-agenda" data-settings-panel="agenda">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Agenda</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
@@ -6662,6 +6734,7 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-3">';
         echo '<div class="field"><label>Dias da semana disponíveis</label><div class="weekday-picker">';
         foreach ($dayOptions as $dayValue => $dayLabel) {
+            $dayValue = (string)$dayValue;
             $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5'], true));
             echo '<label class="weekday-pill' . ($checked ? ' is-active' : '') . '">';
             echo '<input type="checkbox" name="appointment_work_days[]" value="' . h($dayValue) . '" ' . ($checked ? 'checked' : '') . '>';
@@ -6688,7 +6761,8 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="field"><label>Mensagem quando a vaga for tomada por um confirmado</label><textarea name="appointment_overwrite_message" placeholder="Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.">' . h($settings['appointment_overwrite_message'] ?? 'Oi {{name}}, sua vaga do dia {{date}} às {{start_time}} foi ocupada por outro agendamento confirmado com sinal pago. Escolha outro horário e envie o sinal para garantir a nova vaga.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{new_date}}, {{new_start_time}}, {{new_end_time}}, {{studio_name}}, {{reason}}</small></div>';
         echo '<div class="field"><label>Mensagem de confirmação do agendamento</label><textarea name="appointment_confirmation_message" placeholder="Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.">' . h($settings['appointment_confirmation_message'] ?? 'Oi {{name}}! Sua sessão está confirmada para {{date}} às {{start_time}}. Me responde com sim para confirmar, ou avisa se precisar cancelar/alterar.') . '</textarea><small class="muted">Aceita variáveis: {{name}}, {{date}}, {{start_time}}, {{end_time}}, {{studio_name}}, {{reason}}</small></div>';
-        echo '</div></div>';
+        echo '<div class="settings-save-row"><span class="muted">Os dias, horários, duração e mensagens deste painel serão preservados juntos.</span><button class="btn" type="button" data-settings-submit>Salvar agenda</button></div>';
+        echo '</div></div></div>';
         echo '<div id="settingsSourceWhatsapp" hidden><div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
         echo '<div class="settings-panel-head">';
         echo '<div><h3 style="margin:0">WhatsApp</h3><p class="muted" style="margin:6px 0 0">Entrada, provedor e configuração oficial em um fluxo só.</p></div>';
@@ -6761,20 +6835,14 @@ if ($page === 'studio_settings') {
         echo '<div class="panel soft settings-group">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Teste e validação</h3><span class="badge">API oficial</span></div>';
         echo '<div class="settings-test-grid">';
-        echo '<form method="post" class="settings-inline-form">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="test_whatsapp_official">';
-        echo '<input type="hidden" name="settings_tab" value="whatsapp">';
-        echo '<button class="btn" type="submit">Testar configuração oficial</button>';
-        echo '</form>';
-        echo '<form method="post" class="settings-inline-form">';
-        echo csrf_field();
-        echo '<input type="hidden" name="action" value="send_whatsapp_official_test_message">';
-        echo '<input type="hidden" name="settings_tab" value="whatsapp">';
+        echo '<div class="settings-inline-form">';
+        echo '<button class="btn" type="submit" name="action" value="test_whatsapp_official" formnovalidate>Testar configuração oficial</button>';
+        echo '</div>';
+        echo '<div class="settings-inline-form">';
         echo '<input type="text" name="to_phone" placeholder="' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? '15551015039' : '5511999999999') . '">';
         echo '<input type="text" name="message" placeholder="Mensagem de teste">';
-        echo '<button class="btn secondary" type="submit">Enviar teste</button>';
-        echo '</form>';
+        echo '<button class="btn secondary" type="submit" name="action" value="send_whatsapp_official_test_message" formnovalidate>Enviar teste</button>';
+        echo '</div>';
         echo '</div>';
         if ($officialTestResult) {
             echo '<div class="drilldown-card compact" style="margin-top:12px"><strong>Resultado do teste</strong><div class="muted" style="margin-top:8px">' . h((string)($officialTestResult['summary'] ?? ($officialTestResult['error'] ?? ''))) . '</div></div>';
@@ -7029,7 +7097,9 @@ if ($page === 'studio_settings') {
         echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configurações</button></div>';
         echo '</form>';
         echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const form=document.getElementById("studioSettingsForm");const knowledgeTemplate=`[SOBRE O ESTÚDIO]\nNome, endereço e região atendida:\nEstilos e tipos de trabalho realizados:\nO que não fazemos:\n\n[PREÇOS E ORÇAMENTO]\nValor mínimo:\nComo o orçamento é calculado:\nFormas de pagamento:\nValor e regra do sinal:\n\n[PROMOÇÕES]\nNome da promoção:\nRegra e valor:\nData de início e fim:\nQuem pode usar:\n\n[AGENDA E ATENDIMENTO]\nDias e horários de atendimento:\nPrazo médio para responder orçamento:\nQuando encaminhar para uma pessoa:\n\n[POLÍTICAS]\nRetoque:\nCancelamento e remarcação:\nMenores de idade:\n\n[COMO A IA DEVE RESPONDER]\nTom de voz:\nInformações que deve perguntar:\nO que nunca deve dizer:\nExemplo de pergunta do cliente -> resposta correta:`;const sourceMap={studio:{title:"Estúdio",summary:"Dados base e integração",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horário e duração",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automação",source:"settingsSourceIa"},meta_ads:{title:"Meta Ads",summary:"Credenciais, IDs e diagnóstico",source:"settingsSourceMetaAds"},quick_replies:{title:"Respostas rápidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Treinamento da IA",summary:"Base usada em todas as conversas",source:"settingsSourceRules"}};function updateRulesCount(scope=document){const field=scope.querySelector(`textarea[name="business_rules"]`);const counter=scope.querySelector("[data-ai-rules-count]");if(field&&counter)counter.textContent=`${field.value.length} caracteres`;}function syncOverlayToSource(){}function submitOverlayForm(){if(!form||!body)return;const data=new FormData(form);const groups=new Map();body.querySelectorAll("input,textarea,select").forEach((field)=>{try{const name=field.getAttribute("name");if(!name)return;if(!groups.has(name))groups.set(name,[]);groups.get(name).push(field);}catch(error){}});groups.forEach((fields,name)=>{data.delete(name);const first=fields[0];if(!first)return;if(first.type==="checkbox"){fields.forEach((field)=>{if(field.checked)data.append(name,field.value||"1");});return;}if(first.type==="radio"){const selected=fields.find((field)=>field.checked);if(selected)data.append(name,selected.value);return;}fields.forEach((field)=>{data.append(name,field.value);});});if(body.querySelector("input[name=\"meta_ads_enabled\"]")){data.set("debug_meta_save","1");}const tempForm=document.createElement("form");tempForm.method="post";tempForm.action=form.getAttribute("action")||location.href;tempForm.style.display="none";for(const [name,value] of data.entries()){const input=document.createElement("input");input.type="hidden";input.name=name;input.value=String(value);tempForm.appendChild(input);}document.body.appendChild(tempForm);tempForm.submit();}function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");updateRulesCount(body);}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});document.addEventListener("input",(event)=>{if(event.target instanceof Element&&event.target.matches(`textarea[name="business_rules"]`))updateRulesCount(event.target.closest(".settings-panel")||document);});document.addEventListener("click",(event)=>{const templateButton=event.target instanceof Element?event.target.closest("[data-ai-knowledge-template]"):null;if(templateButton){const panel=templateButton.closest(".settings-panel");const field=panel?.querySelector(`textarea[name="business_rules"]`);if(field&&(!field.value.trim()||window.confirm("Adicionar o modelo abaixo do conteúdo atual?"))){field.value=field.value.trim()?`${field.value.trim()}\n\n${knowledgeTemplate}`:knowledgeTemplate;field.focus();updateRulesCount(panel);}return;}const target=event.target instanceof Element ? event.target.closest("[data-settings-submit]") : null;if(target){syncOverlayToSource(); submitOverlayForm();}});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
-        echo '<script>(function(){const form=document.getElementById("studioSettingsForm");const body=document.getElementById("settingsOverlayBody");function wrapOverlayForm(){if(!body||!form||body.querySelector("#settingsOverlayForm"))return;const panel=body.querySelector(".settings-panel");const panelKey=(panel&&panel.dataset&&panel.dataset.settingsPanel)||"";if(!panelKey)return;const csrfToken=form.querySelector("input[name=\"csrf_token\"]")?.value||"";const wrapper=document.createElement("form");wrapper.id="settingsOverlayForm";wrapper.method="post";wrapper.action=form.getAttribute("action")||location.href;wrapper.innerHTML="<input type=\"hidden\" name=\"action\" value=\"save_studio_settings\"><input type=\"hidden\" name=\"settings_tab\" value=\""+panelKey+"\"><input type=\"hidden\" name=\"csrf_token\" value=\""+csrfToken.replace(/\"/g,"&quot;")+"\">"+body.innerHTML;body.innerHTML="";body.appendChild(wrapper);wrapper.querySelectorAll("[data-settings-submit]").forEach((btn)=>{btn.type="submit";btn.removeAttribute("data-settings-submit");});}document.addEventListener("click",(event)=>{const openButton=event.target instanceof Element ? event.target.closest("[data-settings-overlay]") : null;if(!openButton)return;setTimeout(wrapOverlayForm,0);}, true);})();</script>';
+        echo '<script>(function(){const form=document.getElementById("studioSettingsForm");const body=document.getElementById("settingsOverlayBody");function wrapOverlayForm(){if(!body||!form||body.querySelector("#settingsOverlayForm"))return;const panel=body.querySelector(".settings-panel");const panelKey=(panel&&panel.dataset&&panel.dataset.settingsPanel)||"";if(!panelKey)return;const csrfToken=form.querySelector("input[name=\"csrf_token\"]")?.value||"";const wrapper=document.createElement("form");wrapper.id="settingsOverlayForm";wrapper.method="post";wrapper.action=form.getAttribute("action")||location.href;wrapper.innerHTML="<input type=\"hidden\" name=\"action\" value=\"save_studio_settings\"><input type=\"hidden\" name=\"settings_tab\" value=\""+panelKey+"\"><input type=\"hidden\" name=\"csrf_token\" value=\""+csrfToken.replace(/\"/g,"&quot;")+"\">"+body.innerHTML;body.innerHTML="";body.appendChild(wrapper);wrapper.querySelectorAll("[data-settings-submit]").forEach((btn)=>{btn.type="submit";btn.removeAttribute("data-settings-submit");});wrapper.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("button[type=submit]"))event.stopPropagation();});}document.addEventListener("click",(event)=>{const openButton=event.target instanceof Element ? event.target.closest("[data-settings-overlay]") : null;if(!openButton)return;wrapOverlayForm();});})();</script>';
+        echo '<script>document.addEventListener("click",function(event){if(event.target instanceof Element&&event.target.closest("#settingsOverlayForm button[type=submit]")){event.stopImmediatePropagation();}},true);</script>';
+        echo '<script>document.querySelectorAll("#studioSettingsForm [data-settings-submit]").forEach(function(button){button.type="submit";button.removeAttribute("data-settings-submit");});</script>';
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
@@ -8780,17 +8850,28 @@ function render_expenses_table(array $expenses): void
         echo '<p class="muted">Nenhuma despesa cadastrada ainda.</p>';
         return;
     }
-    echo '<table class="table"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>';
+    echo '<div class="table-responsive"><table class="table"><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Valor</th><th>Ações</th></tr></thead><tbody>';
     foreach ($expenses as $expense) {
         $date = format_date_pt((string)$expense['expense_date']);
+        $editPayload = json_encode([
+            'id' => (int)$expense['id'],
+            'category' => (string)$expense['category'],
+            'description' => (string)$expense['description'],
+            'amount' => number_format((float)$expense['amount'], 2, ',', ''),
+            'expense_date' => (string)$expense['expense_date'],
+            'payment_method' => (string)($expense['payment_method'] ?? ''),
+            'notes' => (string)($expense['notes'] ?? ''),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         echo '<tr data-overlay-item data-overlay-date="' . h((string)($expense['expense_date'] ?? '')) . '">';
         echo '<td><strong>' . h($date) . '</strong><br><span class="muted">' . h($expense['payment_method'] ?: '-') . '</span></td>';
         echo '<td><strong>' . h($expense['description']) . '</strong><br><span class="muted">' . h($expense['notes'] ?: '-') . '</span></td>';
         echo '<td><span class="badge">' . h($expense['category']) . '</span></td>';
         echo '<td><strong>' . h(format_money($expense['amount'])) . '</strong></td>';
+        echo '<td><div class="actions"><button class="btn tiny secondary" type="button" data-expense-edit="' . h($editPayload ?: '{}') . '">Editar</button>';
+        echo '<form method="post" onsubmit="return confirm(\'Excluir esta despesa?\')">' . csrf_field() . '<input type="hidden" name="action" value="delete_expense"><input type="hidden" name="id" value="' . h((string)$expense['id']) . '"><button class="btn tiny danger" type="submit">Excluir</button></form></div></td>';
         echo '</tr>';
     }
-    echo '</tbody></table>';
+    echo '</tbody></table></div>';
 }
 
 function render_category_totals(array $rows): void

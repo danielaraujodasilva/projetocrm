@@ -80,10 +80,15 @@ function crm_whatsapp_official_prepare_post_settings(): void
         return;
     }
 
-    foreach (crm_whatsapp_official_defaults() as $key => $value) {
-        $_POST[$key] = $value;
+    if ((string)($_POST['settings_tab'] ?? '') !== 'whatsapp') {
+        return;
     }
-    $_POST['settings_tab'] = 'whatsapp';
+
+    foreach (crm_whatsapp_official_defaults() as $key => $value) {
+        if (!isset($_POST[$key]) || trim((string)$_POST[$key]) === '') {
+            $_POST[$key] = $value;
+        }
+    }
 }
 
 function crm_whatsapp_official_current_studio(): ?array
@@ -183,7 +188,7 @@ function crm_whatsapp_official_output_filter(string $html): string
 (function(){
   var page = new URLSearchParams(location.search).get('page') || '';
   var tab = new URLSearchParams(location.search).get('tab') || '';
-  if (page !== 'studio_settings' && tab !== 'whatsapp') return;
+  if (page !== 'studio_settings' || tab !== 'whatsapp') return;
   var provider = document.querySelector('[name="whatsapp_provider"]');
     if (provider) {
     provider.value = 'official';
@@ -209,8 +214,7 @@ function crm_whatsapp_official_output_filter(string $html): string
   Object.keys(values).forEach(function(name){
     var el = document.querySelector('[name="'+name+'"]');
     if (!el) return;
-    el.value = values[name];
-    if (name !== 'whatsapp_official_access_token') el.readOnly = true;
+    if (!String(el.value || '').trim()) el.value = values[name];
   });
 })();
 </script>
