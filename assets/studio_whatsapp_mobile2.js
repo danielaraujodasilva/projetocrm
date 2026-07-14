@@ -19,6 +19,13 @@
   var recordButton = document.getElementById('m2RecordButton');
   var form = document.getElementById('m2Composer');
   var textarea = document.getElementById('m2Message');
+  var replyPreview = document.getElementById('m2ReplyPreview');
+  var replyPreviewSender = document.getElementById('m2ReplyPreviewSender');
+  var replyPreviewText = document.getElementById('m2ReplyPreviewText');
+  var replyCancelButton = document.getElementById('m2CancelReply');
+  var contextMessageInput = document.getElementById('m2ContextMessageId');
+  var contextLocalMessageInput = document.getElementById('m2ContextLocalMessageId');
+  var contextPreviewInput = document.getElementById('m2ContextPreview');
   var openToolsButton = document.getElementById('m2OpenTools');
   var toolsPanel = document.getElementById('m2ToolsPanel');
   var openAppointmentButton = document.getElementById('m2OpenAppointment');
@@ -441,6 +448,7 @@
         autoResizeTextarea();
       }
       clearAttachment();
+      clearReplyContext();
       form.setAttribute('data-sending', '0');
       await refreshMessages(true);
       await refreshConversationList(true);
@@ -551,6 +559,39 @@
     return String(message?.id || message?.message_id || message?.sent_at || '');
   }
 
+  function messagePreviewForReply(message) {
+    var body = String(message?.body || '').trim();
+    if (body) return body.slice(0, 220);
+    var mediaName = String(message?.media_file_name || '').trim();
+    if (mediaName) return mediaName.slice(0, 220);
+    return '[' + String(message?.message_type || 'mensagem') + ']';
+  }
+
+  function clearReplyContext() {
+    if (contextMessageInput) contextMessageInput.value = '';
+    if (contextLocalMessageInput) contextLocalMessageInput.value = '';
+    if (contextPreviewInput) contextPreviewInput.value = '';
+    if (replyPreview) replyPreview.classList.add('hidden');
+    if (replyPreviewSender) replyPreviewSender.textContent = 'Mensagem';
+    if (replyPreviewText) replyPreviewText.textContent = '';
+  }
+
+  function setReplyContext(data) {
+    var localId = String(data.localId || '').trim();
+    var wamid = String(data.wamid || '').trim();
+    var previewText = String(data.preview || '').trim();
+    var sender = String(data.sender || '').trim() || 'Mensagem';
+    if (!localId && !wamid) return;
+    if (!previewText) previewText = '[mensagem]';
+    if (contextMessageInput) contextMessageInput.value = wamid;
+    if (contextLocalMessageInput) contextLocalMessageInput.value = localId;
+    if (contextPreviewInput) contextPreviewInput.value = previewText.slice(0, 220);
+    if (replyPreviewSender) replyPreviewSender.textContent = sender;
+    if (replyPreviewText) replyPreviewText.textContent = previewText.slice(0, 220);
+    if (replyPreview) replyPreview.classList.remove('hidden');
+    if (textarea) textarea.focus();
+  }
+
   function renderAudioWidget(mediaUrl) {
     var src = escapeHtml(mediaUrl);
     return '<div class="m2-audio-widget" data-audio-src="' + src + '"><button class="m2-audio-toggle" type="button" aria-label="Reproduzir audio"><i class="fa-solid fa-play"></i></button><span class="m2-audio-time">0:00</span><div class="m2-audio-track" role="slider" aria-label="Progresso do audio"><span></span></div><audio class="m2-audio-native" src="' + src + '" preload="metadata" style="display:none!important"></audio></div>';
@@ -577,8 +618,17 @@
     var mediaName = String(message?.media_file_name || '');
     var mediaKind = inferMediaKind(message?.media_mime, mediaUrl, message?.message_type);
     var transcript = String(message?.transcricao || message?.transcript || '').trim();
+    var localId = String(message?.id || '');
+    var wamid = String(message?.message_id || '');
+    var previewText = messagePreviewForReply(message);
+    var senderLabel = direction === 'out' ? 'Você' : 'Cliente';
+    var contextPreview = String(message?.context_preview || '').trim();
     var bubbleClass = 'm2-bubble' + (mediaKind === 'audio' ? ' m2-audio-bubble' : '');
-    var html = '<article class="m2-msg ' + direction + '" data-message-key="' + escapeHtml(keyForMessage(message)) + '"><div class="' + bubbleClass + '">';
+    var html = '<article class="m2-msg ' + direction + '" data-message-key="' + escapeHtml(keyForMessage(message)) + '" data-message-id="' + escapeHtml(localId) + '" data-wamid="' + escapeHtml(wamid) + '" data-message-preview="' + escapeHtml(previewText) + '" data-message-sender="' + escapeHtml(senderLabel) + '"><div class="' + bubbleClass + '">';
+
+    if (contextPreview) {
+      html += '<div class="m2-quoted"><span>Respondendo</span><p>' + escapeHtml(contextPreview.slice(0, 220)) + '</p></div>';
+    }
 
     if (mediaUrl) {
       if (!mediaName) {
@@ -607,7 +657,7 @@
     if (transcript) {
       html += '<div class="m2-transcript">' + escapeHtml(transcript) + '</div>';
     }
-    html += '<time>' + escapeHtml(formatMessageTime(message?.sent_at || '')) + '</time></div></article>';
+    html += '<div class="m2-bubble-foot"><time>' + escapeHtml(formatMessageTime(message?.sent_at || '')) + '</time><button class="m2-reply-action" type="button" data-reply-message aria-label="Responder mensagem"><i class="fa-solid fa-reply"></i></button></div></div></article>';
     return html;
   }
 
@@ -939,6 +989,13 @@
     form.addEventListener('submit', sendForm);
   }
 
+  if (replyCancelButton) {
+    replyCancelButton.addEventListener('click', function (event) {
+      stop(event);
+      clearReplyContext();
+    });
+  }
+
   if (bulkDeleteForm) {
     bulkDeleteForm.addEventListener('submit', function (event) {
       if (!manageModeEnabled()) {
@@ -1040,6 +1097,21 @@
       stop(event);
       var drawer = document.getElementById(closeButton.getAttribute('data-close-drawer') || '');
       if (drawer) drawer.classList.add('hidden');
+      return;
+    }
+
+    var replyMessageButton = event.target.closest('[data-reply-message]');
+    if (replyMessageButton) {
+      stop(event);
+      var article = replyMessageButton.closest('.m2-msg');
+      if (article) {
+        setReplyContext({
+          localId: article.getAttribute('data-message-id') || '',
+          wamid: article.getAttribute('data-wamid') || '',
+          preview: article.getAttribute('data-message-preview') || '',
+          sender: article.getAttribute('data-message-sender') || ''
+        });
+      }
       return;
     }
 

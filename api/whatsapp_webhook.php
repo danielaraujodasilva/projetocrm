@@ -522,6 +522,8 @@ function whatsapp_official_record_message(array $studio, array $message, array $
 
     $messageId = (string)($message['id'] ?? '');
     $messageType = strtolower($type !== '' ? $type : 'texto');
+    $context = is_array($message['context'] ?? null) ? $message['context'] : [];
+    $contextMessageId = trim((string)($context['id'] ?? $context['message_id'] ?? ''));
     $mediaPayload = in_array($messageType, ['audio', 'image', 'video', 'document', 'sticker'], true)
         ? whatsapp_official_download_media($studio, $message, $messageType)
         : [];
@@ -543,6 +545,7 @@ function whatsapp_official_record_message(array $studio, array $message, array $
             'name' => $name,
             'body' => $body,
             'message_id' => $messageId,
+            'context_message_id' => $contextMessageId,
             'remote_jid' => $from,
             'from_me' => false,
             'sender_type' => 'customer',

@@ -119,6 +119,9 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
             `media_file_path` VARCHAR(500) NULL,
             `message_type` VARCHAR(40) NOT NULL DEFAULT "texto",
             `message_id` VARCHAR(180) NULL,
+            `context_message_id` VARCHAR(180) NULL,
+            `context_local_message_id` BIGINT UNSIGNED NULL,
+            `context_preview` VARCHAR(260) NULL,
             `remote_jid` VARCHAR(180) NULL,
             `from_me` TINYINT(1) NOT NULL DEFAULT 0,
             `status` VARCHAR(40) NULL,
@@ -139,6 +142,9 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `media_file_path` VARCHAR(500) NULL AFTER `media_file_name`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `message_type` VARCHAR(40) NOT NULL DEFAULT "texto" AFTER `media_file_path`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `remote_jid` VARCHAR(180) NULL AFTER `message_id`',
+        'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `context_message_id` VARCHAR(180) NULL AFTER `message_id`',
+        'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `context_local_message_id` BIGINT UNSIGNED NULL AFTER `context_message_id`',
+        'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `context_preview` VARCHAR(260) NULL AFTER `context_local_message_id`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `from_me` TINYINT(1) NOT NULL DEFAULT 0 AFTER `remote_jid`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `status` VARCHAR(40) NULL AFTER `from_me`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `transcricao` MEDIUMTEXT NULL AFTER `created_at`',
@@ -146,6 +152,7 @@ function studio_ensure_whatsapp_schema(PDO $pdo): void
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `transcricao_erro` TEXT NULL AFTER `transcript`',
         'ALTER TABLE `whatsapp_messages` ADD COLUMN IF NOT EXISTS `transcript_error` TEXT NULL AFTER `transcricao_erro`',
         'ALTER TABLE `whatsapp_messages` ADD INDEX IF NOT EXISTS `idx_whatsapp_messages_message_id` (`message_id`)',
+        'ALTER TABLE `whatsapp_messages` ADD INDEX IF NOT EXISTS `idx_whatsapp_messages_context` (`context_message_id`)',
     ] as $sql) {
         try {
             $pdo->exec($sql);
@@ -4564,6 +4571,9 @@ function studio_normalize_whatsapp_message_payload(array $payload): array
     };
 
     $messageId = $pick($payload, ['message_id', 'messageId', 'messageID', 'wamid']);
+    $contextMessageId = $pick($payload, ['context_message_id', 'contextMessageId', 'reply_to_message_id', 'replyToMessageId', 'quoted_message_id', 'quotedMessageId']);
+    $contextLocalMessageId = (int)($payload['context_local_message_id'] ?? $payload['contextLocalMessageId'] ?? $payload['reply_to_local_message_id'] ?? $payload['replyToLocalMessageId'] ?? 0);
+    $contextPreview = $pick($payload, ['context_preview', 'contextPreview', 'quoted_preview', 'quotedPreview']);
     $phoneNumberId = $pick($payload, ['phone_number_id', 'phoneNumberId']);
     $phone = normalize_phone($pick($payload, ['phone', 'numero', 'wa_id', 'waId', 'from']));
     $waId = $pick($payload, ['wa_id', 'waId', 'phone', 'numero', 'from']);
@@ -4621,6 +4631,12 @@ function studio_normalize_whatsapp_message_payload(array $payload): array
     $normalized['message_id'] = $messageId;
     $normalized['messageId'] = $messageId;
     $normalized['wamid'] = $messageId;
+    $normalized['context_message_id'] = $contextMessageId;
+    $normalized['contextMessageId'] = $contextMessageId;
+    $normalized['context_local_message_id'] = $contextLocalMessageId > 0 ? (string)$contextLocalMessageId : '';
+    $normalized['contextLocalMessageId'] = $contextLocalMessageId > 0 ? (string)$contextLocalMessageId : '';
+    $normalized['context_preview'] = $contextPreview;
+    $normalized['contextPreview'] = $contextPreview;
     $normalized['phone_number_id'] = $phoneNumberId;
     $normalized['phoneNumberId'] = $phoneNumberId;
     $normalized['phone'] = $phone;
@@ -4849,6 +4865,30 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     }
     $sentAt = date('Y-m-d H:i:s', $timestamp > 0 ? $timestamp : time());
     $remoteJid = trim((string)($payload['remote_jid'] ?? ''));
+    $contextMessageId = trim((string)($payload['context_message_id'] ?? ''));
+    $contextLocalMessageId = (int)($payload['context_local_message_id'] ?? 0);
+    $contextPreview = trim((string)($payload['context_preview'] ?? ''));
+    if ($contextLocalMessageId > 0) {
+        $contextStmt = $pdo->prepare('SELECT id, message_id, body, message_type FROM whatsapp_messages WHERE conversation_id = ? AND id = ? LIMIT 1');
+        $contextStmt->execute([(int)$conversation['id'], $contextLocalMessageId]);
+        $contextRow = $contextStmt->fetch() ?: null;
+        if (is_array($contextRow)) {
+            $contextMessageId = trim((string)($contextRow['message_id'] ?? $contextMessageId));
+            $contextPreview = $contextPreview !== ''
+                ? $contextPreview
+                : mb_substr(trim((string)($contextRow['body'] ?? '')) !== '' ? trim((string)$contextRow['body']) : '[' . (string)($contextRow['message_type'] ?? 'mensagem') . ']', 0, 250);
+        }
+    } elseif ($contextMessageId !== '') {
+        $contextStmt = $pdo->prepare('SELECT id, body, message_type FROM whatsapp_messages WHERE conversation_id = ? AND message_id = ? LIMIT 1');
+        $contextStmt->execute([(int)$conversation['id'], $contextMessageId]);
+        $contextRow = $contextStmt->fetch() ?: null;
+        if (is_array($contextRow)) {
+            $contextLocalMessageId = (int)($contextRow['id'] ?? 0);
+            $contextPreview = $contextPreview !== ''
+                ? $contextPreview
+                : mb_substr(trim((string)($contextRow['body'] ?? '')) !== '' ? trim((string)$contextRow['body']) : '[' . (string)($contextRow['message_type'] ?? 'mensagem') . ']', 0, 250);
+        }
+    }
     $needsHuman = studio_whatsapp_needs_human($body);
     $hasMedia = !empty($payload['media_base64']) || !empty($payload['media_url']);
     $score = studio_whatsapp_lead_score($body, $hasMedia);
@@ -4874,8 +4914,8 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
 
     $stmt = $pdo->prepare(
         'INSERT INTO whatsapp_messages
-            (conversation_id, direction, sender_type, body, media_url, media_mime, media_file_name, media_file_path, message_type, message_id, remote_jid, from_me, status, sent_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+            (conversation_id, direction, sender_type, body, media_url, media_mime, media_file_name, media_file_path, message_type, message_id, context_message_id, context_local_message_id, context_preview, remote_jid, from_me, status, sent_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
     );
     $stmt->execute([
         (int)$conversation['id'],
@@ -4888,6 +4928,9 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
         $mediaFilePath !== '' ? $mediaFilePath : null,
         $messageType,
         $messageId !== '' ? $messageId : null,
+        $contextMessageId !== '' ? $contextMessageId : null,
+        $contextLocalMessageId > 0 ? $contextLocalMessageId : null,
+        $contextPreview !== '' ? mb_substr($contextPreview, 0, 260) : null,
         $remoteJid,
         $fromMe ? 1 : 0,
         $fromMe ? 'sent' : null,
@@ -6547,6 +6590,9 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         $phone = normalize_phone((string)($conversationById['phone'] ?? ''));
     }
     $message = trim((string)($data['message'] ?? $data['mensagem'] ?? ''));
+    $contextMessageId = trim((string)($data['context_message_id'] ?? $data['contextMessageId'] ?? ''));
+    $contextLocalMessageId = (int)($data['context_local_message_id'] ?? $data['contextLocalMessageId'] ?? 0);
+    $contextPreview = trim((string)($data['context_preview'] ?? $data['contextPreview'] ?? ''));
     $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
     if ($phone === '' || ($message === '' && empty($upload['base64']))) {
         throw new RuntimeException('Informe telefone, mensagem ou anexo.');
@@ -6560,6 +6606,11 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         'jid' => $jid,
         'mensagem' => $message,
     ];
+    if ($contextMessageId !== '' || $contextLocalMessageId > 0) {
+        $payload['contextMessageId'] = $contextMessageId;
+        $payload['contextLocalMessageId'] = $contextLocalMessageId;
+        $payload['contextPreview'] = $contextPreview;
+    }
     if (!empty($upload['base64'])) {
         $payload['media'] = [
             'base64' => $upload['base64'],
@@ -6581,6 +6632,9 @@ function studio_send_whatsapp_message(array $studio, array $data): array
         'fromMe' => true,
         'senderType' => 'human',
         'messageId' => $result['messageId'] ?? null,
+        'contextMessageId' => $contextMessageId,
+        'contextLocalMessageId' => $contextLocalMessageId > 0 ? (string)$contextLocalMessageId : '',
+        'contextPreview' => $contextPreview,
         'remoteJid' => $result['remoteJid'] ?? $jid,
         'timestamp' => time(),
         'tipoMensagem' => !empty($upload['kind']) ? $upload['kind'] : 'texto',
@@ -6665,6 +6719,48 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
     if (!in_array($senderType, ['human', 'bot', 'system'], true)) {
         $senderType = 'human';
     }
+    $contextMessageId = trim((string)($data['context_message_id'] ?? $data['contextMessageId'] ?? $data['reply_to_message_id'] ?? $data['replyToMessageId'] ?? ''));
+    $contextLocalMessageId = (int)($data['context_local_message_id'] ?? $data['contextLocalMessageId'] ?? $data['reply_to_local_message_id'] ?? $data['replyToLocalMessageId'] ?? 0);
+    $contextPreview = trim((string)($data['context_preview'] ?? $data['contextPreview'] ?? $data['quoted_preview'] ?? $data['quotedPreview'] ?? ''));
+    if ($contextLocalMessageId > 0 && $conversationId > 0) {
+        $contextStmt = studio_db($studio)->prepare(
+            'SELECT id, message_id, body, message_type
+             FROM whatsapp_messages
+             WHERE conversation_id = ? AND id = ?
+             LIMIT 1'
+        );
+        $contextStmt->execute([$conversationId, $contextLocalMessageId]);
+        $contextRow = $contextStmt->fetch();
+        if (is_array($contextRow)) {
+            if ($contextMessageId === '') {
+                $contextMessageId = trim((string)($contextRow['message_id'] ?? ''));
+            }
+            if ($contextPreview === '') {
+                $contextPreview = trim((string)($contextRow['body'] ?? ''));
+                if ($contextPreview === '') {
+                    $contextPreview = '[' . trim((string)($contextRow['message_type'] ?? 'mensagem')) . ']';
+                }
+            }
+        }
+    } elseif ($contextMessageId !== '' && $conversationId > 0) {
+        $contextStmt = studio_db($studio)->prepare(
+            'SELECT id, body, message_type
+             FROM whatsapp_messages
+             WHERE conversation_id = ? AND message_id = ?
+             LIMIT 1'
+        );
+        $contextStmt->execute([$conversationId, $contextMessageId]);
+        $contextRow = $contextStmt->fetch();
+        if (is_array($contextRow)) {
+            $contextLocalMessageId = (int)($contextRow['id'] ?? 0);
+            if ($contextPreview === '') {
+                $contextPreview = trim((string)($contextRow['body'] ?? ''));
+                if ($contextPreview === '') {
+                    $contextPreview = '[' . trim((string)($contextRow['message_type'] ?? 'mensagem')) . ']';
+                }
+            }
+        }
+    }
     $interactiveType = strtolower(trim((string)($data['interactive_type'] ?? '')));
     $upload = studio_prepare_whatsapp_attachment($studio, $data, $_FILES ?? [], $conversationId);
     if ($phone === '' || ($message === '' && empty($upload['base64']) && $interactiveType === '')) {
@@ -6682,10 +6778,10 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
     }
 
     $result = $interactiveType !== ''
-        ? studio_whatsapp_official_send_interactive($studio, $phone, $interactiveType, $message, $data)
+        ? studio_whatsapp_official_send_interactive($studio, $phone, $interactiveType, $message, $data, $contextMessageId)
         : (!empty($upload['base64'])
-            ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message)
-            : studio_whatsapp_official_send_text($studio, $phone, $message));
+            ? studio_whatsapp_official_send_media($studio, $phone, $upload, $message, $contextMessageId)
+            : studio_whatsapp_official_send_text($studio, $phone, $message, $contextMessageId));
 
     if (empty($result['ok'])) {
         studio_whatsapp_event_log($studio, [
@@ -6713,6 +6809,9 @@ function studio_send_whatsapp_official_message(array $studio, array $data): arra
         'fromMe' => true,
         'senderType' => $senderType,
         'messageId' => $messageId,
+        'contextMessageId' => $contextMessageId,
+        'contextLocalMessageId' => $contextLocalMessageId > 0 ? (string)$contextLocalMessageId : '',
+        'contextPreview' => $contextPreview,
         'remoteJid' => $phone,
         'timestamp' => time(),
         'tipoMensagem' => $interactiveType !== '' ? 'interactive_' . $interactiveType : (!empty($upload['kind']) ? $upload['kind'] : 'texto'),
@@ -7585,7 +7684,7 @@ function studio_whatsapp_official_test_connection(array $studio): array
     ];
 }
 
-function studio_whatsapp_official_send_text(array $studio, string $toPhone, string $message): array
+function studio_whatsapp_official_send_text(array $studio, string $toPhone, string $message, string $contextMessageId = ''): array
 {
     $settings = studio_settings($studio);
     if (studio_whatsapp_provider($studio) !== 'official') {
@@ -7642,6 +7741,11 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
         'type' => 'text',
         'text' => ['body' => $message],
     ];
+    $contextMessageId = trim($contextMessageId);
+    if ($contextMessageId !== '') {
+        $payload['context'] = ['message_id' => $contextMessageId];
+        $diagnostic['send']['context_message_id'] = $contextMessageId;
+    }
 
     $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
     $result['diagnostic'] = $diagnostic;
@@ -7652,7 +7756,7 @@ function studio_whatsapp_official_send_text(array $studio, string $toPhone, stri
     return $result;
 }
 
-function studio_whatsapp_official_send_interactive(array $studio, string $toPhone, string $type, string $message, array $data = []): array
+function studio_whatsapp_official_send_interactive(array $studio, string $toPhone, string $type, string $message, array $data = [], string $contextMessageId = ''): array
 {
     $settings = studio_settings($studio);
     if (studio_whatsapp_provider($studio) !== 'official') {
@@ -7728,6 +7832,10 @@ function studio_whatsapp_official_send_interactive(array $studio, string $toPhon
     }
 
     $payload = ['messaging_product' => 'whatsapp', 'recipient_type' => 'individual', 'to' => $toPhone, 'type' => 'interactive', 'interactive' => $interactive];
+    $contextMessageId = trim($contextMessageId);
+    if ($contextMessageId !== '') {
+        $payload['context'] = ['message_id' => $contextMessageId];
+    }
     return studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload);
 }
 
@@ -7959,7 +8067,7 @@ function studio_whatsapp_ffmpeg_binary(): string
     return '';
 }
 
-function studio_whatsapp_official_send_media(array $studio, string $toPhone, array &$upload, string $caption = ''): array
+function studio_whatsapp_official_send_media(array $studio, string $toPhone, array &$upload, string $caption = '', string $contextMessageId = ''): array
 {
     $settings = studio_settings($studio);
     if (studio_whatsapp_provider($studio) !== 'official') {
@@ -8051,6 +8159,11 @@ function studio_whatsapp_official_send_media(array $studio, string $toPhone, arr
         'type' => $messageType,
         $messageType => $mediaPayload,
     ];
+    $contextMessageId = trim($contextMessageId);
+    if ($contextMessageId !== '') {
+        $payload['context'] = ['message_id' => $contextMessageId];
+        $diagnostic['context_message_id'] = $contextMessageId;
+    }
 
     $result = studio_meta_ads_request($version, '/' . rawurlencode($phoneNumberId) . '/messages', $accessToken, [], 'POST', $payload, 60);
     $result['diagnostic'] = $diagnostic + ['media_id' => $mediaId, 'upload_status' => $uploadStatus];
@@ -8134,7 +8247,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $videoAnalysis = studio_whatsapp_analyze_video($studio, $newMessage);
 
     $stmt = $pdo->prepare(
-        'SELECT direction, sender_type, body, transcricao, transcript, message_type, media_mime, media_file_name, sent_at
+        'SELECT direction, sender_type, body, transcricao, transcript, message_type, media_mime, media_file_name, sent_at, context_message_id, context_local_message_id, context_preview
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
@@ -8152,6 +8265,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
         if ($text === '') {
             $text = '[' . (string)($item['message_type'] ?? 'texto') . ']';
+        }
+        $contextPreview = trim((string)($item['context_preview'] ?? ''));
+        if ($contextPreview !== '') {
+            $text = 'respondendo a "' . mb_substr($contextPreview, 0, 180, 'UTF-8') . '": ' . $text;
         }
         $sentAt = trim((string)($item['sent_at'] ?? ''));
         $historyLines[] = $role . ($sentAt !== '' ? ' (' . $sentAt . ')' : '') . ': ' . $text;
@@ -8212,6 +8329,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $pendingText = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
         }
         if ($pendingText !== '') {
+            $pendingContextPreview = trim((string)($item['context_preview'] ?? ''));
+            if ($pendingContextPreview !== '') {
+                $pendingText = 'Respondendo especificamente a "' . mb_substr($pendingContextPreview, 0, 180, 'UTF-8') . '": ' . $pendingText;
+            }
             array_unshift($pendingCustomerTexts, $pendingText);
         }
     }
@@ -8540,6 +8661,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . $humanExamplesBlock . "\n\n"
         . "Regras de resposta:\n"
         . "- Responda todas as mensagens pendentes enviadas desde a última resposta do atendente.\n"
+        . "- Se uma mensagem vier marcada como resposta a outra mensagem, interprete a fala como direcionada especificamente à mensagem citada antes de usar o restante do histórico.\n"
         . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
         . "- Se a mensagem atual corrigir algo do historico, a correcao atual prevalece. Especialmente: se o cliente disser que nao enviou comprovante, nao diga que o comprovante ja foi recebido nem que a agenda esta confirmada.\n"
         . "- Nao repita nenhuma resposta anterior do atendente.\n"

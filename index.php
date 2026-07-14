@@ -2816,8 +2816,17 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
             $kind = $inferMediaType($mime, $mediaUrl, $type);
             if ($mediaName === '' && $mediaUrl !== '') $mediaName = basename(parse_url($mediaUrl, PHP_URL_PATH) ?: $mediaUrl);
             $messageKey = (string)($message['id'] ?? $message['message_id'] ?? $message['sent_at'] ?? '');
+            $messageIdLocal = (string)($message['id'] ?? '');
+            $messageWamid = (string)($message['message_id'] ?? '');
+            $messagePreview = trim($body);
+            if ($messagePreview === '') {
+                $messagePreview = $mediaName !== '' ? $mediaName : '[' . ($type !== '' ? $type : 'mensagem') . ']';
+            }
+            $messagePreview = mb_substr($messagePreview, 0, 220, 'UTF-8');
+            $contextPreview = trim((string)($message['context_preview'] ?? ''));
             $bubbleClass = 'm2-bubble' . ($kind === 'audio' ? ' m2-audio-bubble' : '');
-            echo '<article class="m2-msg' . h($class) . '" data-message-key="' . h($messageKey) . '"><div class="' . h($bubbleClass) . '">';
+            echo '<article class="m2-msg' . h($class) . '" data-message-key="' . h($messageKey) . '" data-message-id="' . h($messageIdLocal) . '" data-wamid="' . h($messageWamid) . '" data-message-preview="' . h($messagePreview) . '" data-message-sender="' . h($direction === 'out' ? 'Você' : $displayName) . '"><div class="' . h($bubbleClass) . '">';
+            if ($contextPreview !== '') echo '<div class="m2-quoted"><span>Respondendo</span><p>' . h(mb_substr($contextPreview, 0, 220, 'UTF-8')) . '</p></div>';
             if ($mediaUrl !== '') {
                 if ($kind === 'image') echo '<img class="m2-media" src="' . h($mediaUrl) . '" alt="' . h($mediaName ?: 'Midia') . '">';
                 elseif ($kind === 'video') echo '<video class="m2-media" src="' . h($mediaUrl) . '" controls></video>';
@@ -2830,7 +2839,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
             if ($body !== '' && !$syntheticAudioBody) echo '<p>' . nl2br(h($body)) . '</p>';
             $transcribedText = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
             if ($transcribedText !== '') echo '<div class="m2-transcript">' . h($transcribedText) . '</div>';
-            echo '<time>' . h(format_datetime_pt((string)($message['sent_at'] ?? ''), false)) . '</time></div></article>';
+            echo '<div class="m2-bubble-foot"><time>' . h(format_datetime_pt((string)($message['sent_at'] ?? ''), false)) . '</time><button class="m2-reply-action" type="button" data-reply-message aria-label="Responder mensagem"><i class="fa-solid fa-reply"></i></button></div></div></article>';
         }
         echo '</div>';
         echo '<div class="m2-emoji hidden" id="m2EmojiPanel" aria-label="Emojis">';
@@ -2842,7 +2851,8 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         if (!empty($mobileWindow['applies']) && empty($mobileWindow['open'])) {
             echo '<div class="m2-card"><strong>Janela oficial encerrada</strong><small>Use um template aprovado para reabrir esta conversa fora das 24h.</small></div>';
         }
-        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+        echo '<div class="m2-reply-preview hidden" id="m2ReplyPreview"><div><span>Responder</span><strong id="m2ReplyPreviewSender">Mensagem</strong><p id="m2ReplyPreviewText"></p></div><button type="button" id="m2CancelReply" aria-label="Cancelar resposta"><i class="fa-solid fa-xmark"></i></button></div>';
+        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input type="hidden" name="context_message_id" id="m2ContextMessageId" value=""><input type="hidden" name="context_local_message_id" id="m2ContextLocalMessageId" value=""><input type="hidden" name="context_preview" id="m2ContextPreview" value=""><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
         if (!$canSend) {
             echo '<div class="m2-notice">Voce pode visualizar, mas precisa assumir a conversa para responder.</div>';
         }
@@ -5297,6 +5307,9 @@ if ($page === 'studio_whatsapp_mobile_api') {
                     'media_file_name' => (string)($message['media_file_name'] ?? ''),
                     'message_type' => (string)($message['message_type'] ?? 'texto'),
                     'message_id' => (string)($message['message_id'] ?? ''),
+                    'context_message_id' => (string)($message['context_message_id'] ?? ''),
+                    'context_local_message_id' => (int)($message['context_local_message_id'] ?? 0),
+                    'context_preview' => (string)($message['context_preview'] ?? ''),
                     'sent_at' => (string)($message['sent_at'] ?? ''),
                     'status' => (string)($message['status'] ?? ''),
                     'transcricao' => (string)($message['transcricao'] ?? ''),
