@@ -12485,6 +12485,242 @@ function studio_data_assistant_context(array $studio): array
     ];
 }
 
+function studio_data_assistant_is_meta_ads_question(string $question): bool
+{
+    $plain = studio_data_assistant_plain_text($question);
+    return (bool)preg_match('/\b(meta\s*ads|facebook\s*ads|anuncios?|campanhas?|conjuntos?|adsets?|ads?\b|ctr|cpc|cpm|alcance|impressoes|cliques?|pixel|lead\s*ads)\b/u', $plain);
+}
+
+function studio_data_assistant_meta_period(string $question): array
+{
+    $period = studio_data_assistant_period_from_question($question, false);
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    if (is_array($period)) {
+        $start = DateTimeImmutable::createFromFormat('Y-m-d', (string)$period['start'], $tz) ?: new DateTimeImmutable((string)$period['start'], $tz);
+        $endExclusive = DateTimeImmutable::createFromFormat('Y-m-d', (string)$period['end'], $tz) ?: new DateTimeImmutable((string)$period['end'], $tz);
+        return [
+            'label' => (string)$period['label'],
+            'since' => $start->format('Y-m-d'),
+            'until' => $endExclusive->modify('-1 day')->format('Y-m-d'),
+        ];
+    }
+
+    $today = new DateTimeImmutable('today', $tz);
+    return [
+        'label' => 'últimos 30 dias',
+        'since' => $today->modify('-29 days')->format('Y-m-d'),
+        'until' => $today->format('Y-m-d'),
+    ];
+}
+
+function studio_data_assistant_meta_action_total(array $actions, array $needles): int
+{
+    $total = 0;
+    foreach ($actions as $action) {
+        if (!is_array($action)) {
+            continue;
+        }
+        $type = studio_data_assistant_plain_text((string)($action['action_type'] ?? ''));
+        foreach ($needles as $needle) {
+            if ($needle !== '' && str_contains($type, $needle)) {
+                $total += (int)round((float)($action['value'] ?? 0));
+                break;
+            }
+        }
+    }
+    return $total;
+}
+
+function studio_data_assistant_meta_metric_label(string $metric): string
+{
+    return [
+        'spend' => 'gasto',
+        'impressions' => 'impressões',
+        'clicks' => 'cliques',
+        'reach' => 'alcance',
+        'ctr' => 'CTR',
+        'cpc' => 'CPC',
+        'cpm' => 'CPM',
+        'leads' => 'leads',
+        'messages' => 'mensagens',
+    ][$metric] ?? $metric;
+}
+
+function studio_data_assistant_meta_metric_value_text(string $metric, float|int $value): string
+{
+    if (in_array($metric, ['spend', 'cpc', 'cpm'], true)) {
+        return format_money((float)$value);
+    }
+    if ($metric === 'ctr') {
+        return number_format((float)$value, 2, ',', '.') . '%';
+    }
+    return number_format((float)$value, 0, ',', '.');
+}
+
+function studio_data_assistant_meta_ads_answer(array $studio, string $question): array
+{
+    $settings = studio_settings($studio);
+    $token = trim((string)($settings['meta_ads_access_token'] ?? ''));
+    $accountId = preg_replace('/^act_/', '', trim((string)($settings['meta_ads_ad_account_id'] ?? '')));
+    $version = trim((string)($settings['meta_ads_api_version'] ?? 'v22.0')) ?: 'v22.0';
+    if ($token === '' || $accountId === '') {
+        return ['ok' => false, 'error' => 'Meta Ads sem token ou conta de anúncio configurados.'];
+    }
+
+    $period = studio_data_assistant_meta_period($question);
+    $timeRange = json_encode(['since' => $period['since'], 'until' => $period['until']], JSON_UNESCAPED_SLASHES) ?: '{}';
+    $apiCalls = [];
+
+    $accountPath = '/act_' . $accountId;
+    $accountQuery = ['fields' => 'id,name,currency,balance,amount_spent,spend_cap,account_status'];
+    $accountResponse = studio_meta_ads_request($version, $accountPath, $token, $accountQuery, 'GET', null, 20);
+    $apiCalls[] = ['title' => 'Conta de anúncio', 'endpoint' => $accountPath, 'fields' => $accountQuery['fields'], 'status' => $accountResponse['status'] ?? null];
+    if (empty($accountResponse['ok'])) {
+        return ['ok' => false, 'error' => (string)($accountResponse['error'] ?? 'Falha ao consultar conta de anúncio.')];
+    }
+    $account = (array)($accountResponse['json'] ?? []);
+
+    $insightsPath = '/act_' . $accountId . '/insights';
+    $insightsQuery = [
+        'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,unique_actions',
+        'time_range' => $timeRange,
+        'level' => 'account',
+        'limit' => 1,
+    ];
+    $insightsResponse = studio_meta_ads_request($version, $insightsPath, $token, $insightsQuery, 'GET', null, 30);
+    $apiCalls[] = ['title' => 'Resumo da conta', 'endpoint' => $insightsPath, 'fields' => $insightsQuery['fields'], 'periodo' => $period, 'status' => $insightsResponse['status'] ?? null];
+    if (empty($insightsResponse['ok'])) {
+        return ['ok' => false, 'error' => (string)($insightsResponse['error'] ?? 'Falha ao consultar métricas de anúncios.')];
+    }
+    $insight = (array)(($insightsResponse['json']['data'][0] ?? []) ?: []);
+
+    $campaignsPath = '/act_' . $accountId . '/campaigns';
+    $campaignsQuery = [
+        'fields' => 'id,name,status,effective_status,objective,created_time,updated_time,buying_type',
+        'limit' => 12,
+    ];
+    $campaignsResponse = studio_meta_ads_request($version, $campaignsPath, $token, $campaignsQuery, 'GET', null, 30);
+    $apiCalls[] = ['title' => 'Campanhas', 'endpoint' => $campaignsPath, 'fields' => $campaignsQuery['fields'], 'status' => $campaignsResponse['status'] ?? null];
+    if (empty($campaignsResponse['ok'])) {
+        return ['ok' => false, 'error' => (string)($campaignsResponse['error'] ?? 'Falha ao consultar campanhas.')];
+    }
+    $campaigns = array_values(array_filter((array)($campaignsResponse['json']['data'] ?? []), 'is_array'));
+
+    $campaignMetrics = [];
+    foreach (array_slice($campaigns, 0, 8) as $campaign) {
+        $campaignId = trim((string)($campaign['id'] ?? ''));
+        if ($campaignId === '') {
+            continue;
+        }
+        $campaignInsightPath = '/' . rawurlencode($campaignId) . '/insights';
+        $campaignInsightQuery = [
+            'fields' => 'spend,impressions,clicks,ctr,cpc,cpm,reach,actions,unique_actions',
+            'time_range' => $timeRange,
+            'limit' => 1,
+        ];
+        $campaignInsightResponse = studio_meta_ads_request($version, $campaignInsightPath, $token, $campaignInsightQuery, 'GET', null, 20);
+        $apiCalls[] = ['title' => 'Métricas da campanha: ' . (string)($campaign['name'] ?? $campaignId), 'endpoint' => $campaignInsightPath, 'fields' => $campaignInsightQuery['fields'], 'status' => $campaignInsightResponse['status'] ?? null];
+        $campaignInsight = !empty($campaignInsightResponse['ok']) ? (array)(($campaignInsightResponse['json']['data'][0] ?? []) ?: []) : [];
+        $actions = (array)($campaignInsight['actions'] ?? []);
+        $uniqueActions = (array)($campaignInsight['unique_actions'] ?? []);
+        $campaignMetrics[] = [
+            'id' => $campaignId,
+            'name' => (string)($campaign['name'] ?? $campaignId),
+            'status' => (string)($campaign['status'] ?? ''),
+            'effective_status' => (string)($campaign['effective_status'] ?? ''),
+            'objective' => (string)($campaign['objective'] ?? ''),
+            'spend' => (float)($campaignInsight['spend'] ?? 0),
+            'impressions' => (int)($campaignInsight['impressions'] ?? 0),
+            'clicks' => (int)($campaignInsight['clicks'] ?? 0),
+            'reach' => (int)($campaignInsight['reach'] ?? 0),
+            'ctr' => (float)($campaignInsight['ctr'] ?? 0),
+            'cpc' => (float)($campaignInsight['cpc'] ?? 0),
+            'cpm' => (float)($campaignInsight['cpm'] ?? 0),
+            'leads' => studio_data_assistant_meta_action_total($actions ?: $uniqueActions, ['lead']),
+            'messages' => studio_data_assistant_meta_action_total($actions ?: $uniqueActions, ['messaging', 'onsite_conversion.messaging', 'message']),
+        ];
+    }
+
+    $actions = (array)($insight['actions'] ?? []);
+    $uniqueActions = (array)($insight['unique_actions'] ?? []);
+    $spend = (float)($insight['spend'] ?? 0);
+    $impressions = (int)($insight['impressions'] ?? 0);
+    $clicks = (int)($insight['clicks'] ?? 0);
+    $reach = (int)($insight['reach'] ?? 0);
+    $ctr = (float)($insight['ctr'] ?? 0);
+    $cpc = (float)($insight['cpc'] ?? 0);
+    $cpm = (float)($insight['cpm'] ?? 0);
+    $leadActions = studio_data_assistant_meta_action_total($actions ?: $uniqueActions, ['lead']);
+    $messageActions = studio_data_assistant_meta_action_total($actions ?: $uniqueActions, ['messaging', 'onsite_conversion.messaging', 'message']);
+
+    $plain = studio_data_assistant_plain_text($question);
+    $metric = 'spend';
+    if (str_contains($plain, 'ctr')) {
+        $metric = 'ctr';
+    } elseif (str_contains($plain, 'cpc')) {
+        $metric = 'cpc';
+    } elseif (str_contains($plain, 'cpm')) {
+        $metric = 'cpm';
+    } elseif (str_contains($plain, 'clique')) {
+        $metric = 'clicks';
+    } elseif (str_contains($plain, 'alcance')) {
+        $metric = 'reach';
+    } elseif (str_contains($plain, 'impress')) {
+        $metric = 'impressions';
+    } elseif (str_contains($plain, 'lead')) {
+        $metric = 'leads';
+    } elseif (str_contains($plain, 'mensag') || str_contains($plain, 'conversa')) {
+        $metric = 'messages';
+    }
+    $direction = studio_data_assistant_ranking_direction($question);
+    if (str_contains($plain, 'melhor') && in_array($metric, ['cpc', 'cpm'], true)) {
+        $direction = 'asc';
+    }
+    usort($campaignMetrics, static function (array $a, array $b) use ($metric, $direction): int {
+        $cmp = ((float)($a[$metric] ?? 0)) <=> ((float)($b[$metric] ?? 0));
+        return $direction === 'asc' ? $cmp : -$cmp;
+    });
+    $topCampaign = $campaignMetrics[0] ?? null;
+    $activeCampaigns = count(array_filter($campaigns, static fn(array $campaign): bool => in_array((string)($campaign['effective_status'] ?? $campaign['status'] ?? ''), ['ACTIVE', 'IN_PROCESS'], true)));
+
+    $answerParts = [
+        'Meta Ads em ' . (string)$period['label'] . ': gasto ' . format_money($spend)
+            . ', alcance ' . number_format($reach, 0, ',', '.')
+            . ', impressões ' . number_format($impressions, 0, ',', '.')
+            . ', cliques ' . number_format($clicks, 0, ',', '.')
+            . ', CTR ' . number_format($ctr, 2, ',', '.') . '%'
+            . ', CPC ' . format_money($cpc)
+            . ' e CPM ' . format_money($cpm) . '.',
+        'Campanhas carregadas: ' . count($campaigns) . ', com ' . $activeCampaigns . ' ativas.',
+    ];
+    if ($leadActions > 0 || $messageActions > 0) {
+        $answerParts[] = 'Ações rastreadas: ' . number_format($leadActions, 0, ',', '.') . ' leads e ' . number_format($messageActions, 0, ',', '.') . ' conversas/mensagens.';
+    }
+    if (is_array($topCampaign)) {
+        $answerParts[] = 'Destaque por ' . studio_data_assistant_meta_metric_label($metric) . ': ' . $topCampaign['name'] . ' (' . studio_data_assistant_meta_metric_value_text($metric, (float)($topCampaign[$metric] ?? 0)) . ').';
+    }
+
+    return [
+        'ok' => true,
+        'question' => $question,
+        'answer' => implode(' ', $answerParts),
+        'generated_at' => date('Y-m-d H:i:s'),
+        'source' => 'meta_ads_api',
+        'queries' => $apiCalls,
+        'meta_ads' => [
+            'account' => [
+                'id' => (string)($account['id'] ?? ''),
+                'name' => (string)($account['name'] ?? ''),
+                'currency' => (string)($account['currency'] ?? ''),
+                'status' => (string)($account['account_status'] ?? ''),
+            ],
+            'period' => $period,
+            'summary' => compact('spend', 'impressions', 'clicks', 'reach', 'ctr', 'cpc', 'cpm', 'leadActions', 'messageActions', 'activeCampaigns'),
+            'campaigns' => array_slice($campaignMetrics, 0, 8),
+        ],
+    ];
+}
+
 function studio_data_assistant_answer(array $studio, string $question): array
 {
     $question = trim($question);
@@ -12495,6 +12731,19 @@ function studio_data_assistant_answer(array $studio, string $question): array
     $context = studio_data_assistant_context($studio);
     $pdo = studio_db($studio);
     $config = studio_openai_config($studio);
+    if (studio_data_assistant_is_meta_ads_question($question)) {
+        $metaAdsResult = studio_data_assistant_meta_ads_answer($studio, $question);
+        if (!empty($metaAdsResult['ok'])) {
+            return $metaAdsResult + ['context' => $context];
+        }
+        return [
+            'question' => $question,
+            'answer' => 'Não consegui consultar a Meta Ads agora: ' . (string)($metaAdsResult['error'] ?? 'erro desconhecido') . '.',
+            'context' => $context,
+            'generated_at' => date('Y-m-d H:i:s'),
+            'source' => 'meta_ads_api_error',
+        ];
+    }
     $sqlAiResult = studio_data_assistant_ai_sql_answer($studio, $question, $config, $context);
     if (!empty($sqlAiResult['ok'])) {
         return $sqlAiResult + ['context' => $context];
