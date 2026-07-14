@@ -5903,6 +5903,299 @@ function studio_whatsapp_image_color_mode(string $binary): string
     return ($chromatic / $samples) >= 0.05 ? 'color' : 'black_and_grey';
 }
 
+function studio_whatsapp_extract_urls(string $text, int $limit = 3): array
+{
+    if (!preg_match_all('~https?://[^\s<>"\']+~iu', $text, $matches)) {
+        return [];
+    }
+    $urls = [];
+    foreach ($matches[0] as $url) {
+        $url = rtrim((string)$url, ".,;:!?)]}\r\n\t ");
+        if ($url !== '' && !in_array($url, $urls, true)) {
+            $urls[] = $url;
+        }
+        if (count($urls) >= $limit) {
+            break;
+        }
+    }
+    return $urls;
+}
+
+function studio_whatsapp_reference_url_allowed(string $url): bool
+{
+    $parts = parse_url($url);
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    $host = strtolower(trim((string)($parts['host'] ?? '')));
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+        return false;
+    }
+    if (in_array($host, ['localhost', 'localhost.localdomain'], true)
+        || str_ends_with($host, '.local')
+        || str_ends_with($host, '.internal')) {
+        return false;
+    }
+
+    $isPublicIp = static function (string $ip): bool {
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+    };
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        return $isPublicIp($host);
+    }
+
+    $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+    if (is_array($records)) {
+        foreach ($records as $record) {
+            $ip = (string)($record['ip'] ?? $record['ipv6'] ?? '');
+            if ($ip !== '' && !$isPublicIp($ip)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function studio_whatsapp_resolve_url(string $baseUrl, string $candidate): string
+{
+    $candidate = trim(html_entity_decode($candidate, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    if ($candidate === '') {
+        return '';
+    }
+    if (preg_match('~^https?://~i', $candidate)) {
+        return $candidate;
+    }
+
+    $base = parse_url($baseUrl);
+    $scheme = (string)($base['scheme'] ?? 'https');
+    $host = (string)($base['host'] ?? '');
+    if ($host === '') {
+        return '';
+    }
+    if (str_starts_with($candidate, '//')) {
+        return $scheme . ':' . $candidate;
+    }
+    $port = isset($base['port']) ? ':' . (string)$base['port'] : '';
+    if (str_starts_with($candidate, '/')) {
+        return $scheme . '://' . $host . $port . $candidate;
+    }
+
+    $path = (string)($base['path'] ?? '/');
+    $dir = preg_replace('~/[^/]*$~', '/', $path) ?: '/';
+    $segments = explode('/', $dir . $candidate);
+    $resolved = [];
+    foreach ($segments as $segment) {
+        if ($segment === '' || $segment === '.') {
+            continue;
+        }
+        if ($segment === '..') {
+            array_pop($resolved);
+            continue;
+        }
+        $resolved[] = $segment;
+    }
+    return $scheme . '://' . $host . $port . '/' . implode('/', $resolved);
+}
+
+function studio_whatsapp_fetch_limited_url(string $url, int $maxBytes, string $accept): array
+{
+    $currentUrl = trim($url);
+    for ($redirects = 0; $redirects <= 3; $redirects++) {
+        if (!studio_whatsapp_reference_url_allowed($currentUrl)) {
+            return ['ok' => false, 'error' => 'link nao permitido para analise automatica'];
+        }
+
+        $body = '';
+        $headers = [];
+        $tooLarge = false;
+        $ch = curl_init($currentUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 18,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36',
+            CURLOPT_HTTPHEADER => [
+                'Accept: ' . $accept,
+                'Accept-Language: pt-BR,pt;q=0.9,en;q=0.6',
+            ],
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$headers): int {
+                $trimmed = trim($line);
+                if ($trimmed !== '' && str_contains($trimmed, ':')) {
+                    [$name, $value] = explode(':', $trimmed, 2);
+                    $headers[strtolower(trim($name))] = trim($value);
+                }
+                return strlen($line);
+            },
+            CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$body, $maxBytes, &$tooLarge): int {
+                if (strlen($body) + strlen($chunk) > $maxBytes) {
+                    $tooLarge = true;
+                    return 0;
+                }
+                $body .= $chunk;
+                return strlen($chunk);
+            },
+        ]);
+        $executed = curl_exec($ch);
+        $errno = curl_errno($ch);
+        $error = curl_error($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $effectiveUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        if ($tooLarge) {
+            return ['ok' => false, 'error' => 'arquivo maior que o limite seguro'];
+        }
+        if ($executed === false || $errno) {
+            return ['ok' => false, 'error' => $error ?: 'falha ao abrir link'];
+        }
+        if ($status >= 300 && $status < 400 && !empty($headers['location'])) {
+            $nextUrl = studio_whatsapp_resolve_url($effectiveUrl !== '' ? $effectiveUrl : $currentUrl, (string)$headers['location']);
+            if ($nextUrl === '' || $nextUrl === $currentUrl) {
+                return ['ok' => false, 'error' => 'redirecionamento invalido no link'];
+            }
+            $currentUrl = $nextUrl;
+            continue;
+        }
+        if ($status >= 400 || $status === 0) {
+            return ['ok' => false, 'error' => 'link respondeu HTTP ' . ($status ?: 'indisponivel')];
+        }
+
+        return [
+            'ok' => true,
+            'body' => $body,
+            'content_type' => strtolower(trim(explode(';', (string)($headers['content-type'] ?? ''))[0] ?? '')),
+            'url' => $effectiveUrl !== '' ? $effectiveUrl : $currentUrl,
+            'headers' => $headers,
+        ];
+    }
+
+    return ['ok' => false, 'error' => 'link redirecionou vezes demais'];
+}
+
+function studio_whatsapp_extract_preview_image_url(string $html, string $baseUrl): string
+{
+    if (preg_match_all('~<meta\b[^>]*>~iu', $html, $metaTags)) {
+        foreach ($metaTags[0] as $tag) {
+            $name = '';
+            $content = '';
+            if (preg_match('~\b(?:property|name)\s*=\s*["\']([^"\']+)["\']~iu', $tag, $nameMatch)) {
+                $name = strtolower(trim((string)$nameMatch[1]));
+            }
+            if (preg_match('~\bcontent\s*=\s*["\']([^"\']+)["\']~iu', $tag, $contentMatch)) {
+                $content = trim((string)$contentMatch[1]);
+            }
+            if ($content !== '' && in_array($name, ['og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'], true)) {
+                return studio_whatsapp_resolve_url($baseUrl, $content);
+            }
+        }
+    }
+    if (preg_match('~<link\b[^>]*rel\s*=\s*["\'][^"\']*image_src[^"\']*["\'][^>]*href\s*=\s*["\']([^"\']+)["\']~iu', $html, $match)) {
+        return studio_whatsapp_resolve_url($baseUrl, (string)$match[1]);
+    }
+    return '';
+}
+
+function studio_whatsapp_link_looks_like_reference(string $text, array $urls): bool
+{
+    if (!$urls) {
+        return false;
+    }
+    $withoutUrls = trim(preg_replace('~https?://[^\s<>"\']+~iu', '', $text) ?? $text);
+    if ($withoutUrls === '' || mb_strlen($withoutUrls, 'UTF-8') <= 16) {
+        return true;
+    }
+    foreach ($urls as $url) {
+        if (preg_match('~\.(?:jpe?g|png|webp|gif)(?:[?#].*)?$~iu', $url)) {
+            return true;
+        }
+    }
+    return (bool)preg_match('/\b(refer[eê]ncia|foto|imagem|desenho|arte|tatuar|tatuagem|tattoo|fazer|igual|parecid[ao]|or[cç]amento|valor|pre[cç]o)\b/iu', $text);
+}
+
+function studio_whatsapp_analyze_reference_link(array $studio, string $text): array
+{
+    $urls = studio_whatsapp_extract_urls($text, 3);
+    if (!studio_whatsapp_link_looks_like_reference($text, $urls)) {
+        return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem link de referencia.'];
+    }
+
+    $lastError = '';
+    foreach ($urls as $url) {
+        $pageOrImage = studio_whatsapp_fetch_limited_url($url, 8 * 1024 * 1024, 'image/avif,image/webp,image/png,image/jpeg,image/*,text/html;q=0.8,*/*;q=0.5');
+        if (empty($pageOrImage['ok'])) {
+            $lastError = (string)($pageOrImage['error'] ?? 'nao foi possivel abrir o link');
+            continue;
+        }
+
+        $sourceUrl = (string)($pageOrImage['url'] ?? $url);
+        $contentType = (string)($pageOrImage['content_type'] ?? '');
+        $imageUrl = $sourceUrl;
+        $imageFetch = $pageOrImage;
+        if (!str_starts_with($contentType, 'image/')) {
+            $html = (string)($pageOrImage['body'] ?? '');
+            if (!str_contains($contentType, 'html') && !preg_match('~<html|<meta|og:image|twitter:image~iu', $html)) {
+                $lastError = 'o link nao parece conter uma imagem publica';
+                continue;
+            }
+            $imageUrl = studio_whatsapp_extract_preview_image_url($html, $sourceUrl);
+            if ($imageUrl === '') {
+                $lastError = 'nao encontrei imagem principal publica nesse link';
+                continue;
+            }
+            $imageFetch = studio_whatsapp_fetch_limited_url($imageUrl, 8 * 1024 * 1024, 'image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.5');
+            if (empty($imageFetch['ok'])) {
+                $lastError = (string)($imageFetch['error'] ?? 'nao foi possivel baixar a imagem do link');
+                continue;
+            }
+            $contentType = (string)($imageFetch['content_type'] ?? '');
+        }
+
+        if (!str_starts_with($contentType, 'image/')) {
+            $lastError = 'a previa do link nao e uma imagem';
+            continue;
+        }
+        $binary = (string)($imageFetch['body'] ?? '');
+        if ($binary === '') {
+            $lastError = 'imagem do link veio vazia';
+            continue;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'wa_ref_link_');
+        if ($tmp === false || file_put_contents($tmp, $binary) === false) {
+            if (is_string($tmp) && is_file($tmp)) {
+                @unlink($tmp);
+            }
+            $lastError = 'nao foi possivel preparar a imagem do link';
+            continue;
+        }
+        try {
+            $analysis = studio_whatsapp_analyze_image($studio, [
+                'message_type' => 'image',
+                'media_mime' => $contentType,
+                'media_file_path' => $tmp,
+            ]);
+        } finally {
+            @unlink($tmp);
+        }
+
+        $analysis['present'] = true;
+        $analysis['source'] = 'reference_link';
+        $analysis['source_url'] = $sourceUrl;
+        $analysis['image_url'] = (string)($imageFetch['url'] ?? $imageUrl);
+        if (!empty($analysis['ok'])) {
+            return $analysis;
+        }
+        $lastError = (string)($analysis['error'] ?? 'nao foi possivel analisar a imagem do link');
+    }
+
+    return [
+        'ok' => false,
+        'present' => true,
+        'source' => 'reference_link',
+        'source_url' => $urls[0] ?? '',
+        'error' => $lastError !== '' ? $lastError : 'nao consegui abrir uma imagem publica nesse link',
+    ];
+}
+
 function studio_nvidia_vision_config(array $studio): array
 {
     $settings = studio_settings($studio);
@@ -9510,7 +9803,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $messageText = implode("\n", $pendingCustomerTexts);
     }
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
-    $hasVisualReference = !empty($imageAnalysis['present']) || !empty($videoAnalysis['present']);
+    $linkReferenceAnalysis = studio_whatsapp_analyze_reference_link($studio, $messageText);
+    $hasVisualReference = !empty($imageAnalysis['present']) || !empty($videoAnalysis['present']) || !empty($linkReferenceAnalysis['present']);
     $currentIntent = studio_whatsapp_ai_detect_intent($messageText, $hasVisualReference, $messageType);
     $pendingIntents = [];
     foreach ($pendingCustomerTexts as $pendingText) {
@@ -9531,7 +9825,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $needsScheduleContext = $currentIntent === 'schedule' || in_array('schedule', $pendingIntents, true)
         || in_array('artist', $pendingIntents, true) || in_array('reservation', $pendingIntents, true);
     $stateText = mb_strtolower(implode(' ', array_slice($historyLines, -8)) . ' ' . $messageText, 'UTF-8');
-    $hasReference = !empty($imageAnalysis['present']) || $recentHistoryHasImage
+    $hasReference = !empty($imageAnalysis['present']) || !empty($linkReferenceAnalysis['present']) || $recentHistoryHasImage
         || preg_match('/\b(foto|imagem|refer[eê]ncia)\b/u', $stateText);
     $pricingDiscussed = preg_match('/(quanto\s+(custa|fica|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento)/u', $stateText);
     $currentText = mb_strtolower($messageText, 'UTF-8');
@@ -9607,6 +9901,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if (!empty($imageAnalysis['ok']) && (string)($imageAnalysis['safety'] ?? '') === 'unsafe') {
         $guardrailReason = 'Imagem sinalizada para revisao humana.';
     }
+    if (!empty($linkReferenceAnalysis['ok']) && (string)($linkReferenceAnalysis['safety'] ?? '') === 'unsafe') {
+        $guardrailReason = 'Referencia por link sinalizada para revisao humana.';
+    }
     if ($guardrailReason !== null) {
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => (int)$conversation['id'],
@@ -9645,6 +9942,46 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 . '; cores ' . $colorModeLabel . '.';
     } else {
             $imageContext = 'Imagem recebida, mas a analise visual local nao ficou disponivel. Nao invente o conteudo da imagem.';
+        }
+    }
+    $linkContext = 'Nenhum link de referencia recebido nesta mensagem.';
+    if (!empty($linkReferenceAnalysis['present'])) {
+        if (!empty($linkReferenceAnalysis['ok'])) {
+            $linkBodyArea = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['body_area'] ?? ''));
+            $linkStyle = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['style'] ?? ''));
+            $linkElements = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['elements'] ?? ''));
+            if ($visualBodyArea === '' && $linkBodyArea !== '') {
+                $visualBodyArea = $linkBodyArea;
+            }
+            if ($visualStyle === '' && $linkStyle !== '') {
+                $visualStyle = $linkStyle;
+            }
+            if ($visualElements === '' && $linkElements !== '') {
+                $visualElements = $linkElements;
+            }
+            $linkTypeLabel = match ((string)($linkReferenceAnalysis['visual_type'] ?? '')) {
+                'tattoo_on_skin' => 'tatuagem aplicada na pele',
+                'artwork' => 'arte, desenho ou logo fora da pele',
+                'body_photo' => 'foto de uma regiao do corpo sem tatuagem visivel',
+                'unsafe' => 'imagem que exige revisao humana',
+                default => 'imagem sem categoria visual confirmada',
+            };
+            $linkColorLabel = match ((string)($linkReferenceAnalysis['color_mode'] ?? '')) {
+                'black_and_grey' => 'preto e cinza',
+                'color' => 'colorida',
+                default => 'nao confirmado',
+            };
+            $linkHost = strtolower((string)(parse_url((string)($linkReferenceAnalysis['source_url'] ?? ''), PHP_URL_HOST) ?: 'link'));
+            $linkContext = 'Link de referencia analisado de ' . $linkHost
+                . ': ' . $linkTypeLabel
+                . '; area do corpo ' . ($linkBodyArea !== '' ? $linkBodyArea : 'nao identificada')
+                . '; estilo ' . ($linkStyle !== '' ? $linkStyle : 'nao identificado')
+                . '; elementos ' . ($linkElements !== '' ? $linkElements : 'nao identificados')
+                . '; cores ' . $linkColorLabel . '.';
+        } else {
+            $linkContext = 'Link de referencia recebido, mas nao consegui abrir ou confirmar uma imagem publica nele: '
+                . (string)($linkReferenceAnalysis['error'] ?? 'erro desconhecido')
+                . '. Nao invente o conteudo; peca para o cliente enviar a imagem salva ou um print por aqui.';
         }
     }
     $videoContext = 'Nenhum video recebido nesta mensagem.';
@@ -9793,7 +10130,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         'image_style' => 'Diga em portugues qual e o estilo visto na imagem, citando no maximo dois elementos concretos.',
         'image_price' => 'A pergunta atual e sobre preco e inclui imagem. Reconheca elementos concretos da imagem, explique que o valor depende de tamanho, cobertura e adaptacao, e pergunte apenas o dado que ainda falta. Nao diga que faltou referencia.',
         'price' => 'A pergunta atual e sobre preco. Nao invente valor; explique em uma frase curta de que dados o orcamento depende e peca somente a informacao que falta.',
-        'image_reference' => 'A mensagem atual contem uma imagem. Demonstre que a viu citando um ou dois elementos concretos e faca apenas a proxima pergunta util.',
+        'image_reference' => 'A mensagem atual contem uma imagem ou link de referencia. Se houver analise confirmada, cite um ou dois elementos concretos e faca apenas a proxima pergunta util; se o link falhou, peca imagem salva ou print.',
         'quote_ready' => 'Referencia, local e cobertura ja foram informados. Nao faca outra pergunta; confirme o pedido e encaminhe para orcamento humano.',
         'quote_partial' => 'O cliente escolheu cobertura parcial. Nao pergunte novamente local, estilo ou elementos; pergunte somente o tamanho aproximado da parte.',
         'quote_status' => 'Os dados principais do orçamento já foram reunidos. Não prometa calcular preço; diga que o Daniel precisa definir o valor e encaminhe.',
@@ -9816,6 +10153,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . $scheduleContextBlock
         . "Mensagens pendentes do cliente (prioridade maxima; responda todas): " . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n"
         . "Contexto da imagem atual: " . $imageContext . "\n"
+        . "Contexto do link de referencia atual: " . $linkContext . "\n"
         . "Contexto do video atual: " . $videoContext . "\n"
         . "Contexto do documento atual: " . $documentContext . "\n"
         . "Endereco oficial cadastrado: " . ($studioAddress !== '' ? $studioAddress : 'NAO CADASTRADO') . "\n"
@@ -9850,6 +10188,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
         . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
         . "- Nao mencione analise visual, IA, nomes de modelos, campos internos nem rotulos tecnicos. Traduza qualquer termo estrangeiro antes de responder.\n"
+        . "- Se houver link de referencia analisado, use somente o contexto confirmado do link. Se o link nao abriu ou nao trouxe imagem publica, diga de forma natural que nao conseguiu abrir e peca a imagem salva ou um print.\n"
         . "- Se for tatuagem aplicada na pele, reconheca brevemente a referencia e pergunte tamanho ou local desejado se isso ainda faltar.\n"
         . "- Se for arte, desenho ou logo fora da pele, trate como possivel referencia e pergunte se o cliente quer reproduzir ou adaptar.\n"
         . "- Se for foto de uma regiao do corpo sem tatuagem visivel, pergunte qual tatuagem a pessoa pretende fazer nessa regiao.\n"
@@ -9986,6 +10325,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'summary' => 'Cliente enviou comprovante de sinal; precisa de conferencia humana do valor/favorecido.',
             ];
         }
+    } elseif (!empty($linkReferenceAnalysis['present'])
+        && empty($linkReferenceAnalysis['ok'])
+        && !in_array($currentIntent, ['schedule', 'artist', 'reservation', 'address', 'payment_proof', 'payment_proof_denial', 'payment_amount_variation'], true)) {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Recebi o link, mas não consegui abrir a imagem daqui. Me manda a imagem salva ou um print por aqui, e já me fala onde quer tatuar e o tamanho aproximado?',
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente enviou link de referencia, mas a imagem nao ficou acessivel automaticamente; pedir imagem salva ou print, local do corpo e tamanho aproximado.',
+        ];
     } elseif ($currentIntent === 'multi_request') {
         $parts = [];
         if ($needsScheduleContext) {
@@ -10128,7 +10477,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $result = $retryResult;
             $replyText = preg_replace('/\s+/', ' ', $retryText) ?? $retryText;
         } else {
-            $imageArea = strtolower(trim((string)($imageAnalysis['body_area'] ?? '')));
+            $imageArea = strtolower(trim($visualBodyArea !== '' ? $visualBodyArea : (string)($imageAnalysis['body_area'] ?? '')));
             $imageArea = match ($imageArea) {
                 'back' => 'costas',
                 'arm' => 'braco',
@@ -10277,6 +10626,26 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $updatedMemory = trim($updatedMemory . "\n" . $visualMemory);
         }
     }
+    if (!empty($linkReferenceAnalysis['ok'])) {
+        $linkMemoryParts = [];
+        $linkStyle = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['style'] ?? ''));
+        $linkElements = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['elements'] ?? ''));
+        $linkBodyArea = studio_whatsapp_ai_visual_text_pt((string)($linkReferenceAnalysis['body_area'] ?? ''));
+        if ($linkStyle !== '') {
+            $linkMemoryParts[] = 'estilo ' . $linkStyle;
+        }
+        if ($linkElements !== '') {
+            $linkMemoryParts[] = 'elementos ' . $linkElements;
+        }
+        if ($linkBodyArea !== '') {
+            $linkMemoryParts[] = 'local ' . $linkBodyArea;
+        }
+        if ($linkMemoryParts) {
+            $updatedMemory = trim($updatedMemory . "\n" . 'Referência por link: ' . implode('; ', $linkMemoryParts) . '.');
+        }
+    } elseif (!empty($linkReferenceAnalysis['present'])) {
+        $updatedMemory = trim($updatedMemory . "\n" . 'Cliente enviou link de referência, mas o sistema não conseguiu abrir a imagem; pedir imagem salva ou print.');
+    }
     if (!empty($documentAnalysis['ok']) && trim((string)($documentAnalysis['text'] ?? '')) !== '') {
         $documentSummary = trim(preg_replace('/\s+/', ' ', (string)$documentAnalysis['text']) ?? (string)$documentAnalysis['text']);
         $documentMemory = 'Documento recebido (' . (string)($documentAnalysis['file_name'] ?? 'anexo') . '): '
@@ -10349,6 +10718,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'body_area' => (string)($imageAnalysis['body_area'] ?? ''),
             'style' => (string)($imageAnalysis['style'] ?? ''),
             'elements' => (string)($imageAnalysis['elements'] ?? ''),
+        ] : null,
+        'link_reference_analysis' => !empty($linkReferenceAnalysis['present']) ? [
+            'ok' => !empty($linkReferenceAnalysis['ok']),
+            'visual_type' => (string)($linkReferenceAnalysis['visual_type'] ?? ''),
+            'body_area' => (string)($linkReferenceAnalysis['body_area'] ?? ''),
+            'style' => (string)($linkReferenceAnalysis['style'] ?? ''),
+            'elements' => (string)($linkReferenceAnalysis['elements'] ?? ''),
+            'error' => (string)($linkReferenceAnalysis['error'] ?? ''),
         ] : null,
     ];
 }
