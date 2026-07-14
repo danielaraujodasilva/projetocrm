@@ -5863,7 +5863,11 @@ function studio_whatsapp_image_color_mode(string $binary): string
         return 'unknown';
     }
 
-    $image = @imagecreatefromstring($binary);
+    try {
+        $image = @imagecreatefromstring($binary);
+    } catch (Throwable) {
+        return 'unknown';
+    }
     if (!$image) {
         return 'unknown';
     }
@@ -6879,6 +6883,9 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
 {
     $messageType = strtolower(trim((string)($message['message_type'] ?? '')));
     $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
+    if ($messageType === 'sticker') {
+        return ['ok' => false, 'present' => false, 'error' => 'Figurinha nao exige analise visual.'];
+    }
     if ($messageType !== 'image' && !str_starts_with($mediaMime, 'image/')) {
         return ['ok' => false, 'present' => false, 'error' => 'Mensagem sem imagem.'];
     }
@@ -6902,7 +6909,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
     if ($binary === false || $binary === '') {
         return ['ok' => false, 'present' => true, 'error' => 'Nao foi possivel ler a imagem.'];
     }
-    $detectedColorMode = studio_whatsapp_image_color_mode($binary);
+    $detectedColorMode = $mediaMime === 'image/webp' ? 'unknown' : studio_whatsapp_image_color_mode($binary);
 
     $nvidiaAnalysis = studio_whatsapp_analyze_image_with_nvidia($studio, $absolutePath, $binary, $mediaMime, $detectedColorMode);
     if (!empty($nvidiaAnalysis['ok'])) {

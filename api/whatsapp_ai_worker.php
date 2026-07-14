@@ -80,6 +80,10 @@ try {
         $messageId = $latestMessageId;
     }
 
+    $processAttempts = 0;
+process_latest_message:
+    $processAttempts++;
+
     $conversation = studio_find_whatsapp_conversation($studio, $conversationId);
     if (!$conversation) {
         worker_log('Conversa nao encontrada', ['conversationId' => $conversationId]);
@@ -130,6 +134,21 @@ try {
             'conversationId' => $conversationId,
             'messageId' => $messageId,
         ]);
+        if ($processAttempts < 4) {
+            sleep($debounceSeconds);
+            $latestStmt->execute([$conversationId]);
+            $retryMessageId = trim((string)($latestStmt->fetchColumn() ?: ''));
+            if ($retryMessageId !== '' && $retryMessageId !== $messageId) {
+                worker_log('Reprocessando bloco pela mensagem mais recente', [
+                    'conversationId' => $conversationId,
+                    'previousMessageId' => $messageId,
+                    'latestMessageId' => $retryMessageId,
+                    'attempt' => $processAttempts + 1,
+                ]);
+                $messageId = $retryMessageId;
+                goto process_latest_message;
+            }
+        }
     } else {
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => (int)$conversation['id'],
