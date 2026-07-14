@@ -11997,6 +11997,19 @@ function studio_data_assistant_period_from_question(string $question, bool $defa
     ];
 }
 
+function studio_data_assistant_ranking_direction(string $text): string
+{
+    $text = studio_data_assistant_plain_text($text);
+    if (preg_match('/\b(menos|menor|menores|minimo|minima|pior|baixo|baixa|menor\s+valor|gastou\s+menos|menos\s+gastou|comprou\s+menos|pagou\s+menos)\b/u', $text)) {
+        return 'asc';
+    }
+    if (preg_match('/\b(mais|maior|maiores|maximo|maxima|top|melhor|alto|alta|maior\s+valor|gastou\s+mais|mais\s+gastou|comprou\s+mais|pagou\s+mais)\b/u', $text)) {
+        return 'desc';
+    }
+
+    return 'desc';
+}
+
 function studio_data_assistant_canonical_queries(string $question): ?array
 {
     $text = studio_data_assistant_plain_text($question);
@@ -12006,6 +12019,27 @@ function studio_data_assistant_canonical_queries(string $question): ?array
     $asksCount = (bool)preg_match('/\b(quantos|quantas|qtd|quantidade|total)\b/u', $text);
     $period = studio_data_assistant_period_from_question($question, $asksMoney || $asksExpense || $asksResult || $asksCount);
     $notCancelled = "LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled')";
+
+    if (preg_match('/\b(cliente|clientes)\b/u', $text) && preg_match('/\b(mais|maior|menor|menos|top|gastou|comprou|pagou|faturou|valor|gasto)\b/u', $text)) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $orderSql = $direction === 'asc' ? 'total_gasto ASC, agendamentos ASC' : 'total_gasto DESC, agendamentos DESC';
+        $rankingPeriod = preg_match('/\b(ate\s+hoje|até\s+hoje|historico|histórico|desde\s+sempre)\b/u', $text)
+            ? null
+            : studio_data_assistant_period_from_question($question, false);
+        $periodSelect = "'ate_hoje' AS periodo";
+        $dateWhere = 'a.appointment_date <= CURDATE()';
+        $titleSuffix = 'até hoje';
+        if (is_array($rankingPeriod)) {
+            $periodSelect = "'" . $rankingPeriod['label'] . "' AS periodo, '" . $rankingPeriod['start'] . "' AS inicio_inclusivo, '" . $rankingPeriod['end'] . "' AS fim_exclusivo";
+            $dateWhere = "a.appointment_date >= '" . $rankingPeriod['start'] . "' AND a.appointment_date < '" . $rankingPeriod['end'] . "'";
+            $titleSuffix = 'em ' . $rankingPeriod['label'];
+        }
+        return [[
+            'title' => 'Cliente com ' . $directionLabel . ' gasto canônico ' . $titleSuffix,
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') HAVING total_gasto > 0 ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
 
     if ($asksResult && $period) {
         return [[
@@ -12053,20 +12087,17 @@ function studio_data_assistant_canonical_queries(string $question): ?array
         ]];
     }
 
-    if (preg_match('/\b(cliente|clientes)\b/u', $text) && preg_match('/\b(mais|maior|top|gastou|comprou|pagou|faturou)\b/u', $text)) {
-        return [[
-            'title' => 'Cliente com maior gasto canônico',
-            'sql' => "SELECT COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE a.appointment_date <= CURDATE() AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') ORDER BY total_gasto DESC, agendamentos DESC LIMIT 10",
-        ]];
-    }
-
     return null;
 }
 
 function studio_data_assistant_canonical_answer_text(string $question, array $executed): string
 {
     $result = $executed[0]['result'] ?? [];
+    $title = (string)($executed[0]['title'] ?? '');
     $rows = is_array($result['rows'] ?? null) ? $result['rows'] : [];
+    if (!$rows && str_contains(studio_data_assistant_plain_text($title), 'cliente com')) {
+        return 'Não encontrei cliente com gasto registrado nesse recorte.';
+    }
     $row = is_array($rows[0] ?? null) ? $rows[0] : [];
     $period = trim((string)($row['periodo'] ?? ''));
     $periodText = $period !== '' ? $period : 'o período consultado';
@@ -12102,7 +12133,10 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
         if (!$row) {
             return 'Não encontrei cliente com gasto registrado até hoje.';
         }
-        return 'Cliente com maior gasto canônico até hoje: ' . (string)($row['cliente'] ?? 'Sem nome')
+        $rankingType = (string)($row['ranking_tipo'] ?? 'maior');
+        $rankingLabel = $rankingType === 'menor' ? 'menor gasto' : 'maior gasto';
+        $rankingPeriod = $periodText === 'ate_hoje' ? 'até hoje' : 'em ' . $periodText;
+        return 'Cliente com ' . $rankingLabel . ' canônico ' . $rankingPeriod . ': ' . (string)($row['cliente'] ?? 'Sem nome')
             . ', com ' . format_money((float)$row['total_gasto'])
             . ' em ' . (int)($row['agendamentos'] ?? 0) . ' agendamento' . ((int)($row['agendamentos'] ?? 0) === 1 ? '' : 's') . '.';
     }
