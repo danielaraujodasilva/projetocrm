@@ -3579,6 +3579,52 @@ function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?Da
     return $result;
 }
 
+function studio_schedule_day_availability(array $studio, string $date): ?array
+{
+    $date = trim($date);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return null;
+    }
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    $target = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $date . ' 00:00:00', $tz);
+    if (!$target) {
+        return null;
+    }
+    $today = new DateTimeImmutable('today', $tz);
+    if ($target < $today) {
+        return [
+            'date' => $date,
+            'label' => studio_weekday_label_pt($target) . ' ' . $target->format('d/m'),
+            'allowed' => studio_schedule_is_allowed_day($studio, $target),
+            'free_slots' => [],
+            'booked' => [],
+            'free' => 0,
+        ];
+    }
+    $daysAhead = max(1, min(60, (int)$today->diff($target)->days + 1));
+    foreach (studio_schedule_available_slots($studio, $daysAhead) as $day) {
+        if ((string)($day['date'] ?? '') === $date) {
+            return $day;
+        }
+    }
+
+    return null;
+}
+
+function studio_schedule_slot_is_available(array $studio, string $date, string $time): bool
+{
+    $time = substr(trim($time), 0, 5);
+    if ($time === '') {
+        return false;
+    }
+    $day = studio_schedule_day_availability($studio, $date);
+    if (!is_array($day) || empty($day['allowed'])) {
+        return false;
+    }
+
+    return in_array($time, array_values(array_map('strval', $day['free_slots'] ?? [])), true);
+}
+
 function studio_whatsapp_lead_score(string $text, bool $hasMedia): int
 {
     $text = strtolower($text);
@@ -4352,8 +4398,140 @@ function studio_whatsapp_ai_extract_time_choice(string $text): string
         $minute = isset($match[2]) && $match[2] !== '' ? str_pad((string)(int)$match[2], 2, '0', STR_PAD_LEFT) : '00';
         return $hour . ':' . $minute;
     }
+    if (preg_match('/\bmeio\s*dia\b/u', $text)) {
+        return '12:00';
+    }
+    if (preg_match('/\bmeia\s*noite\b/u', $text)) {
+        return '00:00';
+    }
+
+    $wordHours = [
+        'uma' => 1,
+        'um' => 1,
+        'duas' => 2,
+        'dois' => 2,
+        'tres' => 3,
+        'três' => 3,
+        'quatro' => 4,
+        'cinco' => 5,
+        'seis' => 6,
+        'sete' => 7,
+        'oito' => 8,
+        'nove' => 9,
+        'dez' => 10,
+        'onze' => 11,
+        'doze' => 12,
+        'treze' => 13,
+        'quatorze' => 14,
+        'catorze' => 14,
+        'quinze' => 15,
+        'dezesseis' => 16,
+        'dezessete' => 17,
+        'dezoito' => 18,
+        'dezenove' => 19,
+        'vinte' => 20,
+        'vinte e uma' => 21,
+        'vinte e um' => 21,
+        'vinte e duas' => 22,
+        'vinte e dois' => 22,
+        'vinte e tres' => 23,
+        'vinte e três' => 23,
+    ];
+    if (preg_match('/\b([01]?\d|2[0-3])\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite)\b/u', $text, $match)) {
+        $hour = (int)$match[1];
+        $period = (string)$match[2];
+        if (($period === 'tarde' || $period === 'noite') && $hour >= 1 && $hour <= 11) {
+            $hour += 12;
+        }
+        return str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
+    }
+    if (preg_match('/\b(' . implode('|', array_map(static fn(string $word): string => preg_quote($word, '/'), array_keys($wordHours))) . ')\s*(?:horas?|hrs?)?\s*(?:da|de)\s+(manha|manhã|tarde|noite)\b/u', $text, $match)) {
+        $hour = $wordHours[(string)$match[1]] ?? 0;
+        $period = (string)$match[2];
+        if (($period === 'tarde' || $period === 'noite') && $hour >= 1 && $hour <= 11) {
+            $hour += 12;
+        }
+        return str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
+    }
+    if (preg_match('/\b([01]?\d|2[0-3])\s*horas?\b/u', $text, $match)) {
+        return str_pad((string)(int)$match[1], 2, '0', STR_PAD_LEFT) . ':00';
+    }
+    if (preg_match('/\b(' . implode('|', array_map(static fn(string $word): string => preg_quote($word, '/'), array_keys($wordHours))) . ')\s*horas?\b/u', $text, $match)) {
+        $hour = $wordHours[(string)$match[1]] ?? 0;
+        return str_pad((string)$hour, 2, '0', STR_PAD_LEFT) . ':00';
+    }
 
     return '';
+}
+
+function studio_whatsapp_schedule_date_label(string $date, string $messageText = ''): string
+{
+    $date = trim($date);
+    if ($date === '') {
+        return 'nessa data';
+    }
+    $tz = new DateTimeZone('America/Sao_Paulo');
+    try {
+        $target = new DateTimeImmutable($date . ' 00:00:00', $tz);
+    } catch (Throwable) {
+        return format_date_pt($date);
+    }
+    $lowerMessage = mb_strtolower($messageText, 'UTF-8');
+    $today = new DateTimeImmutable('today', $tz);
+    if (str_contains($lowerMessage, 'hoje') && $target->format('Y-m-d') === $today->format('Y-m-d')) {
+        return 'hoje';
+    }
+    if ((str_contains($lowerMessage, 'amanhã') || str_contains($lowerMessage, 'amanha'))
+        && $target->format('Y-m-d') === $today->modify('+1 day')->format('Y-m-d')) {
+        return 'amanhã';
+    }
+    $weekdays = [
+        '1' => 'segunda-feira',
+        '2' => 'terça-feira',
+        '3' => 'quarta-feira',
+        '4' => 'quinta-feira',
+        '5' => 'sexta-feira',
+        '6' => 'sábado',
+        '7' => 'domingo',
+    ];
+
+    return ($weekdays[$target->format('N')] ?? 'dia') . ', dia ' . $target->format('d/m');
+}
+
+function studio_whatsapp_schedule_time_label(string $time): string
+{
+    $time = substr(trim($time), 0, 5);
+    if ($time === '') {
+        return '';
+    }
+    [$hour, $minute] = array_pad(explode(':', $time, 2), 2, '00');
+    $hour = (int)$hour;
+    $minute = (int)$minute;
+    if ($minute === 0) {
+        return $hour . 'h';
+    }
+
+    return sprintf('%dh%02d', $hour, $minute);
+}
+
+function studio_whatsapp_next_available_slot_after(array $availability, string $date): ?array
+{
+    $date = trim($date);
+    foreach ($availability as $day) {
+        $dayDate = (string)($day['date'] ?? '');
+        if ($date !== '' && $dayDate <= $date) {
+            continue;
+        }
+        $freeSlots = array_values(array_filter(array_map('strval', $day['free_slots'] ?? [])));
+        if (!empty($day['allowed']) && $freeSlots) {
+            return [
+                'date' => $dayDate,
+                'time' => $freeSlots[0],
+            ];
+        }
+    }
+
+    return null;
 }
 
 function studio_whatsapp_ai_is_reservation_confirmation(string $text): bool
@@ -5193,18 +5371,22 @@ function studio_whatsapp_extract_date_context(string $text, array $studio): ?arr
         }
         if (!$candidate) {
             $weekdayMap = [
-                'segunda' => 'monday',
-                'terca' => 'tuesday',
-                'terça' => 'tuesday',
-                'quarta' => 'wednesday',
-                'quinta' => 'thursday',
-                'sexta' => 'friday',
-                'sabado' => 'saturday',
-                'sábado' => 'saturday',
+                'segunda' => 1,
+                'terca' => 2,
+                'terça' => 2,
+                'quarta' => 3,
+                'quinta' => 4,
+                'sexta' => 5,
+                'sabado' => 6,
+                'sábado' => 6,
             ];
-            foreach ($weekdayMap as $needle => $modifier) {
+            foreach ($weekdayMap as $needle => $weekdayNumber) {
                 if (str_contains($text, $needle)) {
-                    $candidate = new DateTimeImmutable('next ' . $modifier, $tz);
+                    $daysAhead = (((int)$weekdayNumber - (int)$today->format('N')) + 7) % 7;
+                    if ($daysAhead === 0 && preg_match('/\b(pr[oó]xim[ao]|semana\s+que\s+vem)\b/u', $text)) {
+                        $daysAhead = 7;
+                    }
+                    $candidate = $today->modify('+' . $daysAhead . ' days');
                     break;
                 }
             }
@@ -10046,6 +10228,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if ($needsScheduleContext) {
         $availability = studio_schedule_available_slots($studio, 14);
         $dateContext = studio_whatsapp_extract_date_context($messageText, $studio);
+        if (is_array($dateContext) && !empty($dateContext['date'])) {
+            $tz = new DateTimeZone('America/Sao_Paulo');
+            $todayForSchedule = new DateTimeImmutable('today', $tz);
+            $requestedForSchedule = DateTimeImmutable::createFromFormat('Y-m-d H:i:s', (string)$dateContext['date'] . ' 00:00:00', $tz);
+            if ($requestedForSchedule && $requestedForSchedule >= $todayForSchedule) {
+                $requestedDaysAhead = (int)$todayForSchedule->diff($requestedForSchedule)->days + 14;
+                if ($requestedDaysAhead > 14) {
+                    $availability = studio_schedule_available_slots($studio, min(60, $requestedDaysAhead));
+                }
+            }
+        }
         foreach ($availability as $day) {
             if (!empty($day['allowed']) && !empty($day['free_slots'])) {
                 $availableNotes[] = $day['date'] . ' => ' . implode(', ', array_slice($day['free_slots'], 0, 3));
@@ -10079,7 +10272,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if (is_array($dateContext) && !empty($dateContext['date'])) {
         $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
         $slotTime = $timeChoice !== '' ? $timeChoice : ($freeSlots[0] ?? '');
-        if ($slotTime !== '' && (empty($freeSlots) || in_array($slotTime, $freeSlots, true))) {
+        if ($slotTime !== '' && in_array($slotTime, $freeSlots, true)) {
             $selectedReservationSlot = [
                 'date' => (string)$dateContext['date'],
                 'time' => $slotTime,
@@ -10087,7 +10280,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             ];
         }
     }
-    if (!is_array($selectedReservationSlot) && is_array($lastOfferedSlot)) {
+    if (!is_array($selectedReservationSlot)
+        && is_array($lastOfferedSlot)
+        && studio_schedule_slot_is_available($studio, (string)$lastOfferedSlot['date'], (string)$lastOfferedSlot['time'])) {
         $selectedReservationSlot = $lastOfferedSlot;
     }
     $customerContextLines = [];
@@ -10215,27 +10410,30 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human sem encerrar a conversa.";
 
-    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel): string {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice): string {
         if (is_array($dateContext)) {
             $date = (string)($dateContext['date'] ?? '');
             $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
-            $lowerMessage = mb_strtolower($messageText, 'UTF-8');
-            $dateLabel = str_contains($lowerMessage, 'amanhã') || str_contains($lowerMessage, 'amanha')
-                ? 'amanhã'
-                : (str_contains($lowerMessage, 'hoje') ? 'hoje' : ($date !== '' ? format_date_pt($date) : 'nessa data'));
+            $dateLabel = studio_whatsapp_schedule_date_label($date, $messageText);
+            $requestedTimeLabel = $timeChoice !== '' ? studio_whatsapp_schedule_time_label($timeChoice) : '';
             if ($freeSlots) {
-                return 'Tenho ' . implode(' e ', array_slice($freeSlots, 0, 3)) . ' livres ' . $dateLabel . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
-            }
-            foreach ($availability as $day) {
-                if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-                    return 'Não tenho vaga ' . $dateLabel . '. O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
+                if ($timeChoice !== '' && !in_array($timeChoice, $freeSlots, true)) {
+                    $freeLabels = array_map('studio_whatsapp_schedule_time_label', array_slice($freeSlots, 0, 3));
+                    return 'Não tenho ' . $requestedTimeLabel . ' livre ' . $dateLabel . '. Nesse dia tenho ' . implode(' e ', $freeLabels) . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
                 }
+                $freeLabels = array_map('studio_whatsapp_schedule_time_label', array_slice($freeSlots, 0, 3));
+                return 'Tenho ' . implode(' e ', $freeLabels) . ' livre' . (count($freeLabels) > 1 ? 's' : '') . ' ' . $dateLabel . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+            }
+            $nextSlot = studio_whatsapp_next_available_slot_after($availability, $date);
+            if (is_array($nextSlot)) {
+                $requested = $requestedTimeLabel !== '' ? ' às ' . $requestedTimeLabel : '';
+                return 'Não tenho vaga ' . $dateLabel . $requested . '. O próximo horário livre depois disso é ' . studio_whatsapp_schedule_date_label((string)$nextSlot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$nextSlot['time']) . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
             }
             return 'Não encontrei vaga livre nessa data nem no período consultado.';
         }
         foreach ($availability as $day) {
             if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-                return 'O próximo horário livre é ' . format_date_pt((string)$day['date']) . ' às ' . (string)$day['free_slots'][0] . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+                return 'O próximo horário livre é ' . studio_whatsapp_schedule_date_label((string)$day['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$day['free_slots'][0]) . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
             }
         }
         return 'Não encontrei vaga livre no período consultado.';
