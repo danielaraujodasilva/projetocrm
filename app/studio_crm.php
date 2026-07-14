@@ -3915,15 +3915,6 @@ function studio_apply_whatsapp_assistant_enrichment(array $studio, array $conver
         $conversationUpdates[] = 'name = ?';
         $conversationParams[] = mb_substr($suggestedName, 0, 120);
     }
-    if ($suggestedInterest !== '' && trim((string)($conversation['lead_interest'] ?? '')) === '') {
-        $conversationUpdates[] = 'lead_interest = ?';
-        $conversationParams[] = mb_substr($suggestedInterest, 0, 220);
-    }
-    if ($suggestedNotes !== '' && trim((string)($conversation['customer_notes'] ?? '')) === '') {
-        $conversationUpdates[] = 'customer_notes = ?';
-        $conversationParams[] = mb_substr($suggestedNotes, 0, 500);
-    }
-
     if ($conversationUpdates) {
         $conversationUpdates[] = 'updated_at = NOW()';
         $conversationParams[] = $conversationId;
@@ -3949,9 +3940,22 @@ function studio_apply_whatsapp_assistant_enrichment(array $studio, array $conver
         }
     }
 
-    if (!empty($conversation['customer_id']) && $suggestedName !== '' && $isGenericConversationName) {
-        $stmt = $pdo->prepare('UPDATE customers SET name = COALESCE(NULLIF(name, ""), ?) WHERE id = ?');
-        $stmt->execute([mb_substr($suggestedName, 0, 120), (int)$conversation['customer_id']]);
+    if (!empty($conversation['customer_id']) && ($suggestedName !== '' || $suggestedNotes !== '')) {
+        $customerUpdates = [];
+        $customerParams = [];
+        if ($suggestedName !== '' && $isGenericConversationName) {
+            $customerUpdates[] = 'name = COALESCE(NULLIF(name, ""), ?)';
+            $customerParams[] = mb_substr($suggestedName, 0, 120);
+        }
+        if ($suggestedNotes !== '' && trim((string)($conversation['customer_notes'] ?? '')) === '') {
+            $customerUpdates[] = 'notes = COALESCE(NULLIF(notes, ""), ?)';
+            $customerParams[] = mb_substr($suggestedNotes, 0, 500);
+        }
+        if ($customerUpdates) {
+            $customerParams[] = (int)$conversation['customer_id'];
+            $stmt = $pdo->prepare('UPDATE customers SET ' . implode(', ', $customerUpdates) . ', updated_at = NOW() WHERE id = ?');
+            $stmt->execute($customerParams);
+        }
     }
 }
 
@@ -4561,11 +4565,12 @@ function studio_generate_ai_team_playbook(array $studio): array
                 wm.body AS human_reply,
                 wm.sent_at,
                 wc.ai_memory,
-                wc.lead_interest,
-                wc.lead_status,
-                wc.lead_pipeline_stage
+                l.interest AS lead_interest,
+                l.status AS lead_status,
+                l.pipeline_stage AS lead_pipeline_stage
          FROM whatsapp_messages wm
          INNER JOIN whatsapp_conversations wc ON wc.id = wm.conversation_id
+         LEFT JOIN leads l ON l.id = wc.lead_id
          LEFT JOIN whatsapp_messages prev ON prev.id = (
              SELECT p.id
              FROM whatsapp_messages p
