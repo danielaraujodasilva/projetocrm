@@ -3851,6 +3851,71 @@ function studio_whatsapp_try_create_deposit_appointment(array $studio, array $co
     return ['ok' => true, 'appointment_id' => $appointmentId, 'duplicate' => false];
 }
 
+function studio_whatsapp_booking_readiness(array $conversation, string $messageText, string $stateText, string $memoryText, bool $hasVisualReference, string $visualBodyArea = '', ?array $specificPricingQuote = null): array
+{
+    $combined = studio_calendar_remove_accents(mb_strtolower(trim($messageText . ' ' . $stateText . ' ' . $memoryText), 'UTF-8'));
+    $current = studio_calendar_remove_accents(mb_strtolower(trim($messageText), 'UTF-8'));
+    $customerName = trim((string)($conversation['customer_name'] ?? $conversation['lead_name'] ?? $conversation['name'] ?? ''));
+    $customerKnown = $customerName !== ''
+        && !in_array(studio_calendar_remove_accents(mb_strtolower($customerName, 'UTF-8')), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true);
+
+    $bodyAreaPattern = '/\b(costas?|braco|antebraco|perna|coxa|canela|panturrilha|peito|peitoral|ombro|pescoco|mao|pulso|tornozelo|barriga|abdomen|nuca|rosto|dedo)\b/u';
+    $styleOrSubjectPattern = '/\b(le[aã]o|flor|rosa|drag[aã]o|nome|frase|escrita|mandala|borboleta|cobra|lobo|aguia|aguia|caveira|retrato|realismo|fineline|old\s*school|blackwork|tribal|oriental|anime|desenho|simbolo|símbolo|referencia|refer[eê]ncia|foto|imagem|link)\b/u';
+    $hasSpecificIdea = $hasVisualReference
+        || preg_match($styleOrSubjectPattern, $combined)
+        || preg_match('/\b(quero\s+(?:fazer|tatuar)|vou\s+tatuar|pretendo\s+tatuar)\s+(?!uma\s+tatuagem\b)([\p{L}\p{N}\s,\-]{4,80})/u', $combined);
+    $hasBodyArea = trim($visualBodyArea) !== '' || preg_match($bodyAreaPattern, $combined);
+    $hasSize = preg_match('/\b(\d{1,3}\s*(cm|centimetros?|centímetros?)|tamanho|pequen[ao]|medi[ao]|m[eé]di[ao]|grand[ea]|fechamento|inteir[ao]|complet[ao]|area inteira|[aá]rea inteira|apenas uma parte|so uma parte|s[oó] uma parte)\b/u', $combined);
+    $hasPriceOrQuote = is_array($specificPricingQuote)
+        || preg_match('/\b(or[cç]amento|valor|pre[cç]o|fica\s+em|custa|total|tabela|promo[cç][aã]o)\b.{0,80}\b(?:r\$\s*)?([1-9]\d{2,5})(?:[,.]\d{2})?\b/u', $combined)
+        || preg_match('/\b(?:r\$\s*)?([1-9]\d{2,5})(?:[,.]\d{2})?\b.{0,80}\b(or[cç]amento|valor|pre[cç]o|total|tatuagem)\b/u', $combined);
+    $onlyAsksSchedule = preg_match('/\b(tem\s+vaga|tem\s+horario|tem\s+hor[aá]rio|agenda|agendar|dia\s+\d{1,2}|vaga|disponivel|dispon[ií]vel)\b/u', $current)
+        && !$hasSpecificIdea
+        && !preg_match('/\b(quanto|valor|pre[cç]o|or[cç]amento)\b/u', $current);
+
+    $missing = [];
+    if (!$customerKnown) {
+        $missing[] = 'nome do cliente';
+    }
+    if (!$hasSpecificIdea) {
+        $missing[] = 'ideia ou referência da tatuagem';
+    }
+    if (!$hasBodyArea) {
+        $missing[] = 'local do corpo';
+    }
+    if (!$hasSize) {
+        $missing[] = 'tamanho ou cobertura aproximada';
+    }
+    if (!$hasPriceOrQuote) {
+        $missing[] = 'valor/orçamento combinado';
+    }
+
+    $nextQuestion = '';
+    if (!$hasSpecificIdea) {
+        $nextQuestion = 'Me manda a ideia ou referência da tatuagem?';
+    } elseif (!$hasBodyArea) {
+        $nextQuestion = 'Em qual local do corpo seria?';
+    } elseif (!$hasSize) {
+        $nextQuestion = 'Qual tamanho aproximado ou cobertura você imagina?';
+    } elseif (!$hasPriceOrQuote) {
+        $nextQuestion = 'Antes do sinal, preciso fechar o valor certinho; me confirma esses detalhes para eu encaminhar o orçamento?';
+    } elseif (!$customerKnown) {
+        $nextQuestion = 'Me confirma seu nome completo para deixar o cadastro certinho?';
+    }
+
+    return [
+        'ready' => $missing === [],
+        'missing' => $missing,
+        'next_question' => $nextQuestion,
+        'customer_known' => $customerKnown,
+        'has_specific_idea' => (bool)$hasSpecificIdea,
+        'has_body_area' => (bool)$hasBodyArea,
+        'has_size' => (bool)$hasSize,
+        'has_price_or_quote' => (bool)$hasPriceOrQuote,
+        'only_asks_schedule' => (bool)$onlyAsksSchedule,
+    ];
+}
+
 function studio_whatsapp_assistant_insights(array $studio, array $conversation, array $messages = []): array
 {
     $settings = studio_settings($studio);
@@ -10901,6 +10966,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 . '. Nao invente o conteudo do documento.';
         }
     }
+    $bookingChecklist = studio_whatsapp_booking_readiness(
+        $conversation,
+        $messageText,
+        $stateText,
+        $conversationMemory,
+        (bool)$hasVisualReference,
+        $visualBodyArea,
+        $specificPricingQuote
+    );
     $paymentProof = studio_whatsapp_analyze_payment_proof($studio, $newMessage, $documentAnalysis, $memoryState . ' ' . $messageText);
     if (!empty($paymentProof['present']) && !$customerDeniesPaymentProof) {
         $currentIntent = 'payment_proof';
@@ -11049,6 +11123,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Contexto do documento atual: " . $documentContext . "\n"
         . "Endereco oficial cadastrado: " . ($studioAddress !== '' ? $studioAddress : 'NAO CADASTRADO') . "\n"
         . "Tatuadores ativos cadastrados: " . ($artistNames ? implode(', ', $artistNames) : 'Nenhum cadastrado') . "\n"
+        . "Checklist obrigatorio antes de pedir Pix/reservar/criar agenda: "
+            . (!empty($bookingChecklist['ready']) ? 'COMPLETO' : 'INCOMPLETO')
+            . '; faltando: ' . (!empty($bookingChecklist['missing']) ? implode(', ', array_map('strval', $bookingChecklist['missing'])) : 'nada')
+            . '; proxima pergunta: ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'nenhuma') . "\n"
         . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Nao informado') . "\n"
         . "Telefone/contato: " . trim((string)($conversation['phone'] ?? '')) . "\n"
         . "Modo atual da conversa: " . trim((string)($conversation['attendance_mode'] ?? 'human')) . "\n"
@@ -11091,7 +11169,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se faltar contexto, faça uma unica pergunta curta.\n"
         . "- Se precisar de humano, marque needs_human=true, avise que a equipe foi sinalizada e continue disponivel ate um atendente assumir.\n"
         . "- Se o cliente sair do escopo de tatuagem/estudio com assunto pessoal, familiar, juridico, saude mental ou conflito, nao aconselhe: acolha em uma frase curta e sinalize humano.\n"
-        . "- Para reserva de horario, primeiro ofereca/valide data e hora; depois explique sinal de " . $bookingDepositLabel . " via Pix " . $bookingPixKey . " em nome de " . $bookingPixRecipient . "; depois aguarde comprovante.\n"
+        . "- Para reserva de horario, primeiro ofereca/valide data e hora, mas NUNCA peca Pix, sinal ou comprovante enquanto o checklist obrigatorio estiver INCOMPLETO.\n"
+        . "- Se o cliente perguntou agenda antes de orçamento, responda a disponibilidade e em seguida peca o primeiro dado faltante do checklist; nao fale Pix ainda.\n"
+        . "- So depois que houver ideia/referencia, local, tamanho/cobertura, valor/orcamento combinado e cliente identificado, explique sinal de " . $bookingDepositLabel . " via Pix " . $bookingPixKey . " em nome de " . $bookingPixRecipient . " e aguarde comprovante.\n"
         . "- Quando receber comprovante, nao repita horarios. Confirme recebimento e encaminhe para conferencia humana se nao tiver certeza.\n"
         . "- Nao invente preco, disponibilidade, artista ou politica.\n"
         . "- Nunca escreva placeholders como [endereço], [nome] ou campos entre colchetes.\n"
@@ -11108,7 +11188,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- No campo summary, devolva uma memoria acumulada curta e atualizada da conversa: pedido, estilo, local, cobertura, orçamento, datas, combinados e próxima pendência. Preserve fatos anteriores importantes.\n"
         . "Responda somente com JSON valido e curto. Se precisar de humano, diga isso no campo needs_human sem encerrar a conversa.";
 
-    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice, $hasReference, $conversationMemory, $wantsScheduleOptions, $scheduleSlotsList): string {
+    $scheduleReply = static function () use ($dateContext, $availability, $messageText, $bookingDepositLabel, $timeChoice, $hasReference, $conversationMemory, $wantsScheduleOptions, $scheduleSlotsList, $bookingChecklist): string {
+        $nextBookingStep = trim((string)($bookingChecklist['next_question'] ?? ''));
+        $bookingReady = !empty($bookingChecklist['ready']);
+        $availabilityNextStep = static function (string $availabilityText) use ($bookingReady, $nextBookingStep, $bookingDepositLabel): string {
+            if ($bookingReady) {
+                return $availabilityText . ' Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+            }
+            return $availabilityText . ' Antes de reservar ou passar Pix, preciso fechar o orçamento certinho. ' . ($nextBookingStep !== '' ? $nextBookingStep : 'Me manda a referência, local e tamanho aproximado da tattoo?');
+        };
         $slotListLabel = studio_whatsapp_available_slot_options_label($availability, 5);
         if (is_array($dateContext)) {
             $date = (string)($dateContext['date'] ?? '');
@@ -11128,21 +11216,21 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             if ($freeSlots) {
                 if ($timeChoice !== '' && !in_array($timeChoice, $freeSlots, true)) {
                     $freeLabels = array_map('studio_whatsapp_schedule_time_label', array_slice($freeSlots, 0, 3));
-                    return 'Não tenho ' . $requestedTimeLabel . ' livre ' . $dateLabel . '. Nesse dia tenho ' . implode(' e ', $freeLabels) . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
+                    return $availabilityNextStep('Não tenho ' . $requestedTimeLabel . ' livre ' . $dateLabel . '. Nesse dia tenho ' . implode(' e ', $freeLabels) . '.');
                 }
                 $freeLabels = array_map('studio_whatsapp_schedule_time_label', array_slice($freeSlots, 0, 3));
-                return 'Tenho ' . implode(' e ', $freeLabels) . ' livre' . (count($freeLabels) > 1 ? 's' : '') . ' ' . $dateLabel . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+                return $availabilityNextStep('Tenho ' . implode(' e ', $freeLabels) . ' livre' . (count($freeLabels) > 1 ? 's' : '') . ' ' . $dateLabel . '.');
             }
             $nextSlot = studio_whatsapp_next_available_slot_after($availability, $date);
             if (is_array($nextSlot)) {
                 $requested = $requestedTimeLabel !== '' ? ' às ' . $requestedTimeLabel : '';
-                return 'Não tenho vaga ' . $dateLabel . $requested . '. O próximo horário livre depois disso é ' . studio_whatsapp_schedule_date_label((string)$nextSlot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$nextSlot['time']) . '; para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix.';
+                return $availabilityNextStep('Não tenho vaga ' . $dateLabel . $requested . '. O próximo horário livre depois disso é ' . studio_whatsapp_schedule_date_label((string)$nextSlot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$nextSlot['time']) . '.');
             }
             return 'Não encontrei vaga livre nessa data nem no período consultado.';
         }
         if ($wantsScheduleOptions) {
             return $slotListLabel !== ''
-                ? 'Tenho estas próximas opções livres: ' . $slotListLabel . '. Qual delas você quer reservar? Para segurar a vaga, o sinal é ' . $bookingDepositLabel . ' via Pix.'
+                ? $availabilityNextStep('Tenho estas próximas opções livres: ' . $slotListLabel . '.')
                 : 'Não encontrei vaga livre no período consultado.';
         }
         $scheduleText = mb_strtolower($messageText . ' ' . $conversationMemory, 'UTF-8');
@@ -11155,7 +11243,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
         foreach ($availability as $day) {
             if (!empty($day['allowed']) && !empty($day['free_slots'])) {
-                return 'O próximo horário livre é ' . studio_whatsapp_schedule_date_label((string)$day['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$day['free_slots'][0]) . '. Para reservar, o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+                return $availabilityNextStep('O próximo horário livre é ' . studio_whatsapp_schedule_date_label((string)$day['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$day['free_slots'][0]) . '.');
             }
         }
         return 'Não encontrei vaga livre no período consultado.';
@@ -11199,6 +11287,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'lead_score_delta' => 2,
             'summary' => 'Cliente perguntou valor de ' . $quoteLabel . '; fonte oficial de orçamento informa ' . $quotePrice . '. Confirmar tamanho/detalhe e validar com equipe se houver referência visual.',
         ];
+    } elseif ($currentAsksPrice && empty($bookingChecklist['ready']) && (is_array($selectedReservationSlot) || preg_match('/\b(sinal|pix|reserva|reservar|agend|hor[aá]rio)\b/u', $stateText))) {
+        $result = [
+            'ok' => true,
+            'reply_text' => 'Você tem razão. Antes de falar em sinal ou reservar, preciso fechar o orçamento da tattoo certinho. ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'Me manda a referência, local e tamanho aproximado?'),
+            'needs_human' => false,
+            'lead_score_delta' => 1,
+            'summary' => 'Cliente questionou valor antes de pagar sinal; voltar para orçamento e completar checklist antes de Pix/reserva. Faltando: ' . implode(', ', array_map('strval', $bookingChecklist['missing'] ?? [])) . '.',
+        ];
     } elseif ($currentRejectsFixedClosing && $currentAsksPrice) {
         $areaLabel = $desiredBodyArea !== '' ? str_replace('antebraco', 'antebraço', $desiredBodyArea) : 'essa área';
         $result = [
@@ -11209,16 +11305,26 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'summary' => 'Cliente corrigiu o pedido: nao quer mais fechamento e perguntou valor para ' . $areaLabel . '; nao aplicar valor fixo de fechamento.',
         ];
     } elseif ($currentIntent === 'payment_proof_denial') {
-        $slotText = is_array($selectedReservationSlot)
-            ? ' Para segurar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ','
-            : ' Para reservar o horário,';
-        $result = [
-            'ok' => true,
-            'reply_text' => 'Você tem razão, me confundi: ainda não vou considerar nenhum comprovante como válido.' . $slotText . ' me envia o comprovante do Pix de ' . $bookingDepositLabel . ' por aqui.',
-            'needs_human' => false,
-            'lead_score_delta' => 1,
-            'summary' => 'Cliente corrigiu que ainda nao enviou comprovante; aguardar comprovante real do sinal antes de confirmar agenda.',
-        ];
+        if (empty($bookingChecklist['ready'])) {
+            $result = [
+                'ok' => true,
+                'reply_text' => 'Você tem razão, me confundi: ainda não vou considerar nenhum comprovante como válido. Antes de pedir Pix, preciso fechar o orçamento certinho. ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'Me manda a referência, local e tamanho aproximado?'),
+                'needs_human' => false,
+                'lead_score_delta' => 1,
+                'summary' => 'Cliente corrigiu fluxo de comprovante; checklist de reserva ainda incompleto: ' . implode(', ', array_map('strval', $bookingChecklist['missing'] ?? [])) . '.',
+            ];
+        } else {
+            $slotText = is_array($selectedReservationSlot)
+                ? ' Para segurar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ','
+                : ' Para reservar o horário,';
+            $result = [
+                'ok' => true,
+                'reply_text' => 'Você tem razão, me confundi: ainda não vou considerar nenhum comprovante como válido.' . $slotText . ' me envia o comprovante do Pix de ' . $bookingDepositLabel . ' por aqui.',
+                'needs_human' => false,
+                'lead_score_delta' => 1,
+                'summary' => 'Cliente corrigiu que ainda nao enviou comprovante; aguardar comprovante real do sinal antes de confirmar agenda.',
+            ];
+        }
     } elseif ($currentIntent === 'payment_amount_variation') {
         $result = [
             'ok' => true,
@@ -11236,7 +11342,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'summary' => 'Cliente perguntou sobre valor fixo/promocao de fechamento; informar regra cadastrada de ' . $fixedClosingOfferLabel . ' e conduzir para agenda/reserva.',
         ];
     } elseif ($currentIntent === 'payment_proof') {
-        if (!is_array($selectedReservationSlot)) {
+        if (empty($bookingChecklist['ready'])) {
+            $result = [
+                'ok' => true,
+                'reply_text' => 'Recebi o comprovante, mas antes de lançar o agendamento preciso fechar os dados da tattoo e o valor certinho. ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'Me confirma a referência, local e tamanho aproximado?'),
+                'needs_human' => true,
+                'lead_score_delta' => 2,
+                'summary' => 'Cliente enviou comprovante, mas checklist de reserva está incompleto: ' . implode(', ', array_map('strval', $bookingChecklist['missing'] ?? [])) . '. Não criar agenda automaticamente antes de orçamento/dados mínimos.',
+            ];
+        } elseif (!is_array($selectedReservationSlot)) {
             $result = [
                 'ok' => true,
                 'reply_text' => 'Recebi o comprovante, mas não consegui identificar com segurança qual horário era para reservar. Vou chamar a equipe para conferir e concluir certinho.',
@@ -11311,9 +11425,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $parts[] = 'A agenda não informa qual tatuador está vinculado ao horário; preciso confirmar isso com a equipe.';
         }
         if (in_array('reservation', $pendingIntents, true)) {
-            $parts[] = is_array($selectedReservationSlot)
-                ? 'Para reservar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.'
-                : 'Para reservar, me diga a data e o horário que você prefere.';
+            if (is_array($selectedReservationSlot) && !empty($bookingChecklist['ready'])) {
+                $parts[] = 'Para reservar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix e o comprovante pode ser enviado aqui.';
+            } elseif (is_array($selectedReservationSlot)) {
+                $parts[] = 'Consigo considerar ' . format_date_pt((string)$selectedReservationSlot['date']) . ' às ' . (string)$selectedReservationSlot['time'] . ', mas antes de reservar preciso fechar os dados da tattoo e o valor. ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'Me manda a referência, local e tamanho aproximado?');
+            } else {
+                $parts[] = 'Para reservar, me diga a data e o horário que você prefere.';
+            }
         }
         if (in_array('address', $pendingIntents, true)) {
             $parts[] = $studioAddress !== '' ? 'O estúdio fica em ' . $studioAddress . '.' : 'O endereço ainda não está cadastrado aqui; a equipe precisa te passar certinho.';
@@ -11346,13 +11464,23 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     } elseif ($currentIntent === 'reservation') {
         if (is_array($selectedReservationSlot)) {
             $dateLabel = format_date_pt((string)$selectedReservationSlot['date']);
-            $result = [
-                'ok' => true,
-                'reply_text' => 'Perfeito, para reservar ' . $dateLabel . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix ' . $bookingPixKey . ' em nome de ' . $bookingPixRecipient . '. Me envia o comprovante por aqui que eu deixo tudo encaminhado para a equipe conferir.',
-                'needs_human' => false,
-                'lead_score_delta' => 2,
-                'summary' => 'Cliente quer reservar o horario de ' . (string)$selectedReservationSlot['date'] . ' ' . (string)$selectedReservationSlot['time'] . '; aguardando comprovante do sinal de ' . $bookingDepositLabel . ' via Pix.',
-            ];
+            if (!empty($bookingChecklist['ready'])) {
+                $result = [
+                    'ok' => true,
+                    'reply_text' => 'Perfeito, para reservar ' . $dateLabel . ' às ' . (string)$selectedReservationSlot['time'] . ', o sinal é ' . $bookingDepositLabel . ' via Pix ' . $bookingPixKey . ' em nome de ' . $bookingPixRecipient . '. Me envia o comprovante por aqui que eu deixo tudo encaminhado para a equipe conferir.',
+                    'needs_human' => false,
+                    'lead_score_delta' => 2,
+                    'summary' => 'Cliente quer reservar o horario de ' . (string)$selectedReservationSlot['date'] . ' ' . (string)$selectedReservationSlot['time'] . '; aguardando comprovante do sinal de ' . $bookingDepositLabel . ' via Pix.',
+                ];
+            } else {
+                $result = [
+                    'ok' => true,
+                    'reply_text' => 'Esse horário pode funcionar: ' . $dateLabel . ' às ' . (string)$selectedReservationSlot['time'] . '. Antes de reservar ou passar Pix, preciso fechar os dados da tattoo e o valor. ' . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'Me manda a referência, local e tamanho aproximado?'),
+                    'needs_human' => false,
+                    'lead_score_delta' => 1,
+                    'summary' => 'Cliente escolheu horario de ' . (string)$selectedReservationSlot['date'] . ' ' . (string)$selectedReservationSlot['time'] . ', mas checklist de reserva ainda esta incompleto: ' . implode(', ', array_map('strval', $bookingChecklist['missing'] ?? [])) . '.',
+                ];
+            }
         } else {
             $result = [
                 'ok' => true,
@@ -11555,7 +11683,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         if (in_array($currentIntent, ['image_price', 'image_price_style'], true)) {
             $sendData['interactive_type'] = 'button';
             $sendData['interactive_options'] = ['Área inteira', 'Apenas uma parte'];
-        } elseif ($currentIntent === 'schedule' && is_array($dateContext)) {
+        } elseif ($currentIntent === 'schedule' && is_array($dateContext) && !empty($bookingChecklist['ready'])) {
             $freeSlots = array_values(array_filter(array_map('strval', $dateContext['free_slots'] ?? [])));
             if ($freeSlots) {
                 $sendData['interactive_type'] = count($freeSlots) <= 3 ? 'button' : 'list';
