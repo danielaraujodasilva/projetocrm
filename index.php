@@ -1457,7 +1457,14 @@ if ($action === 'studio_login') {
             if (empty($result['ok'])) {
                 flash_set('error', (string)($result['error'] ?? 'Nao foi possivel excluir as conversas.'));
             } else {
-                flash_set('success', (int)($result['deleted_conversations'] ?? 0) . ' conversas excluidas.');
+                $successParts = [(int)($result['deleted_conversations'] ?? 0) . ' conversas excluidas'];
+                if ((int)($result['deleted_leads'] ?? 0) > 0) {
+                    $successParts[] = (int)$result['deleted_leads'] . ' leads apagados';
+                }
+                if ((int)($result['detached_appointments'] ?? 0) > 0) {
+                    $successParts[] = (int)$result['detached_appointments'] . ' agendamentos preservados e desvinculados do lead';
+                }
+                flash_set('success', implode(', ', $successParts) . '.');
             }
 
             redirect_to('studio_whatsapp_mobile', array_filter([

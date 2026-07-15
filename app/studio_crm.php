@@ -603,17 +603,43 @@ function studio_delete_whatsapp_conversations(array $studio, array $conversation
     $placeholders = implode(',', array_fill(0, count($conversationIds), '?'));
     $deletedMessages = 0;
     $deletedConversations = 0;
+    $deletedLeads = 0;
+    $detachedAppointments = 0;
+    $deletableLeadIds = [];
 
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare('SELECT id, phone, name FROM whatsapp_conversations WHERE id IN (' . $placeholders . ')');
+        $stmt = $pdo->prepare('SELECT id, phone, name, lead_id FROM whatsapp_conversations WHERE id IN (' . $placeholders . ')');
         $stmt->execute($conversationIds);
         $rows = $stmt->fetchAll() ?: [];
+        $leadIds = array_values(array_unique(array_filter(array_map(static fn(array $row): int => (int)($row['lead_id'] ?? 0), array_filter($rows, 'is_array')), static fn(int $id): bool => $id > 0)));
 
         $stmt = $pdo->prepare('DELETE FROM whatsapp_messages WHERE conversation_id IN (' . $placeholders . ')');
         $stmt->execute($conversationIds);
         $deletedMessages = $stmt->rowCount();
+
+        if ($leadIds) {
+            $deletableLeadIds = $leadIds;
+            if ($deletableLeadIds) {
+                $deletablePlaceholders = implode(',', array_fill(0, count($deletableLeadIds), '?'));
+                $appointmentCountStmt = $pdo->prepare('SELECT COUNT(*) FROM appointments WHERE lead_id IN (' . $deletablePlaceholders . ')');
+                $appointmentCountStmt->execute($deletableLeadIds);
+                $detachedAppointments = (int)($appointmentCountStmt->fetchColumn() ?: 0);
+                try {
+                    $pdo->prepare('DELETE FROM public_lead_events WHERE lead_id IN (' . $deletablePlaceholders . ')')->execute($deletableLeadIds);
+                } catch (Throwable) {
+                }
+                try {
+                    $pdo->prepare('DELETE FROM public_lead_links WHERE lead_id IN (' . $deletablePlaceholders . ')')->execute($deletableLeadIds);
+                } catch (Throwable) {
+                }
+                $pdo->prepare('UPDATE whatsapp_conversations SET lead_id = NULL, ai_memory = NULL, ai_memory_updated_at = NULL WHERE lead_id IN (' . $deletablePlaceholders . ')')->execute($deletableLeadIds);
+                $deleteLeadStmt = $pdo->prepare('DELETE FROM leads WHERE id IN (' . $deletablePlaceholders . ')');
+                $deleteLeadStmt->execute($deletableLeadIds);
+                $deletedLeads = $deleteLeadStmt->rowCount();
+            }
+        }
 
         $stmt = $pdo->prepare('DELETE FROM whatsapp_conversations WHERE id IN (' . $placeholders . ')');
         $stmt->execute($conversationIds);
@@ -634,6 +660,8 @@ function studio_delete_whatsapp_conversations(array $studio, array $conversation
                 'status' => 'deleted',
                 'payload' => [
                     'name' => (string)($row['name'] ?? ''),
+                    'lead_id' => (int)($row['lead_id'] ?? 0),
+                    'deleted_lead_with_conversation' => in_array((int)($row['lead_id'] ?? 0), $deletableLeadIds, true),
                     'deleted_by_user_id' => (int)($actor['id'] ?? 0),
                 ],
             ]);
@@ -643,6 +671,8 @@ function studio_delete_whatsapp_conversations(array $studio, array $conversation
             'ok' => true,
             'deleted_conversations' => $deletedConversations,
             'deleted_messages' => $deletedMessages,
+            'deleted_leads' => $deletedLeads,
+            'detached_appointments' => $detachedAppointments,
             'ids' => $conversationIds,
         ];
     } catch (Throwable $e) {
