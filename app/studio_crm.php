@@ -12180,7 +12180,30 @@ function studio_data_assistant_canonical_queries(string $question): ?array
     $period = studio_data_assistant_period_from_question($question, $asksMoney || $asksExpense || $asksResult || $asksCount);
     $notCancelled = "LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled')";
 
-    if (preg_match('/\b(cliente|clientes)\b/u', $text) && preg_match('/\b(mais|maior|menor|menos|top|gastou|comprou|pagou|faturou|valor|gasto)\b/u', $text)) {
+    if (preg_match('/\b(cliente|clientes)\b/u', $text)
+        && preg_match('/\b(veio|vieram|vem|frequentou|frequenta|apareceu|compareceu|atendeu|atendimentos?|vezes|visitas?|retornou|recorrente|recorrentes|assiduo|assidua|agendamentos?|sess(?:ao|oes|ão|ões))\b/u', $text)
+        && $hasRanking) {
+        $direction = studio_data_assistant_ranking_direction($text);
+        $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
+        $rankingPeriod = preg_match('/\b(ate\s+hoje|até\s+hoje|historico|histórico|desde\s+sempre)\b/u', $text)
+            ? null
+            : studio_data_assistant_period_from_question($question, false);
+        $periodSelect = "'ate_hoje' AS periodo";
+        $dateWhere = 'a.appointment_date <= CURDATE()';
+        $titleSuffix = 'até hoje';
+        if (is_array($rankingPeriod)) {
+            $periodSelect = "'" . $rankingPeriod['label'] . "' AS periodo, '" . $rankingPeriod['start'] . "' AS inicio_inclusivo, '" . $rankingPeriod['end'] . "' AS fim_exclusivo";
+            $dateWhere = "a.appointment_date >= '" . $rankingPeriod['start'] . "' AND a.appointment_date < '" . $rankingPeriod['end'] . "'";
+            $titleSuffix = 'em ' . $rankingPeriod['label'];
+        }
+        $orderSql = $direction === 'asc' ? 'quantidade ASC, valor_total ASC' : 'quantidade DESC, valor_total DESC';
+        return [[
+            'title' => 'Cliente com ' . $directionLabel . ' frequência canônica ' . $titleSuffix,
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'cliente' AS ranking_entidade, 'frequência de visitas/agendamentos' AS metric_label, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS item_nome, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') ORDER BY " . $orderSql . " LIMIT 10",
+        ]];
+    }
+
+    if (preg_match('/\b(cliente|clientes)\b/u', $text) && preg_match('/\b(gastou|comprou|pagou|faturou|valor|gasto|receita|ticket|dinheiro)\b/u', $text)) {
         $direction = studio_data_assistant_ranking_direction($text);
         $directionLabel = $direction === 'asc' ? 'menor' : 'maior';
         $orderSql = $direction === 'asc' ? 'total_gasto ASC, agendamentos ASC' : 'total_gasto DESC, agendamentos DESC';
@@ -12367,18 +12390,18 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
         $rangeText = ' (' . (string)$row['inicio_inclusivo'] . ' até antes de ' . (string)$row['fim_exclusivo'] . ')';
     }
     if (array_key_exists('receita_prevista', $row) && array_key_exists('despesas', $row) && array_key_exists('resultado', $row)) {
-        return 'Resultado canônico para ' . $periodText . ': receita prevista de ' . format_money((float)$row['receita_prevista'])
+        return 'Resultado para ' . $periodText . ': receita prevista de ' . format_money((float)$row['receita_prevista'])
             . ', despesas de ' . format_money((float)$row['despesas'])
             . ' e saldo de ' . format_money((float)$row['resultado'])
             . $rangeText . '.';
     }
     if (array_key_exists('receita_prevista', $row)) {
-        return 'Receita prevista canônica para ' . $periodText . ': ' . format_money((float)$row['receita_prevista'])
+        return 'Receita prevista para ' . $periodText . ': ' . format_money((float)$row['receita_prevista'])
             . ', considerando ' . (int)($row['agendamentos_considerados'] ?? 0) . ' agendamento' . ((int)($row['agendamentos_considerados'] ?? 0) === 1 ? '' : 's')
             . $rangeText . '.';
     }
     if (array_key_exists('total_despesas', $row)) {
-        return 'Despesas canônicas para ' . $periodText . ': ' . format_money((float)$row['total_despesas'])
+        return 'Despesas para ' . $periodText . ': ' . format_money((float)$row['total_despesas'])
             . ', em ' . (int)($row['quantidade_despesas'] ?? 0) . ' lançamento' . ((int)($row['quantidade_despesas'] ?? 0) === 1 ? '' : 's')
             . $rangeText . '.';
     }
@@ -12420,7 +12443,7 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
         if ($extra === '' && array_key_exists('quantidade', $row) && array_key_exists('valor_total', $row) && !str_contains($metricPlain, 'agendamento') && !str_contains($metricPlain, 'volume')) {
             $extra = ', com ' . (int)$row['quantidade'] . ' registro' . ((int)$row['quantidade'] === 1 ? '' : 's');
         }
-        return ucfirst($entity) . ' com ' . $rankingLabel . ' ' . $metric . ' canônico ' . $periodLabel . ': '
+        return ucfirst($entity) . ' com ' . $rankingLabel . ' ' . $metric . ' ' . $periodLabel . ': '
             . (string)$row['item_nome'] . ($valueText !== '' ? ', com ' . $valueText : '') . $extra . '.';
     }
     if (array_key_exists('total_gasto', $row)) {
@@ -12430,7 +12453,7 @@ function studio_data_assistant_canonical_answer_text(string $question, array $ex
         $rankingType = (string)($row['ranking_tipo'] ?? 'maior');
         $rankingLabel = $rankingType === 'menor' ? 'menor gasto' : 'maior gasto';
         $rankingPeriod = $periodRaw === 'ate_hoje' ? 'até hoje' : 'em ' . $periodText;
-        return 'Cliente com ' . $rankingLabel . ' canônico ' . $rankingPeriod . ': ' . (string)($row['cliente'] ?? 'Sem nome')
+        return 'Cliente com ' . $rankingLabel . ' ' . $rankingPeriod . ': ' . (string)($row['cliente'] ?? 'Sem nome')
             . ', com ' . format_money((float)$row['total_gasto'])
             . ' em ' . (int)($row['agendamentos'] ?? 0) . ' agendamento' . ((int)($row['agendamentos'] ?? 0) === 1 ? '' : 's') . '.';
     }
@@ -12496,6 +12519,7 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
             'Definição fixa: resultado/lucro = receita prevista - despesas no mesmo período.',
             'Definição fixa: clientes cadastrados = COUNT(customers.id) por customers.created_at.',
             'Definição fixa: cliente que mais gastou = SUM(appointments.value) agrupado por cliente/lead, apenas appointment_date <= CURDATE(), excluindo cancelados.',
+            'Definição fixa: cliente que veio mais vezes/mais frequente = COUNT(appointments.id) agrupado por cliente/lead, não SUM(value).',
             'Para mês atual use o primeiro dia do mês até o primeiro dia do mês seguinte, com fim exclusivo.',
             'Para semana que vem use segunda-feira da próxima semana até a segunda-feira seguinte, com fim exclusivo.',
             'Inclua LIMIT em consultas detalhadas.',
