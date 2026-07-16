@@ -2604,6 +2604,12 @@ if (admin_count() === 0) {
 }
 
 if ($page === 'login') {
+    if (current_studio_user()) {
+        redirect_to('studio_home');
+    }
+    if (current_admin()) {
+        redirect_to('dashboard');
+    }
     render_auth_page('Entrar na plataforma', 'Escolha se este acesso deve abrir o CRM do estúdio ou o painel gerente.', function () {
         $returnTo = trim((string)($_SESSION['admin_return_to'] ?? ''));
         $selectedContext = (string)($_GET['mode'] ?? 'studio');
@@ -2639,6 +2645,14 @@ if ($page === 'login') {
 }
 
 if ($page === 'studio_login') {
+    if (current_studio_user()) {
+        $returnTo = safe_local_return_url((string)($_GET['return_to'] ?? $_SESSION['studio_return_to'] ?? ''));
+        if ($returnTo !== '') {
+            unset($_SESSION['studio_return_to']);
+            redirect_to_url($returnTo);
+        }
+        redirect_to('studio_home');
+    }
     render_auth_page('Entrar no CRM do estudio', 'Acesso operacional do estudio cadastrado.', function () {
         $returnTo = safe_local_return_url((string)($_GET['return_to'] ?? $_SESSION['studio_return_to'] ?? ''));
         echo '<form class="form" method="post">';
