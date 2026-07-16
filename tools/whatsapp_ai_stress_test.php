@@ -361,6 +361,144 @@ $cases = [
             'max_len' => 520,
         ],
     ],
+    [
+        'name' => 'primeiro_oi_nao_generico',
+        'customer' => 'Cliente Novo',
+        'messages' => [
+            ['body' => 'Oi'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['nome', 'tatuar', 'tattoo', 'ideia']],
+            'must_not_contain' => ['pix', 'comprovante', 'sinal'],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'audio_transcrito_agenda_sem_pix',
+        'customer' => 'Cliente Audio',
+        'messages' => [
+            ['body' => 'Quero agendar uma rosa no braço amanhã às 10 horas', 'message_type' => 'audio'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['horario', 'vaga', 'amanha', 'agenda', 'tamanho', 'referencia']],
+            'must_not_contain' => ['pix', 'comprovante', 'sinal'],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'duvida_saude_pos_tattoo',
+        'customer' => 'Cliente Saude',
+        'messages' => [
+            ['body' => 'Minha tatuagem inflamou e está saindo sangue, o que faço?'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['profissional', 'saude', 'atendimento', 'equipe']],
+            'needs_human' => true,
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'pedido_desconto_humano',
+        'customer' => 'Cliente Desconto',
+        'messages' => [
+            ['body' => 'Tem desconto se eu fechar hoje?'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['equipe', 'atendente', 'conferir', 'condicao']],
+            'needs_human' => true,
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'comprovante_sem_anexo',
+        'customer' => 'Cliente Comprovante Texto',
+        'history' => [
+            ['direction' => 'in', 'body' => 'Quero uma rosa no braço, 15cm, preto e cinza'],
+            ['direction' => 'out', 'body' => 'Para reservar terça às 10h, o sinal é R$ 50 via Pix. Me envia o comprovante por aqui.'],
+        ],
+        'messages' => [
+            ['body' => 'Já paguei o pix'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['comprovante', 'envia', 'equipe', 'conferir']],
+            'must_not_contain' => ['agendado', 'confirmado e horário'],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'reserva_pronta_pode_pix',
+        'customer' => 'Cliente Reserva Pronta',
+        'history' => [
+            ['direction' => 'in', 'body' => 'Sou Carlos, quero uma rosa no antebraço, 15cm, preto e cinza'],
+            ['direction' => 'out', 'body' => 'Pela tabela oficial do orçamento, antebraço fica em R$ 500. Tenho terça-feira, dia 21/07/2026 às 15h livre.'],
+        ],
+        'messages' => [
+            ['body' => 'Pode reservar terça dia 21 às 15 então'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['pix', 'sinal', 'comprovante', 'reservar']],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'cliente_corrige_data_depois_de_oferta',
+        'customer' => 'Cliente Corrige Data',
+        'history' => [
+            ['direction' => 'out', 'body' => 'Tenho terça-feira às 10h livre.'],
+        ],
+        'messages' => [
+            ['body' => 'Na verdade quero quinta às 15h'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['quinta', '15', 'vaga', 'horario']],
+            'must_not_contain' => ['terça às 10 para reservar'],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'cliente_manda_multiplas_perguntas',
+        'customer' => 'Cliente Multi',
+        'messages' => [
+            ['body' => 'Onde fica?'],
+            ['body' => 'E parcela?'],
+            ['body' => 'Queria uma caveira no braço'],
+        ],
+        'checks' => [
+            'must_contain_any' => [
+                ['rua', 'endereco', 'catende'],
+                ['parcela', 'cartao', 'vezes'],
+            ],
+            'must_not_contain' => ['pix', 'comprovante'],
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'coverup_com_imagem_precisa_humano',
+        'customer' => 'Cliente Cover',
+        'history' => [
+            ['direction' => 'in', 'body' => '', 'message_type' => 'image'],
+        ],
+        'messages' => [
+            ['body' => 'Dá pra cobrir essa tatuagem?'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['cobertura', 'daniel', 'avaliacao', 'equipe']],
+            'needs_human' => true,
+            'max_len' => 520,
+        ],
+    ],
+    [
+        'name' => 'fora_escopo_pessoal',
+        'customer' => 'Cliente Pessoal',
+        'messages' => [
+            ['body' => 'Briguei com meu ex-marido e preciso desabafar'],
+        ],
+        'checks' => [
+            'must_contain_any' => [['estudio', 'atendente', 'equipe', 'canal']],
+            'needs_human' => true,
+            'max_len' => 520,
+        ],
+    ],
 ];
 
 try {
