@@ -4201,10 +4201,10 @@ if ($page === 'studio_agenda') {
         echo '</form></section>';
         echo '<section class="panel soft agenda-tool-card"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h3 class="mt-0 mb-1">Horários livres</h3><p class="muted mb-0">Veja rapidamente as próximas janelas disponíveis.</p></div><span class="badge ok">' . h((string)count($nextAvailableSlots)) . '</span></div><button type="button" class="btn secondary" id="openFreeSlotsButton">Próximos horários livres</button></section>';
         echo '<section class="google-calendar-sync-card ' . ($googleCalendarConnected ? 'is-connected' : '') . '">';
-        echo '<div class="google-calendar-sync-main">';
+        echo '<div class="google-calendar-sync-hero">';
         echo '<span class="google-calendar-mark"><i class="fa-brands fa-google"></i></span>';
         echo '<div class="google-calendar-copy">';
-        echo '<div class="google-calendar-title-row"><h3>Sincronização Google Agenda</h3>';
+        echo '<div class="google-calendar-title-row"><span class="section-eyebrow">Integração</span><h3>Google Agenda</h3>';
         if ($googleCalendarConnected) {
             $syncStatus = (string)($googleCalendarIntegration['last_sync_status'] ?? 'connected');
             $statusClass = $syncStatus === 'error' ? 'warn' : (!empty($googleCalendarIntegration['enabled']) ? 'ok' : '');
@@ -4222,28 +4222,32 @@ if ($page === 'studio_agenda') {
             $calendarLabel = (string)($googleCalendarIntegration['calendar_name'] ?? $googleCalendarIntegration['calendar_id'] ?? 'Agenda principal');
             $accountLabel = (string)($googleCalendarIntegration['account_email'] ?? '');
             $lastSyncAt = trim((string)($googleCalendarIntegration['last_sync_at'] ?? ''));
-            echo '<p><strong>' . h($calendarLabel) . '</strong>';
-            if ($accountLabel !== '' && $accountLabel !== $calendarLabel) {
-                echo '<span class="muted"> · ' . h($accountLabel) . '</span>';
-            }
-            echo '</p>';
-            echo '<p class="muted">' . h($lastSyncAt !== '' ? 'Última sincronização em ' . format_datetime_pt($lastSyncAt, false) : 'Primeira sincronização pendente') . '</p>';
-            if (!empty($googleCalendarIntegration['last_sync_message'])) {
-                echo '<p class="google-calendar-last-message">' . h((string)$googleCalendarIntegration['last_sync_message']) . '</p>';
-            }
             $outboundEnabled = !empty($googleCalendarIntegration['outbound_enabled']);
-            echo '<p class="muted">Envio CRM -&gt; Google: <strong>' . ($outboundEnabled ? 'ativado' : 'desativado') . '</strong></p>';
+            echo '<p class="muted">Agenda conectada ao CRM. Você pode sincronizar agora, pausar a rotina automática ou escolher outro calendário sem sair desta tela.</p>';
+        }
+        echo '</div></div>';
+        if ($googleCalendarConnected) {
+            echo '<div class="google-calendar-meta-grid">';
+            echo '<span class="google-calendar-meta-card"><small>Conta</small><strong>' . h($accountLabel !== '' ? $accountLabel : 'Conta Google') . '</strong></span>';
+            echo '<span class="google-calendar-meta-card"><small>Calendário</small><strong>' . h($calendarLabel) . '</strong></span>';
+            echo '<span class="google-calendar-meta-card"><small>Última sincronização</small><strong>' . h($lastSyncAt !== '' ? format_datetime_pt($lastSyncAt, false) : 'Pendente') . '</strong></span>';
+            echo '<span class="google-calendar-meta-card"><small>CRM para Google</small><strong>' . ($outboundEnabled ? 'Ativado' : 'Desativado') . '</strong></span>';
+            if (!empty($googleCalendarIntegration['last_sync_message'])) {
+                echo '<p class="google-calendar-last-message"><i class="fa-solid fa-circle-info"></i> ' . h((string)$googleCalendarIntegration['last_sync_message']) . '</p>';
+            }
             if (!empty($googleCalendarIntegration['outbound_last_message'])) {
                 $outboundStatus = (string)($googleCalendarIntegration['outbound_last_status'] ?? '');
                 $outboundClass = $outboundStatus === 'error' ? ' warn' : '';
-                echo '<p class="google-calendar-last-message' . h($outboundClass) . '">Último envio CRM -&gt; Google: ' . h((string)$googleCalendarIntegration['outbound_last_message']) . '</p>';
+                echo '<p class="google-calendar-last-message' . h($outboundClass) . '"><i class="fa-solid fa-arrow-up-right-from-square"></i> Último envio CRM -&gt; Google: ' . h((string)$googleCalendarIntegration['outbound_last_message']) . '</p>';
             }
             if ($outboundEnabled) {
-                echo '<p class="muted">Se aparecer erro ao enviar, reconecte a conta Google com permissão para criar e editar eventos.</p>';
+                echo '<p class="google-calendar-last-message"><i class="fa-solid fa-key"></i> Se aparecer erro ao enviar, reconecte a conta Google com permissão para criar e editar eventos.</p>';
             }
+            echo '</div>';
         }
-        echo '</div></div>';
-        echo '<div class="google-calendar-sync-actions">';
+        if ($googleCalendarConnected || $googleCalendarConfigured) {
+            echo '<div class="google-calendar-sync-actions">';
+        }
         if ($googleCalendarConfigured && !$googleCalendarConnected) {
             echo '<a class="btn" href="' . h(app_asset_url('google_calendar_oauth_start.php')) . '"><i class="fa-brands fa-google"></i> Conectar Google</a>';
         }
@@ -4269,7 +4273,9 @@ if ($page === 'studio_agenda') {
             echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_outbound_toggle"><input type="hidden" name="outbound_enabled" value="' . (!empty($googleCalendarIntegration['outbound_enabled']) ? '0' : '1') . '"><button class="btn secondary" type="submit">' . (!empty($googleCalendarIntegration['outbound_enabled']) ? 'Desativar CRM -> Google' : 'Ativar CRM -> Google') . '</button></form>';
             echo '<form method="post" onsubmit="return confirm(\'Desconectar a conta Google? Os agendamentos já importados serão preservados.\')">' . csrf_field() . '<input type="hidden" name="action" value="google_calendar_disconnect"><button class="btn secondary danger-outline" type="submit">Desconectar</button></form>';
         }
-        echo '</div>';
+        if ($googleCalendarConnected || $googleCalendarConfigured) {
+            echo '</div>';
+        }
         if ($googleCalendarConnected) {
             echo '<div class="google-calendar-sync-stats">';
             echo '<span><strong>' . h((string)($googleCalendarIntegration['last_sync_created'] ?? 0)) . '</strong><small>criados</small></span>';
