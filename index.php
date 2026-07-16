@@ -563,7 +563,14 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_customer') {
             $studio = require_studio();
+            $wasUpdate = (int)($_POST['id'] ?? 0) > 0;
             $customerId = studio_save_customer($studio, $_POST);
+            studio_event((int)$studio['id'], $wasUpdate ? 'customer_updated' : 'customer_created', ($wasUpdate ? 'Cliente atualizado: ' : 'Cliente criado: ') . trim((string)($_POST['name'] ?? 'Cliente')), [
+                'category' => 'people',
+                'target_type' => 'customer',
+                'target_id' => $customerId,
+                'context' => ['phone' => (string)($_POST['phone'] ?? ''), 'email' => (string)($_POST['email'] ?? '')],
+            ]);
             flash_set('success', 'Cliente salvo.');
             if (!empty($_POST['return_to_detail'])) {
                 redirect_to('studio_customer', ['id' => $customerId]);
@@ -576,7 +583,19 @@ if ($action === 'studio_login') {
             if (trim((string)($_POST['name'] ?? '')) === '' && trim((string)($_POST['phone'] ?? '')) === '') {
                 throw new RuntimeException('Informe pelo menos nome ou telefone do lead.');
             }
+            $wasUpdate = (int)($_POST['id'] ?? 0) > 0;
             $leadId = studio_save_lead($studio, $_POST);
+            studio_event((int)$studio['id'], $wasUpdate ? 'lead_updated' : 'lead_created', ($wasUpdate ? 'Lead atualizado: ' : 'Lead criado: ') . (trim((string)($_POST['name'] ?? '')) ?: trim((string)($_POST['phone'] ?? 'Lead'))), [
+                'category' => 'people',
+                'target_type' => 'lead',
+                'target_id' => $leadId,
+                'context' => [
+                    'pipeline_stage' => (string)($_POST['pipeline_stage'] ?? ''),
+                    'status' => (string)($_POST['status'] ?? ''),
+                    'source' => (string)($_POST['source'] ?? ''),
+                    'estimated_value' => (string)($_POST['estimated_value'] ?? ''),
+                ],
+            ]);
             flash_set('success', 'Lead salvo.');
             if (!empty($_POST['return_to_detail'])) {
                 redirect_to('studio_lead', ['id' => $leadId]);
@@ -588,6 +607,12 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             $leadId = (int)($_POST['lead_id'] ?? 0);
             studio_update_lead_stage($studio, $leadId, (string)($_POST['pipeline_stage'] ?? ''), (string)($_POST['status'] ?? ''));
+            studio_event((int)$studio['id'], 'lead_moved', 'Lead movido no funil.', [
+                'category' => 'people',
+                'target_type' => 'lead',
+                'target_id' => $leadId,
+                'context' => ['pipeline_stage' => (string)($_POST['pipeline_stage'] ?? ''), 'status' => (string)($_POST['status'] ?? '')],
+            ]);
             flash_set('success', 'Lead movido no funil.');
             if (!empty($_POST['return_to_detail'])) {
                 redirect_to('studio_lead', ['id' => $leadId]);
@@ -597,12 +622,26 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_appointment') {
             $studio = require_studio();
+            $wasUpdate = (int)($_POST['id'] ?? 0) > 0;
             $appointmentId = studio_save_appointment($studio, $_POST);
             $outboundAttempted = function_exists('google_calendar_outbound_enabled')
                 && google_calendar_outbound_enabled($studio);
             $outboundOk = $outboundAttempted && function_exists('google_calendar_try_push_appointment')
                 ? google_calendar_try_push_appointment($studio, $appointmentId)
                 : false;
+            studio_event((int)$studio['id'], $wasUpdate ? 'appointment_updated' : 'appointment_created', ($wasUpdate ? 'Agendamento atualizado: ' : 'Agendamento criado: ') . trim((string)($_POST['title'] ?? 'Atendimento')), [
+                'category' => 'agenda',
+                'target_type' => 'appointment',
+                'target_id' => $appointmentId,
+                'context' => [
+                    'date' => (string)($_POST['appointment_date'] ?? ''),
+                    'start_time' => (string)($_POST['start_time'] ?? ''),
+                    'status' => (string)($_POST['status'] ?? ''),
+                    'import_source' => (string)($_POST['import_source'] ?? 'manual'),
+                    'google_outbound_attempted' => $outboundAttempted,
+                    'google_outbound_ok' => $outboundOk,
+                ],
+            ]);
             flash_set(
                 'success',
                 $outboundAttempted && !$outboundOk
@@ -651,6 +690,12 @@ if ($action === 'studio_login') {
             $outboundOk = $outboundAttempted && function_exists('google_calendar_try_push_appointment')
                 ? google_calendar_try_push_appointment($studio, $appointmentId)
                 : false;
+            studio_event((int)$studio['id'], 'appointment_status_updated', 'Status do agendamento alterado para ' . $newStatus . '.', [
+                'category' => 'agenda',
+                'target_type' => 'appointment',
+                'target_id' => $appointmentId,
+                'context' => ['status' => $newStatus, 'google_outbound_attempted' => $outboundAttempted, 'google_outbound_ok' => $outboundOk],
+            ]);
             flash_set(
                 'success',
                 $outboundAttempted && !$outboundOk
@@ -677,6 +722,17 @@ if ($action === 'studio_login') {
                 ? google_calendar_try_push_appointment($studio, $appointmentId, true)
                 : false;
             studio_delete_appointment($studio, $appointmentId);
+            studio_event((int)$studio['id'], 'appointment_deleted', 'Agendamento excluído: ' . trim((string)($appointment['title'] ?? $appointment['customer_name'] ?? 'Atendimento')), [
+                'category' => 'agenda',
+                'target_type' => 'appointment',
+                'target_id' => $appointmentId,
+                'context' => [
+                    'date' => (string)($appointment['appointment_date'] ?? ''),
+                    'start_time' => (string)($appointment['start_time'] ?? ''),
+                    'google_outbound_attempted' => $outboundAttempted,
+                    'google_outbound_ok' => $outboundOk,
+                ],
+            ]);
             flash_set(
                 'success',
                 $outboundAttempted && !$outboundOk
@@ -854,6 +910,16 @@ if ($action === 'studio_login') {
             if ($conflictsSkipped > 0) {
                 $message .= ' ' . $conflictsSkipped . ' conflito(s) não foram importados.';
             }
+            studio_event((int)$studio['id'], 'calendar_ics_imported', $message, [
+                'category' => 'agenda',
+                'context' => [
+                    'appointments_created' => (int)$result['appointments_created'],
+                    'appointments_updated' => (int)($result['appointments_updated'] ?? 0),
+                    'duplicates_skipped' => (int)$result['duplicates_skipped'],
+                    'conflicts_skipped' => $conflictsSkipped,
+                    'selected_count' => count($selectedItems),
+                ],
+            ]);
             flash_set('success', $message);
             redirect_to('studio_agenda', [
                 'cal_view' => 'month',
@@ -879,12 +945,20 @@ if ($action === 'studio_login') {
                 . (int)($result['customers_deleted'] ?? 0)
                 . ' clientes de teste removidos.'
             );
+            studio_event((int)$studio['id'], 'calendar_import_undone', 'Importação de calendário desfeita.', [
+                'category' => 'agenda',
+                'context' => $result,
+            ]);
             redirect_to('studio_agenda');
         }
 
         if ($action === 'google_calendar_sync_now') {
             $studio = require_studio();
             $result = google_calendar_sync_studio($studio);
+            studio_event((int)$studio['id'], 'google_calendar_synced', 'Google Agenda sincronizado: ' . (string)($result['message'] ?? ''), [
+                'category' => 'agenda',
+                'context' => $result,
+            ]);
             flash_set('success', 'Google Agenda sincronizado: ' . $result['message']);
             redirect_to('studio_agenda');
         }
@@ -893,6 +967,10 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             $enabled = !empty($_POST['enabled']);
             google_calendar_set_enabled($studio, $enabled);
+            studio_event((int)$studio['id'], 'google_calendar_toggled', $enabled ? 'Sincronização automática do Google Agenda ativada.' : 'Sincronização automática do Google Agenda pausada.', [
+                'category' => 'agenda',
+                'context' => ['enabled' => $enabled],
+            ]);
             flash_set('success', $enabled ? 'Sincronização automática ativada.' : 'Sincronização automática pausada.');
             redirect_to('studio_agenda');
         }
@@ -901,6 +979,10 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             $enabled = !empty($_POST['outbound_enabled']);
             google_calendar_set_outbound_enabled($studio, $enabled);
+            studio_event((int)$studio['id'], 'google_calendar_outbound_toggled', $enabled ? 'Envio CRM -> Google ativado.' : 'Envio CRM -> Google desativado.', [
+                'category' => 'agenda',
+                'context' => ['outbound_enabled' => $enabled],
+            ]);
             flash_set(
                 'success',
                 $enabled
@@ -915,6 +997,10 @@ if ($action === 'studio_login') {
             google_calendar_select($studio, trim((string)($_POST['calendar_id'] ?? '')));
             google_calendar_set_enabled($studio, true);
             $result = google_calendar_sync_studio($studio, true);
+            studio_event((int)$studio['id'], 'google_calendar_selected', 'Calendário Google alterado e sincronizado: ' . (string)($result['message'] ?? ''), [
+                'category' => 'agenda',
+                'context' => ['calendar_id' => (string)($_POST['calendar_id'] ?? ''), 'sync' => $result],
+            ]);
             flash_set('success', 'Calendário alterado e sincronizado: ' . $result['message']);
             redirect_to('studio_agenda');
         }
@@ -922,20 +1008,35 @@ if ($action === 'studio_login') {
         if ($action === 'google_calendar_disconnect') {
             $studio = require_studio();
             google_calendar_disconnect($studio);
+            studio_event((int)$studio['id'], 'google_calendar_disconnected', 'Conta Google desconectada. Agendamentos importados foram preservados.', [
+                'category' => 'agenda',
+            ]);
             flash_set('success', 'Conta Google desconectada. Os agendamentos já importados foram preservados.');
             redirect_to('studio_agenda');
         }
 
         if ($action === 'save_artist') {
             $studio = require_studio();
-            studio_save_artist($studio, $_POST);
+            $artistId = studio_save_artist($studio, $_POST);
+            studio_event((int)$studio['id'], 'artist_saved', 'Tatuador salvo: ' . trim((string)($_POST['name'] ?? 'Tatuador')), [
+                'category' => 'agenda',
+                'target_type' => 'artist',
+                'target_id' => $artistId,
+                'context' => ['active' => !empty($_POST['is_active'])],
+            ]);
             flash_set('success', 'Tatuador salvo.');
             redirect_to('studio_agenda');
         }
 
         if ($action === 'save_expense') {
             $studio = require_studio();
-            studio_save_expense($studio, $_POST);
+            $expenseId = studio_save_expense($studio, $_POST);
+            studio_event((int)$studio['id'], 'expense_saved', 'Despesa salva: ' . trim((string)($_POST['description'] ?? 'Despesa')), [
+                'category' => 'finance',
+                'target_type' => 'expense',
+                'target_id' => $expenseId,
+                'context' => ['date' => (string)($_POST['expense_date'] ?? ''), 'amount' => (string)($_POST['amount'] ?? '')],
+            ]);
             flash_set('success', 'Despesa salva.');
             redirect_to('studio_finance');
         }
@@ -1605,6 +1706,15 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             studio_save_settings($studio, $_POST);
             $settingsTab = (string)($_POST['settings_tab'] ?? 'studio');
+            studio_event((int)$studio['id'], 'studio_settings_updated', 'Configurações salvas no painel "' . $settingsTab . '".', [
+                'category' => 'settings',
+                'target_type' => 'studio_settings',
+                'target_id' => 1,
+                'context' => [
+                    'settings_tab' => $settingsTab,
+                    'changed_fields' => array_values(array_filter(array_keys($_POST), static fn($key): bool => !in_array((string)$key, ['csrf_token', 'action'], true))),
+                ],
+            ]);
             flash_set('success', $settingsTab === 'rules'
                 ? 'Treinamento salvo. A nova base já vale para as próximas respostas da IA.'
                 : 'Configuracoes salvas.');
@@ -1720,6 +1830,10 @@ if ($action === 'studio_login') {
         if ($action === 'test_whatsapp_official') {
             $studio = require_studio();
             $_SESSION['studio_whatsapp_official_test_result'] = studio_whatsapp_official_test_connection($studio);
+            studio_event((int)$studio['id'], 'whatsapp_official_connection_tested', 'Teste de conexão do WhatsApp oficial executado.', [
+                'category' => 'whatsapp',
+                'context' => $_SESSION['studio_whatsapp_official_test_result'],
+            ]);
             flash_set('success', 'Teste do WhatsApp oficial executado.');
             redirect_to('studio_settings', ['tab' => 'whatsapp']);
         }
@@ -1741,6 +1855,14 @@ if ($action === 'studio_login') {
             );
 
             $_SESSION['studio_whatsapp_official_send_result'] = $result;
+            studio_event((int)$studio['id'], empty($result['ok']) ? 'official_send_failed' : 'official_send_ok', empty($result['ok']) ? 'Teste de mensagem WhatsApp falhou.' : 'Teste de mensagem WhatsApp enviado.', [
+                'category' => 'whatsapp',
+                'context' => [
+                    'to_phone' => preg_replace('/\D+/', '', $toPhone),
+                    'message_length' => strlen($message),
+                    'result' => $result,
+                ],
+            ]);
 
             if (empty($result['ok'])) {
                 $errorLines = [];
@@ -8042,16 +8164,60 @@ if ($page === 'studio') {
         }
         echo '</div></section>';
         echo '<script>(function(){if(window.location.hash==="#acessos-estudio"){window.location.replace(' . json_encode($attendantsUrl) . ');}})();</script>';
-        echo '<section class="panel" style="margin-top:16px"><h2>Eventos recentes</h2>';
-        $events = studio_events((int)$studio['id']);
+        echo '<section class="panel studio-events-panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><span class="section-eyebrow">Auditoria</span><h2 style="margin:4px 0">Eventos recentes</h2><p class="muted" style="margin:0">Linha do tempo operacional do estúdio: agenda, WhatsApp, configurações, financeiro e acessos.</p></div><span class="badge">últimos 40</span></div>';
+        $events = studio_events((int)$studio['id'], 40);
         if (!$events) {
             echo '<p class="muted">Sem eventos ainda.</p>';
         } else {
-            echo '<table class="table"><tbody>';
+            $eventCategoryCounts = [];
             foreach ($events as $event) {
-                echo '<tr><td>' . h($event['created_at']) . '</td><td><strong>' . h($event['type']) . '</strong><br><span class="muted">' . h($event['message']) . '</span></td></tr>';
+                $category = (string)($event['category'] ?? 'system');
+                $eventCategoryCounts[$category] = ($eventCategoryCounts[$category] ?? 0) + 1;
             }
-            echo '</tbody></table>';
+            echo '<div class="studio-events-summary">';
+            foreach ($eventCategoryCounts as $category => $count) {
+                $categoryLabel = [
+                    'agenda' => 'Agenda',
+                    'whatsapp' => 'WhatsApp',
+                    'settings' => 'Configurações',
+                    'finance' => 'Financeiro',
+                    'people' => 'Pessoas',
+                    'access' => 'Acessos',
+                    'system' => 'Sistema',
+                ][$category] ?? ucfirst($category);
+                echo '<span><strong>' . h((string)$count) . '</strong><small>' . h($categoryLabel) . '</small></span>';
+            }
+            echo '</div><div class="studio-events-timeline">';
+            foreach ($events as $event) {
+                $category = (string)($event['category'] ?? 'system');
+                $categoryLabel = [
+                    'agenda' => 'Agenda',
+                    'whatsapp' => 'WhatsApp',
+                    'settings' => 'Configurações',
+                    'finance' => 'Financeiro',
+                    'people' => 'Pessoas',
+                    'access' => 'Acessos',
+                    'system' => 'Sistema',
+                ][$category] ?? ucfirst($category);
+                $tone = trim((string)($event['tone'] ?? ''));
+                $context = is_array($event['context'] ?? null) ? $event['context'] : [];
+                $actorName = trim((string)($event['actor_name'] ?? ''));
+                $actorType = trim((string)($event['actor_type'] ?? ''));
+                $actorLabel = $actorName !== '' ? $actorName : ($actorType !== '' ? $actorType : 'Sistema');
+                $createdAt = (string)($event['created_at'] ?? '');
+                $createdLabel = $createdAt !== '' ? format_datetime_pt($createdAt, false) : '';
+                echo '<article class="studio-event-card ' . h($tone !== '' ? 'tone-' . $tone : '') . '">';
+                echo '<span class="studio-event-icon"><i class="' . h((string)($event['icon'] ?? 'fa-solid fa-wave-square')) . '"></i></span>';
+                echo '<div class="studio-event-main">';
+                echo '<div class="studio-event-head"><div><span class="badge">' . h($categoryLabel) . '</span><strong>' . h((string)($event['label'] ?? $event['type'] ?? 'Evento')) . '</strong></div><time>' . h($createdLabel) . '</time></div>';
+                echo '<p>' . h((string)($event['message'] ?? '')) . '</p>';
+                echo '<div class="studio-event-meta"><span><i class="fa-solid fa-user"></i> ' . h($actorLabel) . '</span><span><i class="fa-solid fa-code"></i> ' . h((string)($event['type'] ?? 'event')) . '</span></div>';
+                if ($context) {
+                    echo '<details class="studio-event-details"><summary>Ver detalhes técnicos</summary><pre>' . h(json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) . '</pre></details>';
+                }
+                echo '</div></article>';
+            }
+            echo '</div>';
         }
         echo '</section>';
     }, $flash);

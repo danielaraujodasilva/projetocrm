@@ -1459,21 +1459,224 @@ function studio_session_key_from_parts(int $studioId, string $slug): string
     return trim($base, '-') . '-' . $studioId;
 }
 
-function studio_event(int $studioId, string $type, string $message): void
+function studio_ensure_events_schema(): void
 {
     if (!table_exists('studio_events')) {
         return;
     }
 
-    $stmt = db()->prepare('INSERT INTO studio_events (studio_id, type, message, created_at) VALUES (?, ?, ?, NOW())');
-    $stmt->execute([$studioId, $type, $message]);
+    foreach ([
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `category` VARCHAR(40) NULL AFTER `type`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `actor_type` VARCHAR(30) NULL AFTER `message`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `actor_id` BIGINT UNSIGNED NULL AFTER `actor_type`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `actor_name` VARCHAR(160) NULL AFTER `actor_id`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `target_type` VARCHAR(60) NULL AFTER `actor_name`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `target_id` BIGINT UNSIGNED NULL AFTER `target_type`',
+        'ALTER TABLE `studio_events` ADD COLUMN IF NOT EXISTS `context_json` MEDIUMTEXT NULL AFTER `target_id`',
+        'ALTER TABLE `studio_events` ADD INDEX IF NOT EXISTS `idx_studio_events_category` (`studio_id`, `category`, `created_at`)',
+        'ALTER TABLE `studio_events` ADD INDEX IF NOT EXISTS `idx_studio_events_target` (`studio_id`, `target_type`, `target_id`)',
+    ] as $sql) {
+        try {
+            db()->exec($sql);
+        } catch (Throwable) {
+        }
+    }
 }
 
-function studio_events(int $studioId): array
+function studio_event_current_actor(): array
 {
-    $stmt = db()->prepare('SELECT * FROM studio_events WHERE studio_id = ? ORDER BY created_at DESC, id DESC LIMIT 8');
+    try {
+        $user = function_exists('current_studio_user') ? current_studio_user() : null;
+        if (is_array($user)) {
+            return [
+                'actor_type' => 'studio_user',
+                'actor_id' => (int)($user['id'] ?? 0),
+                'actor_name' => trim((string)($user['name'] ?? $user['email'] ?? 'Atendente')),
+            ];
+        }
+    } catch (Throwable) {
+    }
+
+    try {
+        $admin = function_exists('current_admin') ? current_admin() : null;
+        if (is_array($admin)) {
+            return [
+                'actor_type' => 'admin',
+                'actor_id' => (int)($admin['id'] ?? 0),
+                'actor_name' => trim((string)($admin['name'] ?? $admin['email'] ?? 'Administrador')),
+            ];
+        }
+    } catch (Throwable) {
+    }
+
+    return ['actor_type' => 'system', 'actor_id' => null, 'actor_name' => 'Sistema'];
+}
+
+function studio_event_redact_context($value)
+{
+    if (is_array($value)) {
+        $redacted = [];
+        foreach ($value as $key => $item) {
+            $keyString = strtolower((string)$key);
+            if (preg_match('/(token|secret|password|senha|key|api_key|access|authorization|bearer|webhook_secret)/i', $keyString)) {
+                $redacted[$key] = '[protegido]';
+                continue;
+            }
+            $redacted[$key] = studio_event_redact_context($item);
+        }
+        return $redacted;
+    }
+
+    if (is_string($value)) {
+        if (preg_match('/(nvapi-|EA[A-Za-z0-9]|Bearer\s+|sk-)/i', $value)) {
+            return '[protegido]';
+        }
+        return mb_strlen($value) > 700 ? mb_substr($value, 0, 700) . '...[cortado]' : $value;
+    }
+
+    return $value;
+}
+
+function studio_event_label(string $type): string
+{
+    $labels = [
+        'studio_created' => 'Estúdio criado',
+        'studio_updated' => 'Dados do estúdio alterados',
+        'studio_database_installed' => 'Banco do estúdio atualizado',
+        'studio_settings_updated' => 'Configurações alteradas',
+        'studio_user_created' => 'Atendente criado',
+        'studio_user_updated' => 'Atendente alterado',
+        'studio_user_deleted' => 'Atendente removido',
+        'customer_created' => 'Cliente criado',
+        'customer_updated' => 'Cliente alterado',
+        'lead_created' => 'Lead criado',
+        'lead_updated' => 'Lead alterado',
+        'lead_moved' => 'Lead movido no funil',
+        'appointment_created' => 'Agendamento criado',
+        'appointment_updated' => 'Agendamento alterado',
+        'appointment_status_updated' => 'Status do agendamento alterado',
+        'appointment_deleted' => 'Agendamento excluído',
+        'expense_saved' => 'Despesa salva',
+        'artist_saved' => 'Tatuador salvo',
+        'calendar_ics_imported' => 'ICS importado',
+        'calendar_import_undone' => 'Importação desfeita',
+        'google_calendar_synced' => 'Google Agenda sincronizado',
+        'google_calendar_toggled' => 'Sincronização Google alterada',
+        'google_calendar_outbound_toggled' => 'Envio CRM para Google alterado',
+        'google_calendar_selected' => 'Calendário Google selecionado',
+        'google_calendar_disconnected' => 'Google Agenda desconectado',
+        'whatsapp_official_webhook_event' => 'Webhook recebido do WhatsApp',
+        'whatsapp_official_connection_tested' => 'Conexão WhatsApp testada',
+        'official_send_ok' => 'Mensagem enviada pelo WhatsApp',
+        'official_send_failed' => 'Falha ao enviar WhatsApp',
+        'official_template_ok' => 'Modelo enviado pelo WhatsApp',
+        'official_template_failed' => 'Falha ao enviar modelo',
+        'conversation_deleted' => 'Conversa apagada',
+    ];
+
+    return $labels[$type] ?? ucfirst(str_replace('_', ' ', $type));
+}
+
+function studio_event_icon(string $category, string $type): string
+{
+    if (str_contains($type, 'google_calendar')) {
+        return 'fa-brands fa-google';
+    }
+    if (str_contains($type, 'whatsapp') || str_contains($type, 'official_') || str_contains($type, 'conversation')) {
+        return 'fa-brands fa-whatsapp';
+    }
+    return match ($category) {
+        'agenda' => 'fa-solid fa-calendar-check',
+        'finance' => 'fa-solid fa-wallet',
+        'people' => 'fa-solid fa-user-group',
+        'settings' => 'fa-solid fa-sliders',
+        'access' => 'fa-solid fa-user-shield',
+        'system' => 'fa-solid fa-server',
+        default => 'fa-solid fa-wave-square',
+    };
+}
+
+function studio_event_tone(string $category, string $type): string
+{
+    if (str_contains($type, 'failed') || str_contains($type, 'error')) {
+        return 'danger';
+    }
+    if (str_contains($type, 'deleted') || str_contains($type, 'disconnected')) {
+        return 'warn';
+    }
+    return match ($category) {
+        'whatsapp' => 'ok',
+        'agenda' => 'info',
+        'settings' => 'warn',
+        default => '',
+    };
+}
+
+function studio_event(int $studioId, string $type, string $message, array $options = []): void
+{
+    if (!table_exists('studio_events')) {
+        return;
+    }
+
+    try {
+        studio_ensure_events_schema();
+        $actor = is_array($options['actor'] ?? null) ? $options['actor'] : studio_event_current_actor();
+        $context = $options['context'] ?? [];
+        $contextJson = '';
+        if ($context !== [] && $context !== null) {
+            $contextJson = json_encode(studio_event_redact_context($context), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            $contextJson = is_string($contextJson) ? mb_substr($contextJson, 0, 12000) : '';
+        }
+
+        $stmt = db()->prepare(
+            'INSERT INTO studio_events
+                (studio_id, type, category, message, actor_type, actor_id, actor_name, target_type, target_id, context_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+        );
+        $stmt->execute([
+            $studioId,
+            trim($type) ?: 'event',
+            trim((string)($options['category'] ?? 'system')) ?: 'system',
+            $message,
+            trim((string)($options['actor_type'] ?? $actor['actor_type'] ?? 'system')) ?: 'system',
+            (int)($options['actor_id'] ?? $actor['actor_id'] ?? 0) ?: null,
+            trim((string)($options['actor_name'] ?? $actor['actor_name'] ?? 'Sistema')) ?: 'Sistema',
+            trim((string)($options['target_type'] ?? '')) ?: null,
+            (int)($options['target_id'] ?? 0) ?: null,
+            $contextJson !== '' ? $contextJson : null,
+        ]);
+    } catch (Throwable) {
+    }
+}
+
+function studio_events(int $studioId, int $limit = 30): array
+{
+    if (!table_exists('studio_events')) {
+        return [];
+    }
+    studio_ensure_events_schema();
+    $limit = max(1, min(120, $limit));
+    $stmt = db()->prepare('SELECT * FROM studio_events WHERE studio_id = ? ORDER BY created_at DESC, id DESC LIMIT ' . $limit);
     $stmt->execute([$studioId]);
-    return $stmt->fetchAll() ?: [];
+    $rows = $stmt->fetchAll() ?: [];
+    foreach ($rows as &$row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $type = (string)($row['type'] ?? 'event');
+        $category = trim((string)($row['category'] ?? '')) ?: 'system';
+        $row['category'] = $category;
+        $row['label'] = studio_event_label($type);
+        $row['icon'] = studio_event_icon($category, $type);
+        $row['tone'] = studio_event_tone($category, $type);
+        $row['context'] = [];
+        if (!empty($row['context_json'])) {
+            $decoded = json_decode((string)$row['context_json'], true);
+            $row['context'] = is_array($decoded) ? $decoded : [];
+        }
+    }
+    unset($row);
+    return $rows;
 }
 
 function studio_users(int $studioId): array

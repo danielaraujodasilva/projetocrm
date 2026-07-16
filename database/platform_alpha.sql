@@ -90,10 +90,19 @@ CREATE TABLE IF NOT EXISTS `studio_events` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `studio_id` INT UNSIGNED NOT NULL,
   `type` VARCHAR(80) NOT NULL,
+  `category` VARCHAR(40) NULL,
   `message` TEXT NULL,
+  `actor_type` VARCHAR(30) NULL,
+  `actor_id` BIGINT UNSIGNED NULL,
+  `actor_name` VARCHAR(160) NULL,
+  `target_type` VARCHAR(60) NULL,
+  `target_id` BIGINT UNSIGNED NULL,
+  `context_json` MEDIUMTEXT NULL,
   `created_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_studio_events_studio` (`studio_id`, `created_at`),
+  KEY `idx_studio_events_category` (`studio_id`, `category`, `created_at`),
+  KEY `idx_studio_events_target` (`studio_id`, `target_type`, `target_id`),
   CONSTRAINT `fk_studio_events_studio`
     FOREIGN KEY (`studio_id`) REFERENCES `studios` (`id`)
     ON DELETE CASCADE

@@ -853,6 +853,34 @@ function studio_whatsapp_event_log(array $studio, array $event): void
             trim((string)($event['error'] ?? '')) ?: null,
             $payloadJson !== '' ? $payloadJson : null,
         ]);
+        $eventType = trim((string)($event['event_type'] ?? 'event')) ?: 'event';
+        $status = trim((string)($event['status'] ?? ''));
+        $phone = preg_replace('/\D+/', '', (string)($event['phone'] ?? ''));
+        $messageParts = [];
+        $messageParts[] = studio_event_label($eventType) . '.';
+        if ($phone !== '') {
+            $messageParts[] = 'Contato: ' . $phone . '.';
+        }
+        if ($status !== '') {
+            $messageParts[] = 'Status: ' . $status . '.';
+        }
+        if (trim((string)($event['error'] ?? '')) !== '') {
+            $messageParts[] = 'Erro: ' . mb_substr(trim((string)$event['error']), 0, 220);
+        }
+        studio_event((int)($studio['id'] ?? 0), $eventType, implode(' ', $messageParts), [
+            'category' => 'whatsapp',
+            'actor' => ['actor_type' => 'system', 'actor_id' => null, 'actor_name' => 'WhatsApp/API'],
+            'target_type' => (int)($event['conversation_id'] ?? 0) > 0 ? 'whatsapp_conversation' : 'whatsapp',
+            'target_id' => (int)($event['conversation_id'] ?? 0) ?: 0,
+            'context' => [
+                'provider' => $provider,
+                'direction' => $direction,
+                'phone' => $phone,
+                'message_id' => trim((string)($event['message_id'] ?? '')),
+                'status' => $status,
+                'error' => trim((string)($event['error'] ?? '')),
+            ],
+        ]);
     } catch (Throwable) {
     }
 }
@@ -16297,7 +16325,6 @@ function studio_save_settings(array $studio, array $data): void
         (int)$studio['id'],
     ]);
 
-    studio_event((int)$studio['id'], 'studio_settings_updated', 'Configuracoes operacionais do CRM atualizadas.');
 }
 
 function studio_meta_campaign_phrases(array $studio): array
