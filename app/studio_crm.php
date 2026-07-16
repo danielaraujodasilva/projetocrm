@@ -7852,12 +7852,13 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
     $mediaMime = strtolower(trim((string)($message['media_mime'] ?? '')));
     $messageText = mb_strtolower(trim((string)($message['body'] ?? $message['mensagem'] ?? '')), 'UTF-8');
     $explicitProofText = (bool)preg_match('/\b(comprovante|pix|paguei|pago|pagamento|sinal|transfer[eê]ncia|recibo)\b/u', $messageText);
-    $looksLikeVisualReference = (bool)preg_match('/\b(desenho|refer[eê]ncia|arte|tatuagem|tattoo|quero\s+ess[ea]|modelo|ideia)\b/u', $messageText);
-    $hasPaymentContext = (bool)preg_match('/\b(sinal|pix|comprovante|pagamento|reserva|reservar|agendar|marcar)\b/u', mb_strtolower($conversationState, 'UTF-8'));
+    $stateText = mb_strtolower($conversationState, 'UTF-8');
+    $looksLikeVisualReference = (bool)preg_match('/\b(desenho|refer[eê]ncia|arte|tatuagem|tattoo|foto|imagem|print|quero\s+ess[ea]|modelo|ideia|vou\s+te\s+mandar|vou\s+mandar)\b/u', $messageText . ' ' . $stateText);
+    $hasPaymentContext = (bool)preg_match('/\b(sinal|pix|comprovante|pagamento|reserva|reservar|agendar|marcar)\b/u', $stateText);
     $hasAttachment = in_array($messageType, ['image', 'document'], true)
         || str_starts_with($mediaMime, 'image/')
         || str_contains($mediaMime, 'pdf');
-    if (!$hasPaymentContext || !$hasAttachment) {
+    if (!$hasAttachment || (!$hasPaymentContext && !$explicitProofText)) {
         return ['present' => false, 'confirmed' => false];
     }
     if ($looksLikeVisualReference && !$explicitProofText) {
@@ -7910,6 +7911,12 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
 
     if (($text === '' || studio_whatsapp_payment_ocr_text_is_garbage($text)) && $absolutePath) {
         $visualReceipt = $tryVisualReceipt();
+        $visualSaysNotReceipt = !empty($visualReceipt['ok'])
+            && is_array($visualReceipt['receipt'] ?? null)
+            && !filter_var($visualReceipt['receipt']['is_receipt'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($visualSaysNotReceipt && !$explicitProofText) {
+            return ['present' => false, 'confirmed' => false];
+        }
         if (!empty($visualReceipt['ok']) && trim((string)($visualReceipt['text'] ?? '')) !== '') {
             $text = trim((string)$visualReceipt['text']);
             $source = 'image_vision_receipt';
@@ -7917,6 +7924,9 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
     }
 
     if ($text === '') {
+        if (!$explicitProofText) {
+            return ['present' => false, 'confirmed' => false];
+        }
         return [
             'present' => true,
             'confirmed' => false,
@@ -7941,6 +7951,9 @@ function studio_whatsapp_analyze_payment_proof(array $studio, array $message, ar
         $text = trim((string)($visualReceipt['text'] ?? $text));
         $source = 'image_vision_receipt';
         $signals = $visualReceipt['signals'];
+    }
+    if (empty($signals['looks_like_receipt']) && !$explicitProofText) {
+        return ['present' => false, 'confirmed' => false];
     }
 
     return [
@@ -10808,7 +10821,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             }
         }
     }
-    $hasProofContext = (bool)preg_match('/\b(comprovante|pix|sinal|pagamento|reserva|reservar|agend|confer[eê]ncia)\b/u', $conversationMemory . ' ' . $stateText);
+    $hasProofContext = (bool)preg_match('/\b(comprovante|pix|sinal|pagamento|reserva|reservar|agend|confer[eê]ncia)\b/u', $stateText . ' ' . $messageText);
     $fixedClosingOfferLabel = studio_whatsapp_ai_fixed_closing_offer_label($effectiveStudioRules);
     $currentAsksPrice = studio_whatsapp_ai_text_asks_price($currentText);
     $currentRejectsFixedClosing = studio_whatsapp_ai_current_rejects_fixed_closing($currentText);
@@ -11005,7 +11018,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $visualBodyArea,
         $specificPricingQuote
     );
-    $paymentProof = studio_whatsapp_analyze_payment_proof($studio, $newMessage, $documentAnalysis, $memoryState . ' ' . $messageText);
+    $paymentProof = studio_whatsapp_analyze_payment_proof($studio, $newMessage, $documentAnalysis, $stateText . ' ' . $messageText);
     if (!empty($paymentProof['present']) && !$customerDeniesPaymentProof) {
         $currentIntent = 'payment_proof';
         $needsScheduleContext = true;
@@ -11171,7 +11184,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Responda todas as mensagens pendentes enviadas desde a última resposta do atendente.\n"
         . "- Se uma mensagem vier marcada como resposta a outra mensagem, interprete a fala como direcionada especificamente à mensagem citada antes de usar o restante do histórico.\n"
         . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
+        . "- O historico recente e as mensagens pendentes vencem a memoria antiga. Se houver pedidos diferentes na memoria, trate o pedido corrigido/mais recente como o pedido atual e nao misture projeto antigo com projeto novo.\n"
         . "- Se a mensagem atual corrigir algo do historico, a correcao atual prevalece. Especialmente: se o cliente disser que nao enviou comprovante, nao diga que o comprovante ja foi recebido nem que a agenda esta confirmada.\n"
+        . "- Se uma imagem vier logo apos frases como 'vou mandar uma foto', 'referencia', 'igual essa' ou 'print', trate como referencia visual, nao como comprovante, a menos que o cliente fale claramente de pagamento/Pix/comprovante.\n"
         . "- Nao repita nenhuma resposta anterior do atendente.\n"
         . $scheduleRules
         . "- Responda como atendente de tatuagem, sem soar robotico.\n"
@@ -11816,10 +11831,23 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     if ($updatedMemory !== '') {
         $memoryLines = [];
+        $updatedMemoryPlain = studio_calendar_remove_accents(mb_strtolower($updatedMemory, 'UTF-8'));
+        $newMemoryDefinesProject = (bool)preg_match('/\b(quer tatuar|quer fazer|referencia visual|referencia por link|referencia|imagem|foto|orcamento)\b/u', $updatedMemoryPlain);
+        $newMemoryDefinesPayment = (bool)preg_match('/\b(comprovante|pagamento|sinal|pix|reserva|reservar|horario da reserva|agend)\b/u', $updatedMemoryPlain);
         foreach (preg_split('/\R+|\\\\n/u', $conversationMemory) ?: [] as $memoryLine) {
             $memoryLine = trim($memoryLine);
+            $memoryLinePlain = studio_calendar_remove_accents(mb_strtolower($memoryLine, 'UTF-8'));
             if ($currentIntent === 'payment_proof_denial'
                 && preg_match('/\b(comprovante|pagamento|confer[eê]ncia|confirmad[oa]|agendamento\s+registrado)\b/ui', $memoryLine)) {
+                continue;
+            }
+            if ($newMemoryDefinesProject
+                && preg_match('/\b(quer tatuar|quer fazer|referencia visual|referencia por link|referencia|pendencia:\s*confirmar detalhes para orcamento)\b/u', $memoryLinePlain)) {
+                continue;
+            }
+            if ($newMemoryDefinesProject
+                && !$newMemoryDefinesPayment
+                && preg_match('/\b(comprovante|pagamento|sinal|pix|reserva|reservar|horario da reserva|agend)\b/u', $memoryLinePlain)) {
                 continue;
             }
             if ($memoryLine !== '' && !preg_match('/^atualiza[cç][aã]o\s*:/ui', $memoryLine)) {
@@ -11844,7 +11872,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $uniqueMemoryLines[] = $memoryLine;
         }
         if (count($uniqueMemoryLines) > 8) {
-            $uniqueMemoryLines = array_merge(array_slice($uniqueMemoryLines, 0, 2), array_slice($uniqueMemoryLines, -6));
+            $uniqueMemoryLines = array_slice($uniqueMemoryLines, -8);
         }
         $updatedMemory = implode("\n", $uniqueMemoryLines);
         try {
