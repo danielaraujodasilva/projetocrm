@@ -1017,6 +1017,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_artist') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem gerenciar tatuadores.');
+            }
             $artistId = studio_save_artist($studio, $_POST);
             studio_event((int)$studio['id'], 'artist_saved', 'Tatuador salvo: ' . trim((string)($_POST['name'] ?? 'Tatuador')), [
                 'category' => 'agenda',
@@ -1025,11 +1028,14 @@ if ($action === 'studio_login') {
                 'context' => ['active' => !empty($_POST['is_active'])],
             ]);
             flash_set('success', 'Tatuador salvo.');
-            redirect_to('studio_agenda');
+            redirect_to('studio_artists', ['artist_id' => $artistId]);
         }
 
         if ($action === 'save_expense') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem gerenciar o financeiro.');
+            }
             $expenseId = studio_save_expense($studio, $_POST);
             studio_event((int)$studio['id'], 'expense_saved', 'Despesa salva: ' . trim((string)($_POST['description'] ?? 'Despesa')), [
                 'category' => 'finance',
@@ -1661,6 +1667,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'ask_studio_data_assistant') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem usar o assistente de dados.');
+            }
             $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
                 || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
             try {
@@ -1704,6 +1713,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'save_studio_settings') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem alterar configurações.');
+            }
             studio_save_settings($studio, $_POST);
             $settingsTab = (string)($_POST['settings_tab'] ?? 'studio');
             studio_event((int)$studio['id'], 'studio_settings_updated', 'Configurações salvas no painel "' . $settingsTab . '".', [
@@ -1723,6 +1735,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'generate_ai_team_playbook') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem gerar playbook da IA.');
+            }
             csrf_verify();
             $result = studio_generate_ai_team_playbook($studio);
             if (empty($result['ok'])) {
@@ -1735,6 +1750,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'upload_voice_sample') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem enviar amostras de voz.');
+            }
             csrf_verify();
             header('Content-Type: application/json; charset=utf-8');
             $result = studio_store_voice_sample_upload($studio, $_FILES['voice_sample'] ?? []);
@@ -1744,6 +1762,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'test_ai_voice_reply') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem testar voz da IA.');
+            }
             csrf_verify();
             $text = trim((string)($_POST['voice_test_text'] ?? ''));
             if ($text === '') {
@@ -1829,6 +1850,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'test_whatsapp_official') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem testar integrações.');
+            }
             $_SESSION['studio_whatsapp_official_test_result'] = studio_whatsapp_official_test_connection($studio);
             studio_event((int)$studio['id'], 'whatsapp_official_connection_tested', 'Teste de conexão do WhatsApp oficial executado.', [
                 'category' => 'whatsapp',
@@ -1840,6 +1864,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'send_whatsapp_official_test_message') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem testar integrações.');
+            }
 
             if (function_exists('crm_whatsapp_official_apply_defaults')) {
                 crm_whatsapp_official_apply_defaults($studio);
@@ -1912,6 +1939,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'test_meta_ads_connection') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem testar Meta Ads.');
+            }
             $_SESSION['meta_ads_test_result'] = studio_meta_ads_test_connection($studio);
             flash_set('success', 'Teste da Meta Ads executado.');
             redirect_to('studio_meta_ads');
@@ -1919,6 +1949,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'sync_meta_ads_leads') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem sincronizar Meta Ads.');
+            }
             $_SESSION['meta_ads_sync_result'] = studio_meta_ads_sync_leads($studio);
             flash_set('success', 'Sincronizacao da Meta Ads executada.');
             redirect_to('studio_meta_ads');
@@ -1926,6 +1959,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'connect_meta_ads') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem conectar Meta Ads.');
+            }
             $settings = studio_settings($studio);
             $appId = trim((string)($settings['meta_ads_app_id'] ?? ''));
             $redirectUri = 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php';
@@ -1946,6 +1982,9 @@ if ($action === 'studio_login') {
 
         if ($action === 'select_meta_ads_account') {
             $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem selecionar conta Meta Ads.');
+            }
             $accountId = preg_replace('/^act_/', '', trim((string)($_POST['meta_ads_selected_account'] ?? '')));
             if ($accountId === '') {
                 flash_set('error', 'Selecione uma conta de anúncio.');
@@ -2290,6 +2329,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
             ['tattoo_images', 'fa-wand-magic-sparkles', 'Criar imagens', 'studio_tattoo_images'],
         ],
         'Gestão' => [
+            ['artists', 'fa-pen-nib', 'Tatuadores', 'studio_artists'],
             ['finance', 'fa-wallet', 'Financeiro', 'studio_finance'],
             ['reports', 'fa-chart-pie', 'Relatórios', 'studio_reports'],
             ['assistant', 'fa-robot', 'Assistente IA', 'studio_data_assistant'],
@@ -2299,9 +2339,21 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         ],
     ];
     $renderStudioNav = static function (array $groups, string $current): void {
+        $adminOnlyRoutes = ['studio_artists', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+        $isAdmin = studio_current_user_is_admin();
         foreach ($groups as $groupLabel => $items) {
+            $visibleItems = [];
+            foreach ($items as $item) {
+                if (in_array((string)($item[3] ?? ''), $adminOnlyRoutes, true) && !$isAdmin) {
+                    continue;
+                }
+                $visibleItems[] = $item;
+            }
+            if (!$visibleItems) {
+                continue;
+            }
             echo '<div class="nav-group"><span class="nav-group-label">' . h($groupLabel) . '</span>';
-            foreach ($items as [$key, $icon, $label, $route]) {
+            foreach ($visibleItems as [$key, $icon, $label, $route]) {
                 echo '<a class="' . ($current === $key ? 'active' : '') . '" href="' . h(app_url($route)) . '"><i class="fa-solid ' . h($icon) . '" aria-hidden="true"></i><span>' . h($label) . '</span></a>';
             }
             echo '</div>';
@@ -2326,13 +2378,16 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
     $content();
     echo '</main>';
     echo '<nav class="mobile-bottom-nav" aria-label="Navegação principal">';
-    foreach ([
+    $bottomItems = [
         ['home', 'fa-house', 'Início', 'studio_home'],
         ['leads', 'fa-bolt', 'Leads', 'studio_leads'],
         ['agenda', 'fa-calendar-days', 'Agenda', 'studio_agenda'],
         ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
-        ['meta_ads', 'fa-chart-line', 'Meta', 'studio_meta_ads'],
-    ] as [$key, $icon, $label, $route]) {
+        studio_current_user_is_admin()
+            ? ['meta_ads', 'fa-chart-line', 'Meta', 'studio_meta_ads']
+            : ['tattoo_images', 'fa-wand-magic-sparkles', 'Imagens', 'studio_tattoo_images'],
+    ];
+    foreach ($bottomItems as [$key, $icon, $label, $route]) {
         echo '<a class="' . ($active === $key ? 'active' : '') . '" href="' . h(app_url($route)) . '"><i class="fa-solid ' . h($icon) . '"></i><span>' . h($label) . '</span></a>';
     }
     echo '</nav></div>';
@@ -2797,10 +2852,16 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
+}
+
+$studioAdminOnlyPages = ['studio_artists', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
+    flash_set('error', 'Apenas administradores podem acessar esta área.');
+    redirect_to('studio_home');
 }
 
 if (in_array($page, ['studio_whatsapp_workspace', 'studio_whatsapp_conversation'], true)) {
@@ -6812,6 +6873,211 @@ if ($page === 'studio_whatsapp_tags') {
     exit;
 }
 
+if ($page === 'studio_artists') {
+    $studio = require_studio();
+    if (!studio_current_user_is_admin()) {
+        flash_set('error', 'Apenas administradores podem acessar a gestão de tatuadores.');
+        redirect_to('studio_home');
+    }
+    render_studio_shell('Tatuadores', 'Equipe artística, agenda, clientes atendidos e desempenho por tatuador.', 'artists', function () use ($studio) {
+        $pdo = studio_db($studio);
+        $artists = studio_list_artists($studio, false);
+        $artistIds = array_values(array_filter(array_map(static fn(array $artist): int => (int)($artist['id'] ?? 0), $artists), static fn(int $id): bool => $id > 0));
+        $editingArtistId = (int)($_GET['artist_id'] ?? 0);
+        $editingArtist = null;
+        foreach ($artists as $artist) {
+            if ((int)($artist['id'] ?? 0) === $editingArtistId) {
+                $editingArtist = $artist;
+                break;
+            }
+        }
+
+        $statsByArtist = [];
+        if ($artistIds) {
+            $placeholders = implode(',', array_fill(0, count($artistIds), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT ta.id AS artist_id,
+                        COUNT(a.id) AS total_appointments,
+                        COUNT(DISTINCT NULLIF(a.customer_id, 0)) AS total_customers,
+                        COALESCE(SUM(CASE WHEN LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled') THEN a.value ELSE 0 END), 0) AS total_revenue,
+                        COALESCE(SUM(CASE WHEN LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled') THEN a.deposit_value ELSE 0 END), 0) AS total_deposits,
+                        SUM(CASE WHEN a.appointment_date >= CURDATE() AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled') THEN 1 ELSE 0 END) AS future_appointments,
+                        SUM(CASE WHEN DATE_FORMAT(a.appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled') THEN 1 ELSE 0 END) AS month_appointments,
+                        COALESCE(SUM(CASE WHEN DATE_FORMAT(a.appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled') THEN a.value ELSE 0 END), 0) AS month_revenue,
+                        SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('finalizado','concluido','concluído') THEN 1 ELSE 0 END) AS finished_appointments,
+                        SUM(CASE WHEN LOWER(COALESCE(a.status, '')) IN ('cancelado','cancelada','cancelled') THEN 1 ELSE 0 END) AS cancelled_appointments,
+                        MAX(a.appointment_date) AS last_appointment_date
+                 FROM tattoo_artists ta
+                 LEFT JOIN appointments a ON a.artist_id = ta.id
+                 WHERE ta.id IN ($placeholders)
+                 GROUP BY ta.id"
+            );
+            $stmt->execute($artistIds);
+            foreach ($stmt->fetchAll() ?: [] as $row) {
+                $statsByArtist[(int)$row['artist_id']] = $row;
+            }
+        }
+
+        $recentCustomersByArtist = [];
+        $upcomingByArtist = [];
+        if ($artistIds) {
+            $placeholders = implode(',', array_fill(0, count($artistIds), '?'));
+            $stmt = $pdo->prepare(
+                "SELECT a.artist_id,
+                        COALESCE(c.name, l.name, a.title, 'Cliente sem nome') AS customer_name,
+                        COALESCE(c.phone, l.phone, '') AS phone,
+                        MAX(a.appointment_date) AS last_date,
+                        COUNT(*) AS appointment_count,
+                        COALESCE(SUM(a.value), 0) AS total_value
+                 FROM appointments a
+                 LEFT JOIN customers c ON c.id = a.customer_id
+                 LEFT JOIN leads l ON l.id = a.lead_id
+                 WHERE a.artist_id IN ($placeholders)
+                   AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled')
+                 GROUP BY a.artist_id, customer_name, phone
+                 ORDER BY last_date DESC, appointment_count DESC"
+            );
+            $stmt->execute($artistIds);
+            foreach ($stmt->fetchAll() ?: [] as $row) {
+                $artistId = (int)($row['artist_id'] ?? 0);
+                if (count($recentCustomersByArtist[$artistId] ?? []) >= 6) {
+                    continue;
+                }
+                $recentCustomersByArtist[$artistId][] = $row;
+            }
+
+            $stmt = $pdo->prepare(
+                "SELECT a.*, COALESCE(c.name, l.name, a.title, 'Cliente sem nome') AS customer_name
+                 FROM appointments a
+                 LEFT JOIN customers c ON c.id = a.customer_id
+                 LEFT JOIN leads l ON l.id = a.lead_id
+                 WHERE a.artist_id IN ($placeholders)
+                   AND a.appointment_date >= CURDATE()
+                   AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled')
+                 ORDER BY a.appointment_date ASC, a.start_time ASC, a.id ASC
+                 LIMIT 160"
+            );
+            $stmt->execute($artistIds);
+            foreach ($stmt->fetchAll() ?: [] as $row) {
+                $artistId = (int)($row['artist_id'] ?? 0);
+                if (count($upcomingByArtist[$artistId] ?? []) >= 5) {
+                    continue;
+                }
+                $upcomingByArtist[$artistId][] = $row;
+            }
+        }
+
+        $unassigned = $pdo->query(
+            "SELECT COUNT(*) AS total, COALESCE(SUM(value), 0) AS revenue
+             FROM appointments
+             WHERE COALESCE(artist_id, 0) = 0
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelado','cancelada','cancelled')"
+        )->fetch() ?: ['total' => 0, 'revenue' => 0];
+        $totalActive = count(array_filter($artists, static fn(array $artist): bool => !empty($artist['is_active'])));
+        $totalRevenue = array_sum(array_map(static fn(array $row): float => (float)($row['total_revenue'] ?? 0), $statsByArtist));
+        $monthRevenue = array_sum(array_map(static fn(array $row): float => (float)($row['month_revenue'] ?? 0), $statsByArtist));
+        $futureTotal = array_sum(array_map(static fn(array $row): int => (int)($row['future_appointments'] ?? 0), $statsByArtist));
+        $planLimit = plan_limit_for_studio($studio, 'max_tattooers');
+
+        echo '<section class="artists-hero panel">';
+        echo '<div><span class="section-eyebrow">Equipe artística</span><h2>Gestão de tatuadores</h2><p class="muted">Cadastro, disponibilidade operacional e leitura rápida de resultado por artista. Apenas administradores e donos do estúdio podem alterar estes dados.</p></div>';
+        echo '<div class="artists-hero-actions"><a class="btn" href="' . h(app_url('studio_artists')) . '"><i class="fa-solid fa-plus"></i> Novo tatuador</a><a class="btn secondary" href="' . h(app_url('studio_agenda')) . '"><i class="fa-solid fa-calendar-days"></i> Abrir agenda</a></div>';
+        echo '</section>';
+
+        echo '<section class="artists-kpi-grid">';
+        echo '<div class="drilldown-kpi"><span>Ativos</span><strong>' . h((string)$totalActive) . '</strong><small>' . h($planLimit > 0 ? 'limite do plano: ' . $planLimit : 'sem limite definido') . '</small></div>';
+        echo '<div class="drilldown-kpi"><span>Próximos agendamentos</span><strong>' . h((string)$futureTotal) . '</strong><small>com tatuador definido</small></div>';
+        echo '<div class="drilldown-kpi"><span>Receita total vinculada</span><strong>' . h(format_money($totalRevenue)) . '</strong><small>sem cancelados</small></div>';
+        echo '<div class="drilldown-kpi"><span>Receita deste mês</span><strong>' . h(format_money($monthRevenue)) . '</strong><small>agenda do mês atual</small></div>';
+        echo '</section>';
+
+        echo '<div class="artists-layout">';
+        echo '<section class="panel artists-list-panel"><div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">Tatuadores cadastrados</h2><p class="muted" style="margin:6px 0 0">Clique em editar para ajustar dados, cor e status.</p></div><span class="badge">' . h((string)count($artists)) . ' registros</span></div>';
+        if (!$artists) {
+            echo '<p class="muted">Nenhum tatuador cadastrado ainda.</p>';
+        } else {
+            echo '<div class="artists-grid">';
+            foreach ($artists as $artist) {
+                $artistId = (int)($artist['id'] ?? 0);
+                $stats = $statsByArtist[$artistId] ?? [];
+                $color = trim((string)($artist['color'] ?? '#1f6f78')) ?: '#1f6f78';
+                $isActive = !empty($artist['is_active']);
+                echo '<article class="artist-card">';
+                echo '<div class="artist-card-head"><span class="artist-color" style="background:' . h($color) . '"></span><div><strong>' . h((string)$artist['name']) . '</strong><small>' . h((string)($artist['specialty'] ?: 'Especialidade não informada')) . '</small></div><span class="badge ' . h($isActive ? 'ok' : 'warn') . '">' . h($isActive ? 'ativo' : 'inativo') . '</span></div>';
+                echo '<div class="artist-card-metrics">';
+                echo '<span><strong>' . h((string)(int)($stats['total_appointments'] ?? 0)) . '</strong><small>agendamentos</small></span>';
+                echo '<span><strong>' . h((string)(int)($stats['total_customers'] ?? 0)) . '</strong><small>clientes</small></span>';
+                echo '<span><strong>' . h(format_money((float)($stats['total_revenue'] ?? 0))) . '</strong><small>receita</small></span>';
+                echo '<span><strong>' . h((string)(int)($stats['future_appointments'] ?? 0)) . '</strong><small>próximos</small></span>';
+                echo '</div>';
+                echo '<div class="artist-card-split">';
+                echo '<div><h3>Clientes recentes</h3>';
+                $recentCustomers = $recentCustomersByArtist[$artistId] ?? [];
+                if (!$recentCustomers) {
+                    echo '<p class="muted">Sem clientes vinculados ainda.</p>';
+                } else {
+                    echo '<div class="artist-mini-list">';
+                    foreach ($recentCustomers as $customer) {
+                        echo '<span><strong>' . h((string)$customer['customer_name']) . '</strong><small>' . h((string)$customer['appointment_count']) . ' atendimento(s) · ' . h(format_money((float)$customer['total_value'])) . '</small></span>';
+                    }
+                    echo '</div>';
+                }
+                echo '</div><div><h3>Agenda futura</h3>';
+                $upcoming = $upcomingByArtist[$artistId] ?? [];
+                if (!$upcoming) {
+                    echo '<p class="muted">Sem próximos horários.</p>';
+                } else {
+                    echo '<div class="artist-mini-list">';
+                    foreach ($upcoming as $appointment) {
+                        echo '<span><strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' às ' . substr((string)$appointment['start_time'], 0, 5)) . '</strong><small>' . h((string)$appointment['customer_name']) . ' · ' . h((string)$appointment['status']) . '</small></span>';
+                    }
+                    echo '</div>';
+                }
+                echo '</div></div>';
+                echo '<div class="artist-card-actions"><a class="btn tiny secondary" href="' . h(app_url('studio_artists', ['artist_id' => $artistId])) . '">Editar</a><a class="btn tiny secondary" href="' . h(app_url('studio_agenda', ['artist_id' => $artistId])) . '">Ver agenda</a></div>';
+                echo '</article>';
+            }
+            echo '</div>';
+        }
+        echo '</section>';
+
+        echo '<aside class="artists-side">';
+        echo '<section class="panel"><h2>' . h($editingArtist ? 'Editar tatuador' : 'Novo tatuador') . '</h2><p class="muted">Use uma cor forte para facilitar a leitura no calendário.</p>';
+        echo '<form class="form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="save_artist">';
+        if ($editingArtist) {
+            echo '<input type="hidden" name="id" value="' . h((string)$editingArtist['id']) . '">';
+        }
+        echo '<div class="field"><label>Nome</label><input name="name" required value="' . h((string)($editingArtist['name'] ?? '')) . '" placeholder="Nome do tatuador"></div>';
+        echo '<div class="field"><label>Especialidade</label><input name="specialty" value="' . h((string)($editingArtist['specialty'] ?? '')) . '" placeholder="Ex.: blackwork, realismo, fineline"></div>';
+        echo '<div class="field"><label>Cor no calendário</label><input type="color" name="color" value="' . h((string)($editingArtist['color'] ?? '#1f6f78')) . '"></div>';
+        $activeChecked = $editingArtist ? !empty($editingArtist['is_active']) : true;
+        echo '<label class="checkline"><input type="checkbox" name="is_active" value="1" ' . ($activeChecked ? 'checked' : '') . '> Tatuador ativo para novos agendamentos</label>';
+        echo '<button class="btn" type="submit">Salvar tatuador</button>';
+        if ($editingArtist) {
+            echo '<a class="btn secondary" href="' . h(app_url('studio_artists')) . '">Cancelar edição</a>';
+        }
+        echo '</form></section>';
+
+        echo '<section class="panel soft"><h2>Sem tatuador definido</h2><p class="muted">Agendamentos sem artista atrapalham estatísticas e podem gerar conflito de agenda.</p>';
+        echo '<div class="mini-metrics"><span><strong>' . h((string)(int)($unassigned['total'] ?? 0)) . '</strong><small>agendamentos</small></span><span><strong>' . h(format_money((float)($unassigned['revenue'] ?? 0))) . '</strong><small>valor</small></span></div>';
+        echo '<a class="btn secondary" href="' . h(app_url('studio_agenda')) . '">Revisar agenda</a></section>';
+
+        echo '<section class="panel soft"><h2>Permissões sugeridas</h2><div class="permission-map">';
+        $permissionRows = [
+            ['Somente ADM', 'Tatuadores, acessos, configurações, tokens/API, integrações, exclusões, tags oficiais e treinamento da IA.'],
+            ['ADM ou financeiro', 'Financeiro, despesas, relatórios completos, Meta Ads e indicadores de resultado.'],
+            ['Equipe operacional', 'WhatsApp, agenda diária, clientes/leads, respostas rápidas pessoais e consulta de informações.'],
+            ['Somente sistema/IA', 'Logs técnicos, webhooks, leitura de mídia, automações e eventos internos.'],
+        ];
+        foreach ($permissionRows as [$label, $copy]) {
+            echo '<div><strong>' . h($label) . '</strong><span>' . h($copy) . '</span></div>';
+        }
+        echo '</div></section>';
+        echo '</aside></div>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_settings') {
     $studio = require_studio();
     $activeSettingsTab = (string)($_GET['tab'] ?? 'studio');
@@ -6884,6 +7150,9 @@ if ($page === 'studio_settings') {
             echo '<button type="button" class="settings-category-card" data-settings-overlay="' . h($key) . '"><span class="settings-category-icon"><i class="fa-solid ' . h($icon) . '"></i></span><span class="settings-category-status">' . h($status) . '</span><strong>' . h($title) . '</strong><small>' . h($subtitle) . '</small><span class="settings-category-link">Configurar <i class="fa-solid fa-arrow-right"></i></span></button>';
         }
         echo '<a class="settings-category-card" href="' . h(app_url('studio_finance')) . '"><span class="settings-category-icon"><i class="fa-solid fa-wallet"></i></span><span class="settings-category-status">Gestão</span><strong>Financeiro</strong><small>Despesas e leitura do resultado mensal</small><span class="settings-category-link">Abrir módulo <i class="fa-solid fa-arrow-right"></i></span></a>';
+        if (studio_current_user_is_admin()) {
+            echo '<a class="settings-category-card" href="' . h(app_url('studio_artists')) . '"><span class="settings-category-icon"><i class="fa-solid fa-pen-nib"></i></span><span class="settings-category-status">ADM</span><strong>Tatuadores</strong><small>Equipe artística, clientes atendidos e estatísticas</small><span class="settings-category-link">Gerenciar <i class="fa-solid fa-arrow-right"></i></span></a>';
+        }
         echo '<a class="settings-category-card" href="' . h(app_url('studio_attendants', ['studio_id' => (int)$studio['id']])) . '"><span class="settings-category-icon"><i class="fa-solid fa-shield-halved"></i></span><span class="settings-category-status">Segurança</span><strong>Acessos</strong><small>Atendentes, usuários e permissões do estúdio</small><span class="settings-category-link">Gerenciar <i class="fa-solid fa-arrow-right"></i></span></a>';
         echo '</div>';
         echo '<div id="settingsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="settingsOverlayTitle" class="crm-panel-title">Configurações</h3><p id="settingsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeSettingsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="settingsOverlayBody" class="p-4"></div></div></div>';
