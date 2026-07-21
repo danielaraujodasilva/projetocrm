@@ -92,6 +92,7 @@ function studio_general_image_prompt(array $data): string
 
     $parts = [
         'Follow the user request literally. The main subject must match the prompt exactly.',
+        'All requested props, actions, clothing, objects, body placement, colors and style words are mandatory. Do not omit secondary objects.',
         $prompt,
     ];
     if ($styleText !== '') {
@@ -135,7 +136,11 @@ function studio_general_image_translate_for_local(string $prompt): string
     $json = is_string($raw) ? json_decode($raw, true) : null;
     $translated = is_array($json) ? trim((string)($json['response'] ?? '')) : '';
 
-    if ($status < 200 || $status >= 300 || $translated === '' || mb_strlen($translated, 'UTF-8') > 5000) {
+    $looksLikeRefusal = (bool)preg_match(
+        '/\b(i\s+(?:can(?:not|\'t)|won\'t)|unable to|cannot fulfill|can\'t fulfill|sorry|as an ai|nao posso|não posso|nao consigo|não consigo)\b/i',
+        $translated
+    );
+    if ($status < 200 || $status >= 300 || $translated === '' || $looksLikeRefusal || mb_strlen($translated, 'UTF-8') > 5000) {
         return $prompt;
     }
     return trim($translated, " \t\n\r\0\x0B\"");
@@ -158,6 +163,204 @@ function studio_general_image_json_from_text(string $text): ?array
         return is_array($json) ? $json : null;
     }
     return null;
+}
+
+function studio_general_image_prompt_lock(string $prompt): array
+{
+    $norm = mb_strtolower($prompt, 'UTF-8');
+    $norm = strtr($norm, [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c',
+    ]);
+
+    $humanWords = '(humano|humana|pessoa|homem|mulher|garoto|garota|menino|menina|cliente|modelo|retrato|rosto|face|corpo humano|human|person|man|woman|boy|girl|model|portrait|face)';
+    $explicitHuman = (bool)preg_match('/^\s*' . $humanWords . '\b/u', $norm)
+        || (bool)preg_match('/\b(com|incluindo|mostrando|junto com|ao lado de|retrato de|foto de|imagem de)\s+(um|uma|o|a|de|do|da)?\s*' . $humanWords . '\b/u', $norm);
+    if ($explicitHuman) {
+        return ['prefix' => '', 'negative' => ''];
+    }
+
+    $tattooPlacement = '';
+    if (preg_match('/\b(tattoo|tatuagem|tattooed|tatuado|tatuada)\b/u', $norm)) {
+        $placementAreas = [
+            'costas|back' => 'full adult human back, rear view',
+            'antebraco|forearm' => 'adult human forearm',
+            'braco|arm' => 'adult human arm',
+            'perna|leg' => 'adult human leg',
+            'coxa|thigh' => 'adult human thigh',
+            'panturrilha|calf' => 'adult human calf',
+            'peito|chest' => 'adult human chest',
+            'ombro|shoulder' => 'adult human shoulder',
+            'pescoco|neck' => 'adult human neck',
+            'mao|hand' => 'adult human hand',
+            'pulso|wrist' => 'adult human wrist',
+            'tornozelo|ankle' => 'adult human ankle',
+        ];
+        foreach ($placementAreas as $pattern => $label) {
+            if (preg_match('/\b(?:' . $pattern . ')\b/u', $norm)) {
+                $tattooPlacement = $label;
+                break;
+            }
+        }
+    }
+
+    $subjects = [
+        'chimpanze' => 'a non-human chimpanzee',
+        'chimpanzee' => 'a non-human chimpanzee',
+        'macaco' => 'a non-human monkey',
+        'gorila' => 'a non-human gorilla',
+        'jacare' => 'a non-human alligator',
+        'crocodilo' => 'a non-human crocodile',
+        'leao' => 'a non-human lion',
+        'lion' => 'a non-human lion',
+        'lobo' => 'a non-human wolf',
+        'wolf' => 'a non-human wolf',
+        'tigre' => 'a non-human tiger',
+        'tiger' => 'a non-human tiger',
+        'pantera' => 'a non-human panther',
+        'onca' => 'a non-human jaguar',
+        'jaguar' => 'a non-human jaguar',
+        'aguia' => 'a non-human eagle',
+        'eagle' => 'a non-human eagle',
+        'coruja' => 'a non-human owl',
+        'owl' => 'a non-human owl',
+        'cobra' => 'a non-human snake',
+        'snake' => 'a non-human snake',
+        'dragao' => 'a non-human dragon',
+        'dragon' => 'a non-human dragon',
+        'urso' => 'a non-human bear',
+        'bear' => 'a non-human bear',
+        'cavalo' => 'a non-human horse',
+        'horse' => 'a non-human horse',
+        'cachorro' => 'a non-human dog',
+        'dog' => 'a non-human dog',
+        'gato' => 'a non-human cat',
+        'cat' => 'a non-human cat',
+        'tubarao' => 'a non-human shark',
+        'shark' => 'a non-human shark',
+        'peixe' => 'a non-human fish',
+        'fish' => 'a non-human fish',
+        'borboleta' => 'a non-human butterfly',
+        'butterfly' => 'a non-human butterfly',
+        'aranha' => 'a non-human spider',
+        'spider' => 'a non-human spider',
+        'escorpiao' => 'a non-human scorpion',
+        'scorpion' => 'a non-human scorpion',
+    ];
+
+    foreach ($subjects as $needle => $label) {
+        if (preg_match('/\b' . preg_quote($needle, '/') . '\b/u', $norm)) {
+            if ($tattooPlacement !== '') {
+                $tattooSubject = preg_replace('/^a non-human\s+/i', 'a ', $label) ?: $label;
+                return [
+                    'prefix' => 'TATTOO MOCKUP on ' . $tattooPlacement . '. The tattoo design depicts ' . $tattooSubject . '.',
+                    'negative' => 'tattoo on the wrong body area, extra tattoos, text, watermark',
+                ];
+            }
+            return [
+                'prefix' => 'MAIN SUBJECT: ' . $label . '. Never replace it with a human or person.',
+                'negative' => 'human, person, woman, man, child, fashion model, human face',
+            ];
+        }
+    }
+
+    return ['prefix' => '', 'negative' => ''];
+}
+
+function studio_general_image_compact_local_text(string $text, int $maxWords, int $maxChars): string
+{
+    $text = trim((string)preg_replace('/\s+/u', ' ', $text));
+    if ($text === '') {
+        return '';
+    }
+    $words = preg_split('/\s+/u', $text) ?: [];
+    if (count($words) > $maxWords) {
+        $text = implode(' ', array_slice($words, 0, $maxWords));
+    }
+    if (mb_strlen($text, 'UTF-8') > $maxChars) {
+        $text = rtrim(mb_substr($text, 0, $maxChars, 'UTF-8'));
+        $text = preg_replace('/\s+\S*$/u', '', $text) ?: $text;
+    }
+    return trim($text, " \t\n\r\0\x0B,;.");
+}
+
+function studio_general_image_prepare_local_data(array $studio, array $data): array
+{
+    $prompt = trim((string)($data['prompt'] ?? ''));
+    $negativePrompt = trim((string)($data['negative_prompt'] ?? ''));
+    if ($prompt === '' || !function_exists('studio_openai_config') || !function_exists('studio_openai_text')) {
+        return $data;
+    }
+
+    $config = studio_openai_config($studio);
+    if (trim((string)($config['api_key'] ?? '')) === '') {
+        return $data;
+    }
+
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'prompt' => ['type' => 'string'],
+            'negative' => ['type' => 'string'],
+        ],
+        'required' => ['prompt', 'negative'],
+        'additionalProperties' => false,
+    ];
+    $systemPrompt = <<<'TXT'
+You compile literal prompts for a local text-to-image model.
+Return only compact JSON. Translate the request to concise English.
+Preserve the exact main subject, quantity, action, appearance, objects, setting, composition and requested style.
+Never add tattoo context, people, glamour, nudity, armor, robots or unrelated elements.
+If the request explicitly asks for a tattoo placed on a body area, preserve the word tattoo and state the exact adult human body area and viewing angle.
+Put the unmistakable main subject first. Keep prompt under 32 words and negative under 18 words.
+TXT;
+    $request = "USER REQUEST:\n" . $prompt;
+    if ($negativePrompt !== '') {
+        $request .= "\n\nUSER EXCLUSIONS:\n" . $negativePrompt;
+    }
+    $response = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $systemPrompt,
+        $request,
+        (string)$config['base_url'],
+        20,
+        false,
+        $schema,
+        '{"prompt":"short literal English image prompt","negative":"short English exclusions"}'
+    );
+    $compiled = !empty($response['ok']) && is_array($response['raw_json'] ?? null)
+        ? (array)$response['raw_json']
+        : [];
+    if (trim((string)($compiled['prompt'] ?? '')) === ''
+        && stripos((string)($config['base_url'] ?? ''), 'integrate.api.nvidia.com') !== false) {
+        $retryModel = strcasecmp((string)$config['model'], 'meta/llama-3.3-70b-instruct') === 0
+            ? 'meta/llama-3.1-70b-instruct'
+            : 'meta/llama-3.3-70b-instruct';
+        $retry = studio_openai_text(
+            (string)$config['api_key'],
+            $retryModel,
+            $systemPrompt,
+            $request,
+            (string)$config['base_url'],
+            12,
+            false,
+            $schema,
+            '{"prompt":"short literal English image prompt","negative":"short English exclusions"}'
+        );
+        $compiled = !empty($retry['ok']) && is_array($retry['raw_json'] ?? null)
+            ? (array)$retry['raw_json']
+            : [];
+    }
+    $compiledPrompt = studio_general_image_compact_local_text((string)($compiled['prompt'] ?? ''), 32, 240);
+    $data['_local_compiled_prompt'] = $compiledPrompt !== '' ? $compiledPrompt : $prompt;
+    $compiledNegative = studio_general_image_compact_local_text((string)($compiled['negative'] ?? ''), 18, 140);
+    $data['_local_compiled_negative'] = $compiledNegative !== '' ? $compiledNegative : $negativePrompt;
+    return $data;
 }
 
 function studio_general_image_compile_for_local(string $prompt, string $negativePrompt): array
@@ -214,9 +417,19 @@ TXT;
     $compiledNegative = is_array($compiled) ? trim((string)($compiled['negative'] ?? '')) : '';
     $mainSubjectIsHuman = is_array($compiled) ? filter_var($compiled['main_subject_is_human'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) : null;
     if ($status < 200 || $status >= 300 || $compiledPrompt === '' || mb_strlen($compiledPrompt, 'UTF-8') > 6000) {
+        $fallbackPrompt = studio_general_image_translate_for_local($prompt);
+        $fallbackNegative = $negativePrompt !== '' ? studio_general_image_translate_for_local($negativePrompt) : '';
+        $lock = studio_general_image_prompt_lock($prompt . "\n" . $fallbackPrompt);
+        if (trim((string)$lock['prefix']) !== '') {
+            $fallbackPrompt = trim((string)$lock['prefix'] . "\n" . $fallbackPrompt);
+            $fallbackNegative = trim(implode(', ', array_filter([
+                $fallbackNegative,
+                (string)$lock['negative'],
+            ], static fn ($part) => trim((string)$part) !== '')));
+        }
         return [
-            'prompt' => studio_general_image_translate_for_local($prompt),
-            'negative' => $negativePrompt !== '' ? studio_general_image_translate_for_local($negativePrompt) : '',
+            'prompt' => $fallbackPrompt,
+            'negative' => $fallbackNegative,
             'main_subject_is_human' => null,
         ];
     }
@@ -226,6 +439,14 @@ TXT;
         $compiledNegative = trim(implode(', ', array_filter([
             $compiledNegative,
             'human, person, woman, man, child, model',
+        ], static fn ($part) => trim((string)$part) !== '')));
+    }
+    $lock = studio_general_image_prompt_lock($prompt . "\n" . $compiledPrompt);
+    if (trim((string)$lock['prefix']) !== '') {
+        $compiledPrompt = trim((string)$lock['prefix'] . "\n" . $compiledPrompt);
+        $compiledNegative = trim(implode(', ', array_filter([
+            $compiledNegative,
+            (string)$lock['negative'],
         ], static fn ($part) => trim((string)$part) !== '')));
     }
 
@@ -253,6 +474,60 @@ function studio_general_image_size(string $format, string $mode, bool $openAi): 
         'wide' => [768, 512],
         default => [512, 768],
     };
+}
+
+function studio_general_image_prepare_local_init_image(string $sourcePath, int $targetWidth, int $targetHeight): string
+{
+    if (!is_file($sourcePath)) {
+        return '';
+    }
+    $binary = @file_get_contents($sourcePath);
+    if (!is_string($binary) || $binary === '') {
+        return '';
+    }
+    if (!function_exists('imagecreatefromstring') || !function_exists('imagecreatetruecolor')) {
+        return $binary;
+    }
+
+    try {
+        $source = @imagecreatefromstring($binary);
+    } catch (Throwable) {
+        return $binary;
+    }
+    if (!$source) {
+        return $binary;
+    }
+
+    $sourceWidth = imagesx($source);
+    $sourceHeight = imagesy($source);
+    if ($sourceWidth <= 0 || $sourceHeight <= 0 || $targetWidth <= 0 || $targetHeight <= 0) {
+        imagedestroy($source);
+        return $binary;
+    }
+
+    $sourceRatio = $sourceWidth / $sourceHeight;
+    $targetRatio = $targetWidth / $targetHeight;
+    if ($sourceRatio > $targetRatio) {
+        $cropHeight = $sourceHeight;
+        $cropWidth = (int)round($sourceHeight * $targetRatio);
+        $cropX = (int)max(0, floor(($sourceWidth - $cropWidth) / 2));
+        $cropY = 0;
+    } else {
+        $cropWidth = $sourceWidth;
+        $cropHeight = (int)round($sourceWidth / $targetRatio);
+        $cropX = 0;
+        $cropY = (int)max(0, floor(($sourceHeight - $cropHeight) / 2));
+    }
+
+    $target = imagecreatetruecolor($targetWidth, $targetHeight);
+    imagecopyresampled($target, $source, 0, 0, $cropX, $cropY, $targetWidth, $targetHeight, $cropWidth, $cropHeight);
+    ob_start();
+    imagejpeg($target, null, 92);
+    $prepared = (string)ob_get_clean();
+    imagedestroy($source);
+    imagedestroy($target);
+
+    return $prepared !== '' ? $prepared : $binary;
 }
 
 function studio_general_image_storage(array $studio, string $extension): array
@@ -389,13 +664,45 @@ function studio_general_image_local_body(array $data, string $mode): array
     $style = studio_tattoo_image_choice((string)($data['style'] ?? 'realistic'), studio_tattoo_image_allowed_styles(), 'realistic');
     $negativePrompt = trim((string)($data['negative_prompt'] ?? ''));
     $qualityNegative = 'blurry, low resolution, text, watermark, logo, deformed, duplicate';
-    $sampleSteps = $mode === 'final' ? 5 : 4;
-    $txtCfg = in_array($style, ['realistic', 'cinematic', 'auto'], true) ? 1.55 : 1.2;
-    $compiled = studio_general_image_compile_for_local(studio_general_image_prompt($data), $negativePrompt);
-    $compiledNegative = trim((string)($compiled['negative'] ?? ''));
+    $sampleSteps = $mode === 'final' ? 6 : 4;
+    $txtCfg = in_array($style, ['realistic', 'cinematic', 'auto'], true) ? 1.8 : 1.35;
+    $userPrompt = trim((string)($data['prompt'] ?? ''));
+    $translatedPrompt = trim((string)($data['_local_compiled_prompt'] ?? ''));
+    if ($translatedPrompt === '') {
+        $translatedPrompt = studio_general_image_translate_for_local($userPrompt);
+    }
+    $lock = studio_general_image_prompt_lock($userPrompt . "\n" . $translatedPrompt);
+    $compactStyle = match ($style) {
+        'realistic' => 'photorealistic, sharp detail, natural light',
+        'cinematic' => 'cinematic photorealism, dramatic natural light',
+        'cartoon' => 'polished cartoon style',
+        'illustration' => 'polished digital illustration',
+        'anime' => 'anime illustration',
+        'stencil' => 'clean black and white stencil',
+        'blackwork' => 'high contrast blackwork illustration',
+        'chicano' => 'Chicano black and grey illustration',
+        'fineline' => 'delicate fine line illustration',
+        'oldschool' => 'classic old school tattoo flash',
+        'reference' => 'clean reference image, simple background',
+        default => '',
+    };
+    $compiledPrompt = studio_general_image_compact_local_text(
+        implode(', ', array_filter([(string)($lock['prefix'] ?? ''), $translatedPrompt, $compactStyle])),
+        38,
+        280
+    );
+    $translatedNegative = trim((string)($data['_local_compiled_negative'] ?? ''));
+    if ($translatedNegative === '' && $negativePrompt !== '') {
+        $translatedNegative = studio_general_image_translate_for_local($negativePrompt);
+    }
+    $compiledNegative = studio_general_image_compact_local_text(
+        implode(', ', array_filter([$translatedNegative, (string)($lock['negative'] ?? '')])),
+        24,
+        180
+    );
     $negative = trim(implode(', ', array_filter([$compiledNegative, $qualityNegative], static fn ($part) => trim((string)$part) !== '')));
     $body = [
-        'prompt' => (string)($compiled['prompt'] ?? studio_general_image_translate_for_local(studio_general_image_prompt($data))),
+        'prompt' => $compiledPrompt,
         'negative_prompt' => $negative !== '' ? $negative : $qualityNegative,
         'clip_skip' => -1,
         'width' => $width,
@@ -415,7 +722,7 @@ function studio_general_image_local_body(array $data, string $mode): array
 
     $sourcePath = studio_tattoo_image_absolute_from_relative((string)($data['source_image_path'] ?? ''));
     if ($sourcePath !== '') {
-        $sourceBinary = @file_get_contents($sourcePath);
+        $sourceBinary = studio_general_image_prepare_local_init_image($sourcePath, (int)$width, (int)$height);
         if (is_string($sourceBinary) && $sourceBinary !== '') {
             $body['init_image'] = base64_encode($sourceBinary);
             $body['strength'] = $mode === 'final' ? 0.52 : 0.62;
@@ -440,7 +747,8 @@ function studio_general_image_start(array $studio, array $data): array
     }
 
     $mode = studio_tattoo_image_choice((string)($data['mode'] ?? 'fast'), ['fast', 'final'], 'fast');
-    $response = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', studio_general_image_local_body($data, $mode), 120);
+    $localData = studio_general_image_prepare_local_data($studio, $data);
+    $response = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', studio_general_image_local_body($localData, $mode), 120);
     if (empty($response['ok'])) {
         throw new RuntimeException((string)($response['error'] ?? 'Nao foi possivel iniciar a geracao local.'));
     }
@@ -476,6 +784,12 @@ function studio_general_image_poll(array $studio, array $job): array
     }
     $response = studio_local_image_ai_request('GET', '/sdcpp/v1/jobs/' . rawurlencode($jobId), null, 10);
     if (empty($response['ok'])) {
+        if ((int)($response['status'] ?? 0) === 404) {
+            return [
+                'status' => 'failed',
+                'error' => 'O motor local perdeu o job de imagem antes de concluir. Reinicie a geração.',
+            ];
+        }
         $health = studio_local_image_ai_request('GET', '/v1/models', null, 3);
         if (empty($health['ok'])) {
             studio_general_image_restart_local_service();

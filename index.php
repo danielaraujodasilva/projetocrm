@@ -865,6 +865,8 @@ if ($action === 'studio_login') {
                 $selectedItems[] = [
                     'uid' => $uid,
                     'google_uid' => (string)($candidate['google_uid'] ?? ''),
+                    'google_event_id' => (string)($candidate['google_event_id'] ?? ''),
+                    'google_calendar_id' => (string)($candidate['google_calendar_id'] ?? ''),
                     'raw_title' => (string)($candidate['raw_title'] ?? ''),
                     'description_original' => (string)($candidate['description_original'] ?? ''),
                     'notes' => trim((string)($candidate['notes'] ?? '')),
@@ -879,6 +881,12 @@ if ($action === 'studio_login') {
                     'status' => (string)($item['status'] ?? $candidate['status'] ?? 'agendado'),
                     'pipeline_stage' => (string)($item['pipeline_stage'] ?? $candidate['pipeline_stage'] ?? 'agendado'),
                     'lead_score' => (int)($item['lead_score'] ?? $candidate['lead_score'] ?? 6),
+                    'deposit_value' => (float)($candidate['deposit_value'] ?? 0),
+                    'ai_title_parse' => is_array($candidate['ai_title_parse'] ?? null) ? $candidate['ai_title_parse'] : [],
+                    'ai_review_required' => (int)($candidate['ai_review_required'] ?? 0),
+                    'ai_parse_confidence' => $candidate['ai_parse_confidence'] ?? null,
+                    'ai_parse_summary' => (string)($candidate['ai_parse_summary'] ?? ''),
+                    'ai_parse_payload' => (string)($candidate['ai_parse_payload'] ?? ''),
                     'allow_conflict' => $allowConflict,
                 ];
             }
@@ -1733,6 +1741,43 @@ if ($action === 'studio_login') {
             redirect_to('studio_settings', ['tab' => $settingsTab]);
         }
 
+        if ($action === 'save_whatsapp_service_flow') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem alterar o roteiro de atendimento.');
+            }
+            $definition = json_decode((string)($_POST['flow_definition'] ?? ''), true);
+            if (!is_array($definition)) {
+                throw new RuntimeException('O navegador não enviou um fluxograma válido. Recarregue a página e tente novamente.');
+            }
+            $user = studio_current_user();
+            studio_whatsapp_service_flow_save($studio, $definition, (int)($user['id'] ?? 0));
+            studio_event((int)$studio['id'], 'whatsapp_service_flow_updated', 'Roteiro rígido do WhatsApp atualizado.', [
+                'category' => 'settings',
+                'target_type' => 'whatsapp_ai_flow',
+                'target_id' => 1,
+                'context' => ['steps' => count((array)($definition['steps'] ?? [])), 'enabled' => !empty($definition['enabled'])],
+            ]);
+            flash_set('success', 'Fluxograma salvo. As próximas respostas já seguirão este roteiro.');
+            redirect_to('studio_whatsapp_flow');
+        }
+
+        if ($action === 'reset_whatsapp_service_flow') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem restaurar o roteiro de atendimento.');
+            }
+            $user = studio_current_user();
+            studio_whatsapp_service_flow_reset($studio, (int)($user['id'] ?? 0));
+            studio_event((int)$studio['id'], 'whatsapp_service_flow_reset', 'Roteiro rígido do WhatsApp restaurado para o modelo recomendado.', [
+                'category' => 'settings',
+                'target_type' => 'whatsapp_ai_flow',
+                'target_id' => 1,
+            ]);
+            flash_set('success', 'Roteiro recomendado restaurado.');
+            redirect_to('studio_whatsapp_flow');
+        }
+
         if ($action === 'generate_ai_team_playbook') {
             $studio = require_studio();
             if (!studio_current_user_is_admin()) {
@@ -1746,6 +1791,156 @@ if ($action === 'studio_login') {
                 flash_set('success', 'Playbooks da equipe atualizados com ' . (int)($result['examples'] ?? 0) . ' exemplos reais de atendimento.');
             }
             redirect_to('studio_settings', ['tab' => 'ia']);
+        }
+
+        if ($action === 'start_whatsapp_learning_job') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem importar conversas para aprendizado.');
+            }
+            csrf_verify();
+            header('Content-Type: application/json; charset=utf-8');
+            $user = studio_current_user();
+            $result = studio_whatsapp_learning_create_job(
+                $studio,
+                trim((string)($_POST['file_name'] ?? 'export-whatsapp.zip')),
+                max(0, (int)($_POST['file_size'] ?? 0)),
+                (int)($user['id'] ?? 0)
+            );
+            echo json_encode(['ok' => true, 'job' => $result], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        if ($action === 'whatsapp_learning_job_status') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem acompanhar esta importação.');
+            }
+            csrf_verify();
+            header('Content-Type: application/json; charset=utf-8');
+            $job = studio_whatsapp_learning_job($studio, trim((string)($_POST['job_id'] ?? '')));
+            if (!$job) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Processamento ainda não localizado.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            echo json_encode(['ok' => true, 'job' => $job], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        if ($action === 'delete_whatsapp_learning_import') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem excluir aprendizados importados.');
+            }
+            csrf_verify();
+            header('Content-Type: application/json; charset=utf-8');
+            $importId = max(0, (int)($_POST['import_id'] ?? 0));
+            if (!studio_whatsapp_learning_delete_import($studio, $importId)) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Aprendizado não encontrado.'], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+            studio_event((int)$studio['id'], 'ai_learning_import_deleted', 'Aprendizado importado removido da IA.', [
+                'category' => 'settings',
+                'target_type' => 'whatsapp_ai_learning_import',
+                'target_id' => $importId,
+            ]);
+            echo json_encode(['ok' => true, 'import_id' => $importId], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($action === 'import_whatsapp_learning_zip') {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem importar conversas para aprendizado.');
+            }
+            csrf_verify();
+            @set_time_limit(900);
+            header('Content-Type: application/json; charset=utf-8');
+            $user = studio_current_user();
+            $jobId = trim((string)($_POST['learning_job_id'] ?? ''));
+            if (!studio_whatsapp_learning_job($studio, $jobId)) {
+                $createdJob = studio_whatsapp_learning_create_job(
+                    $studio,
+                    (string)(($_FILES['learning_zip']['name'] ?? '') ?: 'export-whatsapp.zip'),
+                    (int)($_FILES['learning_zip']['size'] ?? 0),
+                    (int)($user['id'] ?? 0)
+                );
+                $jobId = (string)($createdJob['job_id'] ?? '');
+            }
+            studio_whatsapp_learning_update_job($studio, $jobId, 'processing', 'validating', 10, 'Upload recebido pelo servidor. Iniciando validação.', 20);
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+            try {
+                $result = studio_import_whatsapp_learning_zip(
+                    $studio,
+                    $_FILES['learning_zip'] ?? [],
+                    trim((string)($_POST['attendant_names'] ?? '')),
+                    static function (array $progress) use ($studio, $jobId): void {
+                        studio_whatsapp_learning_update_job(
+                            $studio,
+                            $jobId,
+                            'processing',
+                            (string)($progress['stage'] ?? 'processing'),
+                            (int)($progress['progress'] ?? 10),
+                            (string)($progress['detail'] ?? 'Processando conversa.'),
+                            isset($progress['eta_seconds']) ? (int)$progress['eta_seconds'] : null,
+                            (array)($progress['counters'] ?? [])
+                        );
+                    },
+                    (int)($user['id'] ?? 0)
+                );
+                studio_whatsapp_learning_update_job(
+                    $studio,
+                    $jobId,
+                    'completed',
+                    'completed',
+                    100,
+                    (string)($result['summary'] ?? 'Aprendizado concluído.'),
+                    0,
+                    [
+                        'messages_found' => (int)($result['message_count'] ?? 0),
+                        'participants_found' => (int)($result['participant_count'] ?? 0),
+                        'audio_found' => (int)($result['audio_count'] ?? 0),
+                        'audio_completed' => (int)($result['audio_transcribed'] ?? 0),
+                        'media_found' => (int)($result['media_count'] ?? 0),
+                        'media_completed' => (int)($result['media_analyzed'] ?? 0),
+                    ],
+                    (int)($result['import_id'] ?? 0)
+                );
+                studio_event((int)$studio['id'], 'ai_learning_imported', 'Aprendizado da IA atualizado por export do WhatsApp.', [
+                    'category' => 'settings',
+                    'target_type' => 'whatsapp_ai_learning_import',
+                    'target_id' => (int)($result['import_id'] ?? 0),
+                    'context' => [
+                        'message_count' => (int)($result['message_count'] ?? 0),
+                        'participant_count' => (int)($result['participant_count'] ?? 0),
+                        'audio_transcribed' => (int)($result['audio_transcribed'] ?? 0),
+                        'media_analyzed' => (int)($result['media_analyzed'] ?? 0),
+                    ],
+                ]);
+                $result['job_id'] = $jobId;
+                echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } catch (Throwable $exception) {
+                $job = studio_whatsapp_learning_job($studio, $jobId);
+                studio_whatsapp_learning_update_job(
+                    $studio,
+                    $jobId,
+                    'failed',
+                    'failed',
+                    (int)($job['progress'] ?? 10),
+                    'Processamento interrompido: ' . $exception->getMessage(),
+                    null,
+                    (array)($job['counters'] ?? []),
+                    null,
+                    $exception->getMessage()
+                );
+                http_response_code(422);
+                echo json_encode(['ok' => false, 'error' => $exception->getMessage(), 'job_id' => $jobId], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            exit;
         }
 
         if ($action === 'upload_voice_sample') {
@@ -2852,13 +3047,13 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
 }
 
-$studioAdminOnlyPages = ['studio_artists', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
+$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
     flash_set('error', 'Apenas administradores podem acessar esta área.');
     redirect_to('studio_home');
@@ -3214,7 +3409,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
         echo '</select></label><label>Etapa<select name="pipeline_stage">';
         foreach (studio_list_pipeline_stages($studio) as $stage) {
-            echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h((string)$stage['name']) . '</option>';
+            echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></label><label class="wide">Observacoes<textarea name="notes">' . h($notesFieldValue) . '</textarea></label><label class="check"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label><label class="check"><input type="checkbox" name="create_customer" value="1" ' . (empty($conversation['customer_id']) ? 'checked' : '') . '> Criar/atualizar cliente</label><label class="check"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label><button type="submit">Salvar dados</button></form></section>';
         echo '<section class="m2-card"><div class="m2-card-head"><h3>Link de cadastro</h3><span>' . h($publicUpdateUrl !== '' ? 'Pronto' : 'Pendente') . '</span></div>';
@@ -3886,7 +4081,7 @@ if ($page === 'studio_customer') {
 
 if ($page === 'studio_leads') {
     $studio = require_studio();
-    render_studio_shell('Funil de Leads', 'Acompanhe oportunidades, orçamentos e agendamentos do estúdio.', 'leads', function () use ($studio) {
+    render_studio_shell('Funil de Leads', 'Acompanhe oportunidades, conversas e agendamentos do estúdio.', 'leads', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
@@ -3966,11 +4161,12 @@ if ($page === 'studio_leads') {
                 'stale' => $isStaleLead($lead),
                 'today' => $isNewToday($lead),
                 'pre_agendado', 'agendado' => (string)($lead['status'] ?? '') === $focus,
+                'finalizado' => (string)($lead['pipeline_stage'] ?? '') === 'finalizado' || (string)($lead['status'] ?? '') === 'finalizado' || !empty($lead['finalized_from_appointment']),
                 default => true,
             };
         };
         $matchesStage = static function (array $lead) use ($stageFilter): bool {
-            return $stageFilter === '' || (string)($lead['pipeline_stage'] ?? '') === $stageFilter;
+            return $stageFilter === '' || studio_normalize_pipeline_stage((string)($lead['pipeline_stage'] ?? '')) === studio_normalize_pipeline_stage($stageFilter);
         };
 
         if ($focus !== '' || $stageFilter !== '') {
@@ -3988,7 +4184,7 @@ if ($page === 'studio_leads') {
             }));
         }
 
-        $openLeads = array_values(array_filter($allLeads, static fn(array $lead): bool => !in_array((string)($lead['status'] ?? ''), ['perdido', 'fechado'], true)));
+        $openLeads = array_values(array_filter($allLeads, static fn(array $lead): bool => !in_array((string)($lead['status'] ?? ''), ['perdido', 'fechado', 'finalizado', 'atendido'], true) && (string)($lead['pipeline_stage'] ?? '') !== 'finalizado'));
         $openValue = array_reduce($openLeads, static fn(float $sum, array $lead): float => $sum + (float)($lead['estimated_value'] ?? 0), 0.0);
         $newLeadsToday = count(array_filter($openLeads, $isNewToday));
         $staleLeads = array_values(array_filter($openLeads, $isStaleLead));
@@ -4018,7 +4214,7 @@ if ($page === 'studio_leads') {
         echo '<div class="dashboard-hero-copy">';
         echo '<p class="muted" style="margin:0 0 6px">Funil comercial do estúdio</p>';
         echo '<div class="dashboard-hero-title"><h2 style="margin:0">Funil de Leads</h2><span class="badge ok">' . h(current_studio_plan_name()) . '</span></div>';
-        echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, orçamentos e agendamentos do estúdio.</p>';
+        echo '<p class="muted" style="margin:8px 0 0">Acompanhe oportunidades, conversas e agendamentos do estúdio.</p>';
         echo '</div>';
         echo '<div class="dashboard-hero-actions row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
         foreach ($leadLinks as $action) {
@@ -4052,6 +4248,7 @@ if ($page === 'studio_leads') {
             'today' => 'Hoje',
             'pre_agendado' => 'Pré-agendados',
             'agendado' => 'Agendados',
+            'finalizado' => 'Finalizados',
         ] as $key => $label) {
             echo '<option value="' . h($key) . '" ' . ($focus === $key ? 'selected' : '') . '>' . h($label) . '</option>';
         }
@@ -4074,7 +4271,7 @@ if ($page === 'studio_leads') {
         echo '</section>';
 
         echo '<section class="panel" style="margin-top:16px">';
-        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapa s ordenadas, total por coluna e cartões com ação comercial.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
+        echo '<div class="actions" style="justify-content:space-between;align-items:flex-start"><div><h2>Funil de Leads</h2><p class="muted">Etapas ordenadas, paginação por coluna e cartões compactos para ação rápida.</p></div><span class="badge">' . h((string)count($openLeads)) . ' leads abertos</span></div>';
         if (!$allLeads) {
             if ($initialLeadCount === 0) {
                 echo '<div class="drilldown-empty"><strong>Nenhum lead cadastrado ainda.</strong><div class="muted">Crie o primeiro lead para começar a operar o funil.</div><a class="btn" href="' . h(app_url('studio_lead', ['id' => 0])) . '">Criar primeiro lead</a></div>';
@@ -4087,6 +4284,8 @@ if ($page === 'studio_leads') {
         echo '<script>window.pipelineLeadIndex = ' . json_encode($pipelineLeadIndex, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineLeadMoveToken = ' . json_encode(csrf_token(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.pipelineStageNames = ' . json_encode($stageNames, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
         echo '<script>(function(){const modal=document.getElementById("pipelineLeadModal");const title=document.getElementById("pipelineLeadModalTitle");const summary=document.getElementById("pipelineLeadModalSummary");const body=document.getElementById("pipelineLeadModalBody");const closeBtn=document.getElementById("closePipelineLeadModal");const index=window.pipelineLeadIndex||{};const token=window.pipelineLeadMoveToken||"";if(!modal||!title||!summary||!body)return;const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const money=(value)=>new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value)||0);const formatDate=(value)=>{if(!value)return"-";try{return new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"short"}).format(new Date(value.replace(" ","T")));}catch(e){return value;}};const statusTone=(status, stale)=>{if(["agendado","pre_agendado"].includes(status)) return "warn"; if(status==="fechado") return "ok"; if(["perdido","cancelado"].includes(status)) return "danger"; return stale ? "warn" : "neutral";};const postMove=async(leadId, stage, status)=>{const formData=new FormData();formData.append("csrf_token",token);formData.append("action","move_lead");formData.append("lead_id",leadId);formData.append("pipeline_stage",stage);formData.append("status",status||"");const response=await fetch(window.location.pathname+window.location.search,{method:"POST",body:formData});if(!response.ok) throw new Error("Nao foi possivel mover o lead."); location.reload();};const close=()=>modal.classList.add("hidden");const open=(leadId)=>{const lead=index[String(leadId)]||null;if(!lead)return;const status=String(lead.status||"");const score=Number(lead.lead_score||0);const stale=lead.updated_at&&lead.updated_at!==""?(()=>{try{return new Date(lead.updated_at) < new Date(Date.now()-24*60*60*1000);}catch(e){return false;}})():false;const badges=[];badges.push(`<span class="drilldown-badge ${statusTone(status, stale)}">${esc(status || "sem status")}</span>`);badges.push(`<span class="drilldown-badge neutral">${esc(String(score))}/10</span>`);if(score>=8) badges.push(`<span class="drilldown-badge ok">Quente</span>`);if((lead.estimated_value||0)>=1000) badges.push(`<span class="drilldown-badge neutral">Alto valor</span>`);if(stale) badges.push(`<span class="drilldown-badge warn">Parado 24h+</span>`);if(lead.artist_name) badges.push(`<span class="drilldown-badge neutral">${esc(lead.artist_name)}</span>`);title.textContent=lead.name || "Lead sem nome";summary.textContent=[lead.phone?`Telefone: ${lead.phone}`:"",lead.source?`Origem: ${lead.source}`:"",lead.pipeline_stage?`Etapa : ${lead.pipeline_stage}`:""].filter(Boolean).join(" · ");const currentIndex=Array.isArray(window.pipelineStageNames)?window.pipelineStageNames.indexOf(String(lead.pipeline_stage||"")):-1;const prevStage=currentIndex>0?window.pipelineStageNames[currentIndex-1]:"";const nextStage=currentIndex>=0&&currentIndex<window.pipelineStageNames.length-1?window.pipelineStageNames[currentIndex+1]:"";body.innerHTML=`<div class="drilldown-panel-grid"><div class="drilldown-panel-summary"><div class="drilldown-kpi"><strong>${esc(money(lead.estimated_value || 0))}</strong><span>Valor estimado</span><small>${esc(lead.interest || "Sem interesse descrito.")}</small></div><div class="drilldown-kpi"><strong>${esc(String(score))}/10</strong><span>Nota</span><small>Criado ${esc(formatDate(lead.created_at))}</small></div><div class="drilldown-kpi highlight"><strong>${esc(formatDate(lead.updated_at || lead.created_at))}</strong><span>Última atualização</span><small>${esc(lead.customer_name || lead.email || lead.notes || "Sem dados adicionais.")}</small></div></div><div class="drilldown-card compact"><div class="lead-card-badges">${badges.join("")}</div><div class="lead-card-submeta"><span class="muted">${esc(lead.phone || "Sem telefone")}</span><span class="muted">Cliente: ${esc(lead.customer_name || "-")}</span><span class="muted">Contato recente: ${esc(lead.last_message_preview || "-")}</span></div><div class="lead-card-actions lead-card-actions-quick">${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}">Ver lead</a>` : ""}${lead.phone ? `<a class="btn tiny secondary" href="https://wa.me/${String(lead.phone).replace(/\\D+/g,"")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}${lead.id ? `<a class="btn tiny secondary" href="index.php?page=studio_lead&id=${encodeURIComponent(lead.id)}#lead-schedule-form">Agendar</a>` : ""}</div><div class="lead-card-actions">${prevStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(prevStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Voltar</button>`:""}${nextStage?`<button type="button" class="btn tiny secondary" data-modal-move-stage="${esc(nextStage)}" data-modal-lead-id="${esc(String(lead.id||""))}" data-modal-status="${esc(status)}">Avancar</button>`:""}</div></div></div>`;modal.classList.remove("hidden");};document.querySelectorAll("[data-lead-open]").forEach((btn)=>{btn.addEventListener("click",(event)=>{event.preventDefault();event.stopPropagation();open(btn.getAttribute("data-lead-open"));});});document.querySelectorAll("[data-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-lead-id")||"0", btn.getAttribute("data-move-stage")||"", btn.getAttribute("data-current-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll("[data-modal-move-stage]").forEach((btn)=>{btn.addEventListener("click",async(event)=>{event.preventDefault();event.stopPropagation();try{await postMove(btn.getAttribute("data-modal-lead-id")||"0", btn.getAttribute("data-modal-move-stage")||"", btn.getAttribute("data-modal-status")||"");}catch(err){alert(err.message||"Erro ao mover lead");}});});let dragLeadId="";document.querySelectorAll(".pipeline-column").forEach((column)=>{column.addEventListener("dragover",(event)=>{event.preventDefault();column.classList.add("drag-over");});column.addEventListener("dragleave",()=>column.classList.remove("drag-over"));column.addEventListener("drop",async(event)=>{event.preventDefault();column.classList.remove("drag-over");const leadId=dragLeadId||event.dataTransfer.getData("text/plain");const stage=column.getAttribute("data-stage")||"";if(!leadId||!stage)return;const lead=index[String(leadId)];if(!lead)return;try{await postMove(leadId, stage, lead.status || "");}catch(err){alert(err.message||"Erro ao mover lead");}});});document.querySelectorAll(".lead-card[draggable=\"true\"]").forEach((card)=>{card.addEventListener("dragstart",(event)=>{dragLeadId=card.getAttribute("data-lead-id")||"";event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",dragLeadId);card.classList.add("dragging");});card.addEventListener("dragend",()=>{dragLeadId="";card.classList.remove("dragging");});card.addEventListener("click",(event)=>{if(event.target.closest("a,button")) return; const id=card.getAttribute("data-lead-id"); if(id) open(id);});});if(closeBtn) closeBtn.addEventListener("click",close);modal.addEventListener("click",(event)=>{if(event.target===modal) close();});document.addEventListener("keydown",(event)=>{if(event.key==="Escape") close();});})();</script>';
         echo '</section>';
+
+        echo '<script>(function(){const sortOrder=["updated_desc","score_desc","value_desc","name_asc"];const sortLabel={updated_desc:"Recentes",score_desc:"Nota maior",value_desc:"Valor maior",name_asc:"Nome A-Z"};const parseDate=(value)=>{if(!value)return 0;const time=Date.parse(String(value).replace(" ","T"));return Number.isFinite(time)?time:0;};const compare=(mode,a,b)=>{if(mode==="score_desc")return (Number(b.dataset.leadScore||0)-Number(a.dataset.leadScore||0))||parseDate(b.dataset.leadUpdated)-parseDate(a.dataset.leadUpdated);if(mode==="value_desc")return (Number(b.dataset.leadValue||0)-Number(a.dataset.leadValue||0))||parseDate(b.dataset.leadUpdated)-parseDate(a.dataset.leadUpdated);if(mode==="name_asc")return String(a.dataset.leadName||"").localeCompare(String(b.dataset.leadName||""),"pt-BR",{sensitivity:"base"});return parseDate(b.dataset.leadUpdated)-parseDate(a.dataset.leadUpdated);};document.querySelectorAll(".pipeline-column").forEach((column)=>{const list=column.querySelector("[data-pipeline-list]");if(!list)return;const filter=column.querySelector("[data-pipeline-filter]");const select=column.querySelector("[data-pipeline-sort]");const title=column.querySelector("[data-pipeline-sort-toggle]");const prev=column.querySelector("[data-pipeline-prev]");const next=column.querySelector("[data-pipeline-next]");const label=column.querySelector("[data-pipeline-page-label]");const pager=column.querySelector("[data-pipeline-pagination]");const pageSize=Math.max(1,Number(column.dataset.pageSize||12));let page=1;let mode=select?.value||"updated_desc";const apply=()=>{const query=String(filter?.value||"").trim().toLocaleLowerCase("pt-BR");const cards=Array.from(list.querySelectorAll(".lead-card"));const matches=cards.filter((card)=>!query||String(card.dataset.leadSearch||"").toLocaleLowerCase("pt-BR").includes(query));matches.sort((a,b)=>compare(mode,a,b));matches.forEach((card)=>list.appendChild(card));const pages=Math.max(1,Math.ceil(matches.length/pageSize));page=Math.min(Math.max(1,page),pages);cards.forEach((card)=>{card.hidden=true;});matches.forEach((card,index)=>{card.hidden=index<((page-1)*pageSize)||index>=(page*pageSize);});if(label){const start=matches.length?((page-1)*pageSize)+1:0;const end=Math.min(page*pageSize,matches.length);label.textContent=`${start}-${end} de ${matches.length}`;}if(prev)prev.disabled=page<=1;if(next)next.disabled=page>=pages;if(pager)pager.hidden=matches.length<=pageSize&&!query;column.dataset.sortMode=mode;if(title){title.dataset.sortLabel=sortLabel[mode]||"Ordenar";title.setAttribute("aria-label",`Classificar por ${sortLabel[mode]||mode}`);}};filter?.addEventListener("input",()=>{page=1;apply();});select?.addEventListener("change",()=>{mode=select.value;page=1;apply();});title?.addEventListener("click",()=>{const current=sortOrder.indexOf(mode);mode=sortOrder[(current+1+sortOrder.length)%sortOrder.length];if(select)select.value=mode;page=1;apply();});prev?.addEventListener("click",()=>{page--;apply();});next?.addEventListener("click",()=>{page++;apply();});apply();});})();</script>';
 
         echo '<section class="grid cols-2" style="margin-top:16px">';
         echo '<div class="panel shadow-sm border-0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Leads que pedem atenção</h2><p class="muted">Os contatos mais urgentes para responder ou avançar hoje.</p></div><a class="btn secondary" href="' . h(app_url('studio_reports')) . '">Ver alertas</a></div>';
@@ -4222,7 +4421,7 @@ if ($page === 'studio_lead') {
             render_options(lead_status_options(), 'novo');
             echo '</select></div><div class="field"><label>Etapa </label><select name="pipeline_stage">';
             foreach ($stages as $stage) {
-                echo '<option value="' . h($stage['name']) . '">' . h($stage['name']) . '</option>';
+                echo '<option value="' . h($stage['name']) . '">' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
             }
             echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="0"></div></div>';
             echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="0"></div><div class="field"><label>Origem</label><input name="source" placeholder="Instagram, WhatsApp, indicação..."></div></div>';
@@ -4260,7 +4459,7 @@ if ($page === 'studio_lead') {
         echo '<div class="actions" style="justify-content:space-between"><h2>Mover no funil</h2><span class="badge">Fluxo</span></div>';
         echo '<div class="field"><label>Etapa </label><select name="pipeline_stage">';
         foreach ($stages as $stage) {
-            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></div><div class="field"><label>Status</label><select name="status">';
         render_options(lead_status_options(), (string)$lead['status']);
@@ -4281,7 +4480,7 @@ if ($page === 'studio_lead') {
         render_options(lead_status_options(), (string)$lead['status']);
         echo '</select></div><div class="field"><label>Etapa </label><select name="pipeline_stage">';
         foreach ($stages as $stage) {
-            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($lead['lead_score'] ?? 0)) . '"></div></div>';
         echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($lead['estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="' . h($lead['source'] ?? '') . '"></div></div>';
@@ -4534,6 +4733,9 @@ if ($page === 'studio_agenda') {
                 if ((float)($candidate['value'] ?? 0) > 0) {
                     echo '<span class="badge">' . h(format_money((float)$candidate['value'])) . '</span>';
                 }
+                if (!empty($candidate['ai_review_required'])) {
+                    echo '<span class="badge warn">revisar IA</span>';
+                }
                 echo '</span><i class="fa-solid fa-chevron-down import-candidate-chevron"></i>';
                 echo '</summary>';
                 echo '<div class="import-candidate-details">';
@@ -4548,6 +4750,9 @@ if ($page === 'studio_agenda') {
                     }
                     echo '</div><label class="import-allow-conflict"><input class="form-check-input" type="checkbox" data-import-allow-conflict><span>Sincronizar mesmo com este conflito</span></label>';
                     echo '</div>';
+                }
+                if (!empty($candidate['ai_parse_summary'])) {
+                    echo '<div class="import-conflict-box" style="border-color:rgba(16,185,129,.24);background:rgba(16,185,129,.06)"><strong>Leitura inteligente do titulo</strong><div><span>' . h((string)$candidate['ai_parse_summary']) . '</span></div></div>';
                 }
                 echo '<div class="import-edit-grid">';
                 foreach ([
@@ -4688,7 +4893,7 @@ if ($page === 'studio_agenda') {
         }
         echo '</div></div></div></div>';
         echo '<div id="appointmentDetailModal" class="crm-modal hidden"><div class="crm-modal-panel appointment-detail-modal"><div class="crm-panel-header"><div><h3 id="appointmentDetailTitle" class="crm-panel-title">Agendamento</h3><p id="appointmentDetailSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeAppointmentDetailModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="appointmentDetailBody"></div></div></div>';
-        echo '<script>(function(){const toolsBtn=document.getElementById("openAgendaToolsButton");const toolsModal=document.getElementById("agendaToolsModal");const closeTools=document.getElementById("closeAgendaToolsModal");const freeBtn=document.getElementById("openFreeSlotsButton");const freeModal=document.getElementById("freeSlotsModal");const closeFree=document.getElementById("closeFreeSlotsModal");const detailModal=document.getElementById("appointmentDetailModal");const closeDetail=document.getElementById("closeAppointmentDetailModal");const detailTitle=document.getElementById("appointmentDetailTitle");const detailSummary=document.getElementById("appointmentDetailSummary");const detailBody=document.getElementById("appointmentDetailBody");const csrfHtml=' . json_encode(csrf_field(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';const open=(modal)=>{if(modal)modal.classList.remove("hidden");};const close=(modal)=>{if(modal)modal.classList.add("hidden");};const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));if(toolsBtn&&toolsModal)toolsBtn.addEventListener("click",()=>open(toolsModal));if(closeTools)closeTools.addEventListener("click",()=>close(toolsModal));if(freeBtn&&freeModal)freeBtn.addEventListener("click",()=>{close(toolsModal);open(freeModal);});if(closeFree)closeFree.addEventListener("click",()=>close(freeModal));if(closeDetail)closeDetail.addEventListener("click",()=>close(detailModal));document.addEventListener("click",(event)=>{const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger||!detailModal||!detailTitle||!detailBody)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}detailTitle.textContent=item.name||item.title||"Agendamento";detailSummary.textContent=[item.date_label,item.time_label,item.status].filter(Boolean).join(" · ");const alerts=Array.isArray(item.health_alerts)?item.health_alerts:[];detailBody.innerHTML=`<div class="appointment-detail-grid"><div class="appointment-detail-kpi"><span>Quando</span><strong>${esc(item.date_label||"-")}</strong><small>${esc(item.time_label||"-")}</small></div><div class="appointment-detail-kpi"><span>Status</span><strong>${esc(item.status||"-")}</strong><small>${esc(item.origin_label||"Manual")}</small></div><div class="appointment-detail-kpi"><span>Tatuador</span><strong>${esc(item.artist||"-")}</strong><small>${esc(item.google_calendar_id?"Google Agenda":"CRM")}</small></div><div class="appointment-detail-kpi"><span>Valores</span><strong>${esc(item.value_label||"R$ 0,00")}</strong><small>Sinal ${esc(item.deposit_label||"R$ 0,00")}</small></div></div><div class="panel soft appointment-detail-notes"><strong>Título original</strong><p>${esc(item.title||item.name||"-")}</p>${item.description?`<strong>Descrição</strong><p>${esc(item.description)}</p>`:""}${item.raw_title?`<strong>Origem/importação</strong><p>${esc(item.raw_title)}</p>`:""}${alerts.length?`<strong>Alertas de saúde</strong><div class="appointment-health-list">${alerts.map((alert)=>`<span class="badge warn">${esc(alert.label)}: ${esc(alert.detail)}</span>`).join("")}</div>`:""}</div><div class="actions appointment-detail-actions"><a class="btn" href="${esc(item.edit_url||"#")}">Editar agendamento</a><form method="post" class="inline-form" onsubmit="return confirm(\'Excluir este agendamento?\')">${csrfHtml}<input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="appointment_id" value="${esc(item.id||"")}"><input type="hidden" name="appointment_date" value="${esc(item.date||"")}"><button type="submit" class="btn secondary">Excluir</button></form><button type="button" class="btn secondary" data-close-appointment-detail>Fechar</button></div>`;open(detailModal);});document.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("[data-close-appointment-detail]"))close(detailModal);});[toolsModal,freeModal,detailModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal)close(modal);});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){close(toolsModal);close(freeModal);close(detailModal);}});})();</script>';
+        echo '<script>(function(){const toolsBtn=document.getElementById("openAgendaToolsButton");const toolsModal=document.getElementById("agendaToolsModal");const closeTools=document.getElementById("closeAgendaToolsModal");const freeBtn=document.getElementById("openFreeSlotsButton");const freeModal=document.getElementById("freeSlotsModal");const closeFree=document.getElementById("closeFreeSlotsModal");const detailModal=document.getElementById("appointmentDetailModal");const closeDetail=document.getElementById("closeAppointmentDetailModal");const detailTitle=document.getElementById("appointmentDetailTitle");const detailSummary=document.getElementById("appointmentDetailSummary");const detailBody=document.getElementById("appointmentDetailBody");const csrfHtml=' . json_encode(csrf_field(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';const open=(modal)=>{if(modal)modal.classList.remove("hidden");};const close=(modal)=>{if(modal)modal.classList.add("hidden");};const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));if(toolsBtn&&toolsModal)toolsBtn.addEventListener("click",()=>open(toolsModal));if(closeTools)closeTools.addEventListener("click",()=>close(toolsModal));if(freeBtn&&freeModal)freeBtn.addEventListener("click",()=>{close(toolsModal);open(freeModal);});if(closeFree)closeFree.addEventListener("click",()=>close(freeModal));if(closeDetail)closeDetail.addEventListener("click",()=>close(detailModal));document.addEventListener("click",(event)=>{const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger||!detailModal||!detailTitle||!detailBody)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}detailTitle.textContent=item.name||item.title||"Agendamento";detailSummary.textContent=[item.date_label,item.time_label,item.status].filter(Boolean).join(" · ");const alerts=Array.isArray(item.health_alerts)?item.health_alerts:[];const referenceHtml=item.reference_url?`<div class="appointment-reference-inline"><a href="${esc(item.reference_url)}" target="_blank" rel="noopener"><img src="${esc(item.reference_url)}" alt="Referência do agendamento"></a><div><strong>Referência principal</strong><p>${esc(item.reference_name||"Imagem enviada no WhatsApp")}</p></div></div>`:"";detailBody.innerHTML=`<div class="appointment-detail-grid"><div class="appointment-detail-kpi"><span>Quando</span><strong>${esc(item.date_label||"-")}</strong><small>${esc(item.time_label||"-")}</small></div><div class="appointment-detail-kpi"><span>Status</span><strong>${esc(item.status||"-")}</strong><small>${esc(item.origin_label||"Manual")}</small></div><div class="appointment-detail-kpi"><span>Tatuador</span><strong>${esc(item.artist||"-")}</strong><small>${esc(item.google_calendar_id?"Google Agenda":"CRM")}</small></div><div class="appointment-detail-kpi"><span>Valores</span><strong>${esc(item.value_label||"R$ 0,00")}</strong><small>Sinal ${esc(item.deposit_label||"R$ 0,00")}</small></div></div>${referenceHtml}<div class="panel soft appointment-detail-notes"><strong>Título original</strong><p>${esc(item.title||item.name||"-")}</p>${item.description?`<strong>Descrição</strong><p>${esc(item.description)}</p>`:""}${item.raw_title?`<strong>Origem/importação</strong><p>${esc(item.raw_title)}</p>`:""}${alerts.length?`<strong>Alertas de saúde</strong><div class="appointment-health-list">${alerts.map((alert)=>`<span class="badge warn">${esc(alert.label)}: ${esc(alert.detail)}</span>`).join("")}</div>`:""}</div><div class="actions appointment-detail-actions"><a class="btn" href="${esc(item.edit_url||"#")}">Editar agendamento</a><form method="post" class="inline-form" onsubmit="return confirm(\'Excluir este agendamento?\')">${csrfHtml}<input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="appointment_id" value="${esc(item.id||"")}"><input type="hidden" name="appointment_date" value="${esc(item.date||"")}"><button type="submit" class="btn secondary">Excluir</button></form><button type="button" class="btn secondary" data-close-appointment-detail>Fechar</button></div>`;open(detailModal);});document.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("[data-close-appointment-detail]"))close(detailModal);});[toolsModal,freeModal,detailModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal)close(modal);});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){close(toolsModal);close(freeModal);close(detailModal);}});})();</script>';
         if ($view === 'month') {
             render_calendar_month($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'week') {
@@ -4702,6 +4907,16 @@ if ($page === 'studio_agenda') {
 
         if ($selectedAppointment) {
             $selectedDate = (string)($selectedAppointment['appointment_date'] ?? date('Y-m-d'));
+            $selectedReferences = studio_list_appointment_references($studio, (int)($selectedAppointment['id'] ?? 0));
+            if (!$selectedReferences && !empty($selectedAppointment['reference_image_path'])) {
+                $selectedReferences = [[
+                    'reference_image_path' => (string)$selectedAppointment['reference_image_path'],
+                    'reference_image_name' => (string)($selectedAppointment['reference_image_name'] ?? ''),
+                    'reference_image_mime' => (string)($selectedAppointment['reference_image_mime'] ?? ''),
+                    'summary' => 'Referência principal do agendamento.',
+                    'source' => (string)($selectedAppointment['import_source'] ?? 'manual'),
+                ]];
+            }
             echo '<section class="panel mt-3"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 class="mb-1">Detalhes do agendamento</h2><p class="muted mb-0">Clique num item da agenda para revisar, editar ou excluir sem perder o contexto.</p></div><a class="btn secondary" href="' . h(app_url('studio_agenda', ['date' => $selectedDate])) . '">Limpar selecao</a></div>';
             echo '<div class="grid cols-2 mt-3">';
             echo '<div class="panel soft"><p class="muted mb-1">Quando</p><h3 class="mt-0">' . h(format_date_pt($selectedDate) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted mb-0">' . h($selectedAppointment['status']) . '</p></div>';
@@ -4727,9 +4942,31 @@ if ($page === 'studio_agenda') {
             if (!empty($selectedAppointment['description'])) {
                 echo '<div class="field"><label>Descricao</label><div class="info-box">' . h($selectedAppointment['description']) . '</div></div>';
             }
-            if (!empty($selectedAppointment['reference_image_path'])) {
-                $refUrl = app_url((string)$selectedAppointment['reference_image_path']);
-                echo '<div class="field"><label>Referencia</label><a class="btn secondary" href="' . h($refUrl) . '" target="_blank" rel="noopener">Abrir imagem de referencia</a></div>';
+            if ($selectedReferences) {
+                echo '<div class="field"><label>Referências da tatuagem</label><div class="appointment-reference-gallery">';
+                foreach ($selectedReferences as $index => $reference) {
+                    $referencePath = trim((string)($reference['reference_image_path'] ?? ''));
+                    if ($referencePath === '') {
+                        continue;
+                    }
+                    $refUrl = preg_match('/^https?:\/\//i', $referencePath) ? $referencePath : app_url($referencePath);
+                    $refMime = strtolower(trim((string)($reference['reference_image_mime'] ?? '')));
+                    $refName = trim((string)($reference['reference_image_name'] ?? ''));
+                    $refSummary = trim((string)($reference['summary'] ?? ''));
+                    echo '<a class="appointment-reference-card" href="' . h($refUrl) . '" target="_blank" rel="noopener">';
+                    if ($refMime === '' || str_starts_with($refMime, 'image/')) {
+                        echo '<img src="' . h($refUrl) . '" alt="' . h($refName !== '' ? $refName : 'Referência ' . ($index + 1)) . '">';
+                    } else {
+                        echo '<div class="appointment-reference-file"><i class="fa-regular fa-file"></i></div>';
+                    }
+                    echo '<span class="badge">Ref. ' . h((string)($index + 1)) . '</span>';
+                    echo '<strong>' . h($refName !== '' ? $refName : 'Imagem de referência') . '</strong>';
+                    if ($refSummary !== '') {
+                        echo '<small>' . h($refSummary) . '</small>';
+                    }
+                    echo '</a>';
+                }
+                echo '</div></div>';
             }
             echo '<div class="actions" style="margin-top:14px">';
             echo '<form method="post" class="inline-form">';
@@ -5449,7 +5686,7 @@ if ($page === 'studio_whatsapp_workspace') {
             render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
             echo '</select></div><div class="field"><label>Etapa</label><select name="pipeline_stage">';
             foreach (studio_list_pipeline_stages($studio) as $stage) {
-                echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h((string)$stage['name']) . '</option>';
+                echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
             }
             echo '</select></div></div>';
             echo '<div class="field"><label>Observacoes</label><textarea name="notes">' . h($notesFieldValue) . '</textarea></div>';
@@ -5991,7 +6228,7 @@ if ($page === 'studio_whatsapp_conversation') {
         render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
         echo '</select></div><div class="field"><label>Etapa </label><select name="pipeline_stage">';
         foreach (studio_list_pipeline_stages($studio) as $stage) {
-            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h($stage['name']) . '</option>';
+            echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></div></div>';
         echo '<div class="grid cols-1 row row-cols-1 row-cols-md-2 g-3"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($conversation['lead_estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="WhatsApp"></div></div>';
@@ -6219,7 +6456,7 @@ if ($page === 'studio_people') {
         }
         $totalCustomers = count($customers);
         $totalLeads = count($leads);
-        echo '<section class="panel shadow-sm border-0"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Pessoas</h2><p class="muted">Clientes e leads num unico lugar.</p></div><span class="badge">' . h((string)($totalCustomers + $totalLeads)) . ' registros</span></div>';
+        echo '<section class="panel shadow-sm border-0 people-hero"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><span class="section-eyebrow">Base do estúdio</span><h2>Pessoas</h2><p class="muted">Clientes, leads e conversas em uma leitura rápida.</p></div><span class="badge">' . h((string)($totalCustomers + $totalLeads)) . ' registros</span></div>';
         echo '<form class="filter-bar row row-cols-1 row-cols-md-2 row-cols-xl-4 g-2 align-items-end" method="get"><input type="hidden" name="page" value="studio_people">';
         echo '<div class="col"><input name="q" placeholder="Buscar por nome, telefone, email ou interesse..." value="' . h($q) . '"></div>';
         echo '<div class="col"><select name="view">';
@@ -6229,12 +6466,12 @@ if ($page === 'studio_people') {
         echo '</select></div>';
         echo '<div class="col d-flex gap-2 flex-wrap"><button class="btn secondary" type="submit">Filtrar</button><a class="btn secondary" href="' . h(app_url('studio_people')) . '">Limpar</a></div></form>';
         echo '</section>';
-        echo '<section class="grid cols-3" style="margin-top:16px">';
+        echo '<section class="grid cols-3 people-kpi-grid" style="margin-top:16px">';
         echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes</p><span class="muted">Abrir cadastros</span></button>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_leads')) . '"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads</p><span class="muted">Abrir funil</span></a>';
         echo '<a class="panel dashboard-stat" href="' . h(app_url('studio_whatsapp')) . '"><p class="metric">' . h((string)studio_whatsapp_summary($studio)['total']) . '</p><p class="muted">Conversas WhatsApp</p><span class="muted">Ver integrações</span></a>';
         echo '</section>';
-        echo '<section class="grid cols-2" style="margin-top:16px">';
+        echo '<section class="grid cols-2 people-secondary-grid" style="margin-top:16px">';
         echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="leads"><p class="metric">' . h((string)$totalLeads) . '</p><p class="muted">Leads recentes</p><span class="muted">Abrir lista em overlay</span></button>';
         echo '<button type="button" class="panel dashboard-stat dashboard-stat-button" data-people-overlay="customers"><p class="metric">' . h((string)$totalCustomers) . '</p><p class="muted">Clientes recentes</p><span class="muted">Abrir lista em overlay</span></button>';
         echo '</section>';
@@ -6311,6 +6548,7 @@ if ($page === 'studio_reports') {
             return;
         }
         $pdo = studio_db($studio);
+        studio_ensure_appointment_reference_columns($studio);
         $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
         $monthStart = new DateTimeImmutable('first day of this month', new DateTimeZone('America/Sao_Paulo'));
         $monthEnd = new DateTimeImmutable('last day of this month 23:59:59', new DateTimeZone('America/Sao_Paulo'));
@@ -6454,6 +6692,81 @@ if ($page === 'studio_reports') {
         $monthExpenses = (float)($pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date BETWEEN '" . $monthStart->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "'")->fetchColumn() ?: 0);
 
         $reports = studio_report_data($studio);
+        $financeSummary = studio_finance_summary($studio);
+        $whatsappSummary = plan_allows('whatsapp')
+            ? studio_whatsapp_summary($studio)
+            : ['total' => 0, 'bot' => 0, 'human' => 0, 'analyzed' => 0, 'needs_human' => 0, 'avg_score' => 0];
+        $leadPulse = $pdo->query(
+            "SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN status NOT IN ('perdido', 'fechado') THEN 1 ELSE 0 END) AS open_total,
+                SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_new,
+                SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') THEN 1 ELSE 0 END) AS month_new,
+                SUM(CASE WHEN status NOT IN ('perdido', 'fechado') AND COALESCE(lead_score, 0) >= 7 THEN 1 ELSE 0 END) AS hot_open,
+                COALESCE(SUM(CASE WHEN status NOT IN ('perdido', 'fechado') THEN estimated_value ELSE 0 END), 0) AS open_value
+             FROM leads"
+        )->fetch() ?: [];
+        $appointmentPulse = $pdo->query(
+            "SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN appointment_date >= CURDATE() AND status NOT IN ('cancelado', 'perdido') THEN 1 ELSE 0 END) AS future_total,
+                SUM(CASE WHEN appointment_date = CURDATE() AND status NOT IN ('cancelado', 'perdido') THEN 1 ELSE 0 END) AS today_total,
+                SUM(CASE WHEN DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado', 'perdido') THEN 1 ELSE 0 END) AS month_total,
+                COALESCE(SUM(CASE WHEN appointment_date >= CURDATE() AND status NOT IN ('cancelado', 'perdido') THEN value ELSE 0 END), 0) AS future_value,
+                COALESCE(SUM(CASE WHEN appointment_date >= CURDATE() AND status NOT IN ('cancelado', 'perdido') THEN deposit_value ELSE 0 END), 0) AS future_deposits,
+                SUM(CASE WHEN COALESCE(ai_review_required, 0) = 1 THEN 1 ELSE 0 END) AS import_review_total
+             FROM appointments"
+        )->fetch() ?: [];
+        $customerPulse = $pdo->query(
+            "SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_new,
+                SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') THEN 1 ELSE 0 END) AS month_new
+             FROM customers"
+        )->fetch() ?: [];
+        $upcomingSummaryItems = $pdo->query(
+            "SELECT a.id, a.appointment_date, a.start_time, a.status, a.value, a.deposit_value,
+                    COALESCE(c.name, a.title) AS customer_name, COALESCE(ta.name, 'Sem tatuador') AS artist_name
+             FROM appointments a
+             LEFT JOIN customers c ON c.id = a.customer_id
+             LEFT JOIN tattoo_artists ta ON ta.id = a.artist_id
+             WHERE a.appointment_date >= CURDATE()
+               AND a.status NOT IN ('cancelado', 'perdido')
+             ORDER BY a.appointment_date ASC, a.start_time ASC
+             LIMIT 6"
+        )->fetchAll() ?: [];
+        $hotLeadSummaryItems = $pdo->query(
+            "SELECT id, name, phone, pipeline_stage, lead_score, estimated_value, updated_at
+             FROM leads
+             WHERE status NOT IN ('perdido', 'fechado')
+             ORDER BY COALESCE(lead_score, 0) DESC, COALESCE(estimated_value, 0) DESC, COALESCE(updated_at, created_at) DESC
+             LIMIT 6"
+        )->fetchAll() ?: [];
+        $whatsappAttentionItems = plan_allows('whatsapp')
+            ? ($pdo->query(
+                "SELECT id, COALESCE(name, phone) AS name, phone, attendance_mode, needs_human, last_message_preview, last_message_at
+                 FROM whatsapp_conversations
+                 WHERE needs_human = 1 OR attendance_mode = 'human'
+                 ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC
+                 LIMIT 6"
+            )->fetchAll() ?: [])
+            : [];
+        $googleIntegration = [];
+        try {
+            if (function_exists('google_calendar_integration')) {
+                $googleIntegration = google_calendar_integration($studio);
+            }
+        } catch (Throwable) {
+            $googleIntegration = [];
+        }
+        $metaSummary = ['ok' => false];
+        try {
+            if (function_exists('studio_meta_ads_insights_summary')) {
+                $metaSummary = studio_meta_ads_insights_summary($studio, 30);
+            }
+        } catch (Throwable $e) {
+            $metaSummary = ['ok' => false, 'error' => $e->getMessage()];
+        }
         $pivotSource = (string)($_GET['pivot_source'] ?? 'leads');
         $pivotSource = in_array($pivotSource, ['leads', 'appointments', 'expenses'], true) ? $pivotSource : 'leads';
         $pivotDataSets = [
@@ -6564,11 +6877,112 @@ if ($page === 'studio_reports') {
         }
 
         ob_start();
-        echo '<div class="mini-metrics">';
-        echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['leads_by_status'] ?? []))) . '</strong><small>Leads totais</small></span>';
-        echo '<span><strong>' . h((string)array_sum(array_map(static fn($row) => (int)($row['qtd'] ?? 0), $reports['appointments_by_status'] ?? []))) . '</strong><small>Agendamentos</small></span>';
-        echo '<span><strong>' . h((string)count($reports['expenses_by_category'] ?? [])) . '</strong><small>Grupos de despesa</small></span>';
+        $balance = (float)($financeSummary['balance_period'] ?? 0);
+        $openLeads = (int)($leadPulse['open_total'] ?? 0);
+        $hotOpenLeads = (int)($leadPulse['hot_open'] ?? 0);
+        $futureAppointments = (int)($appointmentPulse['future_total'] ?? 0);
+        $aiReviewImports = (int)($appointmentPulse['import_review_total'] ?? 0);
+        $needsHuman = (int)($whatsappSummary['needs_human'] ?? 0);
+        $executiveNotes = [];
+        $executiveNotes[] = $balance >= 0
+            ? 'Financeiro do mês está positivo em ' . format_money($balance) . '.'
+            : 'Financeiro do mês está negativo em ' . format_money(abs($balance)) . '; vale revisar despesas e agenda prevista.';
+        if ($hotOpenLeads > 0) {
+            $executiveNotes[] = $hotOpenLeads . ' lead(s) quente(s) ainda aberto(s), com potencial de virar agenda.';
+        }
+        if ($needsHuman > 0) {
+            $executiveNotes[] = $needsHuman . ' conversa(s) do WhatsApp pedindo intervenção humana.';
+        }
+        if ($aiReviewImports > 0) {
+            $executiveNotes[] = $aiReviewImports . ' agendamento(s) importado(s) precisam revisão da leitura automática.';
+        }
+        if ($futureAppointments <= 0) {
+            $executiveNotes[] = 'Não há atendimentos futuros ativos cadastrados.';
+        }
+
+        echo '<div class="stack-list" style="gap:16px">';
+        echo '<section class="panel soft" style="margin:0;background:linear-gradient(135deg,#f7fbf8 0%,#eef7f1 100%)"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><span class="section-eyebrow">Visão executiva</span><h3 style="margin:4px 0 6px">Resumo geral do estúdio</h3><p class="muted" style="margin:0">Consolida financeiro, agenda, leads, WhatsApp, IA, Google Agenda e Meta Ads quando disponível.</p></div><span class="badge ok">' . h(format_date_pt(date('Y-m-d'))) . '</span></div>';
+        echo '<div class="mini-metrics" style="margin-top:14px">';
+        echo '<span><strong>' . h(format_money((float)($financeSummary['appointments_period'] ?? 0))) . '</strong><small>Receita prevista no mês</small></span>';
+        echo '<span><strong>' . h(format_money((float)($financeSummary['deposits_period'] ?? 0))) . '</strong><small>Sinais recebidos</small></span>';
+        echo '<span><strong>' . h(format_money((float)($financeSummary['expenses_period'] ?? 0))) . '</strong><small>Despesas do mês</small></span>';
+        echo '<span><strong>' . h(format_money($balance)) . '</strong><small>Saldo simples</small></span>';
+        echo '<span><strong>' . h((string)$openLeads) . '</strong><small>Leads abertos</small></span>';
+        echo '<span><strong>' . h((string)$futureAppointments) . '</strong><small>Agendamentos futuros</small></span>';
         echo '</div>';
+        echo '<div class="alert-grid" style="margin-top:14px">';
+        foreach ($executiveNotes as $note) {
+            $tone = str_contains(studio_calendar_remove_accents(studio_calendar_lower_text($note)), 'negativo') || str_contains(studio_calendar_remove_accents(studio_calendar_lower_text($note)), 'revis') || str_contains(studio_calendar_remove_accents(studio_calendar_lower_text($note)), 'humana') ? 'warn' : 'ok';
+            echo '<div class="alert-card" style="padding:14px"><span class="badge ' . h($tone) . '">' . h($tone === 'ok' ? 'ok' : 'atenção') . '</span><p style="margin:8px 0 0"><strong>' . h($note) . '</strong></p></div>';
+        }
+        echo '</div></section>';
+
+        echo '<section class="grid cols-4 dashboard-kpis">';
+        $summaryKpis = [
+            ['Financeiro', format_money((float)($financeSummary['balance_period'] ?? 0)), 'Saldo simples do mês', 'studio_finance'],
+            ['Ticket médio', format_money((float)($financeSummary['average_ticket'] ?? 0)), (string)($financeSummary['appointments_count'] ?? 0) . ' atendimento(s) no período', 'studio_finance'],
+            ['Clientes', (string)($customerPulse['total'] ?? 0), '+' . (string)($customerPulse['month_new'] ?? 0) . ' este mês', 'studio_people'],
+            ['WhatsApp', (string)($whatsappSummary['total'] ?? 0), (string)$needsHuman . ' pedindo humano', 'studio_whatsapp'],
+            ['IA ativa', (string)($whatsappSummary['bot'] ?? 0), (string)($whatsappSummary['analyzed'] ?? 0) . ' conversas analisadas', 'studio_whatsapp'],
+            ['Agenda hoje', (string)($appointmentPulse['today_total'] ?? 0), (string)($appointmentPulse['month_total'] ?? 0) . ' no mês', 'studio_agenda'],
+            ['Leads quentes', (string)$hotOpenLeads, format_money((float)($leadPulse['open_value'] ?? 0)) . ' em aberto', 'studio_leads'],
+            ['Meta Ads', !empty($metaSummary['ok']) ? format_money((float)($metaSummary['spend'] ?? 0)) : '—', !empty($metaSummary['ok']) ? ((string)($metaSummary['clicks'] ?? 0) . ' cliques / 30d') : 'sem leitura agora', 'studio_meta_ads'],
+        ];
+        foreach ($summaryKpis as [$label, $value, $hint, $pageTarget]) {
+            echo '<a class="panel dashboard-stat" href="' . h(app_url((string)$pageTarget)) . '"><strong class="metric">' . h((string)$value) . '</strong><p class="muted" style="margin:0">' . h((string)$label) . '</p><span class="muted">' . h((string)$hint) . '</span></a>';
+        }
+        echo '</section>';
+
+        echo '<div class="grid cols-2">';
+        echo '<section class="panel soft"><div class="actions" style="justify-content:space-between"><h3 style="margin:0">Próximos atendimentos</h3><a class="btn tiny secondary" href="' . h(app_url('studio_agenda')) . '">Agenda</a></div><div class="stack-list" style="margin-top:10px">';
+        if (!$upcomingSummaryItems) {
+            echo '<p class="muted">Nenhum atendimento futuro ativo encontrado.</p>';
+        }
+        foreach ($upcomingSummaryItems as $appointment) {
+            $href = app_url('studio_agenda', ['date' => (string)$appointment['appointment_date'], 'appointment_id' => (int)$appointment['id']]) . '#appointment-form';
+            echo '<a class="activity-card" href="' . h($href) . '"><strong>' . h((string)($appointment['customer_name'] ?: 'Atendimento')) . '</strong><span>' . h(format_date_pt((string)$appointment['appointment_date']) . ' às ' . substr((string)$appointment['start_time'], 0, 5) . ' · ' . (string)$appointment['artist_name'] . ' · ' . format_money(appointment_display_amount($appointment['value'] ?? 0))) . '</span></a>';
+        }
+        echo '</div></section>';
+
+        echo '<section class="panel soft"><div class="actions" style="justify-content:space-between"><h3 style="margin:0">Leads para priorizar</h3><a class="btn tiny secondary" href="' . h(app_url('studio_leads')) . '">Funil</a></div><div class="stack-list" style="margin-top:10px">';
+        if (!$hotLeadSummaryItems) {
+            echo '<p class="muted">Nenhum lead aberto encontrado.</p>';
+        }
+        foreach ($hotLeadSummaryItems as $lead) {
+            echo '<a class="activity-card" href="' . h(app_url('studio_lead', ['id' => (int)$lead['id']])) . '"><strong>' . h((string)($lead['name'] ?: $lead['phone'] ?: 'Lead sem nome')) . '</strong><span>' . h((string)($lead['pipeline_stage'] ?: 'Sem etapa') . ' · score ' . (string)($lead['lead_score'] ?? 0) . '/10 · ' . format_money($lead['estimated_value'] ?? 0)) . '</span></a>';
+        }
+        echo '</div></section>';
+
+        echo '<section class="panel soft"><div class="actions" style="justify-content:space-between"><h3 style="margin:0">WhatsApp e IA</h3><a class="btn tiny secondary" href="' . h(app_url('studio_whatsapp')) . '">Conversas</a></div>';
+        echo '<div class="mini-metrics" style="margin-top:10px"><span><strong>' . h((string)($whatsappSummary['bot'] ?? 0)) . '</strong><small>em IA</small></span><span><strong>' . h((string)($whatsappSummary['human'] ?? 0)) . '</strong><small>humano</small></span><span><strong>' . h((string)($whatsappSummary['avg_score'] ?? 0)) . '</strong><small>score médio</small></span></div>';
+        echo '<div class="stack-list" style="margin-top:10px">';
+        if (!$whatsappAttentionItems) {
+            echo '<p class="muted">Nenhuma conversa crítica no momento.</p>';
+        }
+        foreach ($whatsappAttentionItems as $conversation) {
+            $conversationName = (string)($conversation['name'] ?: $conversation['phone'] ?: 'Conversa');
+            echo '<a class="activity-card" href="' . h(app_url('studio_whatsapp_mobile', ['id' => (int)$conversation['id']])) . '"><strong>' . h($conversationName) . '</strong><span>' . h(((int)($conversation['needs_human'] ?? 0) === 1 ? 'Pediu humano' : (string)$conversation['attendance_mode']) . ' · ' . ((string)($conversation['last_message_preview'] ?? '') ?: 'sem prévia')) . '</span></a>';
+        }
+        echo '</div></section>';
+
+        echo '<section class="panel soft"><div class="actions" style="justify-content:space-between"><h3 style="margin:0">Integrações e operação</h3><a class="btn tiny secondary" href="' . h(app_url('studio_settings')) . '">Configurações</a></div><div class="stack-list" style="margin-top:10px">';
+        $googleStatus = !empty($googleIntegration['enabled']) ? 'Sincronização ativa' : 'Sincronização pausada ou não configurada';
+        $googleDetail = trim((string)($googleIntegration['last_sync_message'] ?? '')) ?: 'Sem mensagem recente.';
+        echo '<div class="activity-card"><strong>Google Agenda</strong><span>' . h($googleStatus . ' · ' . $googleDetail) . '</span></div>';
+        if ($aiReviewImports > 0) {
+            echo '<a class="activity-card" href="' . h(app_url('studio_agenda')) . '"><strong>Importações para revisar</strong><span>' . h((string)$aiReviewImports . ' agendamento(s) com leitura automática incerta.') . '</span></a>';
+        }
+        if (!empty($metaSummary['ok'])) {
+            echo '<a class="activity-card" href="' . h(app_url('studio_meta_ads')) . '"><strong>Meta Ads 30 dias</strong><span>' . h(format_money((float)($metaSummary['spend'] ?? 0)) . ' investidos · ' . (string)($metaSummary['reach'] ?? 0) . ' alcance · CTR ' . number_format((float)($metaSummary['ctr'] ?? 0), 2, ',', '.') . '%') . '</span></a>';
+        } else {
+            echo '<div class="activity-card"><strong>Meta Ads</strong><span>' . h((string)($metaSummary['error'] ?? 'Sem leitura configurada agora.')) . '</span></div>';
+        }
+        if (!empty($financeSummary['by_category'][0])) {
+            $topExpense = $financeSummary['by_category'][0];
+            echo '<a class="activity-card" href="' . h(app_url('studio_finance')) . '"><strong>Maior categoria de despesa</strong><span>' . h((string)($topExpense['category'] ?? 'Sem categoria') . ' · ' . format_money($topExpense['total'] ?? 0)) . '</span></a>';
+        }
+        echo '</div></section>';
+        echo '</div></div>';
         $summaryMarkup = ob_get_clean();
 
         ob_start();
@@ -6591,17 +7005,17 @@ if ($page === 'studio_reports') {
         render_report_table($reports['expenses_by_category'], 'category');
         $expensesCategoryTable = ob_get_clean();
 
-        echo '<section class="panel shadow-sm border-0" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay.</p></div><span class="badge">Painel</span></div>';
-        echo '<div class="settings-overview-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="alerts"><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="summary"><p class="metric">Resumo gerencial</p><p class="muted">Leitura rápida do mês</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_status"><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_source"><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_status"><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_month"><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
-        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="expenses_category"><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<section class="panel shadow-sm border-0 reports-launcher" style="margin-bottom:16px"><div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><span class="section-eyebrow">Central de leitura</span><h2>Relatórios</h2><p class="muted">Abra cada leitura em overlay sem sair da página.</p></div><span class="badge">Painel</span></div>';
+        echo '<div class="settings-overview-grid row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3 reports-launcher-grid">';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="alerts"><i class="fa-solid fa-triangle-exclamation"></i><p class="metric">Alertas operacionais</p><p class="muted">Sinais rápidos do que pede ação</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="summary"><i class="fa-solid fa-layer-group"></i><p class="metric">Resumo gerencial</p><p class="muted">Visão geral da operação</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_status"><i class="fa-solid fa-filter-circle-dollar"></i><p class="metric">Leads por status</p><p class="muted">Distribuição do funil</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="lead_source"><i class="fa-solid fa-route"></i><p class="metric">Leads por origem</p><p class="muted">Canais de entrada</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_status"><i class="fa-solid fa-calendar-check"></i><p class="metric">Agenda por status</p><p class="muted">Leitura do calendário</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="appointments_month"><i class="fa-solid fa-calendar-days"></i><p class="metric">Agenda por mês</p><p class="muted">Comparativo mensal</p><span class="muted">Abrir em overlay</span></button>';
+        echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="expenses_category"><i class="fa-solid fa-receipt"></i><p class="metric">Despesas por categoria</p><p class="muted">Centro de custo</p><span class="muted">Abrir em overlay</span></button>';
         if (plan_allows('advanced_reports')) {
-            echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="pivot"><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
+            echo '<button type="button" class="panel dashboard-stat h-100 text-start" data-reports-overlay="pivot"><i class="fa-solid fa-table-cells-large"></i><p class="metric">Tabela dinâmica</p><p class="muted">Cruzamentos avançados</p><span class="muted">Abrir em overlay</span></button>';
         }
         echo '</div></section>';
         echo '<div id="reportsOverlay" class="crm-modal hidden"><div class="crm-modal-panel" style="max-width:min(96vw,1180px)"><div class="crm-panel-header"><div><h3 id="reportsOverlayTitle" class="crm-panel-title">Relatórios</h3><p id="reportsOverlaySummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeReportsOverlay" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div id="reportsOverlayBody" class="p-4"></div></div></div>';
@@ -6623,7 +7037,7 @@ if ($page === 'studio_reports') {
         echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.toolbar.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
         echo '<script src="' . h(app_asset_url('assets/vendor/webdatarocks/webdatarocks.js')) . '?v=' . h(app_build_version()) . '"></script>';
         echo '<script>window.reportsPivotData = ' . json_encode($pivotDataSets, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; window.reportsPivotSource = ' . json_encode($pivotSource, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';</script>';
-        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rápidos do que precisa de ação agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Leitura rápida do mês",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuição do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendário",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mês",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinâmica",summary:"Cruzamentos avançados",source:"reportsSourcePivot"}};let pivotInstance=null;function disposePivot(){try{if(pivotInstance&&typeof pivotInstance.dispose==="function")pivotInstance.dispose();}catch(error){}pivotInstance=null;}function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;disposePivot();title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){const mount=body.querySelector("#reportsPivot");if(!mount)return;mount.id="reportsPivotOverlay";const sourceButtons=Array.from(body.querySelectorAll("[data-pivot-source]"));const renderPivot=(sourceKey)=>{const cfg=window.reportsPivotData[sourceKey]||window.reportsPivotData.leads;if(!cfg)return;sourceButtons.forEach((button)=>button.classList.toggle("active",button.getAttribute("data-pivot-source")===sourceKey));const report={dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice};if(pivotInstance){pivotInstance.setReport(report);return;}pivotInstance=new WebDataRocks({container:"#reportsPivotOverlay",height:640,width:"100%",toolbar:true,report:report});};sourceButtons.forEach((button)=>button.addEventListener("click",()=>renderPivot(button.getAttribute("data-pivot-source")||"leads")));setTimeout(()=>{try{renderPivot(window.reportsPivotSource||"leads");}catch(error){mount.innerHTML="<p class=\"muted\">Não foi possível montar a tabela dinâmica agora.</p>";}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn)closeBtn.addEventListener("click",()=>{disposePivot();modal.classList.add("hidden");});if(modal)modal.addEventListener("click",(event)=>{if(event.target===modal){disposePivot();modal.classList.add("hidden");}});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal){disposePivot();modal.classList.add("hidden");}});})();</script>';
+        echo '<script>(function(){const modal=document.getElementById("reportsOverlay");const body=document.getElementById("reportsOverlayBody");const title=document.getElementById("reportsOverlayTitle");const summary=document.getElementById("reportsOverlaySummary");const closeBtn=document.getElementById("closeReportsOverlay");const sourceMap={alerts:{title:"Alertas operacionais",summary:"Sinais rápidos do que precisa de ação agora",source:"reportsSourceAlerts"},summary:{title:"Resumo gerencial",summary:"Visão geral da operação",source:"reportsSourceSummary"},lead_status:{title:"Leads por status",summary:"Distribuição do funil",source:"reportsSourceLeadStatus"},lead_source:{title:"Leads por origem",summary:"Canais de entrada",source:"reportsSourceLeadSource"},appointments_status:{title:"Agenda por status",summary:"Leitura do calendário",source:"reportsSourceAppointmentsStatus"},appointments_month:{title:"Agenda por mês",summary:"Comparativo mensal",source:"reportsSourceAppointmentsMonth"},expenses_category:{title:"Despesas por categoria",summary:"Centro de custo",source:"reportsSourceExpensesCategory"},pivot:{title:"Tabela dinâmica",summary:"Cruzamentos avançados",source:"reportsSourcePivot"}};let pivotInstance=null;function disposePivot(){try{if(pivotInstance&&typeof pivotInstance.dispose==="function")pivotInstance.dispose();}catch(error){}pivotInstance=null;}function openOverlay(key){const config=sourceMap[key]||sourceMap.summary;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;disposePivot();title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");if(key==="pivot"&&window.WebDataRocks&&window.reportsPivotData){const mount=body.querySelector("#reportsPivot");if(!mount)return;mount.id="reportsPivotOverlay";const sourceButtons=Array.from(body.querySelectorAll("[data-pivot-source]"));const renderPivot=(sourceKey)=>{const cfg=window.reportsPivotData[sourceKey]||window.reportsPivotData.leads;if(!cfg)return;sourceButtons.forEach((button)=>button.classList.toggle("active",button.getAttribute("data-pivot-source")===sourceKey));const report={dataSource:{dataSourceType:"json",data:cfg.data},slice:cfg.report.slice};if(pivotInstance){pivotInstance.setReport(report);return;}pivotInstance=new WebDataRocks({container:"#reportsPivotOverlay",height:640,width:"100%",toolbar:true,report:report});};sourceButtons.forEach((button)=>button.addEventListener("click",()=>renderPivot(button.getAttribute("data-pivot-source")||"leads")));setTimeout(()=>{try{renderPivot(window.reportsPivotSource||"leads");}catch(error){mount.innerHTML="<p class=\"muted\">Não foi possível montar a tabela dinâmica agora.</p>";}},50);}}document.querySelectorAll("[data-reports-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-reports-overlay")||"summary"));});if(closeBtn)closeBtn.addEventListener("click",()=>{disposePivot();modal.classList.add("hidden");});if(modal)modal.addEventListener("click",(event)=>{if(event.target===modal){disposePivot();modal.classList.add("hidden");}});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal){disposePivot();modal.classList.add("hidden");}});})();</script>';
     }, $flash);
     exit;
 }
@@ -6717,7 +7131,7 @@ if ($page === 'studio_tattoo_image_status') {
 
 if ($page === 'studio_tattoo_images') {
     $studio = require_studio();
-    render_studio_shell('Criar imagem', 'Transforme uma ideia em referência visual para tatuagem.', 'tattoo_images', function () use ($studio) {
+    render_studio_shell('Criar imagem', 'Geração livre: descreva a imagem e deixe a IA obedecer ao pedido.', 'tattoo_images', function () use ($studio) {
         $localAi = studio_local_image_ai_status();
         $job = $_SESSION['studio_tattoo_image_job'] ?? null;
         $isGenerating = is_array($job) && !empty($job['id']);
@@ -6761,12 +7175,12 @@ if ($page === 'studio_tattoo_images') {
         $localAiState = !empty($localAi['ok']) ? 'Operação online' : 'A IA local está iniciando';
         echo '<div class="tattoo-image-page">';
         echo '<section class="panel tattoo-image-hero">';
-        echo '<div class="tattoo-image-hero-copy"><span class="section-eyebrow">IA de imagem</span><h2>Briefing de tatuagem em camadas</h2><p>Primeiro o sujeito principal, depois a direção artística. A IA usa os controles da página para obedecer melhor ao que você pediu e não virar uma foto aleatória.</p><div class="tattoo-image-mini-badges"><span class="badge">' . h($localAiModel) . '</span><span class="badge">' . h($modeLabels[$selectedMode] ?? $selectedMode) . '</span><span class="badge">' . h($selectedStyle !== '' ? ($styleLabels[$selectedStyle] ?? $selectedStyle) : 'Realista') . '</span><span class="badge">' . h($formatLabels[$selectedFormat] ?? $selectedFormat) . '</span><span class="badge">' . h($compositionLabels[$selectedComposition] ?? $selectedComposition) . '</span></div></div>';
+        echo '<div class="tattoo-image-hero-copy"><span class="section-eyebrow">IA de imagem</span><h2>Criador livre, simples e direto</h2><p>Escreva exatamente o que quer ver. As opções ficam como apoio: qualidade, estilo, formato e acabamento, sem prender o pedido ao tema tatuagem.</p><div class="tattoo-image-mini-badges"><span class="badge">' . h($localAiModel) . '</span><span class="badge">' . h($modeLabels[$selectedMode] ?? $selectedMode) . '</span><span class="badge">' . h($selectedStyle !== '' ? ($styleLabels[$selectedStyle] ?? $selectedStyle) : 'Realista') . '</span><span class="badge">' . h($formatLabels[$selectedFormat] ?? $selectedFormat) . '</span><span class="badge">' . h($compositionLabels[$selectedComposition] ?? $selectedComposition) . '</span></div></div>';
         echo '<div class="tattoo-image-hero-meta"><div class="tattoo-image-status-chip"><span class="tattoo-image-status-dot ' . (!empty($localAi['ok']) ? 'is-on' : 'is-off') . '"></span><div><strong>' . h($localAiState) . '</strong><small>' . h(!empty($localAi['ok']) ? 'Geração local sem API externa' : 'Aguarde o modelo subir') . '</small></div></div><div class="tattoo-image-hero-actions"><a class="btn secondary" href="#tattoo-history">Ver histórico</a><a class="btn secondary" href="#tattoo-guides">Guias rápidos</a></div></div>';
         echo '</section>';
         echo '<div class="tattoo-image-layout">';
         echo '<section class="panel tattoo-image-panel tattoo-image-compose" id="tattoo-compose">';
-        echo '<div class="tattoo-image-panel-head"><div><h3>Gerar imagem</h3><p class="muted mb-0">Escolha o estilo, defina o sujeito e deixe o restante em detalhes expansíveis.</p></div><span class="badge ' . (!empty($localAi['ok']) ? 'ok' : 'warn') . '">' . h($isGenerating ? 'Gerando' : 'Pronto') . '</span></div>';
+        echo '<div class="tattoo-image-panel-head"><div><h3>Gerar imagem</h3><p class="muted mb-0">Prompt primeiro. Ajustes finos ficam logo abaixo, sem poluir a criação.</p></div><span class="badge ' . (!empty($localAi['ok']) ? 'ok' : 'warn') . '">' . h($isGenerating ? 'Gerando' : 'Pronto') . '</span></div>';
         echo '<div class="tattoo-image-chip-row" aria-label="Sugestões rápidas">';
         foreach ($presetPrompts as $preset) {
             echo '<button type="button" class="tattoo-image-chip" data-tattoo-preset="' . h($preset) . '">' . h(mb_substr($preset, 0, 40)) . '</button>';
@@ -7078,6 +7492,70 @@ if ($page === 'studio_artists') {
     exit;
 }
 
+if ($page === 'studio_whatsapp_flow') {
+    $studio = require_studio();
+    $flow = studio_whatsapp_service_flow($studio);
+    $flowConfig = is_array($flow['config'] ?? null) ? $flow['config'] : [];
+    $flowSteps = array_values((array)($flow['steps'] ?? []));
+    render_studio_shell('Roteiro do atendimento', 'Um caminho fixo para coletar os dados e concluir o agendamento sem a IA improvisar etapas.', 'settings', function () use ($studio, $flowConfig, $flowSteps) {
+        $clientSteps = array_map(static function (array $step): array {
+            return [
+                'step_key' => (string)($step['step_key'] ?? ''),
+                'title' => (string)($step['title'] ?? ''),
+                'step_type' => (string)($step['step_type'] ?? 'question'),
+                'field_key' => (string)($step['field_key'] ?? 'custom_response'),
+                'answer_type' => (string)($step['answer_type'] ?? 'text'),
+                'question_text' => (string)($step['question_text'] ?? ''),
+                'help_text' => (string)($step['help_text'] ?? ''),
+                'options' => array_values((array)($step['options'] ?? [])),
+                'is_required' => !empty($step['is_required']),
+                'is_active' => !empty($step['is_active']),
+            ];
+        }, $flowSteps);
+        echo '<div class="flow-page-head">';
+        echo '<div><span class="section-eyebrow">WhatsApp · somente ADM</span><h2>Fluxograma operacional</h2><p>A ordem dos blocos é a ordem real da conversa. A IA apenas resolve desvios e devolve o cliente ao bloco pendente.</p></div>';
+        echo '<div class="flow-head-actions"><a class="btn secondary" href="' . h(app_url('studio_settings')) . '"><i class="fa-solid fa-arrow-left"></i> Configurações</a><button class="btn" type="submit" form="whatsappFlowForm"><i class="fa-solid fa-floppy-disk"></i> Salvar e publicar</button></div>';
+        echo '</div>';
+        echo '<div class="flow-principles">';
+        echo '<div><i class="fa-solid fa-lock"></i><span><strong>Ordem rígida</strong><small>Nenhuma etapa crítica é pulada.</small></span></div>';
+        echo '<div><i class="fa-solid fa-wand-magic-sparkles"></i><span><strong>IA sob demanda</strong><small>Só responde intercorrências.</small></span></div>';
+        echo '<div><i class="fa-solid fa-rotate-right"></i><span><strong>Retomada exata</strong><small>Volta à pergunta onde parou.</small></span></div>';
+        echo '<div><i class="fa-solid fa-calendar-check"></i><span><strong>Final verificável</strong><small>Pix, agenda e humano protegidos.</small></span></div>';
+        echo '</div>';
+        echo '<form method="post" id="whatsappFlowForm" class="flow-editor-shell">';
+        echo csrf_field();
+        echo '<input type="hidden" name="action" value="save_whatsapp_service_flow">';
+        echo '<input type="hidden" name="flow_definition" id="flowDefinitionInput">';
+        echo '<section class="flow-canvas-panel">';
+        echo '<div class="flow-config-strip">';
+        echo '<label class="flow-enabled"><input type="checkbox" id="flowEnabled" ' . (!empty($flowConfig['enabled']) ? 'checked' : '') . '><span></span><strong>Roteiro ativo</strong></label>';
+        echo '<label><span>Nome do roteiro</span><input id="flowName" value="' . h((string)($flowConfig['flow_name'] ?? 'Roteiro principal de agendamento')) . '"></label>';
+        echo '</div>';
+        echo '<label class="flow-intro-field"><span>Mensagem de abertura</span><textarea id="flowIntro" rows="2">' . h((string)($flowConfig['intro_text'] ?? '')) . '</textarea><small>É enviada uma única vez, antes da primeira pergunta do roteiro.</small></label>';
+        echo '<div class="flow-canvas-toolbar"><div><strong data-flow-count>' . count($flowSteps) . ' blocos</strong><span> Clique em um bloco para editar</span></div><button class="btn secondary tiny" type="button" data-flow-add><i class="fa-solid fa-plus"></i> Novo bloco</button></div>';
+        echo '<div class="flow-canvas" data-flow-canvas></div>';
+        echo '</section>';
+        echo '<aside class="flow-inspector" data-flow-inspector>';
+        echo '<div class="flow-inspector-empty" data-flow-empty><i class="fa-solid fa-arrow-pointer"></i><strong>Selecione um bloco</strong><p>As propriedades e a pergunta aparecerão aqui.</p></div>';
+        echo '<div class="flow-inspector-form" data-flow-form hidden>';
+        echo '<div class="flow-inspector-head"><div><span class="section-eyebrow">Editar bloco</span><h3 data-flow-editor-title>Etapa</h3></div><span class="flow-step-number" data-flow-editor-number>01</span></div>';
+        echo '<div class="field"><label>Título interno</label><input data-flow-field="title" maxlength="160"></div>';
+        echo '<div class="grid cols-2 flow-form-grid"><div class="field"><label>Tipo do bloco</label><select data-flow-field="step_type"><option value="question">Pergunta</option><option value="choice">Escolha / botões</option><option value="media">Arquivo ou mídia</option><option value="system">Ação do sistema</option></select></div>';
+        echo '<div class="field"><label>Como validar</label><select data-flow-field="answer_type"><option value="text">Texto curto</option><option value="long_text">Descrição livre</option><option value="choice">Uma das opções</option><option value="body_area">Parte do corpo</option><option value="image_or_skip">Imagem, link ou sem referência</option><option value="schedule">Data e horário reais</option><option value="yes_no">Sim ou não</option><option value="system_quote">Calcular orçamento</option><option value="system_payment">Enviar Pix</option><option value="payment_proof">Comprovante imagem/PDF</option><option value="system_finalize">Criar agendamento</option></select></div></div>';
+        echo '<div class="field"><label>Dado preenchido</label><select data-flow-field="field_key"><option value="customer_name">Nome do cliente</option><option value="tattoo_idea">Ideia/desenho</option><option value="reference_received">Referência</option><option value="body_area">Área do corpo</option><option value="body_details">Posição/lado</option><option value="size_coverage">Tamanho/cobertura</option><option value="style_preference">Estilo/cor</option><option value="quote">Orçamento</option><option value="selected_slot">Vaga da agenda</option><option value="slot_confirmed">Confirmação da vaga</option><option value="deposit_requested">Solicitação do Pix</option><option value="proof_received">Comprovante</option><option value="appointment_id">Agendamento criado</option><option value="custom_response">Resposta personalizada</option></select><small>Ações de sistema devem permanecer ligadas ao dado correspondente.</small></div>';
+        echo '<div class="field flow-message-field"><div class="flow-field-head"><label>Mensagem ou pergunta fixa</label><div class="flow-message-tools"><button class="btn secondary tiny" type="button" data-flow-format-message><i class="fa-solid fa-align-left"></i> Formatar mensagem</button><button class="btn secondary tiny" type="button" data-flow-final-template><i class="fa-solid fa-calendar-check"></i> Usar resumo final</button></div></div><textarea data-flow-field="question_text" rows="7" maxlength="2000"></textarea><div class="flow-message-preview" data-flow-message-preview><strong>Prévia WhatsApp</strong><span>Selecione ou escreva uma mensagem para visualizar.</span></div><small>Variáveis: {{customer_name}}, {{tattoo_idea}}, {{reference}}, {{project}}, {{body_area}}, {{body_details}}, {{size_coverage}}, {{style_preference}}, {{quote}}, {{quote_description}}, {{date}}, {{time}}, {{deposit}}, {{pix_key}}, {{pix_recipient}}, {{appointment_id}} e {{studio_address}}.</small></div>';
+        echo '<div class="field"><label>Opções enviadas neste bloco</label><textarea data-flow-options rows="4" placeholder="Uma opção por linha"></textarea><small>Se este campo ficar vazio, o WhatsApp envia só a pergunta em texto, sem botões inventados. Até 3 opções viram botões; de 4 a 10 viram uma lista.</small></div>';
+        echo '<div class="field"><label>Explicação para a equipe</label><textarea data-flow-field="help_text" rows="3" maxlength="600"></textarea></div>';
+        echo '<div class="flow-checks"><label><input type="checkbox" data-flow-check="is_active"> Bloco ativo</label><label><input type="checkbox" data-flow-check="is_required"> Resposta obrigatória</label></div>';
+        echo '<div class="flow-order-actions"><button type="button" class="btn secondary tiny" data-flow-up><i class="fa-solid fa-arrow-up"></i> Subir</button><button type="button" class="btn secondary tiny" data-flow-down><i class="fa-solid fa-arrow-down"></i> Descer</button><button type="button" class="btn danger tiny" data-flow-delete><i class="fa-solid fa-trash"></i> Excluir</button></div>';
+        echo '</div></aside>';
+        echo '</form>';
+        echo '<div class="flow-footer-actions"><div><strong>As conversas em andamento preservam os dados já coletados.</strong><span> Se um bloco mudar, elas continuam no primeiro item ainda pendente.</span></div><div class="actions"><form method="post" onsubmit="return confirm(\'Restaurar todo o fluxograma recomendado? As personalizações serão substituídas.\')">' . csrf_field() . '<input type="hidden" name="action" value="reset_whatsapp_service_flow"><button class="btn secondary" type="submit"><i class="fa-solid fa-clock-rotate-left"></i> Restaurar recomendado</button></form><button class="btn" type="submit" form="whatsappFlowForm"><i class="fa-solid fa-floppy-disk"></i> Salvar e publicar</button></div></div>';
+        echo '<script>(function(){const initial=' . json_encode($clientSteps, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';let steps=Array.isArray(initial)?initial:[];let selected=steps.length?0:-1;const canvas=document.querySelector("[data-flow-canvas]");const inspector=document.querySelector("[data-flow-inspector]");const empty=inspector.querySelector("[data-flow-empty]");const form=inspector.querySelector("[data-flow-form]");const count=document.querySelector("[data-flow-count]");const icons={question:"fa-message",choice:"fa-list-check",media:"fa-image",system:"fa-gears"};const labels={question:"Pergunta",choice:"Escolha",media:"Mídia",system:"Sistema"};const finalTemplate="Beleza! Agendamento feito.\\n\\nResumo do agendamento:\\nCliente: {{customer_name}}\\nDia: {{date}}\\nHora: {{time}}\\nLocal da tattoo: {{body_area}}\\nIdeia: {{tattoo_idea}}\\nOrçamento: {{quote}}\\nEndereço: {{studio_address}}\\n\\nJá sinalizei a equipe para conferir os dados. Qualquer dúvida, é só chamar por aqui.";function escKey(value){return String(value||"step").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"")||"step";}function sync(){const payload={enabled:document.getElementById("flowEnabled").checked,flow_name:document.getElementById("flowName").value,intro_text:document.getElementById("flowIntro").value,steps};document.getElementById("flowDefinitionInput").value=JSON.stringify(payload);}function make(tag,cls,text){const el=document.createElement(tag);if(cls)el.className=cls;if(text!==undefined)el.textContent=text;return el;}function formatFlowMessage(text){let value=String(text||"").replace(/\\\\n/g,"\\n").replace(/\\r\\n?/g,"\\n");value=value.replace(/[ \\t]+$/gm,"").replace(/\\n{3,}/g,"\\n\\n").trim();if(!value)return "";value=value.replace(/\\s+(Cliente:|Dia:|Hora:|Local da tattoo:|Ideia:|Orçamento:|Endereco:|Endereço:|Qualquer dúvida|Ja sinalizei|Já sinalizei)/g,"\\n$1");value=value.replace(/(Agendamento feito[.!]?|Agendamento conclu[ií]do[.!]?)(\\n)(Cliente:|Dia:|Resumo)/i,"$1\\n\\n$3");if(!/Resumo do agendamento:/i.test(value)&&/(Cliente:|Dia:|Hora:)/.test(value)){value=value.replace(/(Agendamento feito[.!]?|Agendamento conclu[ií]do[.!]?)/i,"$1\\n\\nResumo do agendamento:");}value=value.replace(/\\n(Qualquer dúvida|Ja sinalizei|Já sinalizei)/,"\\n\\n$1");return value.replace(/\\n{3,}/g,"\\n\\n").trim();}function updatePreview(text){const preview=form.querySelector("[data-flow-message-preview]");if(!preview)return;const span=preview.querySelector("span");if(span)span.textContent=String(text||"").trim()||"Selecione ou escreva uma mensagem para visualizar.";}function setQuestionText(value){if(selected<0)return;const field=form.querySelector("[data-flow-field=question_text]");if(field)field.value=value;steps[selected].question_text=value;updatePreview(value);render();}function render(){canvas.replaceChildren();steps.forEach((step,index)=>{const wrap=make("div","flow-node-wrap");const node=make("button","flow-node"+(index===selected?" is-selected":"")+(!step.is_active?" is-disabled":""));node.type="button";node.dataset.index=String(index);const indexEl=make("span","flow-node-index",String(index+1).padStart(2,"0"));const icon=make("span","flow-node-icon");const iconI=make("i","fa-solid "+(icons[step.step_type]||icons.question));icon.append(iconI);const copy=make("span","flow-node-copy");copy.append(make("strong","",step.title||"Bloco sem título"));copy.append(make("small","",step.question_text||"Sem mensagem"));const meta=make("span","flow-node-meta");meta.append(make("b","",labels[step.step_type]||"Pergunta"));meta.append(make("em","",step.field_key||"custom_response"));node.append(indexEl,icon,copy,meta);node.addEventListener("click",()=>{selected=index;render();load();});wrap.append(node);if(index<steps.length-1){const connector=make("span","flow-connector");connector.append(make("i","fa-solid fa-arrow-down"));wrap.append(connector);}canvas.append(wrap);});count.textContent=steps.length+" bloco"+(steps.length===1?"":"s");sync();}function load(){const step=steps[selected];empty.hidden=!!step;form.hidden=!step;if(!step)return;form.querySelector("[data-flow-editor-title]").textContent=step.title||"Etapa";form.querySelector("[data-flow-editor-number]").textContent=String(selected+1).padStart(2,"0");form.querySelectorAll("[data-flow-field]").forEach(el=>{el.value=step[el.dataset.flowField]??"";});form.querySelector("[data-flow-options]").value=(step.options||[]).join("\\n");form.querySelectorAll("[data-flow-check]").forEach(el=>{el.checked=!!step[el.dataset.flowCheck];});updatePreview(step.question_text||"");}form.querySelectorAll("[data-flow-field]").forEach(el=>el.addEventListener("input",()=>{if(selected<0)return;steps[selected][el.dataset.flowField]=el.value;if(el.dataset.flowField==="title"){form.querySelector("[data-flow-editor-title]").textContent=el.value||"Etapa";}if(el.dataset.flowField==="question_text"){updatePreview(el.value);}render();}));form.querySelector("[data-flow-format-message]").addEventListener("click",()=>{if(selected<0)return;const current=String(steps[selected].question_text||"");setQuestionText(formatFlowMessage(current));});form.querySelector("[data-flow-final-template]").addEventListener("click",()=>{if(selected<0)return;if(String(steps[selected].question_text||"").trim()!==""&&!confirm("Substituir a mensagem deste bloco pelo modelo de resumo final?"))return;setQuestionText(finalTemplate);});form.querySelector("[data-flow-options]").addEventListener("input",function(){if(selected<0)return;steps[selected].options=this.value.split(/\\r?\\n/).map(v=>v.trim()).filter(Boolean).slice(0,10);sync();});form.querySelectorAll("[data-flow-check]").forEach(el=>el.addEventListener("change",()=>{if(selected<0)return;steps[selected][el.dataset.flowCheck]=el.checked;render();}));function move(delta){if(selected<0)return;const target=selected+delta;if(target<0||target>=steps.length)return;[steps[selected],steps[target]]=[steps[target],steps[selected]];selected=target;render();load();}form.querySelector("[data-flow-up]").addEventListener("click",()=>move(-1));form.querySelector("[data-flow-down]").addEventListener("click",()=>move(1));form.querySelector("[data-flow-delete]").addEventListener("click",()=>{if(selected<0||!confirm("Excluir este bloco do roteiro? A alteração só será publicada ao salvar."))return;steps.splice(selected,1);selected=Math.min(selected,steps.length-1);render();load();});document.querySelector("[data-flow-add]").addEventListener("click",()=>{const number=steps.length+1;steps.push({step_key:"custom_"+Date.now(),title:"Nova pergunta",step_type:"question",field_key:"custom_response_"+number,answer_type:"text",question_text:"Escreva aqui a pergunta fixa para o cliente.",help_text:"",options:[],is_required:true,is_active:true});selected=steps.length-1;render();load();form.querySelector("[data-flow-field=title]")?.focus();});["flowEnabled","flowName","flowIntro"].forEach(id=>document.getElementById(id).addEventListener("input",sync));document.getElementById("whatsappFlowForm").addEventListener("submit",event=>{sync();if(!steps.length){event.preventDefault();alert("Adicione pelo menos um bloco ao roteiro.");}});render();load();})();</script>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_settings') {
     $studio = require_studio();
     $activeSettingsTab = (string)($_GET['tab'] ?? 'studio');
@@ -7105,15 +7583,15 @@ if ($page === 'studio_settings') {
         $artists = studio_list_artists($studio);
         $pomadaUnitPrice = (float)($settings['pomada_unit_price'] ?? 100);
         $dayOptions = [
-            '0' => 'Domingo',
             '1' => 'Segunda',
             '2' => 'Terça',
             '3' => 'Quarta',
             '4' => 'Quinta',
             '5' => 'Sexta',
             '6' => 'Sábado',
+            '7' => 'Domingo',
         ];
-        $workDaysSetting = $settings['appointment_work_days'] ?? '1,2,3,4,5';
+        $workDaysSetting = $settings['appointment_work_days'] ?? '1,2,3,4,5,6,7';
         $selectedWorkDays = is_array($workDaysSetting)
             ? array_values(array_filter(array_map('strval', $workDaysSetting), static fn(string $value): bool => $value !== ''))
             : array_values(array_filter(preg_split('/\s*,\s*/', trim((string)$workDaysSetting)) ?: [], static fn(string $value): bool => $value !== ''));
@@ -7149,6 +7627,9 @@ if ($page === 'studio_settings') {
             }
             echo '<button type="button" class="settings-category-card" data-settings-overlay="' . h($key) . '"><span class="settings-category-icon"><i class="fa-solid ' . h($icon) . '"></i></span><span class="settings-category-status">' . h($status) . '</span><strong>' . h($title) . '</strong><small>' . h($subtitle) . '</small><span class="settings-category-link">Configurar <i class="fa-solid fa-arrow-right"></i></span></button>';
         }
+        if (studio_current_user_is_admin()) {
+            echo '<a class="settings-category-card settings-flow-card" href="' . h(app_url('studio_whatsapp_flow')) . '"><span class="settings-category-icon"><i class="fa-solid fa-diagram-project"></i></span><span class="settings-category-status">ADM</span><strong>Roteiro do atendimento</strong><small>Fluxograma rígido, perguntas e ordem do agendamento</small><span class="settings-category-link">Editar fluxo <i class="fa-solid fa-arrow-right"></i></span></a>';
+        }
         echo '<a class="settings-category-card" href="' . h(app_url('studio_finance')) . '"><span class="settings-category-icon"><i class="fa-solid fa-wallet"></i></span><span class="settings-category-status">Gestão</span><strong>Financeiro</strong><small>Despesas e leitura do resultado mensal</small><span class="settings-category-link">Abrir módulo <i class="fa-solid fa-arrow-right"></i></span></a>';
         if (studio_current_user_is_admin()) {
             echo '<a class="settings-category-card" href="' . h(app_url('studio_artists')) . '"><span class="settings-category-icon"><i class="fa-solid fa-pen-nib"></i></span><span class="settings-category-status">ADM</span><strong>Tatuadores</strong><small>Equipe artística, clientes atendidos e estatísticas</small><span class="settings-category-link">Gerenciar <i class="fa-solid fa-arrow-right"></i></span></a>';
@@ -7177,13 +7658,13 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Dias da semana disponíveis</label><div class="weekday-picker">';
         foreach ($dayOptions as $dayValue => $dayLabel) {
             $dayValue = (string)$dayValue;
-            $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5'], true));
+            $checked = in_array($dayValue, $selectedWorkDays, true) || ($selectedWorkDays === [] && in_array($dayValue, ['1','2','3','4','5','6','7'], true));
             echo '<label class="weekday-pill' . ($checked ? ' is-active' : '') . '">';
             echo '<input type="checkbox" name="appointment_work_days[]" value="' . h($dayValue) . '" ' . ($checked ? 'checked' : '') . '>';
             echo '<span>' . h($dayLabel) . '</span>';
             echo '</label>';
         }
-        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrão vem de segunda a sexta.</small></div>';
+        echo '</div><small class="muted">Selecione os dias em que o estudio atende. O padrão considera todos os dias.</small></div>';
         echo '<div class="field"><label>Horários disponíveis</label><input name="appointment_time_slots" value="' . h($settings['appointment_time_slots'] ?? '10:00,15:00') . '" placeholder="10:00,15:00"><small class="muted">Separe por vírgula. Ex: 10:00,15:00</small></div>';
         echo '<div class="field"><label>Valor da pomada</label><input name="pomada_unit_price" value="' . h(number_format($pomadaUnitPrice, 2, ',', '.')) . '" placeholder="100,00"><small class="muted">Este valor vale só para novos agendamentos. Os antigos mantêm o preço salvo neles.</small></div>';
         echo '</div>';
@@ -7352,11 +7833,11 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave da NVIDIA</label><input name="nvidia_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_api_key'] ?? ''))) . '</small></div>';
-        echo '<div class="field"><label>Modelo NVIDIA</label><input name="nvidia_model" value="' . h($settings['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct') . '" placeholder="meta/llama-3.1-70b-instruct"><small class="muted">Padrão operacional testado: meta/llama-3.1-70b-instruct. O 3.3 70B ficou sem resposta nesta máquina.</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA</label><input name="nvidia_model" value="' . h($settings['nvidia_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct') . '" placeholder="qwen/qwen3-next-80b-a3b-instruct"><small class="muted">Padrão testado: Qwen3 Next 80B, usado tanto para compreender quanto para redigir exceções do roteiro. Foi mais rápido e direto que o Llama 3.1 70B nesta API.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave NVIDIA Vision</label><input name="nvidia_vision_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_vision_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
-        echo '<div class="field"><label>Modelo NVIDIA Vision</label><input name="nvidia_vision_model" value="' . h($settings['nvidia_vision_model'] ?? 'meta/llama-3.2-90b-vision-instruct') . '" placeholder="meta/llama-3.2-90b-vision-instruct"><small class="muted">Usado para entender imagens recebidas pelo WhatsApp.</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA Vision</label><input name="nvidia_vision_model" value="' . h($settings['nvidia_vision_model'] ?? 'meta/llama-3.2-11b-vision-instruct') . '" placeholder="meta/llama-3.2-11b-vision-instruct"><small class="muted">Usado para entender imagens recebidas pelo WhatsApp. Testado aqui: 11B responde em poucos segundos; 90B pode dar timeout. O sistema ainda tenta fallback automático.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave NVIDIA Document Parse</label><input name="nvidia_document_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_document_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
@@ -7471,12 +7952,40 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo Ollama/local</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3.2:3b') . '" placeholder="llama3.2:3b"><small class="muted">Usado apenas se você trocar o fornecedor para Ollama local.</small></div>';
-        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="ai_learn_from_attendants_enabled" value="1" ' . ((int)($settings['ai_learn_from_attendants_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Aprender com respostas reais dos atendentes</label><label class="checkline"><input type="checkbox" name="ai_conversation_summary_enabled" value="1" ' . ((int)($settings['ai_conversation_summary_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Gerar resumo vivo das conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
+        echo '<div class="field"><label>Modelo para compreender conversas</label><select name="ai_semantic_model">';
+        $semanticModelCurrent = (string)($settings['ai_semantic_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct');
+        foreach (['qwen/qwen3-next-80b-a3b-instruct' => 'Qwen3 Next 80B - melhor compreensão (recomendado)', 'meta/llama-3.1-70b-instruct' => 'Llama 3.1 70B - modelo principal', 'meta/llama-3.1-8b-instruct' => 'Llama 3.1 8B - mais rápido'] as $semanticModelValue => $semanticModelLabel) {
+            echo '<option value="' . h($semanticModelValue) . '"' . ($semanticModelCurrent === $semanticModelValue ? ' selected' : '') . '>' . h($semanticModelLabel) . '</option>';
+        }
+        echo '</select><small class="muted">Lê contexto, abreviações, correções e mensagens fragmentadas antes do modelo principal escrever a resposta.</small></div>';
+        echo '</div><div class="grid cols-2">';
+        echo '<div class="settings-switch-grid"><label class="checkline"><input type="checkbox" name="ai_enabled" value="1" ' . (!empty($settings['ai_enabled']) ? 'checked' : '') . '> IA pode responder conversas marcadas como IA</label><label class="checkline"><input type="checkbox" name="ai_semantic_interpreter_enabled" value="1" ' . ((int)($settings['ai_semantic_interpreter_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Compreender a conversa inteira antes de responder</label><label class="checkline"><input type="checkbox" name="assistant_autofill_enabled" value="1" ' . (!empty($settings['assistant_autofill_enabled']) ? 'checked' : '') . '> Assistente preencher sugestões automaticamente nas conversas</label><label class="checkline"><input type="checkbox" name="ai_learn_from_attendants_enabled" value="1" ' . ((int)($settings['ai_learn_from_attendants_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Aprender com respostas reais dos atendentes</label><label class="checkline"><input type="checkbox" name="ai_conversation_summary_enabled" value="1" ' . ((int)($settings['ai_conversation_summary_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Gerar resumo vivo das conversas</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> WhatsApp oficial ativo neste estudio</label></div>';
+        echo '<p class="muted" style="margin:10px 0 0">A compreensão da conversa inteira usa um modelo especializado para identificar intenção, contexto, correções e perguntas paralelas. O modelo principal escreve a resposta; as regras do sistema apenas validam preços, horários, pagamentos e gravações reais.</p>';
         echo '</div>';
         echo '<div class="settings-howto" style="margin-top:12px"><strong>Como esse aprendizado funciona</strong><p class="muted" style="margin:6px 0 0">Quando ativado, a IA lê respostas humanas dos atendentes para aprender tom, ordem das perguntas e condução comercial. Ela não usa fatos de outro cliente como preço, data, comprovante ou endereço particular; esses dados continuam vindo da conversa atual, da agenda e das regras cadastradas.</p></div>';
         echo '<div class="panel soft" style="margin-top:12px;border-style:dashed"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:14px"><div><h3 style="margin:0">Aprendizado operacional da equipe</h3><p class="muted" style="margin:6px 0 0">Aqui ficam os playbooks que a IA usa para entender contexto, objeções, tipos de cliente e formas de contornar situações. Gere automaticamente pelas conversas reais, revise o texto e salve.</p></div><button class="btn secondary" type="submit" name="action" value="generate_ai_team_playbook"><i class="fa-solid fa-wand-magic-sparkles"></i> Gerar/atualizar playbooks</button></div>';
+        echo '<div class="panel" data-learning-import style="margin-top:14px;padding:16px;background:linear-gradient(135deg,#f8fffc 0%,#f3f8ff 100%);border-color:#cfe5dc"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:18px"><div><span class="section-eyebrow">Aprendizado acelerado</span><h4 style="margin:4px 0 6px">Importar conversa exportada do WhatsApp</h4><p class="muted" style="margin:0;max-width:720px">Envie o ZIP completo criado pelo WhatsApp. A IA lê a conversa, transcreve áudios localmente, interpreta uma quantidade segura de imagens, PDFs e vídeos, incorpora apenas estratégias reutilizáveis ao playbook e apaga o ZIP e todas as mídias temporárias no final.</p></div><span class="pill success"><i class="fa-solid fa-shield-halved"></i> Arquivos efêmeros</span></div>';
+        echo '<div class="grid cols-2" style="margin-top:14px"><div class="field"><label>Export do WhatsApp (.zip)</label><input type="file" accept=".zip,application/zip" data-learning-zip><small class="muted">Máximo de 38 MB. Use “Exportar conversa” com mídias no WhatsApp.</small></div><div class="field"><label>Nome(s) dos atendentes no export <span class="muted">(opcional)</span></label><input type="text" data-learning-attendants placeholder="Ex.: Daniel, Fran"><small class="muted">Ajuda a IA a distinguir equipe e cliente. Separe nomes por vírgula.</small></div></div>';
+        echo '<div class="actions" style="gap:12px;align-items:center"><button type="button" class="btn" data-learning-submit><i class="fa-solid fa-file-zipper"></i> Ler e aprender com o ZIP</button><span class="muted" data-learning-status>O arquivo só existe durante o processamento.</span></div>';
+        echo '<div data-learning-progress-wrap style="display:none;margin-top:14px"><div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px"><strong data-learning-stage>Preparando arquivo...</strong><strong data-learning-percent>0%</strong></div><div style="height:10px;border-radius:999px;background:#dce8e3;overflow:hidden"><span data-learning-bar style="display:block;height:100%;width:0;background:linear-gradient(90deg,#157f64,#31b78d);border-radius:999px;transition:width .35s ease"></span></div><p data-learning-detail style="margin:9px 0 0;font-weight:650">Validando o ZIP.</p><div class="grid cols-3" data-learning-counters style="margin-top:10px;gap:8px"><div class="settings-howto"><strong data-learning-files>0</strong><small class="muted">arquivos</small></div><div class="settings-howto"><strong data-learning-audio>0/0</strong><small class="muted">áudios</small></div><div class="settings-howto"><strong data-learning-media>0/0</strong><small class="muted">mídias</small></div></div><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px"><small class="muted">Tempo decorrido: <strong data-learning-elapsed>0s</strong></small><small class="muted">Estimativa restante: <strong data-learning-eta>calculando...</strong></small><small class="muted">Última confirmação do servidor: <strong data-learning-heartbeat>agora</strong></small></div><small class="muted" style="display:block;margin-top:8px">O percentual é ponderado por etapas concluídas e só avança após confirmação do servidor. A estimativa pode mudar conforme a duração dos áudios e das análises.</small></div>';
+        echo '<div class="settings-howto" data-learning-result style="margin-top:12px"><strong>Último processamento</strong><p class="muted" style="margin:6px 0 0" data-learning-last>' . h((string)($settings['ai_learning_import_last_summary'] ?? 'Nenhum export importado ainda.')) . '</p><small class="muted">Importações concluídas: ' . h((string)($settings['ai_learning_import_count'] ?? 0)) . '. Última: ' . h((string)($settings['ai_learning_import_last_at'] ?? 'nunca')) . '.</small></div></div>';
+        $learningImports = studio_whatsapp_learning_imports($studio, 30);
+        echo '<div class="panel soft" style="margin-top:14px" data-learning-library><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div><h4 style="margin:0">Aprendizados importados</h4><p class="muted" style="margin:5px 0 0">Abra cada conversa para conferir exatamente o que entrou na orientação da IA. Excluir remove somente aquele aprendizado.</p></div><span class="badge" data-learning-count>' . h((string)count($learningImports)) . '</span></div><div data-learning-list style="display:grid;gap:10px;margin-top:12px">';
+        if (!$learningImports) {
+            echo '<div class="settings-howto" data-learning-empty><span class="muted">Nenhuma conversa importada no novo histórico.</span></div>';
+        }
+        foreach ($learningImports as $learningImport) {
+            $importId = (int)($learningImport['id'] ?? 0);
+            $createdByLabel = (int)($learningImport['created_by_user_id'] ?? 0) > 0 ? studio_user_label_by_id((int)$learningImport['created_by_user_id']) : '';
+            echo '<article class="panel" data-learning-card="' . h((string)$importId) . '" style="margin:0;padding:14px"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:12px"><div style="min-width:0"><strong style="display:block;overflow-wrap:anywhere">' . h((string)($learningImport['original_file_name'] ?? 'Export do WhatsApp')) . '</strong><small class="muted">Importado em ' . h((string)($learningImport['created_at'] ?? '')) . ($createdByLabel !== '' ? ' por ' . h($createdByLabel) : '') . '</small></div><button type="button" class="btn tiny danger" data-learning-delete="' . h((string)$importId) . '"><i class="fa-solid fa-trash"></i> Excluir</button></div>';
+            echo '<div class="actions" style="gap:6px;margin-top:10px"><span class="badge">' . h((string)($learningImport['message_count'] ?? 0)) . ' mensagens</span><span class="badge">' . h((string)($learningImport['audio_transcribed'] ?? 0)) . '/' . h((string)($learningImport['audio_count'] ?? 0)) . ' áudios</span><span class="badge">' . h((string)($learningImport['media_analyzed'] ?? 0)) . '/' . h((string)($learningImport['media_count'] ?? 0)) . ' mídias</span><span class="badge">' . h((string)($learningImport['processing_seconds'] ?? 0)) . 's</span></div>';
+            echo '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:750">Ver o que a IA aprendeu</summary><div class="settings-howto" style="margin-top:10px;white-space:pre-wrap;line-height:1.55" data-learning-text>' . h((string)($learningImport['learned_text'] ?? '')) . '</div></details></article>';
+        }
+        echo '</div></div>';
         echo '<div class="settings-switch-grid" style="margin-top:12px"><label class="checkline"><input type="checkbox" name="ai_team_playbook_enabled" value="1" ' . ((int)($settings['ai_team_playbook_enabled'] ?? 1) === 1 ? 'checked' : '') . '> Usar estes playbooks nas respostas da IA</label></div>';
         echo '<div class="field" style="margin-top:12px"><label>Playbooks aprendidos</label><textarea name="ai_team_playbook_text" rows="16" style="min-height:320px" placeholder="Clique em Gerar/atualizar playbooks para a IA analisar conversas reais e criar estratégias editáveis.">' . h($settings['ai_team_playbook_text'] ?? '') . '</textarea><small class="muted">Última atualização: ' . h((string)($settings['ai_team_playbook_updated_at'] ?? 'nunca')) . '. Edite livremente. Isso vale como estratégia; fatos oficiais continuam vindo das regras, agenda e conversa atual.</small></div></div>';
+        echo '<script>(function(){function scopeOf(el){return (el&&el.closest&&el.closest(".settings-panel"))||document;}function csrf(scope){return (scope.querySelector("input[name=csrf_token]")||document.querySelector("input[name=csrf_token]"))?.value||"";}function duration(value){value=Math.max(0,Math.round(Number(value)||0));if(value<60)return value+"s";const minutes=Math.floor(value/60);const seconds=value%60;return minutes+"min"+(seconds?(" "+seconds+"s"):"");}function setText(panel,selector,value){const el=panel.querySelector(selector);if(el)el.textContent=value;}function setVisual(panel,value,stage,detail){const safe=Math.max(0,Math.min(100,Math.round(Number(value)||0)));const wrap=panel.querySelector("[data-learning-progress-wrap]");if(wrap)wrap.style.display="block";const bar=panel.querySelector("[data-learning-bar]");if(bar)bar.style.width=safe+"%";setText(panel,"[data-learning-percent]",safe+"%");if(stage)setText(panel,"[data-learning-stage]",stage);if(detail)setText(panel,"[data-learning-detail]",detail);}const labels={waiting_upload:"Aguardando upload",validating:"Validando ZIP",extracting:"Extraindo arquivos",parsing:"Lendo conversa",planning:"Planejando análises",loading_transcriber:"Carregando transcritor local",transcribing_audio:"Transcrevendo áudios",analyzing_media:"Interpretando mídias",consolidating:"Consolidando aprendizado",saving:"Salvando aprendizado",completed:"Aprendizado concluído",failed:"Importação interrompida"};function renderJob(panel,job){if(!job)return;const counters=job.counters||{};setVisual(panel,job.progress,labels[job.stage]||job.stage||"Processando",job.detail||"Processando conversa.");setText(panel,"[data-learning-files]",String(counters.files_found||0));setText(panel,"[data-learning-audio]",String(counters.audio_completed||0)+"/"+String(counters.audio_found||counters.audio_selected||0));setText(panel,"[data-learning-media]",String(counters.media_completed||0)+"/"+String(counters.media_found||counters.media_selected||0));setText(panel,"[data-learning-elapsed]",duration(job.elapsed_seconds||0));setText(panel,"[data-learning-eta]",job.status==="completed"?"concluído":job.eta_seconds===null||job.eta_seconds===undefined?"calculando...":"aprox. "+duration(job.eta_seconds));setText(panel,"[data-learning-heartbeat]",(job.seconds_since_update||0)>2?("há "+duration(job.seconds_since_update)):"agora");}async function post(scope,fields){const body=new FormData();Object.entries(fields).forEach(([key,value])=>body.append(key,String(value)));body.append("csrf_token",csrf(scope));const response=await fetch(window.location.pathname+window.location.search,{method:"POST",headers:{"X-Requested-With":"XMLHttpRequest","Accept":"application/json"},body});const data=await response.json().catch(()=>null);if(!response.ok||!data||!data.ok)throw new Error((data&&data.error)||"O servidor não concluiu a solicitação.");return data;}function appendImport(data){const list=document.querySelector("[data-learning-list]");if(!list||!data.import_id)return;document.querySelector("[data-learning-empty]")?.remove();const card=document.createElement("article");card.className="panel";card.dataset.learningCard=String(data.import_id);card.style.cssText="margin:0;padding:14px";const head=document.createElement("div");head.className="actions";head.style.cssText="justify-content:space-between;align-items:flex-start;gap:12px";const title=document.createElement("div");title.style.minWidth="0";const strong=document.createElement("strong");strong.style.cssText="display:block;overflow-wrap:anywhere";strong.textContent=data.original_file_name||"Export do WhatsApp";const small=document.createElement("small");small.className="muted";small.textContent="Importado agora";title.append(strong,small);const remove=document.createElement("button");remove.type="button";remove.className="btn tiny danger";remove.dataset.learningDelete=String(data.import_id);remove.textContent="Excluir";head.append(title,remove);const badges=document.createElement("div");badges.className="actions";badges.style.cssText="gap:6px;margin-top:10px";[[data.message_count||0," mensagens"],[(data.audio_transcribed||0)+"/"+(data.audio_count||0)," áudios"],[(data.media_analyzed||0)+"/"+(data.media_count||0)," mídias"],[(data.processing_seconds||0),"s"]].forEach(([value,label])=>{const span=document.createElement("span");span.className="badge";span.textContent=String(value)+label;badges.appendChild(span);});const details=document.createElement("details");details.style.marginTop="10px";const summary=document.createElement("summary");summary.style.cssText="cursor:pointer;font-weight:750";summary.textContent="Ver o que a IA aprendeu";const learned=document.createElement("div");learned.className="settings-howto";learned.dataset.learningText="";learned.style.cssText="margin-top:10px;white-space:pre-wrap;line-height:1.55";learned.textContent=data.learned_text||"";details.append(summary,learned);card.append(head,badges,details);list.prepend(card);const count=document.querySelector("[data-learning-count]");if(count)count.textContent=String(document.querySelectorAll("[data-learning-card]").length);}document.addEventListener("click",async function(event){const remove=event.target instanceof Element?event.target.closest("[data-learning-delete]"):null;if(remove){const card=remove.closest("[data-learning-card]");const importId=remove.getAttribute("data-learning-delete")||"0";if(!confirm("Excluir somente este aprendizado da memória operacional da IA?"))return;remove.disabled=true;try{await post(scopeOf(remove),{action:"delete_whatsapp_learning_import",import_id:importId});card?.remove();const cards=document.querySelectorAll("[data-learning-card]");const count=document.querySelector("[data-learning-count]");if(count)count.textContent=String(cards.length);if(!cards.length){const empty=document.createElement("div");empty.className="settings-howto";empty.dataset.learningEmpty="";empty.innerHTML="<span class=muted>Nenhuma conversa importada no novo histórico.</span>";document.querySelector("[data-learning-list]")?.appendChild(empty);}}catch(error){remove.disabled=false;alert(error.message||"Não foi possível excluir.");}return;}const button=event.target instanceof Element?event.target.closest("[data-learning-submit]"):null;if(!button)return;const panel=button.closest("[data-learning-import]");const scope=scopeOf(button);const input=panel?.querySelector("[data-learning-zip]");const file=input?.files?.[0];if(!panel||!file){alert("Selecione o ZIP exportado pelo WhatsApp.");return;}if(file.size>38*1024*1024){alert("O ZIP precisa ter no máximo 38 MB.");return;}button.disabled=true;let pollTimer=null;let jobId="";let uploadActive=true;const stopPoll=()=>{if(pollTimer){clearInterval(pollTimer);pollTimer=null;}};const poll=async()=>{if(!jobId)return;try{const data=await post(scope,{action:"whatsapp_learning_job_status",job_id:jobId});if(!uploadActive||data.job.status!=="waiting_upload")renderJob(panel,data.job);if(["completed","failed"].includes(data.job.status))stopPoll();}catch(error){}};try{const started=await post(scope,{action:"start_whatsapp_learning_job",file_name:file.name,file_size:file.size});jobId=started.job.job_id;setVisual(panel,0,"Enviando ZIP","Preparando upload real de "+(file.size/1024/1024).toFixed(1)+" MB.");setText(panel,"[data-learning-eta]","calculando velocidade...");const uploadStarted=Date.now();pollTimer=setInterval(poll,1200);const formData=new FormData();formData.append("action","import_whatsapp_learning_zip");formData.append("csrf_token",csrf(scope));formData.append("learning_job_id",jobId);formData.append("learning_zip",file,file.name);formData.append("attendant_names",panel.querySelector("[data-learning-attendants]")?.value||"");const xhr=new XMLHttpRequest();xhr.open("POST",window.location.pathname+window.location.search,true);xhr.setRequestHeader("X-Requested-With","XMLHttpRequest");xhr.setRequestHeader("Accept","application/json");xhr.upload.onprogress=function(ev){if(!ev.lengthComputable)return;const ratio=ev.loaded/ev.total;const elapsed=Math.max(.1,(Date.now()-uploadStarted)/1000);const rate=ev.loaded/elapsed;const eta=rate>0?(ev.total-ev.loaded)/rate:null;setVisual(panel,Math.max(1,Math.round(ratio*9)),"Enviando ZIP","Upload real: "+Math.round(ratio*100)+"% ("+(ev.loaded/1024/1024).toFixed(1)+" de "+(ev.total/1024/1024).toFixed(1)+" MB).");setText(panel,"[data-learning-elapsed]",duration(elapsed));setText(panel,"[data-learning-eta]",eta===null?"calculando...":"aprox. "+duration(eta));};xhr.upload.onload=function(){uploadActive=false;setVisual(panel,10,"Upload recebido","Aguardando o servidor validar o arquivo.");};xhr.onload=function(){uploadActive=false;stopPoll();let data=null;try{data=JSON.parse(xhr.responseText);}catch(error){}if(xhr.status<200||xhr.status>=300||!data||!data.ok){setVisual(panel,Number(panel.querySelector("[data-learning-percent]")?.textContent?.replace("%","")||10),"Importação interrompida",(data&&data.error)||"Não foi possível processar o ZIP.");button.disabled=false;alert((data&&data.error)||"Não foi possível processar o ZIP.");return;}setVisual(panel,100,"Aprendizado concluído",data.summary||"Aprendizado salvo.");setText(panel,"[data-learning-eta]","concluído");setText(panel,"[data-learning-status]","ZIP e mídias temporárias apagados.");setText(panel,"[data-learning-last]",data.summary||"Importação concluída.");document.querySelectorAll("input[name=ai_team_playbook_enabled]").forEach(input=>input.checked=true);appendImport(data);if(input)input.value="";button.disabled=false;};xhr.onerror=function(){uploadActive=false;setVisual(panel,10,"Conexão interrompida","Consultando o servidor para saber se o processamento continua.");button.disabled=false;poll();};xhr.send(formData);}catch(error){stopPoll();button.disabled=false;setVisual(panel,0,"Não foi possível iniciar",error.message||"Falha ao iniciar importação.");alert(error.message||"Falha ao iniciar importação.");}});})();</script>';
+        echo '<script>(function(){const listSelector="[data-learning-list]";const cardSelector="[data-learning-card]";function refresh(){document.querySelectorAll("[data-learning-library]").forEach(function(library){const list=library.querySelector(listSelector);if(!list)return;const cards=list.querySelectorAll(":scope > "+cardSelector);library.querySelectorAll("[data-learning-count]").forEach(function(count){count.textContent=String(cards.length);});const empty=list.querySelector("[data-learning-empty]");if(cards.length&&empty)empty.remove();if(!cards.length&&!empty){const notice=document.createElement("div");notice.className="settings-howto";notice.dataset.learningEmpty="";notice.innerHTML="<span class=muted>Nenhuma conversa importada no novo histórico.</span>";list.appendChild(notice);}});}function cardsIn(node){if(!(node instanceof Element))return[];return[...(node.matches(cardSelector)?[node]:[]),...node.querySelectorAll(cardSelector)];}const observer=new MutationObserver(function(mutations){const added=[];const removedIds=new Set();mutations.forEach(function(mutation){mutation.addedNodes.forEach(function(node){added.push(...cardsIn(node));});if(mutation.target instanceof Element&&mutation.target.matches(listSelector)){mutation.removedNodes.forEach(function(node){cardsIn(node).forEach(function(card){if(card.dataset.learningCard)removedIds.add(card.dataset.learningCard);});});}});removedIds.forEach(function(id){document.querySelectorAll(cardSelector+"[data-learning-card=\""+id+"\"]").forEach(function(card){card.remove();});});added.forEach(function(card){const id=card.dataset.learningCard;if(!id)return;document.querySelectorAll(listSelector).forEach(function(list){if(!list.querySelector(cardSelector+"[data-learning-card=\""+id+"\"]"))list.prepend(card.cloneNode(true));});});refresh();});observer.observe(document.body,{childList:true,subtree:true});refresh();})();</script>';
         echo '</div>';
         echo '<div class="settings-save-row"><div class="muted">Salva provedor, chaves, modelos, visão, documentos, vídeo, automações e voz da IA.</div><button class="btn" type="button" data-settings-submit>Salvar inteligência artificial</button></div>';
         echo '</div></div>';
@@ -7548,17 +8057,129 @@ if ($page === 'studio_settings') {
         echo '<div id="settingsSourceQuickReplies" hidden><div class="settings-panel" id="settings-quick-replies" data-settings-panel="quick_replies">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Respostas rápidas</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="actions" style="justify-content:space-between"><div><p class="muted">As respostas rápidas continuam disponíveis na biblioteca dedicada. Nesta tela deixamos só o acesso e a visualização para não atrapalhar o salvamento principal.</p></div><a class="btn secondary" href="' . h(app_url('studio_quick_replies')) . '">Abrir biblioteca</a></div>';
-        $replies = studio_list_quick_replies($studio);
+        $replies = array_slice(studio_list_quick_replies($studio), 0, 8);
         echo '<div class="panel"><h3 style="margin-top:0">Biblioteca atual</h3>';
-        render_quick_replies_table(array_slice($replies, 0, 12));
+        if (!$replies) {
+            echo '<p class="muted" style="margin:0">Nenhuma resposta rápida cadastrada ainda.</p>';
+        } else {
+            echo '<div class="stack-list">';
+            foreach ($replies as $reply) {
+                echo '<div class="stack-item"><div><strong>' . h((string)($reply['title'] ?? 'Resposta rápida')) . '</strong><small>' . h((string)($reply['shortcut'] ?? 'Sem atalho')) . ' · ' . h((string)($reply['category'] ?? 'Geral')) . '</small></div><span class="badge">' . h(!empty($reply['is_active']) ? 'Ativa' : 'Inativa') . '</span></div>';
+            }
+            echo '</div>';
+        }
         echo '</div>';
         echo '</div></div>';
         echo '<div class="actions" style="justify-content:space-between;align-items:center;margin-top:12px"><span class="muted">Salvar continua aplicando as regras no banco do estudio.</span><button class="btn" type="submit">Salvar configurações</button></div>';
         echo '</form>';
-        echo '<script>(function(){const modal=document.getElementById("settingsOverlay");const body=document.getElementById("settingsOverlayBody");const title=document.getElementById("settingsOverlayTitle");const summary=document.getElementById("settingsOverlaySummary");const closeBtn=document.getElementById("closeSettingsOverlay");const form=document.getElementById("studioSettingsForm");const knowledgeTemplate=`[SOBRE O ESTÚDIO]\nNome, endereço e região atendida:\nEstilos e tipos de trabalho realizados:\nO que não fazemos:\n\n[PREÇOS E ORÇAMENTO]\nValor mínimo:\nComo o orçamento é calculado:\nFormas de pagamento:\nValor e regra do sinal:\n\n[PROMOÇÕES]\nNome da promoção:\nRegra e valor:\nData de início e fim:\nQuem pode usar:\n\n[AGENDA E ATENDIMENTO]\nDias e horários de atendimento:\nPrazo médio para responder orçamento:\nQuando encaminhar para uma pessoa:\n\n[POLÍTICAS]\nRetoque:\nCancelamento e remarcação:\nMenores de idade:\n\n[COMO A IA DEVE RESPONDER]\nTom de voz:\nInformações que deve perguntar:\nO que nunca deve dizer:\nExemplo de pergunta do cliente -> resposta correta:`;const sourceMap={studio:{title:"Estúdio",summary:"Dados base e integração",source:"settingsSourceStudio"},agenda:{title:"Agenda",summary:"Regras de horário e duração",source:"settingsSourceAgenda"},whatsapp:{title:"WhatsApp",summary:"Entrada e comportamento",source:"settingsSourceWhatsapp"},ia:{title:"IA",summary:"Modelo, chave e automação",source:"settingsSourceIa"},meta_ads:{title:"Meta Ads",summary:"Credenciais, IDs e diagnóstico",source:"settingsSourceMetaAds"},quick_replies:{title:"Respostas rápidas",summary:"Biblioteca do atendimento",source:"settingsSourceQuickReplies"},rules:{title:"Treinamento da IA",summary:"Base usada em todas as conversas",source:"settingsSourceRules"}};function updateRulesCount(scope=document){const field=scope.querySelector(`textarea[name="business_rules"]`);const counter=scope.querySelector("[data-ai-rules-count]");if(field&&counter)counter.textContent=`${field.value.length} caracteres`;}function syncOverlayToSource(){}function submitOverlayForm(){if(!form||!body)return;const data=new FormData(form);const groups=new Map();body.querySelectorAll("input,textarea,select").forEach((field)=>{try{const name=field.getAttribute("name");if(!name)return;if(!groups.has(name))groups.set(name,[]);groups.get(name).push(field);}catch(error){}});groups.forEach((fields,name)=>{data.delete(name);const first=fields[0];if(!first)return;if(first.type==="checkbox"){fields.forEach((field)=>{if(field.checked)data.append(name,field.value||"1");});return;}if(first.type==="radio"){const selected=fields.find((field)=>field.checked);if(selected)data.append(name,selected.value);return;}fields.forEach((field)=>{data.append(name,field.value);});});if(body.querySelector("input[name=\"meta_ads_enabled\"]")){data.set("debug_meta_save","1");}const tempForm=document.createElement("form");tempForm.method="post";tempForm.action=form.getAttribute("action")||location.href;tempForm.style.display="none";for(const [name,value] of data.entries()){const input=document.createElement("input");input.type="hidden";input.name=name;input.value=String(value);tempForm.appendChild(input);}document.body.appendChild(tempForm);tempForm.submit();}function openOverlay(key){const config=sourceMap[key]||sourceMap.studio;const source=document.getElementById(config.source);if(!modal||!body||!title||!summary||!source)return;title.textContent=config.title;summary.textContent=config.summary;body.innerHTML=source.innerHTML;modal.classList.remove("hidden");updateRulesCount(body);}document.querySelectorAll("[data-settings-overlay]").forEach((button)=>{button.addEventListener("click",()=>openOverlay(button.getAttribute("data-settings-overlay")||"studio"));});document.addEventListener("input",(event)=>{if(event.target instanceof Element&&event.target.matches(`textarea[name="business_rules"]`))updateRulesCount(event.target.closest(".settings-panel")||document);});document.addEventListener("click",(event)=>{const templateButton=event.target instanceof Element?event.target.closest("[data-ai-knowledge-template]"):null;if(templateButton){const panel=templateButton.closest(".settings-panel");const field=panel?.querySelector(`textarea[name="business_rules"]`);if(field&&(!field.value.trim()||window.confirm("Adicionar o modelo abaixo do conteúdo atual?"))){field.value=field.value.trim()?`${field.value.trim()}\n\n${knowledgeTemplate}`:knowledgeTemplate;field.focus();updateRulesCount(panel);}return;}const target=event.target instanceof Element ? event.target.closest("[data-settings-submit]") : null;if(target){syncOverlayToSource(); submitOverlayForm();}});if(closeBtn) closeBtn.addEventListener("click",()=>modal.classList.add("hidden"));if(modal) modal.addEventListener("click",(event)=>{if(event.target===modal) modal.classList.add("hidden");});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"&&modal) modal.classList.add("hidden");});})();</script>';
-        echo '<script>(function(){const form=document.getElementById("studioSettingsForm");const body=document.getElementById("settingsOverlayBody");function wrapOverlayForm(){if(!body||!form||body.querySelector("#settingsOverlayForm"))return;const panel=body.querySelector(".settings-panel");const panelKey=(panel&&panel.dataset&&panel.dataset.settingsPanel)||"";if(!panelKey)return;const csrfToken=form.querySelector("input[name=\"csrf_token\"]")?.value||"";const wrapper=document.createElement("form");wrapper.id="settingsOverlayForm";wrapper.method="post";wrapper.action=form.getAttribute("action")||location.href;wrapper.innerHTML="<input type=\"hidden\" name=\"action\" value=\"save_studio_settings\"><input type=\"hidden\" name=\"settings_tab\" value=\""+panelKey+"\"><input type=\"hidden\" name=\"csrf_token\" value=\""+csrfToken.replace(/\"/g,"&quot;")+"\">"+body.innerHTML;body.innerHTML="";body.appendChild(wrapper);wrapper.querySelectorAll("[data-settings-submit]").forEach((btn)=>{btn.type="submit";btn.removeAttribute("data-settings-submit");});wrapper.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("button[type=submit]"))event.stopPropagation();});}document.addEventListener("click",(event)=>{const openButton=event.target instanceof Element ? event.target.closest("[data-settings-overlay]") : null;if(!openButton)return;wrapOverlayForm();});})();</script>';
-        echo '<script>document.addEventListener("click",function(event){if(event.target instanceof Element&&event.target.closest("#settingsOverlayForm button[type=submit]")){event.stopImmediatePropagation();}},true);</script>';
-        echo '<script>document.querySelectorAll("#studioSettingsForm [data-settings-submit]").forEach(function(button){button.type="submit";button.removeAttribute("data-settings-submit");});</script>';
+        echo <<<'HTML'
+<script>
+(function(){
+  const modal = document.getElementById("settingsOverlay");
+  const body = document.getElementById("settingsOverlayBody");
+  const title = document.getElementById("settingsOverlayTitle");
+  const summary = document.getElementById("settingsOverlaySummary");
+  const closeBtn = document.getElementById("closeSettingsOverlay");
+  const baseForm = document.getElementById("studioSettingsForm");
+  const knowledgeTemplate = `[SOBRE O ESTÚDIO]
+Nome, endereço e região atendida:
+Estilos e tipos de trabalho realizados:
+O que não fazemos:
+
+[PREÇOS E ORÇAMENTO]
+Valor mínimo:
+Como o orçamento é calculado:
+Formas de pagamento:
+Valor e regra do sinal:
+
+[PROMOÇÕES]
+Nome da promoção:
+Regra e valor:
+Data de início e fim:
+Quem pode usar:
+
+[AGENDA E ATENDIMENTO]
+Dias e horários de atendimento:
+Prazo médio para responder orçamento:
+Quando encaminhar para uma pessoa:
+
+[POLÍTICAS]
+Retoque:
+Cancelamento e remarcação:
+Menores de idade:
+
+[COMO A IA DEVE RESPONDER]
+Tom de voz:
+Informações que deve perguntar:
+O que nunca deve dizer:
+Exemplo de pergunta do cliente -> resposta correta:`;
+  const sourceMap = {
+    studio: {title:"Estúdio", summary:"Dados base e integração", source:"settingsSourceStudio"},
+    agenda: {title:"Agenda", summary:"Regras de horário e duração", source:"settingsSourceAgenda"},
+    whatsapp: {title:"WhatsApp", summary:"Entrada e comportamento", source:"settingsSourceWhatsapp"},
+    ia: {title:"IA", summary:"Modelo, chave e automação", source:"settingsSourceIa"},
+    meta_ads: {title:"Meta Ads", summary:"Credenciais, IDs e diagnóstico", source:"settingsSourceMetaAds"},
+    quick_replies: {title:"Respostas rápidas", summary:"Biblioteca do atendimento", source:"settingsSourceQuickReplies"},
+    rules: {title:"Treinamento da IA", summary:"Base usada em todas as conversas", source:"settingsSourceRules"}
+  };
+  function updateRulesCount(scope=document) {
+    const field = scope.querySelector('textarea[name="business_rules"]');
+    const counter = scope.querySelector("[data-ai-rules-count]");
+    if (field && counter) counter.textContent = `${field.value.length} caracteres`;
+  }
+  function wrapOverlayForm(panelKey) {
+    if (!body || !baseForm) return;
+    const csrfToken = baseForm.querySelector('input[name="csrf_token"]')?.value || "";
+    const wrapper = document.createElement("form");
+    wrapper.id = "settingsOverlayForm";
+    wrapper.method = "post";
+    wrapper.action = baseForm.getAttribute("action") || location.href;
+    const current = body.innerHTML;
+    body.innerHTML = "";
+    wrapper.innerHTML = `<input type="hidden" name="action" value="save_studio_settings"><input type="hidden" name="settings_tab" value="${panelKey}"><input type="hidden" name="csrf_token" value="${csrfToken.replace(/"/g, "&quot;")}">${current}`;
+    wrapper.querySelectorAll("[data-settings-submit]").forEach((button) => {
+      button.type = "submit";
+      button.removeAttribute("data-settings-submit");
+    });
+    body.appendChild(wrapper);
+  }
+  function openOverlay(key) {
+    const config = sourceMap[key] || sourceMap.studio;
+    const source = document.getElementById(config.source);
+    if (!modal || !body || !title || !summary || !source) return;
+    title.textContent = config.title;
+    summary.textContent = config.summary;
+    body.innerHTML = source.innerHTML;
+    wrapOverlayForm(key);
+    modal.classList.remove("hidden");
+    updateRulesCount(body);
+  }
+  document.querySelectorAll("[data-settings-overlay]").forEach((button) => {
+    button.addEventListener("click", () => openOverlay(button.getAttribute("data-settings-overlay") || "studio"));
+  });
+  document.addEventListener("input", (event) => {
+    if (event.target instanceof Element && event.target.matches('textarea[name="business_rules"]')) {
+      updateRulesCount(event.target.closest(".settings-panel") || document);
+    }
+  });
+  document.addEventListener("click", (event) => {
+    const templateButton = event.target instanceof Element ? event.target.closest("[data-ai-knowledge-template]") : null;
+    if (!templateButton) return;
+    event.preventDefault();
+    const panel = templateButton.closest(".settings-panel") || document;
+    const field = panel.querySelector('textarea[name="business_rules"]');
+    if (field && (!field.value.trim() || window.confirm("Adicionar o modelo abaixo do conteúdo atual?"))) {
+      field.value = field.value.trim() ? `${field.value.trim()}\n\n${knowledgeTemplate}` : knowledgeTemplate;
+      field.focus();
+      updateRulesCount(panel);
+    }
+  });
+  if (closeBtn) closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
+  if (modal) modal.addEventListener("click", (event) => { if (event.target === modal) modal.classList.add("hidden"); });
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && modal) modal.classList.add("hidden"); });
+})();
+</script>
+HTML;
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
@@ -7795,10 +8416,132 @@ if ($page === 'studio_meta_ads') {
             ['title' => 'Lead Ads', 'method' => 'GET', 'path' => '/{lead_form_id}/leads', 'description' => 'Consome leads captados por formulário.'],
             ['title' => 'Públicos', 'method' => 'GET', 'path' => '/act_' . ($accountId !== '' ? $accountId : '{ad_account_id}') . '/customaudiences', 'description' => 'Consulta públicos personalizados disponíveis.'],
         ];
+        $metaObjectiveLabel = static function (string $objective): string {
+            $key = strtoupper(trim($objective));
+            $labels = [
+                'OUTCOME_LEADS' => 'Gerar leads',
+                'LEAD_GENERATION' => 'Gerar leads',
+                'OUTCOME_ENGAGEMENT' => 'Engajamento/mensagens',
+                'MESSAGES' => 'Mensagens',
+                'OUTCOME_TRAFFIC' => 'Levar pessoas ao site',
+                'LINK_CLICKS' => 'Cliques no link',
+                'OUTCOME_AWARENESS' => 'Alcance e reconhecimento',
+                'BRAND_AWARENESS' => 'Reconhecimento de marca',
+                'REACH' => 'Alcance',
+                'OUTCOME_SALES' => 'Vendas/conversões',
+                'CONVERSIONS' => 'Conversões',
+                'POST_ENGAGEMENT' => 'Interações na publicação',
+            ];
+            return $labels[$key] ?? ($objective !== '' ? str_replace('_', ' ', $objective) : 'Objetivo não informado');
+        };
+        $metaStatusInfo = static function (string $status): array {
+            $key = strtoupper(trim($status));
+            $map = [
+                'ACTIVE' => ['tone' => 'ok', 'label' => 'Rodando', 'hint' => 'A Meta pode entregar esse item agora.'],
+                'PAUSED' => ['tone' => 'warn', 'label' => 'Pausado', 'hint' => 'Não está entregando até ser reativado.'],
+                'DELETED' => ['tone' => 'danger', 'label' => 'Excluído', 'hint' => 'Mantido só para histórico.'],
+                'ARCHIVED' => ['tone' => 'warn', 'label' => 'Arquivado', 'hint' => 'Fora da operação ativa.'],
+                'IN_PROCESS' => ['tone' => 'warn', 'label' => 'Processando', 'hint' => 'Aguardando revisão/processamento.'],
+                'WITH_ISSUES' => ['tone' => 'danger', 'label' => 'Com problema', 'hint' => 'Precisa revisão na Meta.'],
+            ];
+            return $map[$key] ?? ['tone' => 'warn', 'label' => ($status !== '' ? str_replace('_', ' ', $status) : 'Sem status'), 'hint' => 'Status retornado pela Meta.'];
+        };
+        $metaActionLabel = static function (string $actionType): string {
+            $key = strtolower(trim($actionType));
+            $labels = [
+                'lead' => 'Lead',
+                'onsite_conversion.lead_grouped' => 'Lead',
+                'onsite_conversion.messaging_conversation_started_7d' => 'Conversas iniciadas',
+                'messaging_conversation_started_7d' => 'Conversas iniciadas',
+                'link_click' => 'Clique no link',
+                'post_engagement' => 'Engajamento',
+                'page_engagement' => 'Engajamento na página',
+                'landing_page_view' => 'Visualização da página',
+                'omni_purchase' => 'Compra',
+                'purchase' => 'Compra',
+                'video_view' => 'Visualização de vídeo',
+            ];
+            return $labels[$key] ?? str_replace(['onsite_conversion.', '_'], ['', ' '], $actionType);
+        };
+        $metaAdReading = static function (array $insights, string $status) use ($metaStatusInfo): array {
+            $spend = (float)($insights['spend'] ?? 0);
+            $clicks = (int)($insights['clicks'] ?? 0);
+            $impressions = (int)($insights['impressions'] ?? 0);
+            $reach = (int)($insights['reach'] ?? 0);
+            $ctr = (float)($insights['ctr'] ?? 0);
+            $cpc = (float)($insights['cpc'] ?? 0);
+            $frequency = (float)($insights['frequency'] ?? 0);
+            $statusInfo = $metaStatusInfo($status);
+            $tone = (string)$statusInfo['tone'];
+            $headline = (string)$statusInfo['label'];
+            $detail = (string)$statusInfo['hint'];
+            $tags = [];
+
+            if (strtoupper($status) === 'ACTIVE' && $spend <= 0 && $impressions <= 0) {
+                $tone = 'warn';
+                $headline = 'Ativo, mas sem entrega';
+                $detail = 'Está ligado, porém não teve impressões no período. Pode ser orçamento, público, aprovação ou data.';
+                $tags[] = 'sem entrega';
+            } elseif ($spend > 0 && $clicks <= 0) {
+                $tone = 'danger';
+                $headline = 'Gastou sem gerar clique';
+                $detail = 'Teve investimento, mas não trouxe cliques. Vale revisar criativo, chamada e público.';
+                $tags[] = 'revisar criativo';
+            } elseif ($ctr >= 1.5 && $clicks > 0) {
+                $tone = 'ok';
+                $headline = 'Boa atração';
+                $detail = 'O anúncio está chamando atenção melhor que o mínimo esperado.';
+                $tags[] = 'boa taxa de clique';
+            } elseif ($impressions >= 100 && $ctr > 0 && $ctr < 0.6) {
+                $tone = 'warn';
+                $headline = 'Pouca atração';
+                $detail = 'Muita gente viu, mas pouca gente clicou. Pode precisar de promessa mais clara ou imagem melhor.';
+                $tags[] = 'CTR baixo';
+            } elseif ($reach > 0 || $impressions > 0) {
+                $headline = 'Entregando';
+                $detail = 'Está alcançando pessoas. Use cliques, mensagens e custo para decidir se mantém.';
+                $tags[] = 'em entrega';
+            }
+            if ($frequency >= 3.5) {
+                $tone = $tone === 'danger' ? 'danger' : 'warn';
+                $tags[] = 'frequência alta';
+                $detail .= ' Frequência alta pode indicar saturação do público.';
+            }
+            if ($cpc > 0) {
+                $tags[] = 'CPC ' . format_money($cpc);
+            }
+
+            return [
+                'tone' => $tone,
+                'headline' => $headline,
+                'detail' => $detail,
+                'tags' => $tags,
+            ];
+        };
         echo '<div class="meta-ads-page">';
         $activeCampaigns = count(array_filter((array)$campaignsData, static fn($campaign): bool => is_array($campaign) && (string)($campaign['effective_status'] ?? $campaign['status'] ?? '') === 'ACTIVE'));
         $metaCurrency = (string)($accountOverview['currency'] ?? 'BRL');
         $metaMoney = static fn($value): string => $value === null || $value === '' ? '—' : format_money(((float)$value) / 100);
+        $metaExecutiveRead = [];
+        if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
+            $spend = (float)($performanceSummary['spend'] ?? 0);
+            $clicks = (int)($performanceSummary['clicks'] ?? 0);
+            $reach = (int)($performanceSummary['reach'] ?? 0);
+            $ctr = (float)($performanceSummary['ctr'] ?? 0);
+            $cpc = (float)($performanceSummary['cpc'] ?? 0);
+            if ($spend <= 0) {
+                $metaExecutiveRead[] = ['tone' => 'warn', 'title' => 'Sem investimento no período', 'text' => 'A conta não gastou nesse intervalo. Se era para vender/agendar, confira orçamento, datas e campanhas ativas.'];
+            } else {
+                $metaExecutiveRead[] = ['tone' => 'ok', 'title' => 'Investimento encontrado', 'text' => 'No período selecionado foram investidos ' . format_money($spend) . ', alcançando ' . number_format($reach, 0, ',', '.') . ' pessoas.'];
+            }
+            if ($spend > 0 && $clicks <= 0) {
+                $metaExecutiveRead[] = ['tone' => 'danger', 'title' => 'Gasto sem clique', 'text' => 'Houve gasto, mas nenhum clique registrado. O próximo passo é revisar criativo, público e chamada.'];
+            } elseif ($clicks > 0) {
+                $metaExecutiveRead[] = ['tone' => $ctr >= 1.5 ? 'ok' : ($ctr < 0.6 ? 'warn' : 'neutral'), 'title' => 'Atração do anúncio', 'text' => 'A conta gerou ' . number_format($clicks, 0, ',', '.') . ' cliques com CTR de ' . number_format($ctr, 2, ',', '.') . '% e CPC médio de ' . format_money($cpc) . '.'];
+            }
+        } else {
+            $metaExecutiveRead[] = ['tone' => 'warn', 'title' => 'Sem leitura de performance', 'text' => 'A conta ainda não retornou métricas do período. Revise conexão ou selecione outro intervalo.'];
+        }
         $metaOpenHealth = is_array($testResult) || is_array($syncResult) || is_array($oauthResult) || !empty($oauthAccounts) || (bool)$accountOverviewError;
         $metaOpenPerformance = is_array($performanceSummary) && !empty($performanceSummary['ok']);
         $metaLayerCards = [
@@ -7880,6 +8623,11 @@ if ($page === 'studio_meta_ads') {
             ['Campanhas ativas', (string)$activeCampaigns, count((array)$campaignsData) . ' campanhas carregadas', 'fa-bullhorn'],
         ] as [$label, $value, $hint, $icon]) {
             echo '<div class="meta-kpi-card"><span><i class="fa-solid ' . h($icon) . '"></i>' . h($label) . '</span><strong>' . h($value) . '</strong><small>' . h($hint) . '</small></div>';
+        }
+        echo '</div>';
+        echo '<div class="meta-executive-grid">';
+        foreach ($metaExecutiveRead as $readItem) {
+            echo '<article class="meta-executive-card ' . h((string)($readItem['tone'] ?? 'neutral')) . '"><span>' . h((string)($readItem['title'] ?? 'Leitura')) . '</span><p>' . h((string)($readItem['text'] ?? '')) . '</p></article>';
         }
         echo '</div>';
         if ($accountOverviewError) {
@@ -8022,7 +8770,6 @@ if ($page === 'studio_meta_ads') {
         echo '<script>(function(){const root=document.querySelector(".meta-ads-page");if(!root||window.toggleMetaAdsSections)return;window.toggleMetaAdsSections=function(open){root.querySelectorAll("details.meta-layer-card,details.meta-detail-card,details.meta-campaign-accordion").forEach((el)=>{el.open=!!open;});};})();</script>';
         $adsByAdset = [];
         $adsByCampaign = [];
-        $campaignMetrics = [];
         foreach (($adsData ?? []) as $ad) {
             if (!is_array($ad)) {
                 continue;
@@ -8059,6 +8806,7 @@ if ($page === 'studio_meta_ads') {
             echo '<div class="panel soft"><p class="mb-0"><strong>Não foi possível carregar a árvore:</strong> ' . h($campaignsError) . '</p></div>';
         } elseif ($campaignsData) {
             echo '<div class="meta-campaign-list">';
+            $campaignIndex = 0;
             foreach ($campaignsData as $campaign) {
                 if (!is_array($campaign)) {
                     continue;
@@ -8071,11 +8819,16 @@ if ($page === 'studio_meta_ads') {
                 $campaignAdsets = $adsetsByCampaign[$campaignId] ?? [];
                 $campaignAds = $adsByCampaign[$campaignId] ?? [];
                 $campaignMetric = $campaignMetrics[$campaignId] ?? [];
+                $campaignStatusInfo = $metaStatusInfo($campaignStatus);
+                $campaignObjectiveLabel = $metaObjectiveLabel($campaignObjective);
+                $campaignReading = $metaAdReading($campaignMetric, $campaignStatus);
                 $activeCampaign = $campaignStatus === 'ACTIVE';
-                echo '<details class="meta-campaign-card" style="border-left-color:' . h($activeCampaign ? '#16a34a' : '#64748b') . '">';
+                $campaignOpen = $campaignIndex === 0;
+                $campaignIndex++;
+                echo '<details class="meta-campaign-card" ' . ($campaignOpen ? 'open ' : '') . 'style="border-left-color:' . h($activeCampaign ? '#16a34a' : '#64748b') . '">';
                 echo '<summary class="meta-campaign-summary">';
-                echo '<div class="meta-campaign-head"><div><strong>' . h($campaignName) . '</strong><span>' . h($campaignId) . '</span></div><div class="meta-chip-row"><span class="badge ' . h($activeCampaign ? 'ok' : 'warn') . '">' . h($campaignStatus) . '</span><span class="badge">' . h((string)count($campaignAdsets)) . ' conjuntos</span><span class="badge">' . h((string)count($campaignAds)) . ' anúncios</span></div></div>';
-                echo '<div class="meta-campaign-line">' . h(($campaignObjective !== '' ? $campaignObjective : 'Objetivo não informado') . ($campaignBuyingType !== '' ? ' · ' . $campaignBuyingType : '')) . '</div>';
+                echo '<div class="meta-campaign-head"><div><strong>' . h($campaignName) . '</strong><span>' . h($campaignObjectiveLabel . ($campaignBuyingType !== '' ? ' · ' . $campaignBuyingType : '')) . '</span></div><div class="meta-chip-row"><span class="badge ' . h((string)$campaignStatusInfo['tone']) . '">' . h((string)$campaignStatusInfo['label']) . '</span><span class="badge">' . h((string)count($campaignAdsets)) . ' conjuntos</span><span class="badge">' . h((string)count($campaignAds)) . ' anúncios</span></div></div>';
+                echo '<div class="meta-campaign-read ' . h((string)$campaignReading['tone']) . '"><strong>' . h((string)$campaignReading['headline']) . '</strong><span>' . h((string)$campaignReading['detail']) . '</span></div>';
                 echo '<div class="meta-campaign-metrics">';
                 echo '<span><small>Gasto</small><strong>' . h(isset($campaignMetric['spend']) ? format_money((float)$campaignMetric['spend']) : '—') . '</strong></span>';
                 echo '<span><small>Cliques</small><strong>' . h(isset($campaignMetric['clicks']) ? number_format((int)$campaignMetric['clicks'], 0, ',', '.') : '—') . '</strong></span>';
@@ -8096,8 +8849,10 @@ if ($page === 'studio_meta_ads') {
                         $adsetObjective = trim((string)($adset['optimization_goal'] ?? ''));
                         $adsetBilling = trim((string)($adset['billing_event'] ?? ''));
                         $adsetAds = $adsByAdset[$adsetId] ?? [];
+                        $adsetStatusInfo = $metaStatusInfo($adsetStatus);
+                        $adsetObjectiveLabel = $metaObjectiveLabel($adsetObjective);
                         echo '<details class="meta-adset-card">';
-                        echo '<summary class="meta-adset-summary"><div><strong>' . h($adsetName) . '</strong><span>' . h($adsetId) . '</span></div><div class="meta-chip-row"><span class="badge ' . h($adsetStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adsetStatus) . '</span><span class="badge">' . h(($adsetObjective !== '' ? $adsetObjective : 'objetivo não informado')) . '</span><span class="badge">' . h((string)count($adsetAds)) . ' anúncios</span></div></summary>';
+                        echo '<summary class="meta-adset-summary"><div><strong>' . h($adsetName) . '</strong><span>' . h($adsetObjectiveLabel) . '</span></div><div class="meta-chip-row"><span class="badge ' . h((string)$adsetStatusInfo['tone']) . '">' . h((string)$adsetStatusInfo['label']) . '</span><span class="badge">' . h((string)count($adsetAds)) . ' anúncios</span></div></summary>';
                         echo '<div class="meta-adset-body">';
                         if ($adsetBilling !== '') {
                             echo '<p class="meta-subline">Cobrança: ' . h($adsetBilling) . '</p>';
@@ -8112,6 +8867,8 @@ if ($page === 'studio_meta_ads') {
                                 $adId = (string)($ad['id'] ?? '');
                                 $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
                                 $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
+                                $adStatusInfo = $metaStatusInfo($adStatus);
+                                $adReading = $metaAdReading($adInsights, $adStatus);
                                 $adActions = is_array($adInsights['actions'] ?? null) ? $adInsights['actions'] : [];
                                 $adActionSummary = [];
                                 foreach ($adActions as $action) {
@@ -8121,14 +8878,22 @@ if ($page === 'studio_meta_ads') {
                                     $actionType = trim((string)($action['action_type'] ?? ''));
                                     $actionValue = trim((string)($action['value'] ?? ''));
                                     if ($actionType !== '' && $actionValue !== '') {
-                                        $adActionSummary[] = $actionType . ': ' . $actionValue;
+                                        $adActionSummary[] = $metaActionLabel($actionType) . ': ' . $actionValue;
                                     }
                                     if (count($adActionSummary) >= 3) {
                                         break;
                                     }
                                 }
-                                echo '<article class="meta-ad-card">';
-                                echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h($adId) . '</span></div><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span></div>';
+                                echo '<article class="meta-ad-card ' . h((string)$adReading['tone']) . '">';
+                                echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h((string)$adStatusInfo['hint']) . '</span></div><span class="badge ' . h((string)$adStatusInfo['tone']) . '">' . h((string)$adStatusInfo['label']) . '</span></div>';
+                                echo '<div class="meta-ad-reading"><strong>' . h((string)$adReading['headline']) . '</strong><span>' . h((string)$adReading['detail']) . '</span></div>';
+                                if (!empty($adReading['tags'])) {
+                                    echo '<div class="meta-chip-row meta-chip-row-left">';
+                                    foreach ((array)$adReading['tags'] as $tag) {
+                                        echo '<span class="badge">' . h((string)$tag) . '</span>';
+                                    }
+                                    echo '</div>';
+                                }
                                 echo '<div class="meta-ad-metrics">';
                                 echo '<span><small>Gasto</small><strong>' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</strong></span>';
                                 echo '<span><small>Cliques</small><strong>' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
@@ -8172,8 +8937,18 @@ if ($page === 'studio_meta_ads') {
                         $adId = (string)($ad['id'] ?? '');
                         $adStatus = (string)($ad['effective_status'] ?? $ad['status'] ?? '');
                         $adInsights = is_array($adInsightsByAd[$adId] ?? null) ? $adInsightsByAd[$adId] : [];
-                        echo '<article class="meta-ad-card">';
-                        echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h($adId) . '</span></div><span class="badge ' . h($adStatus === 'ACTIVE' ? 'ok' : 'warn') . '">' . h($adStatus) . '</span></div>';
+                        $adStatusInfo = $metaStatusInfo($adStatus);
+                        $adReading = $metaAdReading($adInsights, $adStatus);
+                        echo '<article class="meta-ad-card ' . h((string)$adReading['tone']) . '">';
+                        echo '<div class="meta-ad-head"><div><strong>' . h($adName) . '</strong><span>' . h((string)$adStatusInfo['hint']) . '</span></div><span class="badge ' . h((string)$adStatusInfo['tone']) . '">' . h((string)$adStatusInfo['label']) . '</span></div>';
+                        echo '<div class="meta-ad-reading"><strong>' . h((string)$adReading['headline']) . '</strong><span>' . h((string)$adReading['detail']) . '</span></div>';
+                        if (!empty($adReading['tags'])) {
+                            echo '<div class="meta-chip-row meta-chip-row-left">';
+                            foreach ((array)$adReading['tags'] as $tag) {
+                                echo '<span class="badge">' . h((string)$tag) . '</span>';
+                            }
+                            echo '</div>';
+                        }
                         echo '<div class="meta-ad-metrics">';
                         echo '<span><small>Gasto</small><strong>' . h(format_money((float)($adInsights['spend'] ?? 0))) . '</strong></span>';
                         echo '<span><small>Cliques</small><strong>' . h(number_format((int)($adInsights['clicks'] ?? 0), 0, ',', '.')) . '</strong></span>';
@@ -8768,9 +9543,9 @@ function lead_status_options(): array
     return [
         'novo' => 'Novo',
         'em_conversa' => 'Em conversa',
-        'orcamento' => 'Orcamento',
         'pre_agendado' => 'Pre-agendado',
         'agendado' => 'Agendado',
+        'finalizado' => 'Finalizado',
         'fechado' => 'Fechado',
         'perdido' => 'Perdido',
     ];
@@ -9053,6 +9828,10 @@ function appointment_calendar_detail_payload(array $appointment): array
     $status = (string)($appointment['status'] ?? '');
     $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
     $href = app_url('studio_agenda', ['date' => $date, 'appointment_id' => (int)($appointment['id'] ?? 0)]) . '#appointment-form';
+    $referencePath = trim((string)($appointment['reference_image_path'] ?? ''));
+    $referenceUrl = $referencePath !== ''
+        ? (preg_match('/^https?:\/\//i', $referencePath) ? $referencePath : app_url($referencePath))
+        : '';
 
     return [
         'id' => (int)($appointment['id'] ?? 0),
@@ -9070,6 +9849,9 @@ function appointment_calendar_detail_payload(array $appointment): array
         'raw_title' => (string)($appointment['raw_title'] ?? ''),
         'google_calendar_id' => (string)($appointment['google_calendar_id'] ?? ''),
         'google_event_id' => (string)($appointment['google_calendar_event_id'] ?? ''),
+        'reference_url' => $referenceUrl,
+        'reference_name' => (string)($appointment['reference_image_name'] ?? ''),
+        'reference_mime' => (string)($appointment['reference_image_mime'] ?? ''),
         'health_alerts' => array_map(static fn(array $alert): array => [
             'label' => (string)($alert['label'] ?? ''),
             'detail' => (string)($alert['detail'] ?? ''),
@@ -9177,18 +9959,24 @@ function render_pipeline_board(array $board, array $stages): void
         $stageTotalValue = (float)($column['total_value'] ?? 0);
         $share = $totalLeads > 0 ? (int)round(($stageCount / $totalLeads) * 100) : 0;
         $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($stage['color'] ?? '')) ? $stage['color'] : '#667085';
-        echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '" data-stage="' . h($stageName) . '">';
+        $isFinalizedColumn = studio_normalize_pipeline_stage((string)$stageName) === 'finalizado';
+        $stageLabel = studio_pipeline_stage_display_name((string)$stageName);
+        echo '<div class="pipeline-column" style="--stage-color:' . h($color) . '" data-stage="' . h($stageName) . '" data-page-size="12">';
         echo '<div class="pipeline-column-head">';
-        echo '<div><strong>' . h($stageName) . '</strong><span class="muted">Etapa  do funil</span></div>';
-        echo '<span class="badge">' . h((string)$stageCount) . ' leads</span>';
+        echo '<button type="button" class="pipeline-column-title" data-pipeline-sort-toggle title="Clique para alternar a classificação"><strong>' . h($stageLabel) . '</strong><span class="muted">' . h($isFinalizedColumn ? 'Atendimentos concluídos' : 'Etapa do funil') . '</span></button>';
+        echo '<span class="badge">' . h((string)$stageCount) . ' ' . h($isFinalizedColumn ? 'itens' : 'leads') . '</span>';
         echo '</div>';
-        echo '<div class="pipeline-column-summary"><span><strong>' . h((string)$stageCount) . '</strong><small>Leads</small></span><span><strong>' . h(format_money($stageTotalValue)) . '</strong><small>Valor total</small></span><span><strong>' . h((string)$share) . '%</strong><small>Do funil</small></span></div>';
+        echo '<div class="pipeline-column-summary"><span><strong>' . h((string)$stageCount) . '</strong><small>' . h($isFinalizedColumn ? 'Atendidos' : 'Leads') . '</small></span><span><strong>' . h(format_money($stageTotalValue)) . '</strong><small>Valor</small></span><span><strong>' . h((string)$share) . '%</strong><small>Funil</small></span></div>';
+        echo '<div class="pipeline-column-tools"><input type="search" data-pipeline-filter placeholder="Filtrar coluna..."><select data-pipeline-sort aria-label="Classificar coluna"><option value="updated_desc">Recentes</option><option value="score_desc">Nota maior</option><option value="value_desc">Valor maior</option><option value="name_asc">Nome A-Z</option></select></div>';
         if (!$leads) {
-            echo '<p class="muted pipeline-empty">Nenhum lead nesta etapa.</p>';
+            echo '<p class="muted pipeline-empty">' . h($isFinalizedColumn ? 'Nenhum atendimento finalizado automaticamente.' : 'Nenhum lead nesta etapa.') . '</p>';
         }
+        echo '<div class="pipeline-card-list" data-pipeline-list>';
         foreach ($leads as $lead) {
             render_pipeline_card($lead, $stageNames);
         }
+        echo '</div>';
+        echo '<div class="pipeline-pagination" data-pipeline-pagination><button type="button" class="btn tiny secondary" data-pipeline-prev>Anterior</button><span data-pipeline-page-label>1/1</span><button type="button" class="btn tiny secondary" data-pipeline-next>Próxima</button></div>';
         echo '</div>';
     }
     echo '</div>';
@@ -9200,7 +9988,9 @@ function render_pipeline_card(array $lead, array $stageNames): void
     $currentIndex = array_search($currentStage, $stageNames, true);
     $prevStage = $currentIndex !== false && $currentIndex > 0 ? $stageNames[$currentIndex - 1] : '';
     $nextStage = $currentIndex !== false && $currentIndex < count($stageNames) - 1 ? $stageNames[$currentIndex + 1] : '';
-    $leadId = (int)$lead['id'];
+    $leadId = (int)($lead['id'] ?? 0);
+    $appointmentId = (int)($lead['appointment_id'] ?? 0);
+    $isAppointmentCard = !empty($lead['finalized_from_appointment']);
     $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
     $isStale = false;
     if ($updatedAt !== '') {
@@ -9231,55 +10021,80 @@ function render_pipeline_card(array $lead, array $stageNames): void
     $status = strtolower((string)($lead['status'] ?? ''));
     $artistName = trim((string)($lead['artist_name'] ?? $lead['tattoo_artist_name'] ?? $lead['responsible_name'] ?? ''));
     $isScheduled = in_array($status, ['agendado', 'pre_agendado'], true);
+    $appointmentDate = (string)($lead['appointment_date'] ?? '');
+    $appointmentTime = substr((string)($lead['start_time'] ?? ''), 0, 5);
+    $appointmentHref = $appointmentDate !== '' ? app_url('studio_agenda', ['date' => $appointmentDate, 'appointment_id' => $appointmentId]) . '#appointment-form' : app_url('studio_agenda');
+    $cardDomId = $leadId > 0 ? (string)$leadId : 'appointment-' . $appointmentId;
+    $draggable = $leadId > 0 && !$isAppointmentCard ? 'true' : 'false';
+    $leadName = trim((string)($lead['name'] ?? '')) ?: ($isAppointmentCard ? 'Agendamento finalizado' : 'Lead sem nome');
+    $interest = trim((string)($lead['interest'] ?? '')) ?: 'Sem interesse descrito.';
+    $value = (float)($lead['estimated_value'] ?? 0);
+    $searchText = trim(implode(' ', array_filter([
+        $leadName,
+        $interest,
+        (string)($lead['phone'] ?? ''),
+        (string)($lead['source'] ?? ''),
+        $artistName,
+        $status,
+    ])));
+    $contextParts = [];
+    if ($phone !== '') {
+        $contextParts[] = $phone;
+    }
+    if ($artistName !== '') {
+        $contextParts[] = $artistName;
+    }
+    if ($isAppointmentCard && $appointmentDate !== '') {
+        $contextParts[] = format_date_pt($appointmentDate) . ($appointmentTime !== '' ? ' ' . $appointmentTime : '');
+    } elseif ($createdOrUpdated !== '') {
+        $contextParts[] = $createdOrUpdated;
+    }
+    $context = trim(implode(' · ', $contextParts));
 
-    echo '<article class="lead-card card shadow-sm border-0' . ($isStale ? ' stale' : '') . '" draggable="true" data-lead-id="' . h((string)$leadId) . '" data-stage-name="' . h($currentStage) . '">';
-    echo '<button type="button" class="lead-card-title-button" data-lead-open="' . h((string)$leadId) . '"><strong class="lead-card-title">' . h($lead['name'] ?: 'Lead sem nome') . '</strong></button>';
-    echo '<div class="lead-card-submeta compact">';
-    echo '<span class="badge">' . h($status !== '' ? $status : 'sem status') . '</span>';
+    echo '<article class="lead-card card shadow-sm border-0' . ($isStale && !$isAppointmentCard ? ' stale' : '') . ($isAppointmentCard ? ' lead-card-finalized' : '') . '" draggable="' . h($draggable) . '" data-lead-id="' . h($cardDomId) . '" data-stage-name="' . h($currentStage) . '" data-lead-name="' . h(mb_strtolower($leadName, 'UTF-8')) . '" data-lead-score="' . h((string)$score) . '" data-lead-value="' . h((string)$value) . '" data-lead-updated="' . h($updatedAt !== '' ? $updatedAt : $createdAt) . '" data-lead-search="' . h(mb_strtolower($searchText, 'UTF-8')) . '">';
+    if ($leadId > 0) {
+        echo '<button type="button" class="lead-card-title-button" data-lead-open="' . h((string)$leadId) . '"><strong class="lead-card-title">' . h($leadName) . '</strong></button>';
+    } else {
+        echo '<a class="lead-card-title-button" href="' . h($appointmentHref) . '"><strong class="lead-card-title">' . h($leadName) . '</strong></a>';
+    }
+    echo '<div class="lead-card-strip">';
+    echo '<span class="badge">' . h($isAppointmentCard ? 'finalizado' : ($status !== '' ? $status : 'sem status')) . '</span>';
     echo '<span class="badge">' . h((string)$score) . '/10</span>';
-    if ($phoneLink !== '') {
-        echo '<span class="badge">WhatsApp</span>';
-    }
-    $statusTone = in_array($status, ['agendado', 'pre_agendado'], true) ? 'warn' : (in_array($status, ['fechado'], true) ? 'ok' : (in_array($status, ['perdido'], true) ? 'danger' : ($isStale ? 'warn' : 'neutral')));
-    echo '</div>';
-    echo '<div class="lead-card-badges">';
-    if ($isNew) {
-        echo '<span class="badge ok">Novo</span>';
-    }
     if ($isHot) {
         echo '<span class="badge ok">Quente</span>';
-    }
-    if ($isHighValue) {
-        echo '<span class="badge">Alto valor</span>';
     }
     if ($isScheduled) {
         echo '<span class="badge warn">' . h($status === 'agendado' ? 'Agendado' : 'Pré-agendado') . '</span>';
     }
-    if ($artistName !== '') {
-        echo '<span class="badge">' . h($artistName) . '</span>';
+    if ($isAppointmentCard) {
+        echo '<span class="badge ok">Atendido</span>';
     }
-    if ($isStale) {
-        echo '<span class="badge warn">parado há mais de 24h</span>';
+    if ($isStale && !$isAppointmentCard) {
+        echo '<span class="badge warn">24h+</span>';
+    }
+    if ($value > 0) {
+        echo '<span class="lead-card-value">' . h(format_money($value)) . '</span>';
     }
     echo '</div>';
-    echo '<p class="lead-card-interest">' . h($lead['interest'] ?: 'Sem interesse descrito.') . '</p>';
-    echo '<div class="lead-card-submeta">';
-    echo '<span class="muted">' . h($lead['phone'] ?: 'Sem telefone') . '</span>';
-    echo '<span class="muted">Origem: ' . h($lead['source'] ?: 'Sem origem') . '</span>';
-    echo '<span class="muted">Atualizado ' . h($createdOrUpdated !== '' ? $createdOrUpdated : '-') . '</span>';
-    echo '</div>';
-    echo '<div class="lead-card-actions lead-card-actions-quick d-flex flex-wrap gap-2">';
-    echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">Ver</a>';
-    echo '<button type="button" class="btn tiny secondary" data-lead-open="' . h((string)$leadId) . '">Detalhes</button>';
-    echo '</div>';
-    echo '<div class="lead-card-actions d-flex flex-wrap gap-2">';
-    foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
-        if ($move['stage'] === '') {
-            continue;
+    echo '<p class="lead-card-context" title="' . h($interest) . '">' . h($context !== '' ? $context : $interest) . '</p>';
+    echo '<div class="lead-card-actions lead-card-actions-quick">';
+    if ($leadId > 0) {
+        echo '<a class="btn tiny secondary" href="' . h(app_url('studio_lead', ['id' => $leadId])) . '">Ver</a>';
+        echo '<button type="button" class="btn tiny secondary" data-lead-open="' . h((string)$leadId) . '">Detalhes</button>';
+    }
+    if ($isAppointmentCard) {
+        echo '<a class="btn tiny secondary" href="' . h($appointmentHref) . '">Agenda</a>';
+    }
+    if (!$isAppointmentCard) {
+        foreach ([['label' => 'Voltar', 'stage' => $prevStage], ['label' => 'Avancar', 'stage' => $nextStage]] as $move) {
+            if ($move['stage'] === '') {
+                continue;
+            }
+            echo '<button type="button" class="btn tiny secondary" data-move-stage="' . h($move['stage']) . '" data-lead-id="' . h((string)$leadId) . '" data-current-status="' . h($lead['status']) . '">' . h($move['label'] === 'Avancar' ? '→' : '←') . '</button>';
         }
-        echo '<button type="button" class="btn tiny secondary" data-move-stage="' . h($move['stage']) . '" data-lead-id="' . h((string)$leadId) . '" data-current-status="' . h($lead['status']) . '">' . h($move['label']) . '</button>';
     }
-    echo '</div></article>';
+    echo '</div>';
+    echo '</article>';
 }
 
 function render_leads_table(array $leads): void

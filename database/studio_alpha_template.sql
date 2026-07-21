@@ -17,14 +17,19 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
   `ai_pricing_page_synced_at` DATETIME NULL,
   `ai_pricing_page_error` TEXT NULL,
   `ai_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `ai_semantic_interpreter_enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `ai_semantic_model` VARCHAR(160) NOT NULL DEFAULT 'qwen/qwen3-next-80b-a3b-instruct',
   `assistant_autofill_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `ai_learning_import_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `ai_learning_import_last_at` DATETIME NULL,
+  `ai_learning_import_last_summary` VARCHAR(500) NULL,
   `ai_model` VARCHAR(120) NOT NULL DEFAULT 'llama3:8b',
   `openai_api_key` TEXT NULL,
   `openai_model` VARCHAR(80) NOT NULL DEFAULT 'gpt-4o-mini',
   `nvidia_api_key` TEXT NULL,
-  `nvidia_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.1-70b-instruct',
+  `nvidia_model` VARCHAR(120) NOT NULL DEFAULT 'qwen/qwen3-next-80b-a3b-instruct',
   `nvidia_vision_api_key` TEXT NULL,
-  `nvidia_vision_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.2-90b-vision-instruct',
+  `nvidia_vision_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.2-11b-vision-instruct',
   `nvidia_vision_base_url` VARCHAR(180) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1',
   `nvidia_vision_enabled` TINYINT(1) NOT NULL DEFAULT 1,
   `nvidia_document_api_key` TEXT NULL,
@@ -48,7 +53,7 @@ CREATE TABLE IF NOT EXISTS `studio_settings` (
   `whatsapp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
   `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human',
   `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010',
-  `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5',
+  `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5,6,7',
   `appointment_time_slots` VARCHAR(80) NOT NULL DEFAULT '10:00,15:00',
   `appointment_duration_minutes` INT NOT NULL DEFAULT 300,
   `appointment_overwrite_message` TEXT NULL,
@@ -69,12 +74,17 @@ ALTER TABLE `studio_settings`
   ADD COLUMN IF NOT EXISTS `ai_pricing_page_synced_at` DATETIME NULL AFTER `ai_pricing_page_raw_hash`,
   ADD COLUMN IF NOT EXISTS `ai_pricing_page_error` TEXT NULL AFTER `ai_pricing_page_synced_at`,
   ADD COLUMN IF NOT EXISTS `assistant_autofill_enabled` TINYINT(1) NOT NULL DEFAULT 0 AFTER `ai_enabled`,
+  ADD COLUMN IF NOT EXISTS `ai_semantic_interpreter_enabled` TINYINT(1) NOT NULL DEFAULT 1 AFTER `ai_enabled`,
+  ADD COLUMN IF NOT EXISTS `ai_semantic_model` VARCHAR(160) NOT NULL DEFAULT 'qwen/qwen3-next-80b-a3b-instruct' AFTER `ai_semantic_interpreter_enabled`,
+  ADD COLUMN IF NOT EXISTS `ai_learning_import_count` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `assistant_autofill_enabled`,
+  ADD COLUMN IF NOT EXISTS `ai_learning_import_last_at` DATETIME NULL AFTER `ai_learning_import_count`,
+  ADD COLUMN IF NOT EXISTS `ai_learning_import_last_summary` VARCHAR(500) NULL AFTER `ai_learning_import_last_at`,
   ADD COLUMN IF NOT EXISTS `openai_api_key` TEXT NULL AFTER `ai_model`,
   ADD COLUMN IF NOT EXISTS `openai_model` VARCHAR(80) NOT NULL DEFAULT 'gpt-4o-mini' AFTER `openai_api_key`,
   ADD COLUMN IF NOT EXISTS `nvidia_api_key` TEXT NULL AFTER `openai_model`,
-  ADD COLUMN IF NOT EXISTS `nvidia_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.1-70b-instruct' AFTER `nvidia_api_key`,
+  ADD COLUMN IF NOT EXISTS `nvidia_model` VARCHAR(120) NOT NULL DEFAULT 'qwen/qwen3-next-80b-a3b-instruct' AFTER `nvidia_api_key`,
   ADD COLUMN IF NOT EXISTS `nvidia_vision_api_key` TEXT NULL AFTER `nvidia_model`,
-  ADD COLUMN IF NOT EXISTS `nvidia_vision_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.2-90b-vision-instruct' AFTER `nvidia_vision_api_key`,
+  ADD COLUMN IF NOT EXISTS `nvidia_vision_model` VARCHAR(120) NOT NULL DEFAULT 'meta/llama-3.2-11b-vision-instruct' AFTER `nvidia_vision_api_key`,
   ADD COLUMN IF NOT EXISTS `nvidia_vision_base_url` VARCHAR(180) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1' AFTER `nvidia_vision_model`,
   ADD COLUMN IF NOT EXISTS `nvidia_vision_enabled` TINYINT(1) NOT NULL DEFAULT 1 AFTER `nvidia_vision_base_url`,
   ADD COLUMN IF NOT EXISTS `nvidia_document_api_key` TEXT NULL AFTER `nvidia_vision_enabled`,
@@ -97,7 +107,7 @@ ALTER TABLE `studio_settings`
   ADD COLUMN IF NOT EXISTS `ai_api_base_url` VARCHAR(180) NOT NULL DEFAULT 'https://integrate.api.nvidia.com/v1' AFTER `ai_provider`,
   ADD COLUMN IF NOT EXISTS `whatsapp_default_mode` ENUM('human', 'bot') NOT NULL DEFAULT 'human' AFTER `whatsapp_enabled`,
   ADD COLUMN IF NOT EXISTS `whatsapp_service_url` VARCHAR(220) NOT NULL DEFAULT 'http://localhost:3010' AFTER `whatsapp_default_mode`,
-  ADD COLUMN IF NOT EXISTS `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5' AFTER `whatsapp_service_url`,
+  ADD COLUMN IF NOT EXISTS `appointment_work_days` VARCHAR(40) NOT NULL DEFAULT '1,2,3,4,5,6,7' AFTER `whatsapp_service_url`,
   ADD COLUMN IF NOT EXISTS `appointment_time_slots` VARCHAR(80) NOT NULL DEFAULT '10:00,15:00' AFTER `appointment_work_days`,
   ADD COLUMN IF NOT EXISTS `appointment_duration_minutes` INT NOT NULL DEFAULT 300 AFTER `appointment_time_slots`,
   ADD COLUMN IF NOT EXISTS `appointment_overwrite_message` TEXT NULL AFTER `appointment_duration_minutes`,
@@ -107,6 +117,48 @@ ALTER TABLE `studio_settings`
   ADD COLUMN IF NOT EXISTS `whatsapp_flow_id` VARCHAR(80) NULL,
   ADD COLUMN IF NOT EXISTS `whatsapp_flow_cta` VARCHAR(20) NULL,
   ADD COLUMN IF NOT EXISTS `whatsapp_flow_screen` VARCHAR(80) NULL;
+
+CREATE TABLE IF NOT EXISTS `whatsapp_ai_learning_imports` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `original_file_name` VARCHAR(255) NOT NULL,
+  `source_hash` CHAR(64) NULL,
+  `learned_text` MEDIUMTEXT NOT NULL,
+  `summary` VARCHAR(700) NULL,
+  `message_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `participant_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `audio_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `audio_transcribed` INT UNSIGNED NOT NULL DEFAULT 0,
+  `media_count` INT UNSIGNED NOT NULL DEFAULT 0,
+  `media_analyzed` INT UNSIGNED NOT NULL DEFAULT 0,
+  `processing_seconds` INT UNSIGNED NOT NULL DEFAULT 0,
+  `created_by_user_id` BIGINT UNSIGNED NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_learning_import_created` (`created_at`),
+  KEY `idx_learning_import_hash` (`source_hash`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `whatsapp_ai_learning_jobs` (
+  `job_id` CHAR(32) NOT NULL,
+  `status` VARCHAR(24) NOT NULL DEFAULT 'waiting_upload',
+  `stage` VARCHAR(60) NOT NULL DEFAULT 'waiting_upload',
+  `progress` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `detail` VARCHAR(700) NULL,
+  `eta_seconds` INT UNSIGNED NULL,
+  `counters_json` LONGTEXT NULL,
+  `original_file_name` VARCHAR(255) NULL,
+  `file_size` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  `result_import_id` BIGINT UNSIGNED NULL,
+  `error_text` VARCHAR(700) NULL,
+  `created_by_user_id` BIGINT UNSIGNED NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `started_at` DATETIME NULL,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `completed_at` DATETIME NULL,
+  PRIMARY KEY (`job_id`),
+  KEY `idx_learning_job_created` (`created_at`),
+  KEY `idx_learning_job_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `studio_settings`
   (`id`, `studio_name`, `studio_slug`, `business_rules`, `ai_model`, `created_at`, `updated_at`)
@@ -288,14 +340,24 @@ INSERT INTO `pipeline_stages` (`name`, `sort_order`, `color`, `created_at`, `upd
 VALUES
   ('entrada', 10, '#2d8992', NOW(), NOW()),
   ('em_conversa', 20, '#1f6f78', NOW(), NOW()),
-  ('orcamento', 30, '#a86300', NOW(), NOW()),
   ('pre_agendado', 40, '#7c3aed', NOW(), NOW()),
   ('agendado', 50, '#1d7f48', NOW(), NOW()),
+  ('finalizado', 60, '#475569', NOW(), NOW()),
   ('perdido', 90, '#a33b3b', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `sort_order` = VALUES(`sort_order`),
   `color` = VALUES(`color`),
+  `is_active` = 1,
   `updated_at` = NOW();
+
+UPDATE `leads` SET `pipeline_stage` = 'em_conversa', `updated_at` = NOW()
+WHERE `pipeline_stage` IN ('orcamento', 'orçamento', 'em_orcamento', 'conversando');
+
+UPDATE `leads` SET `status` = 'em_conversa', `updated_at` = NOW()
+WHERE `status` IN ('orcamento', 'orçamento');
+
+UPDATE `pipeline_stages` SET `is_active` = 0, `updated_at` = NOW()
+WHERE `name` IN ('orcamento', 'orçamento', 'em_orcamento', 'conversando');
 
 CREATE TABLE IF NOT EXISTS `appointments` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -310,11 +372,18 @@ CREATE TABLE IF NOT EXISTS `appointments` (
   `status` VARCHAR(60) NOT NULL DEFAULT 'pre_agendado',
   `value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   `deposit_value` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  `reference_image_path` VARCHAR(255) NULL,
+  `reference_image_name` VARCHAR(180) NULL,
+  `reference_image_mime` VARCHAR(120) NULL,
   `pomada_unit_price` DECIMAL(10,2) NULL,
   `pomadas_quantity` INT NOT NULL DEFAULT 0,
   `import_source` VARCHAR(40) NULL,
   `import_uid` VARCHAR(190) NULL,
   `raw_title` VARCHAR(260) NULL,
+  `ai_review_required` TINYINT(1) NOT NULL DEFAULT 0,
+  `ai_parse_confidence` DECIMAL(5,2) NULL,
+  `ai_parse_summary` TEXT NULL,
+  `ai_parse_payload` MEDIUMTEXT NULL,
   `created_at` DATETIME NOT NULL,
   `updated_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
@@ -341,11 +410,32 @@ ALTER TABLE `appointments`
   ADD COLUMN IF NOT EXISTS `google_calendar_event_id` VARCHAR(255) NULL AFTER `import_uid`,
   ADD COLUMN IF NOT EXISTS `google_calendar_id` VARCHAR(255) NULL AFTER `google_calendar_event_id`,
   ADD COLUMN IF NOT EXISTS `raw_title` VARCHAR(260) NULL AFTER `google_calendar_id`,
+  ADD COLUMN IF NOT EXISTS `reference_image_path` VARCHAR(255) NULL AFTER `deposit_value`,
+  ADD COLUMN IF NOT EXISTS `reference_image_name` VARCHAR(180) NULL AFTER `reference_image_path`,
+  ADD COLUMN IF NOT EXISTS `reference_image_mime` VARCHAR(120) NULL AFTER `reference_image_name`,
+  ADD COLUMN IF NOT EXISTS `ai_review_required` TINYINT(1) NOT NULL DEFAULT 0 AFTER `raw_title`,
+  ADD COLUMN IF NOT EXISTS `ai_parse_confidence` DECIMAL(5,2) NULL AFTER `ai_review_required`,
+  ADD COLUMN IF NOT EXISTS `ai_parse_summary` TEXT NULL AFTER `ai_parse_confidence`,
+  ADD COLUMN IF NOT EXISTS `ai_parse_payload` MEDIUMTEXT NULL AFTER `ai_parse_summary`,
   ADD COLUMN IF NOT EXISTS `pomada_unit_price` DECIMAL(10,2) NULL AFTER `deposit_value`,
   ADD COLUMN IF NOT EXISTS `pomadas_quantity` INT NOT NULL DEFAULT 0 AFTER `pomada_unit_price`,
   ADD UNIQUE KEY IF NOT EXISTS `uk_appointments_import_uid` (`import_source`, `import_uid`),
   ADD INDEX IF NOT EXISTS `idx_appointments_google_event` (`google_calendar_id`, `google_calendar_event_id`),
   ADD INDEX IF NOT EXISTS `idx_appointments_artist` (`artist_id`);
+
+CREATE TABLE IF NOT EXISTS `appointment_references` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `appointment_id` BIGINT UNSIGNED NOT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `reference_image_path` VARCHAR(500) NOT NULL,
+  `reference_image_name` VARCHAR(180) NULL,
+  `reference_image_mime` VARCHAR(120) NULL,
+  `summary` TEXT NULL,
+  `source` VARCHAR(60) NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_appointment_references_appointment` (`appointment_id`, `sort_order`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `google_calendar_integration` (
   `id` TINYINT UNSIGNED NOT NULL DEFAULT 1,
@@ -432,6 +522,7 @@ CREATE TABLE IF NOT EXISTS `whatsapp_conversations` (
   `ai_last_at` DATETIME NULL,
   `ai_memory` MEDIUMTEXT NULL,
   `ai_memory_updated_at` DATETIME NULL,
+  `ai_booking_state` MEDIUMTEXT NULL,
   `last_message_preview` VARCHAR(260) NULL,
   `last_message_direction` ENUM('in', 'out') NULL,
   `last_message_at` DATETIME NULL,
@@ -454,10 +545,45 @@ ALTER TABLE `whatsapp_conversations`
   ADD COLUMN IF NOT EXISTS `lead_score` TINYINT UNSIGNED NULL AFTER `needs_human`,
   ADD COLUMN IF NOT EXISTS `ai_memory` MEDIUMTEXT NULL AFTER `ai_last_at`,
   ADD COLUMN IF NOT EXISTS `ai_memory_updated_at` DATETIME NULL AFTER `ai_memory`,
+  ADD COLUMN IF NOT EXISTS `ai_booking_state` MEDIUMTEXT NULL AFTER `ai_memory_updated_at`,
   ADD COLUMN IF NOT EXISTS `last_message_preview` VARCHAR(260) NULL AFTER `ai_last_at`,
   ADD COLUMN IF NOT EXISTS `last_message_direction` ENUM('in', 'out') NULL AFTER `last_message_preview`,
   ADD COLUMN IF NOT EXISTS `last_message_at` DATETIME NULL AFTER `last_message_direction`,
   ADD INDEX IF NOT EXISTS `idx_whatsapp_conversations_last` (`last_message_at`, `updated_at`);
+
+CREATE TABLE IF NOT EXISTS `whatsapp_ai_flow_config` (
+  `id` TINYINT UNSIGNED NOT NULL,
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+  `flow_name` VARCHAR(160) NOT NULL DEFAULT 'Roteiro principal de agendamento',
+  `intro_text` TEXT NULL,
+  `updated_by_user_id` INT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `whatsapp_ai_flow_config` (`id`, `enabled`, `flow_name`, `intro_text`)
+VALUES (1, 1, 'Roteiro principal de agendamento', 'Vou te fazer algumas perguntas rápidas, uma por vez, para deixar seu pedido pronto e tentar concluir o agendamento por aqui.');
+
+CREATE TABLE IF NOT EXISTS `whatsapp_ai_flow_steps` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `step_key` VARCHAR(80) NOT NULL,
+  `sort_order` INT NOT NULL DEFAULT 0,
+  `title` VARCHAR(160) NOT NULL,
+  `step_type` VARCHAR(24) NOT NULL DEFAULT 'question',
+  `field_key` VARCHAR(80) NOT NULL,
+  `answer_type` VARCHAR(40) NOT NULL DEFAULT 'text',
+  `question_text` TEXT NOT NULL,
+  `help_text` TEXT NULL,
+  `options_json` TEXT NULL,
+  `is_required` TINYINT(1) NOT NULL DEFAULT 1,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_whatsapp_ai_flow_step_key` (`step_key`),
+  KEY `idx_whatsapp_ai_flow_order` (`is_active`, `sort_order`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `whatsapp_messages` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

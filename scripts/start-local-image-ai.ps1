@@ -34,11 +34,11 @@ $arguments = @(
     '--t5xxl', "`"$t5`"",
     '--listen-ip', '127.0.0.1',
     '--listen-port', '7861',
-    '--backend', 'clip=cpu,vae=vulkan0,diffusion=vulkan0',
-    '--params-backend', 'clip=cpu,vae=vulkan0,diffusion=vulkan0',
-    '--max-vram', 'vulkan0=7',
+    # Keep the VAE on RAM: decoding peaks were resetting the AMD driver mid-job.
+    '--backend', 'clip=cpu,vae=cpu,diffusion=vulkan0',
+    '--params-backend', 'clip=cpu,vae=cpu,diffusion=vulkan0',
+    '--max-vram', 'vulkan0=6',
     '--vae-tiling',
-    '--diffusion-fa',
     '--threads', '8'
 )
 
