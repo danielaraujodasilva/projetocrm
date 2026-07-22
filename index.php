@@ -3641,14 +3641,10 @@ if ($page === 'studio_home') {
         $alerts = [];
 
         try {
-            $metaBalanceAlert = studio_meta_balance_alert_process(
-                $studio,
-                20.0,
-                '5511947573311'
-            );
+            $metaBalanceAlert = studio_meta_balance_alert_process($studio);
 
             if (!empty($metaBalanceAlert['ok']) && !empty($metaBalanceAlert['low'])) {
-                $description = 'Saldo reportado pela Meta: '
+                $description = 'Saldo disponível reportado pela Meta: '
                     . format_money((float)$metaBalanceAlert['balance'])
                     . '. Recarregue a conta para evitar interrupção das campanhas.';
 
@@ -7559,7 +7555,7 @@ if ($page === 'studio_whatsapp_flow') {
 if ($page === 'studio_settings') {
     $studio = require_studio();
     $activeSettingsTab = (string)($_GET['tab'] ?? 'studio');
-    if (!in_array($activeSettingsTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
+    if (!in_array($activeSettingsTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'alerts', 'quick_replies', 'rules'], true)) {
         $activeSettingsTab = 'studio';
     }
     render_studio_shell('Configurações do estúdio', 'Regras comerciais e preparação dos módulos de IA/WhatsApp.', 'settings', function () use ($studio) {
@@ -7598,7 +7594,7 @@ if ($page === 'studio_settings') {
         $durationHours = max(0, (int)($settings['appointment_duration_hours'] ?? 5));
         $durationMins = max(0, min(45, (int)($settings['appointment_duration_minutes_part'] ?? 0)));
         $activeTab = (string)($_GET['tab'] ?? 'studio');
-        if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'quick_replies', 'rules'], true)) {
+        if (!in_array($activeTab, ['studio', 'agenda', 'whatsapp', 'ia', 'meta_ads', 'alerts', 'quick_replies', 'rules'], true)) {
             $activeTab = 'studio';
         }
         echo '<div class="panel soft" style="margin-bottom:16px">';
@@ -7616,6 +7612,7 @@ if ($page === 'studio_settings') {
             'whatsapp' => ['WhatsApp', 'Conexão e comportamento do atendimento', 'fa-comments', 'API oficial'],
             'ia' => ['Inteligência artificial', 'Modelo, chave e automações', 'fa-robot', $aiSettingsReady ? 'Configurada' : 'Pendente'],
             'meta_ads' => ['Meta Ads', 'Conta, token, Pixel e formulários', 'fa-chart-line', !empty($settings['meta_ads_enabled']) ? 'Ativa' : 'Desativada'],
+            'alerts' => ['Alertas', 'Avisos de saldo e operação no celular', 'fa-bell', !empty($settings['meta_balance_alert_enabled']) || !array_key_exists('meta_balance_alert_enabled', $settings) ? 'Ativos' : 'Desativados'],
             'quick_replies' => ['Respostas rápidas', 'Biblioteca para agilizar o atendimento', 'fa-reply', 'Conteúdo'],
             'rules' => ['Treinamento da IA', 'Regras usadas em todas as conversas', 'fa-graduation-cap', 'Conteúdo'],
             'tags' => ['Tags das conversas', 'Organização oficial e pessoal', 'fa-tags', 'Organização'],
@@ -8028,6 +8025,26 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><strong>Tokens e diagnóstico</strong><p class="muted">Checagem de token, permissões e ligação com a conta de anúncio.</p></div>';
         echo '</div>';
         echo '</div></div>';
+        $metaBalanceAlertEnabled = array_key_exists('meta_balance_alert_enabled', $settings) ? !empty($settings['meta_balance_alert_enabled']) : true;
+        $metaBalanceAlertThreshold = (float)money_to_float((string)($settings['meta_balance_alert_threshold'] ?? '20'));
+        if ($metaBalanceAlertThreshold <= 0) {
+            $metaBalanceAlertThreshold = 20.0;
+        }
+        $metaBalanceAlertMessage = trim((string)($settings['meta_balance_alert_message'] ?? ''));
+        if ($metaBalanceAlertMessage === '') {
+            $metaBalanceAlertMessage = studio_meta_balance_alert_default_message();
+        }
+        echo '<div id="settingsSourceAlerts" hidden><div class="settings-panel" id="settings-alerts" data-settings-panel="alerts">';
+        echo '<div class="actions" style="justify-content:space-between;align-items:center"><div><h3 style="margin:0">Alertas operacionais</h3><p class="muted" style="margin:4px 0 0">Configure avisos enviados pelo WhatsApp oficial para acompanhar o saldo da conta de anúncios.</p></div><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
+        echo '<div class="panel soft" style="margin-top:14px;border-color:#cfe5dc"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px"><div><strong>Saldo disponível do Meta Ads</strong><p class="muted" style="margin:6px 0 0">O CRM usa o crédito identificado pela Meta como “Saldo disponível”. O gasto de hoje e o gasto acumulado não entram nesta comparação.</p></div><label class="switch"><input type="checkbox" name="meta_balance_alert_enabled" value="1" ' . ($metaBalanceAlertEnabled ? 'checked' : '') . '><span>Ativar alerta</span></label></div>';
+        echo '<div class="grid cols-2" style="margin-top:14px">';
+        echo '<div class="field"><label>Alertar quando o saldo for menor ou igual a</label><input name="meta_balance_alert_threshold" type="number" min="0.01" step="0.01" value="' . h(number_format($metaBalanceAlertThreshold, 2, '.', '')) . '"><small class="muted">Exemplo: R$ 20,00. O aviso dispara novamente depois que o saldo sair do limite e voltar a cair.</small></div>';
+        echo '<div class="field"><label>Celular que recebe o aviso</label><input name="meta_balance_alert_phone" inputmode="tel" value="' . h((string)($settings['meta_balance_alert_phone'] ?? '5511947573311')) . '" placeholder="5511999999999"><small class="muted">Use o formato internacional, somente números. O número atual foi preservado como padrão.</small></div>';
+        echo '</div>';
+        echo '<div class="field"><label>Mensagem do alerta</label><textarea name="meta_balance_alert_message" rows="6" placeholder="Mensagem enviada quando o saldo entrar no limite">' . h($metaBalanceAlertMessage) . '</textarea><small class="muted">Variáveis disponíveis: <code>{{account_name}}</code>, <code>{{balance}}</code>, <code>{{threshold}}</code> e <code>{{currency}}</code>.</small></div>';
+        echo '<div class="settings-howto" style="margin-top:12px"><strong>Como a regra funciona</strong><p class="muted" style="margin:6px 0 0">O alerta é enviado uma vez quando a conta entra no limite. Ao voltar acima dele, a regra é armada novamente para uma próxima queda. Se você desativar o alerta ou apagar o telefone, nada será enviado.</p></div>';
+        echo '<div class="actions" style="justify-content:flex-end;margin-top:12px"><button class="btn" type="button" data-settings-submit>Salvar alertas</button></div>';
+        echo '</div></div>';
         echo '<div id="settingsSourceRules" hidden><div class="settings-panel" id="settings-rules" data-settings-panel="rules">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><div><h3 style="margin:0">Treinamento da IA</h3><p class="muted" style="margin:4px 0 0">Ensine uma vez; o chatbot consulta este conteúdo em todas as conversas.</p></div><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="panel soft" style="margin-top:14px"><strong>O que colocar aqui</strong><p class="muted" style="margin:6px 0 0">Preços, promoções com validade, regras de sinal, estilos atendidos, endereço, formas de pagamento, políticas de retoque e exemplos de respostas corretas. Quando algo mudar, basta editar e salvar.</p></div>';
@@ -8119,6 +8136,7 @@ Exemplo de pergunta do cliente -> resposta correta:`;
     whatsapp: {title:"WhatsApp", summary:"Entrada e comportamento", source:"settingsSourceWhatsapp"},
     ia: {title:"IA", summary:"Modelo, chave e automação", source:"settingsSourceIa"},
     meta_ads: {title:"Meta Ads", summary:"Credenciais, IDs e diagnóstico", source:"settingsSourceMetaAds"},
+    alerts: {title:"Alertas", summary:"Saldo, limite, mensagem e telefone", source:"settingsSourceAlerts"},
     quick_replies: {title:"Respostas rápidas", summary:"Biblioteca do atendimento", source:"settingsSourceQuickReplies"},
     rules: {title:"Treinamento da IA", summary:"Base usada em todas as conversas", source:"settingsSourceRules"}
   };
@@ -8180,7 +8198,7 @@ Exemplo de pergunta do cliente -> resposta correta:`;
 })();
 </script>
 HTML;
-        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
+        echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", alerts: "settings-alerts", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
 }
@@ -8242,7 +8260,7 @@ if ($page === 'studio_meta_ads') {
         if ($metaAdsAuthReady) {
             try {
                 $accountOverviewResponse = studio_meta_ads_request($apiVersion, '/act_' . $accountId, $metaAdsAccessToken, [
-                    'fields' => 'id,name,currency,balance,amount_spent,spend_cap,account_status',
+                    'fields' => 'id,name,currency,balance,amount_spent,spend_cap,account_status,funding_source_details',
                 ]);
                 if (!empty($accountOverviewResponse['ok'])) {
                     $accountOverview = is_array($accountOverviewResponse['json'] ?? null) ? $accountOverviewResponse['json'] : null;
@@ -8522,6 +8540,13 @@ if ($page === 'studio_meta_ads') {
         $activeCampaigns = count(array_filter((array)$campaignsData, static fn($campaign): bool => is_array($campaign) && (string)($campaign['effective_status'] ?? $campaign['status'] ?? '') === 'ACTIVE'));
         $metaCurrency = (string)($accountOverview['currency'] ?? 'BRL');
         $metaMoney = static fn($value): string => $value === null || $value === '' ? '—' : format_money(((float)$value) / 100);
+        $metaBalanceValue = $accountOverview['balance'] ?? null;
+        $metaBalanceHint = 'Saldo disponível reportado pela Meta';
+        $metaFundingDisplay = trim((string)($accountOverview['funding_source_details']['display_string'] ?? ''));
+        if ($metaFundingDisplay !== '' && preg_match('/R\$\s*([0-9.]+(?:,[0-9]+)?)/iu', $metaFundingDisplay, $metaFundingMatch)) {
+            $metaBalanceValue = money_to_float((string)($metaFundingMatch[1] ?? '')) * 100;
+            $metaBalanceHint = 'Saldo disponível; gasto não é saldo';
+        }
         $metaExecutiveRead = [];
         if (is_array($performanceSummary) && !empty($performanceSummary['ok'])) {
             $spend = (float)($performanceSummary['spend'] ?? 0);
@@ -8617,7 +8642,7 @@ if ($page === 'studio_meta_ads') {
         echo '</div>';
         echo '<div class="meta-kpi-grid meta-kpi-grid--primary">';
         foreach ([
-            ['Saldo atual', $accountOverview ? $metaMoney($accountOverview['balance'] ?? null) : '—', 'Saldo reportado pela conta', 'fa-wallet'],
+            ['Saldo atual', $accountOverview ? $metaMoney($metaBalanceValue) : '—', $metaBalanceHint, 'fa-wallet'],
             ['Gasto hoje', is_array($todayPerformanceSummary) && !empty($todayPerformanceSummary['ok']) ? format_money((float)($todayPerformanceSummary['spend'] ?? 0)) : '—', 'Investimento desde 00h', 'fa-clock'],
             ['Gasto no período', is_array($performanceSummary) && !empty($performanceSummary['ok']) ? format_money((float)($performanceSummary['spend'] ?? 0)) : '—', $performanceStart . ' a ' . $performanceEnd, 'fa-arrow-trend-up'],
             ['Campanhas ativas', (string)$activeCampaigns, count((array)$campaignsData) . ' campanhas carregadas', 'fa-bullhorn'],

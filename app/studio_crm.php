@@ -14503,7 +14503,7 @@ function studio_meta_ads_balance_status(array $studio, float $threshold = 20.0):
     }
 
     $response = studio_meta_ads_request($version, '/act_' . $accountId, $token, [
-        'fields' => 'id,name,currency,balance,account_status',
+        'fields' => 'id,name,currency,balance,amount_spent,spend_cap,account_status,funding_source_details',
     ]);
 
     if (empty($response['ok'])) {
@@ -14519,17 +14519,64 @@ function studio_meta_ads_balance_status(array $studio, float $threshold = 20.0):
         return ['ok' => false, 'enabled' => true, 'error' => 'A Meta não retornou o campo balance para esta conta.'];
     }
 
-    $balance = ((float)$account['balance']) / 100;
+    $rawBalance = ((float)$account['balance']) / 100;
+    $fundingSourceDisplay = trim((string)($account['funding_source_details']['display_string'] ?? ''));
+    $availableBalance = null;
+    if ($fundingSourceDisplay !== '' && preg_match('/R\$\s*([0-9.]+(?:,[0-9]+)?)/iu', $fundingSourceDisplay, $match)) {
+        $availableBalance = money_to_float((string)($match[1] ?? ''));
+    }
+    $balance = $availableBalance !== null ? $availableBalance : $rawBalance;
 
     return [
         'ok' => true,
         'enabled' => true,
         'low' => $balance <= $threshold,
         'balance' => $balance,
+        'raw_balance' => $rawBalance,
+        'balance_source' => $availableBalance !== null ? 'funding_source_details.display_string' : 'balance',
+        'funding_source_display' => $fundingSourceDisplay,
+        'amount_spent' => (float)($account['amount_spent'] ?? 0) / 100,
+        'spend_cap' => (float)($account['spend_cap'] ?? 0) / 100,
         'threshold' => $threshold,
         'currency' => (string)($account['currency'] ?? 'BRL'),
         'account_name' => (string)($account['name'] ?? 'Conta de anúncios'),
         'account_status' => (int)($account['account_status'] ?? 0),
+    ];
+}
+
+function studio_meta_balance_alert_default_message(): string
+{
+    return "⚠️ ALERTA DE SALDO DO META ADS\n\n"
+        . 'A conta "{{account_name}}" tem saldo disponível de {{balance}}.\n\n'
+        . 'Limite configurado no CRM: {{threshold}}.\n'
+        . 'Vale recarregar antes que as campanhas parem.';
+}
+
+function studio_meta_balance_alert_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $hasEnabled = array_key_exists('meta_balance_alert_enabled', $settings);
+    $hasPhone = array_key_exists('meta_balance_alert_phone', $settings);
+    $threshold = (float)money_to_float((string)($settings['meta_balance_alert_threshold'] ?? '20'));
+    if ($threshold <= 0) {
+        $threshold = 20.0;
+    }
+
+    $phone = trim((string)($settings['meta_balance_alert_phone'] ?? ''));
+    if (!$hasPhone && $phone === '') {
+        $phone = '5511947573311';
+    }
+
+    $message = trim((string)($settings['meta_balance_alert_message'] ?? ''));
+    if ($message === '') {
+        $message = studio_meta_balance_alert_default_message();
+    }
+
+    return [
+        'enabled' => $hasEnabled ? !empty($settings['meta_balance_alert_enabled']) : true,
+        'threshold' => $threshold,
+        'phone' => normalize_phone($phone),
+        'message' => $message,
     ];
 }
 
@@ -14552,9 +14599,31 @@ function studio_meta_balance_alert_state_ensure(array $studio): void
 
 function studio_meta_balance_alert_process(
     array $studio,
-    float $threshold = 20.0,
-    string $notifyPhone = '5511947573311'
+    ?float $threshold = null,
+    ?string $notifyPhone = null
 ): array {
+    $config = studio_meta_balance_alert_config($studio);
+    if ($threshold === null) {
+        $threshold = (float)$config['threshold'];
+    }
+    if ($notifyPhone === null) {
+        $notifyPhone = (string)$config['phone'];
+    }
+    if (empty($config['enabled'])) {
+        studio_meta_balance_alert_state_ensure($studio);
+        studio_db($studio)->prepare(
+            'UPDATE crm_alert_state SET is_active = 0, updated_at = NOW() WHERE alert_key = ?'
+        )->execute(['meta_ads_low_balance']);
+        return [
+            'ok' => true,
+            'enabled' => false,
+            'alert_enabled' => false,
+            'low' => false,
+            'notification_sent' => false,
+        ];
+    }
+
+    $notifyPhone = normalize_phone((string)$notifyPhone);
     $status = studio_meta_ads_balance_status($studio, $threshold);
     if (empty($status['ok'])) {
         return $status;
@@ -14588,13 +14657,15 @@ function studio_meta_balance_alert_process(
     $notificationError = '';
 
     if (!$wasActive) {
-        $message = "⚠️ ALERTA META ADS\n\n"
-            . 'O saldo reportado da conta "' . (string)$status['account_name'] . '" caiu para '
-            . 'R$ ' . number_format((float)$status['balance'], 2, ',', '.') . ".\n\n"
-            . 'Limite configurado no CRM: R$ ' . number_format($threshold, 2, ',', '.') . ".\n"
-            . 'Vale recarregar antes que as campanhas parem.';
-
-        $send = studio_whatsapp_official_send_text($studio, $notifyPhone, $message);
+        $message = strtr((string)$config['message'], [
+            '{{account_name}}' => (string)$status['account_name'],
+            '{{balance}}' => 'R$ ' . number_format((float)$status['balance'], 2, ',', '.'),
+            '{{threshold}}' => 'R$ ' . number_format($threshold, 2, ',', '.'),
+            '{{currency}}' => (string)($status['currency'] ?? 'BRL'),
+        ]);
+        $send = $notifyPhone !== ''
+            ? studio_whatsapp_official_send_text($studio, $notifyPhone, $message)
+            : ['ok' => false, 'error' => 'Nenhum telefone foi configurado para este alerta.'];
         $notificationSent = true;
         $notificationOk = !empty($send['ok']);
         $notificationError = $notificationOk
@@ -22196,6 +22267,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_voice_reply_enabled' => ['ia'],
         'ai_voice_reply_when_audio_only' => ['ia'],
         'meta_ads_enabled' => ['meta_ads'],
+        'meta_balance_alert_enabled' => ['alerts'],
     ];
     $boolSetting = static function (string $key, int $default = 0) use ($activeTab, $booleanTabs, $data, $settings): int {
         if (!array_key_exists($key, $data)) {
@@ -22347,6 +22419,17 @@ function studio_save_settings(array $studio, array $data): void
     $metaAdsApiVersion = trim((string)($data['meta_ads_api_version'] ?? ($settings['meta_ads_api_version'] ?? 'v22.0')));
     $metaAdsRedirectUri = trim((string)($data['meta_ads_redirect_uri'] ?? ($settings['meta_ads_redirect_uri'] ?? '')));
     $metaAdsNotes = trim((string)($data['meta_ads_notes'] ?? ($settings['meta_ads_notes'] ?? '')));
+    $metaBalanceAlertEnabled = $boolSetting('meta_balance_alert_enabled', 1);
+    $metaBalanceAlertThreshold = (float)money_to_float((string)($data['meta_balance_alert_threshold'] ?? ($settings['meta_balance_alert_threshold'] ?? '20')));
+    if ($metaBalanceAlertThreshold <= 0) {
+        $metaBalanceAlertThreshold = 20.0;
+    }
+    $metaBalanceAlertPhone = trim((string)($data['meta_balance_alert_phone'] ?? ($settings['meta_balance_alert_phone'] ?? '5511947573311')));
+    $metaBalanceAlertPhone = normalize_phone($metaBalanceAlertPhone);
+    $metaBalanceAlertMessage = trim((string)($data['meta_balance_alert_message'] ?? ($settings['meta_balance_alert_message'] ?? '')));
+    if ($metaBalanceAlertMessage === '') {
+        $metaBalanceAlertMessage = studio_meta_balance_alert_default_message();
+    }
     $metaAdsBusinessId = $metaAdsBusinessId !== '' ? $metaAdsBusinessId : (string)($settings['meta_ads_business_id'] ?? '');
     $metaAdsAdAccountId = $metaAdsAdAccountId !== '' ? $metaAdsAdAccountId : (string)($settings['meta_ads_ad_account_id'] ?? '');
     $metaAdsPixelId = $metaAdsPixelId !== '' ? $metaAdsPixelId : (string)($settings['meta_ads_pixel_id'] ?? '');
@@ -22429,6 +22512,10 @@ function studio_save_settings(array $studio, array $data): void
         'meta_ads_api_version' => 'VARCHAR(20) NOT NULL DEFAULT "v22.0"',
         'meta_ads_redirect_uri' => 'VARCHAR(255) NULL',
         'meta_ads_notes' => 'TEXT NULL',
+        'meta_balance_alert_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
+        'meta_balance_alert_threshold' => 'DECIMAL(10,2) NOT NULL DEFAULT 20.00',
+        'meta_balance_alert_phone' => 'VARCHAR(40) NULL',
+        'meta_balance_alert_message' => 'TEXT NULL',
         'whatsapp_official_app_id' => 'VARCHAR(40) NULL',
         'whatsapp_official_app_secret' => 'TEXT NULL',
         'whatsapp_official_business_account_id' => 'VARCHAR(40) NULL',
@@ -22454,7 +22541,7 @@ function studio_save_settings(array $studio, array $data): void
     $stmt = $pdo->prepare(
         'UPDATE studio_settings
          SET studio_name = ?, studio_address = ?, business_rules = ?, ai_pricing_page_enabled = ?, ai_pricing_page_url = ?, ai_enabled = ?, ai_semantic_interpreter_enabled = ?, ai_semantic_model = ?, assistant_autofill_enabled = ?, ai_learn_from_attendants_enabled = ?, ai_conversation_summary_enabled = ?, ai_team_playbook_enabled = ?, ai_team_playbook_updated_at = IF(? <> COALESCE(ai_team_playbook_text, ""), NOW(), ai_team_playbook_updated_at), ai_team_playbook_text = ?, ai_model = ?, whatsapp_enabled = ?,
-             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_keep_active_until_human_reply = ?, ai_handoff_keepalive_message = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
+             whatsapp_default_mode = ?, whatsapp_service_url = ?, appointment_work_days = ?, appointment_time_slots = ?, appointment_duration_minutes = ?, appointment_overwrite_message = ?, appointment_confirmation_message = ?, meta_campaign_phrases = ?, pomada_unit_price = ?, openai_api_key = ?, openai_model = ?, nvidia_api_key = ?, nvidia_model = ?, nvidia_vision_api_key = ?, nvidia_vision_model = ?, nvidia_vision_enabled = ?, nvidia_document_api_key = ?, nvidia_document_model = ?, nvidia_document_enabled = ?, nvidia_video_enabled = ?, nvidia_video_model = ?, nvidia_video_frame_count = ?, ai_voice_reply_enabled = ?, ai_voice_reply_when_audio_only = ?, ai_voice_reply_engine = ?, ai_voice_reply_xtts_sample_path = ?, ai_voice_reply_xtts_language = ?, ai_voice_reply_voice = ?, ai_voice_reply_rate = ?, ai_voice_reply_volume = ?, ai_whatsapp_prompt = ?, ai_provider = ?, ai_api_base_url = ?, whatsapp_ai_debounce_seconds = ?, ai_keep_active_until_human_reply = ?, ai_handoff_keepalive_message = ?, ai_booking_deposit_amount = ?, ai_booking_pix_key = ?, ai_booking_pix_recipient = ?, ai_auto_create_appointment_after_proof = ?, whatsapp_provider = ?, whatsapp_official_mode = ?, meta_ads_enabled = ?, meta_ads_app_id = ?, meta_ads_app_secret = ?, meta_ads_access_token = ?, meta_ads_business_id = ?, meta_ads_ad_account_id = ?, meta_ads_pixel_id = ?, meta_ads_lead_form_id = ?, meta_ads_api_version = ?, meta_ads_redirect_uri = ?, meta_ads_notes = ?, meta_balance_alert_enabled = ?, meta_balance_alert_threshold = ?, meta_balance_alert_phone = ?, meta_balance_alert_message = ?, whatsapp_official_app_id = ?, whatsapp_official_app_secret = ?, whatsapp_official_business_account_id = ?, whatsapp_official_phone_number_id = ?, whatsapp_official_test_business_account_id = ?, whatsapp_official_test_phone_number_id = ?, whatsapp_official_access_token = ?, whatsapp_official_verify_token = ?, whatsapp_official_callback_url = ?, whatsapp_official_api_version = ?, whatsapp_official_webhook_secret = ?, whatsapp_official_notes = ?, whatsapp_flow_id = ?, whatsapp_flow_cta = ?, whatsapp_flow_screen = ?, updated_at = NOW()
          WHERE id = 1'
     );
     $stmt->execute([
@@ -22527,6 +22614,10 @@ function studio_save_settings(array $studio, array $data): void
         $metaAdsApiVersion !== '' ? $metaAdsApiVersion : 'v22.0',
         $metaAdsRedirectUri,
         $metaAdsNotes,
+        $metaBalanceAlertEnabled,
+        number_format($metaBalanceAlertThreshold, 2, '.', ''),
+        $metaBalanceAlertPhone,
+        $metaBalanceAlertMessage,
         $whatsappOfficialAppId !== '' ? $whatsappOfficialAppId : ($settings['whatsapp_official_app_id'] ?? ''),
         $whatsappOfficialAppSecret !== '' ? $whatsappOfficialAppSecret : ($settings['whatsapp_official_app_secret'] ?? ''),
         $whatsappOfficialBusinessAccountId !== '' ? $whatsappOfficialBusinessAccountId : ($settings['whatsapp_official_business_account_id'] ?? ''),
