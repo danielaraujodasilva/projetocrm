@@ -4081,6 +4081,8 @@ function studio_whatsapp_service_flow_ensure_schema(array $studio): void
             question_text TEXT NOT NULL,
             help_text TEXT NULL,
             options_json TEXT NULL,
+            next_step_key VARCHAR(80) NULL,
+            branch_map_json TEXT NULL,
             is_required TINYINT(1) NOT NULL DEFAULT 1,
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -4089,6 +4091,16 @@ function studio_whatsapp_service_flow_ensure_schema(array $studio): void
             KEY idx_whatsapp_ai_flow_order (is_active, sort_order, id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+    $columns = [];
+    foreach ($pdo->query('SHOW COLUMNS FROM whatsapp_ai_flow_steps')->fetchAll() ?: [] as $column) {
+        $columns[(string)($column['Field'] ?? '')] = true;
+    }
+    if (empty($columns['next_step_key'])) {
+        $pdo->exec('ALTER TABLE whatsapp_ai_flow_steps ADD COLUMN next_step_key VARCHAR(80) NULL AFTER options_json');
+    }
+    if (empty($columns['branch_map_json'])) {
+        $pdo->exec('ALTER TABLE whatsapp_ai_flow_steps ADD COLUMN branch_map_json TEXT NULL AFTER next_step_key');
+    }
     $pdo->exec(
         "INSERT IGNORE INTO whatsapp_ai_flow_config (id, enabled, flow_name, intro_text)
          VALUES (1, 1, 'Roteiro principal de agendamento', 'Vou te fazer algumas perguntas rápidas, uma por vez, para deixar seu pedido pronto e tentar concluir o agendamento por aqui.')"
@@ -4126,6 +4138,9 @@ function studio_whatsapp_service_flow(array $studio): array
     foreach ($rows as &$row) {
         $options = json_decode((string)($row['options_json'] ?? ''), true);
         $row['options'] = is_array($options) ? array_values(array_filter(array_map('strval', $options), static fn(string $value): bool => trim($value) !== '')) : [];
+        $branches = json_decode((string)($row['branch_map_json'] ?? ''), true);
+        $row['branch_map'] = is_array($branches) ? $branches : [];
+        $row['next_step_key'] = trim((string)($row['next_step_key'] ?? ''));
     }
     unset($row);
     return ['config' => $config, 'steps' => $rows];
@@ -4185,6 +4200,25 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
                 $options[] = $option;
             }
         }
+        $branchMap = [];
+        $rawBranchMap = $rawStep['branch_map_json'] ?? null;
+        if ($rawBranchMap === null || trim((string)$rawBranchMap) === '') {
+            $rawBranchMap = $rawStep['branch_map'] ?? $rawStep['branches'] ?? [];
+        }
+        if (is_string($rawBranchMap)) {
+            $decodedBranchMap = json_decode($rawBranchMap, true);
+            $rawBranchMap = is_array($decodedBranchMap) ? $decodedBranchMap : [];
+        }
+        if (is_array($rawBranchMap)) {
+            foreach ($rawBranchMap as $label => $target) {
+                $label = mb_substr(trim((string)$label), 0, 80, 'UTF-8');
+                $target = preg_replace('/[^a-z0-9_]+/', '_', strtolower(trim((string)$target))) ?: '';
+                if ($label !== '' && $target !== '') {
+                    $branchMap[$label] = trim($target, '_');
+                }
+            }
+        }
+        $nextStepKey = preg_replace('/[^a-z0-9_]+/', '_', strtolower(trim((string)($rawStep['next_step_key'] ?? '')))) ?: '';
         $steps[] = [
             'step_key' => $stepKey,
             'sort_order' => ($index + 1) * 10,
@@ -4195,6 +4229,8 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
             'question_text' => $question,
             'help_text' => mb_substr(trim((string)($rawStep['help_text'] ?? '')), 0, 600, 'UTF-8'),
             'options_json' => json_encode(array_slice($options, 0, 10), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'next_step_key' => trim($nextStepKey, '_') ?: null,
+            'branch_map' => $branchMap,
             'is_required' => !empty($rawStep['is_required']) ? 1 : 0,
             'is_active' => !empty($rawStep['is_active']) ? 1 : 0,
         ];
@@ -4202,6 +4238,19 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
     if (!$steps) {
         throw new RuntimeException('Nenhum bloco válido foi recebido.');
     }
+    $knownKeys = array_fill_keys(array_map(static fn(array $step): string => (string)$step['step_key'], $steps), true);
+    foreach ($steps as &$step) {
+        $step['next_step_key'] = isset($knownKeys[(string)($step['next_step_key'] ?? '')])
+            ? (string)$step['next_step_key']
+            : null;
+        $step['branch_map'] = array_filter(
+            (array)($step['branch_map'] ?? []),
+            static fn(string $target): bool => isset($knownKeys[$target])
+        );
+        $step['branch_map_json'] = json_encode($step['branch_map'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        unset($step['branch_map']);
+    }
+    unset($step);
     $pdo = studio_db($studio);
     $pdo->beginTransaction();
     try {
@@ -4218,11 +4267,15 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
         $pdo->exec('DELETE FROM whatsapp_ai_flow_steps');
         $stmt = $pdo->prepare(
             'INSERT INTO whatsapp_ai_flow_steps
-                (step_key, sort_order, title, step_type, field_key, answer_type, question_text, help_text, options_json, is_required, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (step_key, sort_order, title, step_type, field_key, answer_type, question_text, help_text, options_json, next_step_key, branch_map_json, is_required, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($steps as $step) {
-            $stmt->execute(array_values($step));
+            $stmt->execute([
+                $step['step_key'], $step['sort_order'], $step['title'], $step['step_type'], $step['field_key'],
+                $step['answer_type'], $step['question_text'], $step['help_text'], $step['options_json'],
+                $step['next_step_key'], $step['branch_map_json'], $step['is_required'], $step['is_active'],
+            ]);
         }
         $pdo->commit();
     } catch (Throwable $exception) {
@@ -4794,6 +4847,110 @@ function studio_whatsapp_service_flow_field_complete(string $fieldKey, array $st
     };
 }
 
+function studio_whatsapp_service_flow_normalize_branch_label(string $value): string
+{
+    $value = studio_calendar_remove_accents(mb_strtolower(trim($value), 'UTF-8'));
+    $value = (string)preg_replace('/[^a-z0-9]+/u', ' ', $value);
+    return trim((string)preg_replace('/\s+/u', ' ', $value));
+}
+
+function studio_whatsapp_service_flow_step_next_key(array $step, array $state, array $steps, ?string $forcedBranch = null): ?string
+{
+    $stepKey = (string)($step['step_key'] ?? '');
+    $stepIndex = null;
+    foreach ($steps as $index => $candidate) {
+        if ((string)($candidate['step_key'] ?? '') === $stepKey) {
+            $stepIndex = $index;
+            break;
+        }
+    }
+    $knownKeys = array_fill_keys(array_map(static fn(array $candidate): string => (string)($candidate['step_key'] ?? ''), $steps), true);
+    $branchMap = is_array($step['branch_map'] ?? null) ? $step['branch_map'] : [];
+    $branchCandidates = [];
+    if ($forcedBranch !== null) {
+        $branchCandidates[] = $forcedBranch;
+    } else {
+        $fieldKey = (string)($step['field_key'] ?? '');
+        $answers = is_array($state['script_answers'] ?? null) ? $state['script_answers'] : [];
+        if ($fieldKey === 'slot_confirmed' && array_key_exists('slot_confirmed', $state)) {
+            $branchCandidates[] = !empty($state['slot_confirmed']) ? 'sim' : 'nao';
+        }
+        foreach ([$state[$fieldKey] ?? null, $answers[$fieldKey] ?? null] as $value) {
+            if (is_array($value)) {
+                $value = implode(' ', array_map(
+                    static fn(mixed $item): string => is_scalar($item) ? (string)$item : '',
+                    $value
+                ));
+            } elseif (!is_scalar($value)) {
+                continue;
+            }
+            if ($value !== null && trim((string)$value) !== '') {
+                $branchCandidates[] = (string)$value;
+            }
+        }
+    }
+    foreach ($branchCandidates as $candidate) {
+        $normalizedCandidate = studio_whatsapp_service_flow_normalize_branch_label((string)$candidate);
+        foreach ($branchMap as $label => $target) {
+            if (studio_whatsapp_service_flow_normalize_branch_label((string)$label) === $normalizedCandidate
+                && isset($knownKeys[(string)$target])) {
+                return (string)$target;
+            }
+        }
+        if (in_array($normalizedCandidate, ['sim', 's', 'yes', 'true'], true)) {
+            foreach ($branchMap as $label => $target) {
+                if (in_array(studio_whatsapp_service_flow_normalize_branch_label((string)$label), ['sim', 's', 'yes', 'true'], true)
+                    && isset($knownKeys[(string)$target])) {
+                    return (string)$target;
+                }
+            }
+        }
+        if (in_array($normalizedCandidate, ['nao', 'n', 'no', 'false'], true)) {
+            foreach ($branchMap as $label => $target) {
+                if (in_array(studio_whatsapp_service_flow_normalize_branch_label((string)$label), ['nao', 'n', 'no', 'false'], true)
+                    && isset($knownKeys[(string)$target])) {
+                    return (string)$target;
+                }
+            }
+        }
+    }
+    $defaultTarget = trim((string)($step['next_step_key'] ?? ''));
+    if ($defaultTarget !== '' && isset($knownKeys[$defaultTarget])) {
+        return $defaultTarget;
+    }
+    if ($stepIndex !== null && isset($steps[$stepIndex + 1])) {
+        return (string)($steps[$stepIndex + 1]['step_key'] ?? '');
+    }
+    return null;
+}
+
+function studio_whatsapp_service_flow_path(array $steps, ?string $startKey, array $state): array
+{
+    if ($startKey === null || trim($startKey) === '') {
+        return [];
+    }
+    $byKey = [];
+    foreach ($steps as $step) {
+        $key = (string)($step['step_key'] ?? '');
+        if ($key !== '') {
+            $byKey[$key] = $step;
+        }
+    }
+    $path = [];
+    $visited = [];
+    $key = $startKey;
+    while ($key !== '' && isset($byKey[$key]) && empty($visited[$key])) {
+        $visited[$key] = true;
+        $step = $byKey[$key];
+        $path[] = $step;
+        if (!studio_whatsapp_service_flow_field_complete((string)($step['field_key'] ?? ''), $state)) {
+            break;
+        }
+        $key = (string)(studio_whatsapp_service_flow_step_next_key($step, $state, $steps) ?? '');
+    }
+    return $path;
+}
+
 function studio_whatsapp_service_flow_post_appointment_reply(array $studio, array &$state): string
 {
     $flow = studio_whatsapp_service_flow($studio);
@@ -5191,6 +5348,30 @@ function studio_whatsapp_service_flow_decide(
         }
     }
     if (!empty($state['script_return_to_schedule'])) {
+        $returnTarget = null;
+        if (is_array($previousStep)) {
+            $returnTarget = studio_whatsapp_service_flow_step_next_key($previousStep, $state, $steps, 'nao');
+        }
+        if ($returnTarget !== null) {
+            foreach ($steps as $step) {
+                if ((string)($step['step_key'] ?? '') !== $returnTarget) {
+                    continue;
+                }
+                $script['current_step_key'] = $returnTarget;
+                $script['current_field_key'] = (string)($step['field_key'] ?? '');
+                $script['current_title'] = (string)($step['title'] ?? '');
+                $script['started_at'] = $script['started_at'] ?? date('Y-m-d H:i:s');
+                $state['script'] = $script;
+                unset($state['script_return_to_schedule']);
+                return [
+                    'enabled' => true,
+                    'state' => $state,
+                    'direct_reply' => studio_whatsapp_service_flow_render_text((string)$step['question_text'], $studio, $state),
+                    'options' => (array)($step['options'] ?? []),
+                    'summary' => 'Cliente escolheu um caminho alternativo; o roteiro seguiu a conexão configurada.',
+                ];
+            }
+        }
         foreach ($steps as $step) {
             if ((string)$step['field_key'] === 'selected_slot') {
                 $script['current_step_key'] = (string)$step['step_key'];
@@ -5211,7 +5392,15 @@ function studio_whatsapp_service_flow_decide(
     $prefixes = [];
     $paymentPromptAdded = false;
     $currentStep = null;
-    foreach ($steps as $step) {
+    $previousComplete = is_array($previousStep)
+        && studio_whatsapp_service_flow_field_complete((string)($previousStep['field_key'] ?? ''), $state);
+    $startKey = is_array($previousStep)
+        ? ($previousComplete
+            ? studio_whatsapp_service_flow_step_next_key($previousStep, $state, $steps)
+            : (string)($previousStep['step_key'] ?? ''))
+        : (string)($steps[0]['step_key'] ?? '');
+    $traversalSteps = studio_whatsapp_service_flow_path($steps, $startKey, $state);
+    foreach ($traversalSteps as $step) {
         $fieldKey = (string)$step['field_key'];
         if (studio_whatsapp_service_flow_field_complete($fieldKey, $state)) {
             $announced = is_array($script['announced'] ?? null) ? $script['announced'] : [];
