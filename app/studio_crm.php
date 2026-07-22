@@ -4537,6 +4537,51 @@ function studio_whatsapp_compact_multiline_text(string $text): string
     return trim($text);
 }
 
+function studio_whatsapp_format_flow_message(string $text): string
+{
+    $text = studio_whatsapp_compact_multiline_text($text);
+    if ($text === '') {
+        return '';
+    }
+
+    $labels = 'Cliente|Dia|Hora|Horário|Local da tattoo|Local|Ideia|Referência|Orçamento|Endereço|Observações';
+    $text = preg_replace('/\s+(?=\*?(?:' . $labels . ')\*?\s*:)/iu', "\n", $text) ?? $text;
+    $text = preg_replace('/\s+(?=\*?Resumo do agendamento\b|\*?(?:Já|Ja) sinalizei\b)/iu', "\n\n", $text) ?? $text;
+    $lines = [];
+    foreach (explode("\n", $text) as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            $lines[] = '';
+            continue;
+        }
+        if (preg_match('/^\*?(Resumo do agendamento)\*?\s*:?[\*]?\s*$/iu', $line)) {
+            $lines[] = '*Resumo do agendamento*';
+            continue;
+        }
+        if (preg_match('/^\*?(' . $labels . ')\*?\s*:\*?\s*(.*)$/iu', $line, $match)) {
+            $label = trim((string)($match[1] ?? ''));
+            $value = trim((string)($match[2] ?? ''));
+            $lines[] = '*' . $label . ':*' . ($value !== '' ? ' ' . $value : '');
+            continue;
+        }
+        if (preg_match('/^(?:Beleza!\s*)?Agendamento\s+(?:feito|concluído|concluido)\.?$/iu', $line)) {
+            $lines[] = '*Agendamento feito!*';
+            continue;
+        }
+        if (preg_match('/^(Já sinalizei|Ja sinalizei)\s+/iu', $line)) {
+            $lines[] = '✅ ' . $line;
+            continue;
+        }
+        $lines[] = $line;
+    }
+
+    $formatted = implode("\n", $lines);
+    $formatted = preg_replace('/\n?(\*Resumo do agendamento\*)/u', "\n\n$1", $formatted, 1) ?? $formatted;
+    $formatted = preg_replace('/(\*Resumo do agendamento\*)\n(?!\n)/u', "$1\n\n", $formatted, 1) ?? $formatted;
+    $formatted = preg_replace('/\n?(✅\s+Já sinalizei|✅\s+Ja sinalizei)/u', "\n\n$1", $formatted) ?? $formatted;
+    return studio_whatsapp_compact_multiline_text($formatted);
+}
+
 function studio_whatsapp_reference_summary_line(array $reference, int $index = 0): string
 {
     $parts = [];
@@ -4698,7 +4743,7 @@ function studio_whatsapp_service_flow_final_summary(array $studio, array $state)
     $lines[] = '';
     $lines[] = 'Já sinalizei a equipe para conferir os dados. Qualquer dúvida, é só chamar por aqui.';
 
-    return studio_whatsapp_compact_multiline_text(implode("\n", $lines));
+    return studio_whatsapp_format_flow_message(implode("\n", $lines));
 }
 
 function studio_whatsapp_service_flow_should_use_final_summary(string $text, array $state): bool
@@ -4772,6 +4817,8 @@ function studio_whatsapp_service_flow_post_appointment_reply(array $studio, arra
         $text = studio_whatsapp_service_flow_render_text((string)($step['question_text'] ?? ''), $studio, $state);
         if (studio_whatsapp_service_flow_should_use_final_summary($text, $state)) {
             $text = studio_whatsapp_service_flow_final_summary($studio, $state);
+        } else {
+            $text = studio_whatsapp_format_flow_message($text);
         }
         if ($text === '') {
             continue;
@@ -4796,8 +4843,10 @@ function studio_whatsapp_service_flow_post_appointment_reply(array $studio, arra
             continue;
         }
         $text = studio_whatsapp_service_flow_render_text((string)($step['question_text'] ?? ''), $studio, $state);
-        if (studio_whatsapp_service_flow_should_use_final_summary($text, $state)) {
+        if ((int)($state['appointment_id'] ?? 0) > 0) {
             $text = studio_whatsapp_service_flow_final_summary($studio, $state);
+        } else {
+            $text = studio_whatsapp_format_flow_message($text);
         }
         if ($text !== '') {
             $script['completed_at'] = date('Y-m-d H:i:s');
