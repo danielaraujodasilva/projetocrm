@@ -125,6 +125,19 @@
         });
     }
 
+    function readHiddenBranchMap() {
+        const field = document.querySelector('[data-flow-field="branch_map_json"]');
+        if (!field) {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(field.value || '{}');
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    }
+
     function setHiddenBranchMap(map) {
         const field = document.querySelector('[data-flow-field="branch_map_json"]');
         if (!field) {
@@ -203,12 +216,6 @@
             const select = document.createElement('select');
             select.dataset.flowBranchLabel = label;
             select.setAttribute('aria-labelledby', title.id);
-            select.addEventListener('pointerdown', function (event) {
-                event.stopPropagation();
-            });
-            select.addEventListener('click', function (event) {
-                event.stopPropagation();
-            });
             const empty = document.createElement('option');
             empty.value = '';
             empty.textContent = 'Seguir a ordem abaixo';
@@ -227,7 +234,7 @@
             });
             select.value = target ? String(branchMap[target] || '') : '';
             select.addEventListener('change', function () {
-                const updated = Object.assign({}, branchMap);
+                const updated = Object.assign({}, readHiddenBranchMap());
                 Object.keys(updated).forEach(function (key) {
                     if (normalize(key) === normalize(label)) {
                         delete updated[key];
