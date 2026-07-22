@@ -8224,7 +8224,7 @@ function studio_whatsapp_ai_contextual_recovery_reply(array $state, array $booki
 
 function studio_whatsapp_ai_clean_customer_reply(string $replyText): string
 {
-    $replyText = trim(preg_replace('/\s+/u', ' ', $replyText) ?? $replyText);
+    $replyText = studio_whatsapp_compact_multiline_text($replyText);
     if ($replyText === '') {
         return '';
     }
