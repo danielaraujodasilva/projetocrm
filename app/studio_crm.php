@@ -4264,6 +4264,7 @@ function studio_whatsapp_booking_state(array $conversation): array
         'selected_slot' => null,
         'slot_confirmed' => false,
         'deposit_requested' => false,
+        'deposit_status' => 'not_requested',
         'proof_received' => false,
         'appointment_id' => 0,
         'stage' => 'briefing',
@@ -4280,7 +4281,22 @@ function studio_whatsapp_booking_state(array $conversation): array
     $state['reference_analysis_ok'] = !empty($state['reference_analysis_ok']);
     $state['reference_body_area_confirmation_required'] = !empty($state['reference_body_area_confirmation_required']);
     $state['deposit_requested'] = !empty($state['deposit_requested']);
+    $depositStatus = strtolower(trim((string)($state['deposit_status'] ?? '')));
+    if (!in_array($depositStatus, ['not_requested', 'requested', 'proof_received', 'confirmed'], true)) {
+        $depositStatus = 'not_requested';
+    }
+    if (!empty($state['proof_received'])) {
+        $depositStatus = 'proof_received';
+    } elseif (!empty($state['deposit_requested'])) {
+        $depositStatus = 'requested';
+    }
+    $state['deposit_status'] = $depositStatus;
     $state['customer_name_confirmed'] = !empty($state['customer_name_confirmed']);
+    if (trim((string)($state['customer_name'] ?? '')) !== ''
+        && !studio_whatsapp_ai_name_candidate_is_plausible((string)$state['customer_name'])) {
+        $state['customer_name'] = '';
+        $state['customer_name_confirmed'] = false;
+    }
     $state['slot_confirmed'] = !empty($state['slot_confirmed']);
     $state['proof_received'] = !empty($state['proof_received']);
     $state['appointment_id'] = max(0, (int)($state['appointment_id'] ?? 0));
@@ -4437,8 +4453,12 @@ function studio_whatsapp_booking_state_summary(array $state): string
     if (!empty($state['slot_confirmed'])) {
         $parts[] = 'vaga confirmada pelo cliente';
     }
-    if (!empty($state['deposit_requested'])) {
+    if (!empty($state['proof_received']) || $state['deposit_status'] === 'proof_received' || $state['deposit_status'] === 'confirmed') {
+        $parts[] = 'comprovante do sinal recebido; aguardando conferência/agendamento';
+    } elseif (!empty($state['deposit_requested'])) {
         $parts[] = 'sinal solicitado; aguardando comprovante';
+    } else {
+        $parts[] = 'sinal ainda não solicitado; não considerar pagamento ou reserva confirmados';
     }
     if ((int)($state['appointment_id'] ?? 0) > 0) {
         $parts[] = 'agendamento criado: #' . (int)$state['appointment_id'];
@@ -4970,6 +4990,7 @@ function studio_whatsapp_service_flow_store_current_answer(array &$state, array 
             $state['selected_slot'] = null;
             $state['schedule_preference'] = '';
             $state['deposit_requested'] = false;
+            $state['deposit_status'] = 'not_requested';
             $state['script_return_to_schedule'] = true;
             if (is_array($state['script']['announced'] ?? null)) {
                 unset($state['script']['announced']['selected_slot']);
@@ -5097,6 +5118,7 @@ function studio_whatsapp_service_flow_decide(
     }
     if (!empty($paymentProof['confirmed'])) {
         $state['proof_received'] = true;
+        $state['deposit_status'] = 'proof_received';
     }
     $script = is_array($state['script'] ?? null) ? $state['script'] : [];
     $wasStarted = !empty($script['started_at']);
@@ -5191,6 +5213,7 @@ function studio_whatsapp_service_flow_decide(
                 continue;
             }
             $state['deposit_requested'] = true;
+            $state['deposit_status'] = 'requested';
             $state['stage'] = 'proof';
             $state['pending'] = 'comprovante do sinal';
             $prefixes[] = studio_whatsapp_service_flow_render_text((string)$step['question_text'], $studio, $state);
@@ -5289,7 +5312,7 @@ function studio_whatsapp_service_flow_decide(
     ];
 }
 
-function studio_whatsapp_ai_context_window(array $historyLines, int $maxItems = 220, int $maxChars = 60000): array
+function studio_whatsapp_ai_context_window(array $historyLines, int $maxItems = 500, int $maxChars = 100000): array
 {
     $lines = array_values(array_filter(array_map(static fn($line): string => trim((string)$line), $historyLines)));
     if (count($lines) > $maxItems) {
@@ -5306,6 +5329,119 @@ function studio_whatsapp_ai_context_window(array $historyLines, int $maxItems = 
         array_splice($lines, $removeAt, 1);
     }
     return $lines;
+}
+
+function studio_whatsapp_ai_canonical_memory(array $conversation, array $history, array $state, array $checklist = [], string $latestSummary = ''): string
+{
+    $lines = ['MEMÓRIA CANÔNICA DO ATENDIMENTO (reconstruída lendo o histórico completo):'];
+    $name = trim((string)($state['customer_name'] ?? ''));
+    if ($name === '') {
+        foreach (['customer_name', 'name', 'lead_name'] as $nameKey) {
+            $candidateName = trim((string)($conversation[$nameKey] ?? ''));
+            $candidatePlain = studio_calendar_remove_accents(mb_strtolower($candidateName, 'UTF-8'));
+            $candidatePlain = str_replace(['^', '~', '`', '´', "'"], '', $candidatePlain);
+            if ($candidateName !== '' && !in_array($candidatePlain, ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true)) {
+                $name = $candidateName;
+                break;
+            }
+        }
+    }
+    if ($name !== '' && studio_whatsapp_ai_name_candidate_is_plausible($name)) {
+        $nameSource = !empty($state['customer_name_confirmed']) ? 'nome confirmado no histórico' : 'nome disponível no cadastro';
+        $lines[] = 'Cliente: ' . $name . ' (' . $nameSource . ').';
+    } else {
+        $lines[] = 'Cliente: nome completo ainda não confirmado.';
+    }
+
+    $idea = trim((string)($state['tattoo_idea'] ?? ''));
+    $reference = trim((string)($state['reference_summary'] ?? ''));
+    if ($idea !== '') {
+        $lines[] = 'Pedido/ideia: ' . mb_substr($idea, 0, 360, 'UTF-8') . '.';
+    }
+    if ($reference !== '') {
+        $lines[] = 'Referência: ' . mb_substr($reference, 0, 420, 'UTF-8') . '.';
+    } elseif (!empty($state['reference_received'])) {
+        $lines[] = 'Referência: recebida, sem descrição textual consolidada.';
+    }
+    $referenceCount = count((array)($state['references'] ?? []));
+    if ($referenceCount > 0) {
+        $lines[] = 'Referências recebidas: ' . $referenceCount . '.';
+    }
+
+    foreach ([
+        'body_area' => 'Área do corpo',
+        'body_position' => 'Posição',
+        'body_side' => 'Lado',
+        'body_details' => 'Detalhes da área',
+        'size_coverage' => 'Cobertura/tamanho',
+        'style_preference' => 'Estilo/cor',
+    ] as $key => $label) {
+        $value = trim((string)($state[$key] ?? ($state['script_answers'][$key] ?? '')));
+        if ($value !== '') {
+            $lines[] = $label . ': ' . mb_substr($value, 0, 260, 'UTF-8') . '.';
+        }
+    }
+
+    $quote = is_array($state['quote'] ?? null) ? $state['quote'] : [];
+    if ((float)($quote['amount'] ?? 0) > 0) {
+        $lines[] = 'Orçamento oficial: ' . trim((string)($quote['label'] ?? $quote['price'] ?? format_money((float)$quote['amount']))) . '.';
+    } else {
+        $lines[] = 'Orçamento oficial: ainda não confirmado.';
+    }
+
+    $slot = is_array($state['selected_slot'] ?? null) ? $state['selected_slot'] : [];
+    if (!empty($slot['date']) && !empty($slot['time'])) {
+        $slotLabel = (string)$slot['date'] . ' às ' . (string)$slot['time'];
+        $slotStatus = (int)($state['appointment_id'] ?? 0) > 0
+            ? 'confirmada no agendamento registrado.'
+            : (!empty($state['slot_confirmed']) ? 'confirmada pelo cliente.' : 'encontrada/oferecida, mas ainda não confirmada.');
+        $lines[] = 'Vaga: ' . $slotLabel . ' ' . $slotStatus;
+    } else {
+        $lines[] = 'Vaga: ainda não escolhida.';
+    }
+
+    $depositStatus = strtolower(trim((string)($state['deposit_status'] ?? '')));
+    if ($depositStatus === '' || $depositStatus === 'not_requested') {
+        $lines[] = 'Sinal: ainda não solicitado; não afirmar que houve pagamento nem que a vaga está reservada.';
+    } elseif ($depositStatus === 'requested') {
+        $lines[] = 'Sinal: solicitado; aguardando comprovante.';
+    } elseif ($depositStatus === 'proof_received') {
+        $lines[] = 'Sinal: comprovante recebido; aguardando conferência ou criação do agendamento.';
+    } else {
+        $lines[] = 'Sinal: confirmado no fluxo.';
+    }
+    if ((int)($state['appointment_id'] ?? 0) > 0) {
+        $lines[] = 'Agendamento: criado no sistema como #' . (int)$state['appointment_id'] . '.';
+    } else {
+        $lines[] = 'Agendamento: ainda não criado no sistema.';
+    }
+
+    $pending = trim((string)($checklist['next_question'] ?? $state['pending'] ?? ''));
+    if ($pending !== '') {
+        $lines[] = 'Próximo passo: ' . mb_substr($pending, 0, 360, 'UTF-8');
+    }
+    $lines[] = 'Mensagens analisadas: ' . count($history) . '.';
+    $lastCustomerText = '';
+    for ($index = count($history) - 1; $index >= 0; $index--) {
+        if ((string)($history[$index]['direction'] ?? 'in') !== 'in') {
+            continue;
+        }
+        $lastCustomerText = trim((string)($history[$index]['body'] ?? ''));
+        if ($lastCustomerText === '') {
+            $lastCustomerText = trim((string)($history[$index]['transcricao'] ?? $history[$index]['transcript'] ?? ''));
+        }
+        if ($lastCustomerText !== '') {
+            break;
+        }
+    }
+    if ($lastCustomerText !== '') {
+        $lines[] = 'Última mensagem do cliente: ' . mb_substr(preg_replace('/\s+/u', ' ', $lastCustomerText) ?? $lastCustomerText, 0, 360, 'UTF-8');
+    }
+    $latestSummary = trim($latestSummary);
+    if ($latestSummary !== '' && !preg_match('/\b(sem\s+agendamento|ainda\s+nao\s+solicitado|sinal\s+solicitado|comprovante)\b/iu', $latestSummary)) {
+        $lines[] = 'Último evento interpretado: ' . mb_substr($latestSummary, 0, 360, 'UTF-8');
+    }
+    return mb_substr(implode("\n", $lines), 0, 6000, 'UTF-8');
 }
 
 function studio_whatsapp_ai_interpret_conversation(array $studio, array $config, array $bookingState, array $historyLines, string $messageText, array $mediaFacts = [], string $conversationMemory = ''): array
@@ -5342,7 +5478,7 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
     $payload = [
         'estado_estruturado_anterior' => $bookingState,
         'memoria_acumulada_verificada' => trim($conversationMemory),
-        'historico_em_ordem' => studio_whatsapp_ai_context_window($historyLines),
+        'historico_em_ordem' => studio_whatsapp_ai_context_window($historyLines, 500, 100000),
         'mensagem_atual_agrupada' => $messageText,
         'fatos_de_midias_verificados_pelo_sistema' => $mediaFacts,
         'instrucoes_de_saida' => [
@@ -6261,7 +6397,7 @@ function studio_whatsapp_ai_bare_name_after_prompt(string $text, array $recentBo
     $candidate = trim((string)preg_replace('/[^\p{L}\'\-\s]+/u', ' ', $text));
     $candidate = trim((string)preg_replace('/\s+/u', ' ', $candidate));
     $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
-    if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100) {
+    if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100 || !studio_whatsapp_ai_name_candidate_is_plausible($candidate)) {
         return '';
     }
     if (!preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30}){0,3}$/u', $candidate)) {
@@ -6285,10 +6421,59 @@ function studio_whatsapp_ai_extract_standalone_customer_name(string $text): stri
         return '';
     }
     $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
-    if (preg_match('/\b(quero|agendar|orcamento|orçamento|tatuagem|tattoo|sinal|pix|comprovante|horario|horário|manha|manhã|tarde|noite|segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo|valor|preco|preço)\b/u', $plain)) {
+    if (!studio_whatsapp_ai_name_candidate_is_plausible($candidate)
+        || preg_match('/\b(quero|agendar|orcamento|orçamento|tatuagem|tattoo|sinal|pix|comprovante|horario|horário|manha|manhã|tarde|noite|segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo|valor|preco|preço)\b/u', $plain)) {
         return '';
     }
     return mb_convert_case($candidate, MB_CASE_TITLE, 'UTF-8');
+}
+
+function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate): bool
+{
+    $candidate = trim(preg_replace('/\s+/u', ' ', $candidate) ?? $candidate);
+    if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100) {
+        return false;
+    }
+    $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
+    $plain = trim((string)preg_replace('/\s+/u', ' ', $plain));
+    $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
+    if (preg_match('/\b(que|djabo|diabo|viu|voce|você|nome|quer|novo|de\s+novo|isso|aquilo|falei|expliquei|mandei|enviei|nao|não|opcao|selecionada|por\s+que|porque|como|qual|onde|quando)\b/u', $plain)) {
+        return false;
+    }
+    return (bool)preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30}){1,4}$/u', $candidate);
+}
+
+function studio_whatsapp_ai_extract_history_customer_name(array $history): string
+{
+    $lastBotReply = '';
+    $latestName = '';
+    foreach ($history as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $body = trim((string)($item['body'] ?? ''));
+        if ($body === '') {
+            $body = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
+        }
+        $direction = (string)($item['direction'] ?? 'in');
+        if ($direction === 'out') {
+            if ($body !== '') {
+                $lastBotReply = $body;
+            }
+            continue;
+        }
+        if ($body === '') {
+            continue;
+        }
+        $candidate = studio_whatsapp_ai_extract_customer_name($body);
+        if ($candidate === '' && $lastBotReply !== '') {
+            $candidate = studio_whatsapp_ai_bare_name_after_prompt($body, [$lastBotReply]);
+        }
+        if ($candidate !== '' && studio_whatsapp_ai_name_candidate_is_plausible($candidate)) {
+            $latestName = $candidate;
+        }
+    }
+    return $latestName;
 }
 
 function studio_whatsapp_booking_invalidate_quote(array &$state, string $reason = ''): void
@@ -6298,6 +6483,7 @@ function studio_whatsapp_booking_invalidate_quote(array &$state, string $reason 
     }
     $state['quote'] = null;
     $state['deposit_requested'] = false;
+    $state['deposit_status'] = 'not_requested';
     $state['proof_received'] = false;
     if ((int)($state['appointment_id'] ?? 0) <= 0) {
         $state['slot_confirmed'] = false;
@@ -7731,6 +7917,25 @@ function studio_whatsapp_ai_clean_customer_reply(string $replyText): string
     $replyText = preg_replace('/\b(intelig[eê]ncia\s+artificial|assistente\s+virtual)\b/iu', 'atendente', $replyText) ?? $replyText;
 
     return trim($replyText);
+}
+
+function studio_whatsapp_ai_guard_unconfirmed_reservation(string $replyText, array $state, array $checklist = []): string
+{
+    if ((int)($state['appointment_id'] ?? 0) > 0
+        || in_array((string)($state['deposit_status'] ?? ''), ['requested', 'proof_received', 'confirmed'], true)) {
+        return $replyText;
+    }
+    $plain = studio_calendar_remove_accents(mb_strtolower($replyText, 'UTF-8'));
+    if (!preg_match('/\b(j[aá]\s+)?(reservei|reservad[oa]|agendamento\s+(?:feito|confirmad[oa])|hor[aá]rio\s+reservad[oa]|deixei\s+reservad[oa])\b/u', $plain)) {
+        return $replyText;
+    }
+    $slot = is_array($state['selected_slot'] ?? null) ? $state['selected_slot'] : [];
+    $slotText = (!empty($slot['date']) && !empty($slot['time']))
+        ? studio_whatsapp_schedule_date_label((string)$slot['date']) . ' às ' . studio_whatsapp_schedule_time_label((string)$slot['time'])
+        : 'esse horário';
+    $next = trim((string)($checklist['next_question'] ?? $state['pending'] ?? ''));
+    $next = $next !== '' ? ' ' . rtrim($next, " ?.!.") . '?' : '';
+    return 'Encontrei ' . $slotText . ' como opção, mas ainda não está reservado. Antes de concluir, preciso fechar o orçamento e os dados que faltam.' . $next;
 }
 
 function studio_whatsapp_ai_remove_early_payment_terms(string $replyText): string
@@ -15128,7 +15333,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         || str_starts_with($incomingMimeForMedia, 'image/')
         || str_contains($incomingMimeForMedia, 'pdf')
     );
-    $paymentStateContext = studio_whatsapp_booking_state_summary($bookingFlowState) . ' ' . trim((string)($conversation['ai_memory'] ?? ''));
+    // O texto antigo de ai_memory não pode decidir que uma referência é comprovante.
+    $paymentStateContext = studio_whatsapp_booking_state_summary($bookingFlowState);
     $waitingForPaymentProof = !empty($bookingFlowState['deposit_requested'])
         || (bool)preg_match('/\b(aguardando\s+comprovante|sinal\s+solicitado|pix|comprovante\s+do\s+sinal)\b/iu', $paymentStateContext);
 
@@ -15170,7 +15376,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
-         LIMIT 500'
+         LIMIT 1200'
     );
     $stmt->execute([(int)$conversation['id']]);
     $history = array_reverse($stmt->fetchAll() ?: []);
@@ -15255,12 +15461,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $leadId = (int)($conversation['lead_id'] ?? 0);
     $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
     $leadData = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
-    $latestMessages = implode("\n- ", studio_whatsapp_ai_context_window($historyLines, 220, 60000));
-    $conversationMemory = trim((string)($conversation['ai_memory'] ?? ''));
+    $latestMessages = implode("\n- ", studio_whatsapp_ai_context_window($historyLines, 500, 100000));
+    $conversationMemory = studio_whatsapp_ai_canonical_memory($conversation, $history, $bookingFlowState);
     $bookingFlowSummary = studio_whatsapp_booking_state_summary($bookingFlowState);
-    if ($bookingFlowSummary !== '') {
-        $conversationMemory = trim($conversationMemory . "\n" . $bookingFlowSummary);
-    }
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $pendingCustomerTexts = [];
     for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
@@ -15294,19 +15497,14 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $messageTextPlainForFacts = studio_calendar_remove_accents(mb_strtolower($messageText, 'UTF-8'));
     $messageTextPlainForFacts = str_replace(['^', '~', '`', '´', "'"], '', $messageTextPlainForFacts);
-    $standaloneCustomerName = studio_whatsapp_ai_extract_standalone_customer_name($messageText);
-    if ($standaloneCustomerName === '' && count($pendingCustomerTexts) > 1) {
-        foreach (array_reverse($pendingCustomerTexts) as $pendingCustomerText) {
-            $standaloneCustomerName = studio_whatsapp_ai_extract_standalone_customer_name((string)$pendingCustomerText);
-            if ($standaloneCustomerName !== '') {
-                break;
-            }
-        }
-    }
-    if ($standaloneCustomerName !== '') {
-        $bookingFlowState['customer_name'] = $standaloneCustomerName;
+    $historyCustomerName = studio_whatsapp_ai_extract_history_customer_name($history);
+    if ($historyCustomerName !== '') {
+        $bookingFlowState['customer_name'] = $historyCustomerName;
         $bookingFlowState['customer_name_confirmed'] = true;
+        $customerName = $historyCustomerName;
+        $conversation['name'] = $historyCustomerName;
     }
+    $conversationMemory = studio_whatsapp_ai_canonical_memory($conversation, $history, $bookingFlowState);
     $directBodyArea = studio_whatsapp_ai_extract_direct_body_area($messageText);
     if (!empty($directBodyArea['label']) && empty($directBodyArea['negative'])) {
         $oldBodyArea = trim((string)($bookingFlowState['body_area'] ?? ''));
@@ -15330,29 +15528,6 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['body_area'] = $newBodyArea;
         $bookingFlowState['body_area_source'] = 'customer';
         $bookingFlowState['reference_body_area_confirmation_required'] = false;
-    }
-    $knownStateName = trim((string)($bookingFlowState['customer_name'] ?? $customerName));
-    $knownStateNamePlain = studio_calendar_remove_accents(mb_strtolower($knownStateName, 'UTF-8'));
-    $knownNameLooksGeneric = $knownStateName === ''
-        || in_array($knownStateNamePlain, ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true);
-    $knownNameWordCount = $knownStateName !== '' ? count(preg_split('/\s+/u', $knownStateName) ?: []) : 0;
-    foreach (array_reverse($customerHistoryLines) as $historicalCustomerText) {
-        $historyName = studio_whatsapp_ai_extract_customer_name((string)$historicalCustomerText);
-        if ($historyName === '') {
-            $historyName = studio_whatsapp_ai_extract_standalone_customer_name((string)$historicalCustomerText);
-        }
-        if ($historyName === '') {
-            continue;
-        }
-        $historyNameWordCount = count(preg_split('/\s+/u', $historyName) ?: []);
-        if (!$knownNameLooksGeneric && $historyNameWordCount < max(2, $knownNameWordCount)) {
-            continue;
-        }
-        $bookingFlowState['customer_name'] = $historyName;
-        $bookingFlowState['customer_name_confirmed'] = true;
-        $customerName = $historyName;
-        $conversation['name'] = $historyName;
-        break;
     }
     if (preg_match('/\b(n[aã]o\s+quero\s+fechamento|nao\s+quero\s+fechamento|n[aã]o\s+e\s+fechamento|não\s+é\s+fechamento|n[aã]o\s+quero\s+fechar|apenas\s+uma\s+parte|s[oó]\s+uma\s+parte)\b/u', $messageTextPlainForFacts)) {
         studio_whatsapp_booking_invalidate_quote($bookingFlowState, 'Cliente recusou fechamento/promoção anterior.');
@@ -15391,7 +15566,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'document_received' => !empty($documentAnalysis['present']),
                 'video_received' => !empty($videoAnalysis['present']),
             ],
-            trim((string)($conversation['ai_memory'] ?? '')) . "\n" . studio_whatsapp_booking_state_summary($bookingFlowState)
+            $conversationMemory . "\n" . studio_whatsapp_booking_state_summary($bookingFlowState)
         );
     }
     $semanticConfidence = (float)($semanticUnderstanding['confidence'] ?? 0);
@@ -15418,6 +15593,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $bookingFlowState['quote'] = null;
             $bookingFlowState['quote_invalidated'] = true;
             $bookingFlowState['deposit_requested'] = false;
+            $bookingFlowState['deposit_status'] = 'not_requested';
             $bookingFlowState['proof_received'] = false;
             $bookingFlowState['stage'] = 'briefing';
             $conversation['lead_estimated_value'] = 0;
@@ -15437,6 +15613,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $bookingFlowState['selected_slot'] = null;
             $bookingFlowState['slot_confirmed'] = false;
             $bookingFlowState['deposit_requested'] = false;
+            $bookingFlowState['deposit_status'] = 'not_requested';
         }
     }
     if (!empty($semanticConfirmed['reference_received'])) {
@@ -15445,6 +15622,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     foreach (['tattoo_idea', 'body_area', 'body_position', 'body_side', 'customer_name', 'schedule_preference'] as $semanticField) {
         $semanticValue = trim((string)($semanticConfirmed[$semanticField] ?? ''));
         if ($semanticField === 'tattoo_idea' && $messageLooksLikeImageUploadAction) {
+            continue;
+        }
+        if ($semanticField === 'customer_name' && !studio_whatsapp_ai_name_candidate_is_plausible($semanticValue)) {
             continue;
         }
         if ($semanticValue !== ''
@@ -15468,7 +15648,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $messageCorrectionPlain = str_replace(['^', '~', '`', '´', "'"], '', $messageCorrectionPlain);
     if ((trim((string)($bookingFlowState['tattoo_idea'] ?? '')) !== ''
             || is_array($bookingFlowState['quote'] ?? null)
-            || trim((string)($conversation['ai_memory'] ?? '')) !== '')
+            || trim($conversationMemory) !== '')
         && preg_match('/\b(mudei\s+de\s+ideia|em\s+vez\s+disso|agora\s+quero|nao\s+quero\s+mais|nao\s+quero\s+agora)\b/u', $messageCorrectionPlain)) {
         $firstCorrectionLine = trim((string)(preg_split('/\R+/', $messageText, 2)[0] ?? $messageText));
         if ($firstCorrectionLine !== '' && !studio_whatsapp_ai_is_body_area_only($firstCorrectionLine)) {
@@ -15478,6 +15658,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $bookingFlowState['selected_slot'] = null;
             $bookingFlowState['slot_confirmed'] = false;
             $bookingFlowState['deposit_requested'] = false;
+            $bookingFlowState['deposit_status'] = 'not_requested';
             $bookingFlowState['proof_received'] = false;
             $bookingFlowState['stage'] = 'briefing';
             $conversation['lead_estimated_value'] = 0;
@@ -15489,7 +15670,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $introducedCustomerName = studio_whatsapp_ai_extract_customer_name($messageText);
     if ($introducedCustomerName === '' && trim((string)($semanticConfirmed['customer_name'] ?? '')) !== '') {
-        $introducedCustomerName = trim((string)$semanticConfirmed['customer_name']);
+        $semanticName = trim((string)$semanticConfirmed['customer_name']);
+        if (studio_whatsapp_ai_name_candidate_is_plausible($semanticName)) {
+            $introducedCustomerName = $semanticName;
+        }
     }
     if ($introducedCustomerName === '') {
         $introducedCustomerName = studio_whatsapp_ai_bare_name_after_prompt($messageText, $recentBotReplies);
@@ -15568,6 +15752,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['selected_slot'] = null;
         $bookingFlowState['slot_confirmed'] = false;
         $bookingFlowState['deposit_requested'] = false;
+        $bookingFlowState['deposit_status'] = 'not_requested';
         $currentIntent = 'schedule';
     }
     if (!$relaxesSchedulePreference && empty($schedulePreference['active']) && trim((string)($bookingFlowState['schedule_preference'] ?? '')) !== '') {
@@ -16065,9 +16250,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['quote_invalidated'] = false;
     }
     $knownFlowCustomerName = trim($customerName);
-    if ($knownFlowCustomerName !== ''
+    $currentStateName = trim((string)($bookingFlowState['customer_name'] ?? ''));
+    if (studio_whatsapp_ai_name_candidate_is_plausible($knownFlowCustomerName)
         && !empty($bookingFlowState['customer_name_confirmed'])
-        && !in_array(studio_calendar_remove_accents(mb_strtolower($knownFlowCustomerName, 'UTF-8')), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true)) {
+        && ($currentStateName === '' || mb_strlen($knownFlowCustomerName, 'UTF-8') >= mb_strlen($currentStateName, 'UTF-8'))) {
         $bookingFlowState['customer_name'] = $knownFlowCustomerName;
     }
     if (!empty($schedulePreference['active']) && trim((string)($schedulePreference['natural'] ?? '')) !== '') {
@@ -16260,6 +16446,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['selected_slot'] = null;
         $bookingFlowState['slot_confirmed'] = false;
         $bookingFlowState['deposit_requested'] = false;
+        $bookingFlowState['deposit_status'] = 'not_requested';
     }
     if (!is_array($selectedReservationSlot)
         && is_array($lastOfferedSlot)
@@ -16975,6 +17162,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                     'summary' => 'Comprovante de sinal confirmado e agendamento criado via IA para ' . (string)$selectedReservationSlot['date'] . ' ' . $timeLabel . '. Tag AGENDADO VIA IA aplicada; equipe sinalizada para revisão.',
                 ];
                 $bookingFlowState['proof_received'] = true;
+                $bookingFlowState['deposit_status'] = 'confirmed';
                 $bookingFlowState['appointment_id'] = (int)($appointmentResult['appointment_id'] ?? 0);
                 $bookingFlowState['stage'] = 'completed';
                 $bookingFlowState['pending'] = '';
@@ -17346,6 +17534,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $result['summary'] = 'Proteção de consistência impediu confirmação de agendamento inexistente.';
     }
     $replyText = studio_whatsapp_ai_clean_customer_reply($replyText);
+    $replyText = studio_whatsapp_ai_guard_unconfirmed_reservation($replyText, $bookingFlowState, $bookingChecklist);
     if (!empty($bookingFlowState['active'])
         && empty($result['needs_human'])
         && $serviceFlowResumeQuestion === ''
@@ -17580,6 +17769,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         && is_array($bookingFlowState['selected_slot'] ?? null)
         && preg_match('/\b(pix|comprovante|sinal)\b/u', $replyPlainForState)) {
         $bookingFlowState['deposit_requested'] = true;
+        $bookingFlowState['deposit_status'] = 'requested';
         $bookingFlowState['stage'] = 'proof';
         $bookingFlowState['pending'] = 'comprovante do sinal';
     } elseif (is_array($bookingFlowState['selected_slot'] ?? null) && empty($bookingFlowState['slot_confirmed'])) {
@@ -17726,6 +17916,23 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 ->execute([mb_substr($updatedMemory, 0, 4000, 'UTF-8'), (int)$conversation['id']]);
         } catch (Throwable) {
         }
+    }
+
+    // A memória canônica substitui resumos antigos que possam ter ficado contraditórios.
+    try {
+        $canonicalMemory = studio_whatsapp_ai_canonical_memory(
+            $conversation,
+            $history,
+            $bookingFlowState,
+            $bookingChecklist,
+            trim((string)($result['summary'] ?? ''))
+        );
+        studio_ensure_whatsapp_assignment_schema($studio);
+        $pdo->prepare('UPDATE whatsapp_conversations SET ai_memory = ?, ai_memory_updated_at = NOW() WHERE id = ?')
+            ->execute([$canonicalMemory, (int)$conversation['id']]);
+        $conversation['ai_memory'] = $canonicalMemory;
+    } catch (Throwable) {
+        // A resposta não deve falhar somente porque a memória não pôde ser atualizada.
     }
 
     return [
