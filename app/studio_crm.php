@@ -5512,12 +5512,12 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
         'business_hours', 'artist', 'human_handoff', 'acknowledgement', 'multi_request',
     ];
     $systemPrompt = "Você é a camada de compreensão de um atendente experiente de estúdio de tatuagem.\n"
-        . "Leia a conversa como um todo, compreenda mensagens fragmentadas, pronomes, correções, respostas curtas e intenções implícitas.\n"
+        . "Leia a conversa inteira do início ao fim antes de interpretar a mensagem atual. Compreenda mensagens fragmentadas, pronomes, correções, respostas curtas e intenções implícitas.\n"
         . "Sua tarefa NÃO é responder ao cliente, calcular preço, escolher vaga ou executar ação. Extraia apenas o que o cliente realmente afirmou ou confirmou.\n"
         . "Nunca transforme pergunta do atendente em fato do cliente. Nunca apague um fato confirmado só porque ele não apareceu na última mensagem.\n"
         . "Quando a mensagem atual corrigir algo antigo, a correção vence. Diferencie uma dúvida paralela do abandono do objetivo de agendar.\n"
         . "Qualquer parte, região ou localização anatômica mencionada deve ir em body_area/body_position/body_side, nunca em tattoo_idea. tattoo_idea descreve somente o desenho, tema, texto ou conceito que será tatuado. Isso vale mesmo para áreas raras que não apareçam em exemplos.\n"
-        . "confirmed representa a verdade consolidada da conversa depois da mensagem atual: preserve dados antigos que continuam válidos e substitua os corrigidos. Resolva expressões como 'isso', 'ela inteira' e 'o mesmo horário' usando o histórico.\n"
+        . "Faça uma revisão interna antes de devolver o JSON: consolide fatos, aplique correções recentes, detecte contradições e só depois interprete a mensagem atual. confirmed representa a verdade consolidada da conversa depois da mensagem atual: preserve dados antigos que continuam válidos e substitua os corrigidos. Resolva expressões como 'isso', 'ela inteira' e 'o mesmo horário' usando o histórico.\n"
         . "Somente reference_received e payment_proof_claimed podem ser booleanos. Todos os demais valores de confirmed devem ser texto literal, nunca true ou false.\n"
         . "Use null quando um dado não foi informado. Não invente nome, área, data, horário, pagamento ou conteúdo de imagem.\n"
         . "reply_text deve ser vazio, needs_human false e lead_score_delta 0.\n"
@@ -5527,7 +5527,7 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
     $payload = [
         'estado_estruturado_anterior' => $bookingState,
         'memoria_acumulada_verificada' => trim($conversationMemory),
-        'historico_em_ordem' => studio_whatsapp_ai_context_window($historyLines, 500, 100000),
+        'historico_em_ordem' => studio_whatsapp_ai_context_window($historyLines, 1200, 120000),
         'mensagem_atual_agrupada' => $messageText,
         'fatos_de_midias_verificados_pelo_sistema' => $mediaFacts,
         'instrucoes_de_saida' => [
@@ -15496,7 +15496,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
          FROM whatsapp_messages
          WHERE conversation_id = ?
          ORDER BY id DESC
-         LIMIT 1200'
+         LIMIT 3000'
     );
     $stmt->execute([(int)$conversation['id']]);
     $history = array_reverse($stmt->fetchAll() ?: []);
@@ -15581,7 +15581,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $leadId = (int)($conversation['lead_id'] ?? 0);
     $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
     $leadData = $leadId > 0 ? studio_find_lead($studio, $leadId) : null;
-    $latestMessages = implode("\n- ", studio_whatsapp_ai_context_window($historyLines, 500, 100000));
+    $latestMessages = implode("\n- ", studio_whatsapp_ai_context_window($historyLines, 1200, 120000));
     $conversationMemory = studio_whatsapp_ai_canonical_memory($conversation, $history, $bookingFlowState);
     $bookingFlowSummary = studio_whatsapp_booking_state_summary($bookingFlowState);
     $messageText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
@@ -16725,13 +16725,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "Nota do lead: " . trim((string)($conversation['lead_score'] ?? '0')) . "/10\n"
         . "Memoria acumulada da conversa (combinados, preferencias e pendencias): " . ($conversationMemory !== '' ? $conversationMemory : 'Ainda sem memoria acumulada.') . "\n"
         . "Contexto da ficha e relacionamento com este cliente:\n- " . implode("\n- ", $customerContextLines) . "\n"
-        . "Historico recente (somente contexto; nunca responda uma pergunta antiga no lugar da atual):\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
+        . "Historico completo para releitura (somente contexto; nunca responda uma pergunta antiga no lugar da atual):\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico recente.') . "\n\n"
         . "Exemplos reais de atendimento humano em casos parecidos (copie apenas o jeito de falar e conduzir; nunca trate nomes, preços, datas ou fatos destes exemplos como atuais):\n"
         . $humanExamplesBlock . "\n\n"
         . "Regras de resposta:\n"
+        . "- Antes de escrever, faça silenciosamente esta revisão: releia o histórico do início ao fim, consolide os fatos confirmados, aplique a correção mais recente, identifique o pedido atual e só então escolha a resposta.\n"
+        . "- Na revisão final, confira quatro pontos: respondi à mensagem atual, preservei o que já foi confirmado, não contradisse data/horário/valor e deixei apenas a próxima pergunta do roteiro.\n"
         . "- Responda todas as mensagens pendentes enviadas desde a última resposta do atendente.\n"
         . "- Se uma mensagem vier marcada como resposta a outra mensagem, interprete a fala como direcionada especificamente à mensagem citada antes de usar o restante do histórico.\n"
-        . "- Considere toda a memoria acumulada e o historico recente antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
+        . "- Considere toda a memoria acumulada e o historico completo antes de responder. Lembre combinados relevantes e nunca pergunte novamente algo que o cliente ja informou.\n"
         . "- O historico recente e as mensagens pendentes vencem a memoria antiga. Se houver pedidos diferentes na memoria, trate o pedido corrigido/mais recente como o pedido atual e nao misture projeto antigo com projeto novo.\n"
         . "- Se a mensagem atual corrigir algo do historico, a correcao atual prevalece. Especialmente: se o cliente disser que nao enviou comprovante, nao diga que o comprovante ja foi recebido nem que a agenda esta confirmada.\n"
         . "- Se uma imagem vier logo apos frases como 'vou mandar uma foto', 'referencia', 'igual essa' ou 'print', trate como referencia visual, nao como comprovante, a menos que o cliente fale claramente de pagamento/Pix/comprovante.\n"
