@@ -4150,7 +4150,7 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
 {
     studio_whatsapp_service_flow_ensure_schema($studio);
     $allowedStepTypes = ['question', 'choice', 'media', 'system'];
-    $allowedAnswerTypes = ['text', 'long_text', 'choice', 'body_area', 'image_or_skip', 'schedule', 'yes_no', 'system_quote', 'system_payment', 'payment_proof', 'system_finalize'];
+    $allowedAnswerTypes = ['text', 'long_text', 'choice', 'body_area', 'image_or_skip', 'schedule', 'yes_no', 'system_quote', 'system_payment', 'payment_proof', 'system_finalize', 'handoff'];
     $rawSteps = is_array($payload['steps'] ?? null) ? $payload['steps'] : [];
     if (!$rawSteps || count($rawSteps) > 40) {
         throw new RuntimeException('O fluxograma precisa ter entre 1 e 40 blocos.');
@@ -4184,6 +4184,7 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
             'system_payment' => ['step_type' => 'system', 'field_key' => 'deposit_requested'],
             'payment_proof' => ['step_type' => 'media', 'field_key' => 'proof_received'],
             'system_finalize' => ['step_type' => 'system', 'field_key' => 'appointment_id'],
+            'handoff' => ['step_type' => 'system', 'field_key' => 'human_handoff'],
             'schedule' => ['step_type' => 'question', 'field_key' => 'selected_slot'],
         ];
         if (isset($systemBindings[$answerType])) {
@@ -4843,6 +4844,7 @@ function studio_whatsapp_service_flow_field_complete(string $fieldKey, array $st
         'deposit_requested' => !empty($state['deposit_requested']),
         'proof_received' => !empty($state['proof_received']),
         'appointment_id' => (int)($state['appointment_id'] ?? 0) > 0,
+        'human_handoff' => !empty($state['human_handoff_sent']),
         default => trim((string)($answers[$fieldKey] ?? '')) !== '',
     };
 }
@@ -5423,6 +5425,25 @@ function studio_whatsapp_service_flow_decide(
             continue;
         }
         $answerType = (string)$step['answer_type'];
+        if ($answerType === 'handoff') {
+            $state['human_handoff_sent'] = true;
+            $state['human_handoff_reason'] = (string)($step['title'] ?? 'Atendimento humano solicitado');
+            $state['stage'] = 'human';
+            $state['pending'] = 'atendente';
+            $state['script'] = $script + [
+                'started_at' => date('Y-m-d H:i:s'),
+                'current_step_key' => (string)($step['step_key'] ?? ''),
+                'current_field_key' => (string)($step['field_key'] ?? ''),
+                'current_title' => (string)($step['title'] ?? ''),
+            ];
+            return [
+                'enabled' => true,
+                'state' => $state,
+                'direct_reply' => studio_whatsapp_service_flow_render_text((string)$step['question_text'], $studio, $state),
+                'needs_human' => true,
+                'summary' => 'Roteiro encaminhou a conversa para um atendente: ' . (string)($step['title'] ?? 'motivo não informado') . '.',
+            ];
+        }
         if ($answerType === 'system_quote') {
             $state['script'] = $script + ['started_at' => date('Y-m-d H:i:s')];
             if (!empty($state['reference_received']) && empty($state['reference_declined']) && empty($state['reference_analysis_ok'])) {
