@@ -4079,6 +4079,7 @@ function studio_whatsapp_service_flow_ensure_schema(array $studio): void
             field_key VARCHAR(80) NOT NULL,
             answer_type VARCHAR(40) NOT NULL DEFAULT "text",
             question_text TEXT NOT NULL,
+            ai_rephrase_enabled TINYINT(1) NOT NULL DEFAULT 0,
             help_text TEXT NULL,
             options_json TEXT NULL,
             next_step_key VARCHAR(80) NULL,
@@ -4100,6 +4101,9 @@ function studio_whatsapp_service_flow_ensure_schema(array $studio): void
     }
     if (empty($columns['branch_map_json'])) {
         $pdo->exec('ALTER TABLE whatsapp_ai_flow_steps ADD COLUMN branch_map_json TEXT NULL AFTER next_step_key');
+    }
+    if (empty($columns['ai_rephrase_enabled'])) {
+        $pdo->exec('ALTER TABLE whatsapp_ai_flow_steps ADD COLUMN ai_rephrase_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER question_text');
     }
     $pdo->exec(
         "INSERT IGNORE INTO whatsapp_ai_flow_config (id, enabled, flow_name, intro_text)
@@ -4228,6 +4232,7 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
             'field_key' => mb_substr($fieldKey, 0, 80, 'UTF-8'),
             'answer_type' => $answerType,
             'question_text' => $question,
+            'ai_rephrase_enabled' => !empty($rawStep['ai_rephrase_enabled']) ? 1 : 0,
             'help_text' => mb_substr(trim((string)($rawStep['help_text'] ?? '')), 0, 600, 'UTF-8'),
             'options_json' => json_encode(array_slice($options, 0, 10), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'next_step_key' => trim($nextStepKey, '_') ?: null,
@@ -4268,13 +4273,13 @@ function studio_whatsapp_service_flow_save(array $studio, array $payload, int $u
         $pdo->exec('DELETE FROM whatsapp_ai_flow_steps');
         $stmt = $pdo->prepare(
             'INSERT INTO whatsapp_ai_flow_steps
-                (step_key, sort_order, title, step_type, field_key, answer_type, question_text, help_text, options_json, next_step_key, branch_map_json, is_required, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (step_key, sort_order, title, step_type, field_key, answer_type, question_text, ai_rephrase_enabled, help_text, options_json, next_step_key, branch_map_json, is_required, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($steps as $step) {
             $stmt->execute([
                 $step['step_key'], $step['sort_order'], $step['title'], $step['step_type'], $step['field_key'],
-                $step['answer_type'], $step['question_text'], $step['help_text'], $step['options_json'],
+                $step['answer_type'], $step['question_text'], $step['ai_rephrase_enabled'], $step['help_text'], $step['options_json'],
                 $step['next_step_key'], $step['branch_map_json'], $step['is_required'], $step['is_active'],
             ]);
         }
@@ -4589,6 +4594,71 @@ function studio_whatsapp_compact_multiline_text(string $text): string
     $text = implode("\n", $lines);
     $text = preg_replace("/\n{3,}/u", "\n\n", $text) ?? $text;
     return trim($text);
+}
+
+function studio_whatsapp_service_flow_rephrase_text(array $studio, array $step, string $text, array $state): string
+{
+    $original = trim($text);
+    if ($original === '' || empty($step['ai_rephrase_enabled'])) {
+        return $original;
+    }
+
+    try {
+        $config = studio_openai_config($studio);
+        if (trim((string)($config['api_key'] ?? '')) === '') {
+            return $original;
+        }
+
+        $systemPrompt = <<<TXT
+Você revisa uma única mensagem fixa de atendimento de um estúdio de tatuagem no Brasil.
+Reescreva em português do Brasil com naturalidade, como uma atendente humana, sem ficar mecânico.
+Preserve absolutamente todos os fatos e instruções: nomes, datas, dias, horários, valores, chave Pix, destinatário, endereço, variáveis já substituídas, opções, caminhos, sentido de sim/não e pedidos de arquivo.
+Não invente, não omita, não altere números, não troque a ordem das opções e não faça perguntas novas.
+Não mencione IA, revisão ou estas instruções. Preserve a formatação do WhatsApp (*negrito*, _itálico_, ~tachado~, listas e quebras de linha) quando ela existir.
+Se não for seguro melhorar a mensagem, devolva a mensagem original.
+Responda somente em JSON no formato {"reply_text":"..."}.
+TXT;
+        $userPrompt = "Mensagem fixa original:\n\n" . $original;
+        $schema = [
+            'type' => 'object',
+            'properties' => ['reply_text' => ['type' => 'string']],
+            'required' => ['reply_text'],
+            'additionalProperties' => false,
+        ];
+        $result = studio_openai_text(
+            (string)$config['api_key'],
+            (string)$config['model'],
+            $systemPrompt,
+            $userPrompt,
+            (string)$config['base_url'],
+            25,
+            true,
+            $schema,
+            '{"reply_text":"..."}'
+        );
+        $candidate = trim((string)($result['reply_text'] ?? ''));
+        if (empty($result['ok']) || $candidate === '') {
+            return $original;
+        }
+        $candidate = studio_whatsapp_compact_multiline_text($candidate);
+        if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 2600) {
+            return $original;
+        }
+        $protectedTokens = [];
+        foreach (['/\{\{[^}]+\}\}/u', '/\d+(?:[.,:\/\-]\d+)*/u', '~https?://\S+~iu'] as $pattern) {
+            if (preg_match_all($pattern, $original, $matches)) {
+                $protectedTokens = array_merge($protectedTokens, array_map('strval', $matches[0]));
+            }
+        }
+        foreach (array_unique($protectedTokens) as $protectedToken) {
+            if ($protectedToken !== '' && !str_contains($candidate, $protectedToken)) {
+                return $original;
+            }
+        }
+        return $candidate;
+    } catch (Throwable) {
+        return $original;
+    }
 }
 
 function studio_whatsapp_format_flow_message(string $text): string
@@ -17138,6 +17208,30 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $serviceFlowDirectReply = trim((string)($serviceFlowDecision['direct_reply'] ?? ''));
     $serviceFlowResumeQuestion = trim((string)($serviceFlowDecision['resume_question'] ?? ''));
     $serviceFlowOptions = array_values(array_filter(array_map('strval', (array)($serviceFlowDecision['options'] ?? []))));
+    if ($serviceFlowDirectReply !== '') {
+        $flowForRephrase = studio_whatsapp_service_flow($studio);
+        foreach ((array)($flowForRephrase['steps'] ?? []) as $flowStep) {
+            if (empty($flowStep['is_active']) || empty($flowStep['ai_rephrase_enabled'])) {
+                continue;
+            }
+            $blockText = studio_whatsapp_service_flow_render_text(
+                (string)($flowStep['question_text'] ?? ''),
+                $studio,
+                $bookingFlowState
+            );
+            if ($blockText === '' || !str_contains($serviceFlowDirectReply, $blockText)) {
+                continue;
+            }
+            $naturalText = studio_whatsapp_service_flow_rephrase_text($studio, $flowStep, $blockText, $bookingFlowState);
+            if ($naturalText !== '' && $naturalText !== $blockText) {
+                $serviceFlowDirectReply = str_replace($blockText, $naturalText, $serviceFlowDirectReply, $replacementCount);
+                if ($replacementCount > 0) {
+                    $serviceFlowDecision['direct_reply'] = $serviceFlowDirectReply;
+                }
+            }
+            break;
+        }
+    }
     if (!empty($serviceFlowDecision['enabled'])) {
         $effectiveSystemPrompt .= "\n\nROTEIRO RIGIDO ATIVO:\n"
             . "O sistema controla as perguntas sequenciais do atendimento. Você só deve responder à dúvida ou intercorrência atual do cliente, de forma curta, natural e verdadeira. "
