@@ -152,7 +152,38 @@
         return selected ? Number(selected.dataset.index || 0) : 0;
     }
 
+    let connectionSelectInteraction = false;
+
+    document.addEventListener('pointerdown', function (event) {
+        const target = event.target;
+        const select = target && target.closest ? target.closest('.flow-connections-panel select') : null;
+        if (select) {
+            connectionSelectInteraction = true;
+        }
+    }, true);
+
+    document.addEventListener('focusout', function (event) {
+        const target = event.target;
+        const select = target && target.closest ? target.closest('.flow-connections-panel select') : null;
+        if (select) {
+            window.setTimeout(function () {
+                connectionSelectInteraction = false;
+            }, 0);
+        }
+    }, true);
+
+    function connectionSelectIsActive() {
+        const active = document.activeElement;
+        return connectionSelectInteraction || Boolean(active
+            && active.tagName === 'SELECT'
+            && active.closest('.flow-connections-panel'));
+    }
+
     function populateConnections() {
+        // Replacing options while the native menu is open closes it immediately.
+        if (connectionSelectIsActive()) {
+            return;
+        }
         const form = inspector && inspector.querySelector('[data-flow-form]');
         if (!form || form.hidden) {
             return;
@@ -163,24 +194,35 @@
         if (!step) {
             return;
         }
+        const optionSignature = steps.map(function (candidate, index) {
+            if (index === selectedIndex) {
+                return '';
+            }
+            return String(candidate.step_key || '') + '|' + String(candidate.title || '');
+        }).join('||');
         const nextSelect = form.querySelector('[data-flow-next-step]');
         if (nextSelect) {
             const current = String(step.next_step_key || '');
-            nextSelect.replaceChildren();
-            const fallback = document.createElement('option');
-            fallback.value = '';
-            fallback.textContent = 'Seguir a ordem abaixo';
-            nextSelect.append(fallback);
-            steps.forEach(function (candidate, index) {
-                if (index === selectedIndex) {
-                    return;
-                }
-                const option = document.createElement('option');
-                option.value = String(candidate.step_key || '');
-                option.textContent = String(index + 1).padStart(2, '0') + ' · ' + (candidate.title || 'Bloco sem título');
-                nextSelect.append(option);
-            });
-            nextSelect.value = current;
+            if (nextSelect.dataset.flowOptionsSignature !== optionSignature) {
+                nextSelect.replaceChildren();
+                const fallback = document.createElement('option');
+                fallback.value = '';
+                fallback.textContent = 'Seguir a ordem abaixo';
+                nextSelect.append(fallback);
+                steps.forEach(function (candidate, index) {
+                    if (index === selectedIndex) {
+                        return;
+                    }
+                    const option = document.createElement('option');
+                    option.value = String(candidate.step_key || '');
+                    option.textContent = String(index + 1).padStart(2, '0') + ' · ' + (candidate.title || 'Bloco sem título');
+                    nextSelect.append(option);
+                });
+                nextSelect.dataset.flowOptionsSignature = optionSignature;
+            }
+            if (document.activeElement !== nextSelect) {
+                nextSelect.value = current;
+            }
             if (!nextSelect.dataset.flowConnectionBound) {
                 nextSelect.dataset.flowConnectionBound = '1';
                 nextSelect.addEventListener('change', function () {
@@ -194,6 +236,13 @@
         }
         const options = Array.isArray(step.options) ? step.options.filter(Boolean) : [];
         const branchMap = step.branch_map && typeof step.branch_map === 'object' ? step.branch_map : {};
+        const branchSignature = optionSignature + '::' + options.map(function (label) {
+            return String(label);
+        }).join('|');
+        if (branchList.dataset.flowOptionsSignature === branchSignature) {
+            return;
+        }
+        branchList.dataset.flowOptionsSignature = branchSignature;
         branchList.replaceChildren();
         if (!options.length) {
             const empty = document.createElement('div');
@@ -234,6 +283,7 @@
             });
             select.value = target ? String(branchMap[target] || '') : '';
             select.addEventListener('change', function () {
+                connectionSelectInteraction = false;
                 const updated = Object.assign({}, readHiddenBranchMap());
                 Object.keys(updated).forEach(function (key) {
                     if (normalize(key) === normalize(label)) {
