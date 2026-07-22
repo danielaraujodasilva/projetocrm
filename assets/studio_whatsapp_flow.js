@@ -193,13 +193,22 @@
         help.className = 'flow-branch-help';
         help.textContent = 'Exemplo: “Sim” pode continuar para confirmação e “Não” pode voltar para escolher outro horário.';
         branchList.append(help);
-        options.forEach(function (label) {
-            const row = document.createElement('label');
+        options.forEach(function (label, optionIndex) {
+            const row = document.createElement('div');
             row.className = 'flow-branch-row';
             const title = document.createElement('span');
+            title.className = 'flow-branch-label';
+            title.id = 'flow-branch-label-' + selectedIndex + '-' + optionIndex;
             title.textContent = label;
             const select = document.createElement('select');
             select.dataset.flowBranchLabel = label;
+            select.setAttribute('aria-labelledby', title.id);
+            select.addEventListener('pointerdown', function (event) {
+                event.stopPropagation();
+            });
+            select.addEventListener('click', function (event) {
+                event.stopPropagation();
+            });
             const empty = document.createElement('option');
             empty.value = '';
             empty.textContent = 'Seguir a ordem abaixo';

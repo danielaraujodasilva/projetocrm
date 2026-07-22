@@ -9962,6 +9962,7 @@ body.flow-modal-open{overflow:hidden}
 .flow-branch-list{display:grid;gap:8px;margin-top:10px}
 .flow-branch-help{display:block;color:#6e857d;font-size:.76rem;line-height:1.45}
 .flow-branch-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,1.25fr);align-items:center;gap:10px;padding:9px 10px;border:1px solid #dcebe4;border-radius:11px;background:#fff;color:#24483d;font-size:.82rem;font-weight:700}
+.flow-branch-label{min-width:0;overflow-wrap:anywhere}
 .flow-branch-row select{min-width:0;margin:0}
 .flow-branch-empty{padding:11px;border:1px dashed #c6ddd3;border-radius:10px;color:#6e857d;font-size:.78rem;background:#fff}
 @media(max-width:680px){.flow-canvas.is-flow-graph{min-height:0!important;padding:16px 8px 28px}.flow-branch-row{grid-template-columns:1fr}.flow-branch-row select{width:100%}}
