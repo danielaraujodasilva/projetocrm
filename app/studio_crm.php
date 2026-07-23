@@ -4779,6 +4779,49 @@ function studio_whatsapp_booking_state_add_reference(array &$state, array $refer
     $state['reference_summary'] = studio_whatsapp_reference_list_summary($state['references']);
 }
 
+function studio_whatsapp_booking_state_infer_idea_from_references(array &$state): bool
+{
+    if (trim((string)($state['tattoo_idea'] ?? '')) !== ''
+        || empty($state['reference_received'])
+        || empty($state['reference_analysis_ok'])) {
+        return false;
+    }
+
+    $parts = [];
+    $references = is_array($state['references'] ?? null) ? array_reverse($state['references']) : [];
+    foreach ($references as $reference) {
+        if (!is_array($reference)) {
+            continue;
+        }
+        foreach (['elements', 'style'] as $key) {
+            $value = trim((string)($reference[$key] ?? ''));
+            if ($value !== '' && !in_array($value, $parts, true)) {
+                $parts[] = $value;
+            }
+        }
+    }
+    if (!$parts) {
+        foreach ($references as $reference) {
+            if (!is_array($reference)) {
+                continue;
+            }
+            $summary = trim((string)($reference['summary'] ?? ''));
+            if ($summary !== '' && !studio_whatsapp_ai_is_body_area_only($summary)) {
+                $parts[] = $summary;
+                break;
+            }
+        }
+    }
+    $idea = trim(implode('; ', array_slice($parts, 0, 4)));
+    if ($idea === '' || studio_whatsapp_ai_is_body_area_only($idea)) {
+        return false;
+    }
+
+    $state['tattoo_idea'] = mb_substr($idea, 0, 400, 'UTF-8');
+    $state['tattoo_idea_source'] = 'reference_analysis';
+    return true;
+}
+
 function studio_whatsapp_booking_primary_reference(array $state): array
 {
     $references = is_array($state['references'] ?? null) ? array_values($state['references']) : [];
@@ -5328,6 +5371,9 @@ function studio_whatsapp_service_flow_decide(
     if (!$steps) {
         return ['enabled' => true, 'completed' => true, 'state' => $state];
     }
+    // A verified visual reference is also an answer to the project/idea step.
+    // This prevents a later body-area reply from being treated as an unrelated answer.
+    studio_whatsapp_booking_state_infer_idea_from_references($state);
     if ((int)($state['appointment_id'] ?? 0) > 0) {
         $script = is_array($state['script'] ?? null) ? $state['script'] : [];
         $script['completed_at'] = $script['completed_at'] ?? date('Y-m-d H:i:s');
@@ -6835,9 +6881,26 @@ function studio_whatsapp_ai_extract_direct_body_area(string $text): array
     $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
     $negative = (bool)preg_match('/\b(n[aã]o\s+quero|nao\s+e|não\s+é|sem|trocar|mudar)\b.{0,35}\b' . preg_quote((string)($bodyArea['normalized'] ?? ''), '/') . '\b/u', $plain);
+    $position = '';
+    foreach (['interno', 'interna', 'externo', 'externa', 'frontal', 'posterior', 'traseiro', 'traseira', 'lateral', 'superior', 'inferior'] as $candidate) {
+        if (preg_match('/\b' . preg_quote($candidate, '/') . '\b/u', $plain)) {
+            $position = $candidate;
+            break;
+        }
+    }
+    $side = '';
+    if (preg_match('/\b(direito|direita)\b/u', $plain)) {
+        $side = 'direito';
+    } elseif (preg_match('/\b(esquerdo|esquerda)\b/u', $plain)) {
+        $side = 'esquerdo';
+    } elseif (preg_match('/\b(ambos|ambas|dos\s+dois|dos\s+dois\s+lados)\b/u', $plain)) {
+        $side = 'ambos';
+    }
     return [
         'label' => $label,
         'negative' => $negative,
+        'position' => $position,
+        'side' => $side,
     ];
 }
 
@@ -15928,6 +15991,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['body_area'] = $newBodyArea;
         $bookingFlowState['body_area_source'] = 'customer';
         $bookingFlowState['reference_body_area_confirmation_required'] = false;
+        if (trim((string)($directBodyArea['position'] ?? '')) !== '') {
+            $bookingFlowState['body_position'] = trim((string)$directBodyArea['position']);
+        }
+        if (trim((string)($directBodyArea['side'] ?? '')) !== '') {
+            $bookingFlowState['body_side'] = trim((string)$directBodyArea['side']);
+        }
     }
     if (preg_match('/\b(n[aã]o\s+quero\s+fechamento|nao\s+quero\s+fechamento|n[aã]o\s+e\s+fechamento|não\s+é\s+fechamento|n[aã]o\s+quero\s+fechar|apenas\s+uma\s+parte|s[oó]\s+uma\s+parte)\b/u', $messageTextPlainForFacts)) {
         studio_whatsapp_booking_invalidate_quote($bookingFlowState, 'Cliente recusou fechamento/promoção anterior.');
@@ -17938,7 +18007,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'chest' => 'peito',
                 default => $imageArea,
             };
-            $fallbackNeedsHuman = !$tattooBriefingFollowup;
+            // A model repetition is recoverable: ask a contextual next question
+            // instead of escalating a normal booking message to a human.
+            $fallbackNeedsHuman = false;
             $replyText = match ($currentIntent) {
                 'image_price' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Para calcular o valor, voce quer cobrir a area inteira ou apenas uma parte?',
                 'price' => 'O orçamento é definido principalmente pela área do corpo. Em qual região você quer tatuar?',
