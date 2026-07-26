@@ -5266,9 +5266,13 @@ function studio_whatsapp_service_flow_store_current_answer(array &$state, array 
         if ($candidate === '') {
             $candidate = trim((string)preg_replace('/^(?:meu nome (?:e|eh)|sou|me chamo)\s+/iu', '', $messageText));
         }
-        if (preg_match('/^[\p{L}][\p{L}\'’\-]+(?:\s+[\p{L}][\p{L}\'’\-]+)+$/u', $candidate)) {
+        // A pessoa pode responder apenas com o primeiro nome. No bloco de
+        // identificação isso já é informação útil e não deve travar o roteiro.
+        if (studio_whatsapp_ai_name_candidate_is_plausible($candidate, true)) {
             $state['customer_name'] = mb_substr($candidate, 0, 160, 'UTF-8');
             $state['customer_name_confirmed'] = true;
+            $answers[$fieldKey] = $state['customer_name'];
+            $state['script_answers'] = $answers;
             return true;
         }
         return false;
@@ -6772,7 +6776,7 @@ function studio_whatsapp_ai_bare_name_after_prompt(string $text, array $recentBo
     $candidate = trim((string)preg_replace('/[^\p{L}\'\-\s]+/u', ' ', $text));
     $candidate = trim((string)preg_replace('/\s+/u', ' ', $candidate));
     $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
-    if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100 || !studio_whatsapp_ai_name_candidate_is_plausible($candidate)) {
+    if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100 || !studio_whatsapp_ai_name_candidate_is_plausible($candidate, true)) {
         return '';
     }
     if (!preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30}){0,3}$/u', $candidate)) {
@@ -6803,7 +6807,7 @@ function studio_whatsapp_ai_extract_standalone_customer_name(string $text): stri
     return mb_convert_case($candidate, MB_CASE_TITLE, 'UTF-8');
 }
 
-function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate): bool
+function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate, bool $allowSingleWord = false): bool
 {
     $candidate = trim(preg_replace('/\s+/u', ' ', $candidate) ?? $candidate);
     if ($candidate === '' || mb_strlen($candidate, 'UTF-8') > 100) {
@@ -6812,10 +6816,11 @@ function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate): bool
     $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
     $plain = trim((string)preg_replace('/\s+/u', ' ', $plain));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
-    if (preg_match('/\b(que|djabo|diabo|viu|voce|você|nome|quer|novo|de\s+novo|isso|aquilo|falei|expliquei|mandei|enviei|nao|não|opcao|selecionada|por\s+que|porque|como|qual|onde|quando)\b/u', $plain)) {
+    if (preg_match('/\b(que|djabo|diabo|viu|voce|você|nome|quer|quero|gostaria|preciso|tenho|vou|agendar|orcamento|orçamento|tatuagem|tattoo|pix|novo|de\s+novo|isso|aquilo|falei|expliquei|mandei|enviei|nao|não|opcao|selecionada|por\s+que|porque|como|qual|onde|quando|oi|ola|olá|bom|boa|sim|ok)\b/u', $plain)) {
         return false;
     }
-    return (bool)preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30}){1,4}$/u', $candidate);
+    $additionalWords = $allowSingleWord ? '{0,4}' : '{1,4}';
+    return (bool)preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30})' . $additionalWords . '$/u', $candidate);
 }
 
 function studio_whatsapp_ai_extract_history_customer_name(array $history): string
