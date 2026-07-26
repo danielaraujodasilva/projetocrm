@@ -5527,6 +5527,164 @@ function studio_whatsapp_apply_openai_flow_answer(array &$state, array $step, ar
     return false;
 }
 
+/**
+ * Turns the long knowledge base into an auditable decision before the natural
+ * language model writes the customer-facing reply.
+ */
+function studio_whatsapp_openai_business_decision(
+    array $studio,
+    array $conversation,
+    array $state,
+    string $messageText,
+    string $historyText,
+    string $memoryText,
+    string $businessRules,
+    string $pricingContext,
+    string $scheduleContext,
+    array $bookingChecklist,
+    string $currentIntent,
+    string $studioAddress,
+    string $depositLabel,
+    string $pixKey,
+    string $pixRecipient
+): array {
+    $config = studio_openai_config($studio);
+    if (($config['provider'] ?? '') !== 'openai' || trim((string)($config['api_key'] ?? '')) === '') {
+        return ['ok' => false, 'skipped' => true];
+    }
+    $payload = [
+        'mensagem_atual' => $messageText,
+        'intencao_detectada' => $currentIntent,
+        'historico' => mb_substr($historyText, -70000, null, 'UTF-8'),
+        'memoria' => mb_substr($memoryText, -18000, null, 'UTF-8'),
+        'estado' => studio_whatsapp_booking_state_summary($state),
+        'checklist' => [
+            'completo' => !empty($bookingChecklist['ready']),
+            'faltando' => array_values(array_map('strval', (array)($bookingChecklist['missing'] ?? []))),
+            'proxima_pergunta' => (string)($bookingChecklist['next_question'] ?? ''),
+        ],
+        'regras_do_estudio' => mb_substr($businessRules, 0, 50000, 'UTF-8'),
+        'catalogo_de_precos' => mb_substr($pricingContext, 0, 50000, 'UTF-8'),
+        'agenda_real' => mb_substr($scheduleContext, 0, 30000, 'UTF-8'),
+        'dados_confirmados' => [
+            'endereco' => $studioAddress,
+            'sinal' => $depositLabel,
+            'pix' => $pixKey,
+            'favorecido' => $pixRecipient,
+        ],
+        'cliente' => [
+            'nome' => (string)($conversation['name'] ?? ''),
+            'telefone' => (string)($conversation['phone'] ?? ''),
+        ],
+    ];
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'decision_valid' => ['type' => 'boolean'],
+            'confidence' => ['type' => 'number'],
+            'business_intent' => ['type' => 'string'],
+            'current_goal' => ['type' => 'string'],
+            'promotion' => ['type' => 'string'],
+            'price' => ['type' => 'string'],
+            'price_amount' => ['type' => 'number'],
+            'price_is_fixed' => ['type' => 'boolean'],
+            'price_source' => ['type' => 'string'],
+            'must_collect' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'must_say' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'must_not_say' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'needs_human' => ['type' => 'boolean'],
+            'needs_reference' => ['type' => 'boolean'],
+            'needs_body_area' => ['type' => 'boolean'],
+            'can_offer_schedule' => ['type' => 'boolean'],
+            'can_request_deposit' => ['type' => 'boolean'],
+            'response_strategy' => ['type' => 'string'],
+            'internal_reason' => ['type' => 'string'],
+        ],
+        'required' => [
+            'decision_valid', 'confidence', 'business_intent', 'current_goal', 'promotion',
+            'price', 'price_amount', 'price_is_fixed', 'price_source', 'must_collect',
+            'must_say', 'must_not_say', 'needs_human', 'needs_reference', 'needs_body_area',
+            'can_offer_schedule', 'can_request_deposit', 'response_strategy', 'internal_reason',
+        ],
+        'additionalProperties' => false,
+    ];
+    $formatHint = '{"decision_valid":false,"confidence":0.0,"business_intent":"","current_goal":"","promotion":"","price":"","price_amount":0,"price_is_fixed":false,"price_source":"","must_collect":[],"must_say":[],"must_not_say":[],"needs_human":false,"needs_reference":false,"needs_body_area":false,"can_offer_schedule":false,"can_request_deposit":false,"response_strategy":"","internal_reason":""}';
+    $systemPrompt = implode("\n", [
+        'Voce e a camada interna de decisao comercial de um estudio de tatuagem.',
+        'Sua resposta nao sera enviada ao cliente. Outra IA vai usa-la para escrever de forma natural.',
+        'Leia a conversa inteira e transforme a situacao atual em uma decisao operacional objetiva.',
+        'Hierarquia: dados confirmados do sistema; regras explicitas do administrador; catalogo oficial.',
+        'Uma regra explicita pode conter uma promocao ausente do JSON. Nesse caso, preserve a promocao cadastrada; o catalogo complementa, nao apaga a regra.',
+        'Nunca invente preco, promocao, desconto, horario, condicao ou dado de outro cliente.',
+        'Diferencie fechamento de area, tatuagem individual, cobertura/reforma, desenho e referencia.',
+        'Quando uma regra definir preco fixo e as condicoes estiverem preenchidas, price_is_fixed=true e nao exija nova avaliacao do valor.',
+        'Para fechamento, confira area completa e exigencias de lado/parte. Para cobertura ou reforma, sinalize avaliacao humana.',
+        'Nao exija referencia visual se a regra permite seguir com a ideia descrita.',
+        'Nao gere imagem: isso so acontece quando o cliente pedir claramente para gerar, criar, fazer ou mostrar uma imagem.',
+        'So can_request_deposit quando houver valor, vaga escolhida e checklist minimo completo. So confirme agendamento apos comprovante valido e registro real.',
+        'Se faltar regra, houver conflito, cobertura/reforma ou risco de erro, needs_human pode ser true.',
+        'Retorne somente o JSON solicitado, sem markdown e sem explicacao fora dele.',
+    ]);
+    $result = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $systemPrompt,
+        "Dados para decidir:\n" . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
+        (string)$config['base_url'],
+        45,
+        false,
+        $schema,
+        $formatHint
+    );
+    if (empty($result['ok'])) {
+        return $result;
+    }
+    $decision = is_array($result['raw_json'] ?? null) ? $result['raw_json'] : [];
+    if (!$decision) {
+        $decision = json_decode(trim((string)($result['summary'] ?? '')), true);
+    }
+    if (!is_array($decision)) {
+        return ['ok' => false, 'error' => 'A OpenAI nao devolveu decisao comercial estruturada.'];
+    }
+    $decision['ok'] = true;
+    $decision['confidence'] = max(0.0, min(1.0, (float)($decision['confidence'] ?? 0)));
+    $decision['price_amount'] = max(0.0, (float)($decision['price_amount'] ?? 0));
+    foreach (['must_collect', 'must_say', 'must_not_say'] as $listKey) {
+        $decision[$listKey] = array_values(array_filter(array_map('strval', (array)($decision[$listKey] ?? []))));
+    }
+    $slotReady = is_array($state['selected_slot'] ?? null)
+        && !empty($state['selected_slot']['date'])
+        && !empty($state['selected_slot']['time'])
+        && !empty($state['slot_confirmed']);
+    if (empty($bookingChecklist['ready']) || !$slotReady) {
+        $decision['can_request_deposit'] = false;
+        $decision['must_not_say'][] = 'Nao pedir sinal, Pix ou comprovante antes de escolher e confirmar uma vaga real.';
+    }
+    if ($slotReady === false && empty($decision['needs_human']) && empty($decision['can_offer_schedule'])) {
+        $decision['can_offer_schedule'] = true;
+    }
+    if ($slotReady === false
+        && empty($decision['needs_human'])
+        && empty($decision['must_collect'])
+        && !in_array($currentIntent, ['address', 'business_hours', 'payment_terms', 'human_handoff'], true)) {
+        $decision['must_collect'][] = 'data e horario preferidos';
+        $decision['must_say'][] = 'Qual dia e horario voce prefere para eu conferir a agenda real?';
+    }
+    $decision['must_not_say'] = array_values(array_unique($decision['must_not_say']));
+    $decision['must_collect'] = array_values(array_unique($decision['must_collect']));
+    $decision['must_say'] = array_values(array_unique($decision['must_say']));
+    $hasActionableDecision = ($decision['price_is_fixed'] ?? false)
+        && (float)($decision['price_amount'] ?? 0) > 0
+        && trim((string)($decision['promotion'] ?? '')) !== '';
+    $hasProgressDecision = trim((string)($decision['business_intent'] ?? '')) !== ''
+        && ($decision['must_collect'] !== [] || trim((string)($decision['current_goal'] ?? '')) !== '');
+    if (empty($decision['decision_valid']) && ($hasActionableDecision || $hasProgressDecision)) {
+        $decision['decision_valid'] = true;
+        $decision['confidence'] = max((float)$decision['confidence'], 0.65);
+    }
+    return $decision;
+}
+
 function studio_whatsapp_service_flow_decide(
     array $studio,
     array $conversation,
@@ -8523,7 +8681,19 @@ function studio_whatsapp_ai_remove_early_payment_terms(string $replyText): strin
     $kept = [];
     foreach ($sentences as $sentence) {
         $plain = studio_calendar_remove_accents(mb_strtolower(trim($sentence), 'UTF-8'));
-        if ($plain !== '' && preg_match('/\b(pix|sinal|comprovante|pagamento)\b/u', $plain)) {
+        if ($plain !== '' && preg_match('/\b(pix|sinal|comprovante|pagamento|transfer[eê]ncia|transferir|dep[oó]sito|chave)\b/u', $plain)) {
+            // Keep a confirmed price/promotion that happens to share the
+            // sentence with an early Pix instruction; remove only the
+            // payment clause instead of throwing away the whole sentence.
+            $cleanedSentence = preg_replace(
+                '/(?:,?\s+)(?:o\s+)?(?:sinal|comprovante|pagamento|transfer[eê]ncia|transferir|dep[oó]sito|chave|pix)\b.*$/iu',
+                '',
+                trim($sentence)
+            ) ?? trim($sentence);
+            $cleanedPlain = studio_calendar_remove_accents(mb_strtolower($cleanedSentence, 'UTF-8'));
+            if ($cleanedSentence !== '' && preg_match('/\b(?:r\$|rs\$?)\s*[0-9]|\b(?:promocao|preco|valor)\b/u', $cleanedPlain)) {
+                $kept[] = trim($cleanedSentence);
+            }
             continue;
         }
         $kept[] = trim($sentence);
@@ -13307,8 +13477,9 @@ function studio_whatsapp_ai_image_request_kind(string $text, bool $hasVisualRefe
     $asksPrice = studio_whatsapp_ai_text_asks_price($norm);
     $directGenerationTerms = (bool)preg_match('/\b(gera|gere|gerar|cria|crie|criar|desenha|desenhe|desenhar|monta|monte|montar|renderiza|renderize|produz|produza|mostra|mostre|mostrar|manda|mande|mandar|envia|envie|enviar)\b/u', $norm)
         && (bool)preg_match('/\b(imagem|foto|modelo|exemplo|arte|desenho|referencia|referência|previa|prévia|tattoo|tatuagem|composicao|composição|visual|resultado)\b/u', $norm);
-    $ambiguousMakeTerms = (bool)preg_match('/\b(faz|faca|fazer)\b/u', $norm)
-        && (bool)preg_match('/\b(imagem|foto|modelo|exemplo|arte|desenho|referencia|referência|previa|prévia|composicao|composição|visual|resultado)\b/u', $norm);
+    // "Quero fazer esse fechamento" is a booking statement, not a request
+    // to generate an image. Require the image noun immediately after the verb.
+    $ambiguousMakeTerms = (bool)preg_match('/\b(faz|faca|fazer)\s+(?:uma\s+)?(?:imagem|foto|modelo|exemplo|arte|desenho|referencia|referência|previa|prévia|composicao|composição|visual|resultado)\b/u', $norm);
     $generationTerms = $directGenerationTerms || $ambiguousMakeTerms;
     $contextualPreviewRequest = $hasTattooContext && (bool)preg_match(
         '/\b(como\s+(?:que\s+)?ficaria|ver\s+como\s+(?:isso\s+)?fica|consegue\s+(?:me\s+)?mostrar|pode\s+(?:me\s+)?mostrar|mostra\s+(?:pra|para)\s+mim|quero\s+ver)\b/u',
@@ -17367,7 +17538,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         . "- Se o cliente ja fez uma pergunta objetiva, responda objetivamente.\n"
         . "- Aprenda o tom e a condução dos exemplos humanos, mas use somente os fatos oficiais do contexto atual.\n"
         . "- Para preços e promoções, a fonte oficial de orçamento configurada prevalece sobre textos genéricos e exemplos de treinamento. O cálculo é principalmente pela área do corpo, conforme o JSON; não exija centímetros ou nível de detalhe quando a área já tiver valor oficial.\n"
-        . ($hasOfficialPricingCatalog ? "- O catálogo JSON está ativo: ignore completamente qualquer preço fixo antigo de R$ 899 escrito em regras ou exemplos. Aplique somente áreas, combinações e promoções calculadas pelo JSON.\n" : '')
+        . "- Ao informar o endereço, copie somente o endereço oficial cadastrado. Não invente estação, bairro próximo, distância, ponto de referência ou tempo de caminhada.\n"
+        . ($hasOfficialPricingCatalog ? "- O catálogo JSON está ativo para áreas, combinações e promoções que ele cobre. Se uma promoção específica estiver nas regras administrativas e não existir no JSON, preserve a regra administrativa; não a descarte apenas porque o catálogo está ativo.\n" : '')
         . "- Use os playbooks da equipe para entender como contornar situações, lidar com objeções e escolher a próxima ação. Nunca transforme exemplos antigos em fatos do cliente atual.\n"
         . "- Nunca revele dados de outros clientes. Use apenas dados do cliente atual, da conversa atual e das vagas livres reais.\n"
         . "- A analise visual e uma pista, nao uma certeza. Nao identifique pessoas nem infira idade, genero, etnia, saude ou outros dados sensiveis.\n"
@@ -17632,6 +17804,142 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $serviceFlowDirectReply = trim((string)($serviceFlowDecision['direct_reply'] ?? ''));
     $serviceFlowResumeQuestion = trim((string)($serviceFlowDecision['resume_question'] ?? ''));
     $serviceFlowOptions = array_values(array_filter(array_map('strval', (array)($serviceFlowDecision['options'] ?? []))));
+    $addressMessagePlain = studio_calendar_remove_accents(mb_strtolower($messageText, 'UTF-8'));
+    $addressRequested = (bool)preg_match('/\b(endere[cç]o|localiza[cç][aã]o|onde\s+fica|qual\s+[eé]\s+o\s+local)\b/iu', $messageText)
+        || str_contains($addressMessagePlain, 'endereco')
+        || str_contains($addressMessagePlain, 'onde fica');
+    $businessDecision = ['ok' => false];
+    $decisionIsUsable = false;
+    if ($freestyleMode) {
+        $businessDecision = studio_whatsapp_openai_business_decision(
+            $studio,
+            $conversation,
+            $bookingFlowState,
+            $messageText,
+            $latestMessages,
+            $conversationMemory,
+            $studioRules,
+            $pricingPageContext,
+            $scheduleContextBlock,
+            $bookingChecklist,
+            $currentIntent,
+            $studioAddress,
+            $bookingDepositLabel,
+            $bookingPixKey,
+            $bookingPixRecipient
+        );
+        $decisionIsUsable = !empty($businessDecision['ok'])
+            && !empty($businessDecision['decision_valid'])
+            && (float)($businessDecision['confidence'] ?? 0) >= 0.62;
+        if ($decisionIsUsable) {
+            $nameFromCurrentMessage = trim((string)($introducedCustomerName ?? ''));
+            if ($nameFromCurrentMessage !== '' && studio_whatsapp_ai_name_candidate_is_plausible($nameFromCurrentMessage, true)) {
+                $bookingFlowState['customer_name'] = mb_substr($nameFromCurrentMessage, 0, 160, 'UTF-8');
+                $bookingFlowState['customer_name_confirmed'] = true;
+                $businessDecision['must_collect'] = array_values(array_filter(
+                    (array)($businessDecision['must_collect'] ?? []),
+                    static fn(string $item): bool => !preg_match('/\b(nome|cliente)\b/iu', $item)
+                ));
+                $businessDecision['must_say'] = array_values(array_filter(
+                    (array)($businessDecision['must_say'] ?? []),
+                    static fn(string $item): bool => !preg_match('/\b(nome|cliente)\b/iu', $item)
+                ));
+            }
+            if ($addressRequested || $currentIntent === 'address') {
+                // Address is a confirmed fact, not an invitation to improvise
+                // landmarks or repeat the whole commercial briefing.
+                $businessDecision['must_say'] = [];
+                $businessDecision['must_collect'] = [];
+            }
+            if (!empty($businessDecision['price_is_fixed'])
+                && trim((string)($bookingFlowState['tattoo_idea'] ?? '')) !== ''
+                && trim((string)($bookingFlowState['body_area'] ?? '')) !== ''
+                && !studio_whatsapp_ai_is_coverup_request($currentText)) {
+                $businessDecision['must_collect'] = array_values(array_filter(
+                    (array)($businessDecision['must_collect'] ?? []),
+                    static fn(string $item): bool => !preg_match('/\b(ideia|refer[eê]ncia|tamanho|estilo|detalhe|valor|pre[cç]o|or[cç]amento)\b/iu', $item)
+                ));
+                $businessDecision['must_say'] = array_values(array_filter(
+                    (array)($businessDecision['must_say'] ?? []),
+                    static fn(string $item): bool => !preg_match('/\b(ideia|refer[eê]ncia|tamanho|estilo|detalhe|valor|pre[cç]o|or[cç]amento)\b/iu', $item)
+                ));
+            }
+            $decisionSlotReady = is_array($bookingFlowState['selected_slot'] ?? null)
+                && !empty($bookingFlowState['selected_slot']['date'])
+                && !empty($bookingFlowState['selected_slot']['time'])
+                && !empty($bookingFlowState['slot_confirmed']);
+            if (!$decisionSlotReady
+                && empty($businessDecision['needs_human'])
+                && empty($businessDecision['must_collect'])
+                && !in_array($currentIntent, ['address', 'business_hours', 'payment_terms', 'human_handoff'], true)) {
+                $businessDecision['must_collect'][] = 'data e horario preferidos';
+                $businessDecision['must_say'][] = 'Qual dia e horario voce prefere para eu conferir a agenda real?';
+            }
+            // A fixed promotion discovered by the decision layer becomes a
+            // real quote, so the booking checklist and later reservation code
+            // use the same commercial truth as the reply writer.
+            $decisionAmount = (float)($businessDecision['price_amount'] ?? 0);
+            if (!empty($businessDecision['price_is_fixed'])
+                && $decisionAmount > 0
+                && !is_array($specificPricingQuote)
+                && (float)$currentLeadValue <= 0) {
+                $decisionPrice = trim((string)($businessDecision['price'] ?? ''));
+                if ($decisionPrice === '') {
+                    $decisionPrice = format_money($decisionAmount);
+                }
+                $specificPricingQuote = [
+                    'price' => $decisionPrice,
+                    'amount' => $decisionAmount,
+                    'key' => 'openai_business_decision',
+                    'label' => trim((string)($businessDecision['promotion'] ?? '')) ?: 'promocao cadastrada',
+                    'type' => 'promotion',
+                    'source' => 'business_rules_openai',
+                ];
+                $specificPricingAmount = $decisionAmount;
+                $bookingFlowState['quote'] = [
+                    'amount' => $decisionAmount,
+                    'price' => $decisionPrice,
+                    'label' => $decisionPrice,
+                    'description' => (string)($specificPricingQuote['label'] ?? ''),
+                    'key' => 'openai_business_decision',
+                    'type' => 'promotion',
+                    'source' => 'business_rules_openai',
+                ];
+                $bookingFlowState['quote_invalidated'] = false;
+                $bookingChecklist = studio_whatsapp_booking_readiness(
+                    $conversation,
+                    $messageText,
+                    $bookingStateText,
+                    $conversationMemory,
+                    (bool)$hasReference,
+                    $visualBodyArea,
+                    $specificPricingQuote
+                );
+                $bookingFlowState['pending'] = (string)($bookingChecklist['next_question'] ?? '');
+                $bookingFlowState['stage'] = empty($bookingChecklist['ready']) ? 'briefing' : 'schedule';
+            }
+            $decisionForPrompt = [];
+            foreach ([
+                'business_intent', 'current_goal', 'promotion', 'price', 'price_amount',
+                'price_is_fixed', 'price_source', 'must_collect', 'must_say', 'must_not_say',
+                'needs_human', 'needs_reference', 'needs_body_area', 'can_offer_schedule',
+                'can_request_deposit', 'response_strategy',
+            ] as $decisionKey) {
+                if (array_key_exists($decisionKey, $businessDecision)) {
+                    $decisionForPrompt[$decisionKey] = $businessDecision[$decisionKey];
+                }
+            }
+            $decisionJson = json_encode($decisionForPrompt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($decisionJson)) {
+                $effectiveSystemPrompt .= "\n\nDECISAO COMERCIAL INTERNA OBRIGATORIA:\n"
+                    . $decisionJson
+                    . "\nUse essa decisao como verdade operacional sem mostra-la ao cliente. Preserve must_say e nunca contradiga must_not_say. "
+                    . "Se price_is_fixed=true, informe o valor/promocao sem dizer que ainda precisa descobrir o valor exato. "
+                    . "Se must_collect tiver itens, faca somente a proxima pergunta mais importante. "
+                    . "Nao gere imagem sem pedido explicito do cliente.\n";
+            }
+        }
+    }
     if ($serviceFlowDirectReply !== '') {
         $flowForRephrase = studio_whatsapp_service_flow($studio);
         foreach ((array)($flowForRephrase['steps'] ?? []) as $flowStep) {
@@ -18330,6 +18638,43 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return $result;
     }
 
+    if ($decisionIsUsable && !empty($businessDecision['price_is_fixed'])) {
+        $candidateText = studio_calendar_remove_accents(mb_strtolower((string)($result['reply_text'] ?? ''), 'UTF-8'));
+        $candidateDigits = preg_replace('/\D+/', '', $candidateText) ?? '';
+        $fixedPriceDigits = (string)(int)round((float)($businessDecision['price_amount'] ?? 0));
+        $fixedPriceMissing = $fixedPriceDigits !== '0'
+            && !str_contains($candidateDigits, $fixedPriceDigits);
+        $fixedBriefingConflict = trim((string)($bookingFlowState['tattoo_idea'] ?? '')) !== ''
+            && trim((string)($bookingFlowState['body_area'] ?? '')) !== ''
+            && (bool)preg_match('/\b(arte|refer[eê]ncia|desenho|tamanho|estilo|detalhe)\b.{0,100}\?/iu', $candidateText);
+        $fixedPriceConflict = (bool)preg_match(
+            '/(?:precis\w*|tem\s+que|vai|necess[aá]rio).{0,60}(?:avaliar|confirmar|definir|verificar).{0,60}(?:valor|preco|orcamento)/u',
+            $candidateText
+        ) || (bool)preg_match('/(?:avaliar|confirmar|definir|verificar).{0,60}(?:valor|preco|orcamento)/u', $candidateText)
+            || (bool)preg_match('/\bvalor\s+exato\b.{0,45}\b(?:avaliar|confirmar|definir)\b/u', $candidateText)
+            || $fixedPriceMissing
+            || $fixedBriefingConflict;
+        if ($fixedPriceConflict) {
+            $correctionPrompt = $prompt . "\n\nA resposta candidata contradiz a decisao comercial: a promocao e o preco estao fixos e confirmados. "
+                . "O valor obrigatorio a informar agora e " . (string)($businessDecision['price'] ?? format_money((float)($businessDecision['price_amount'] ?? 0))) . ". "
+                . "Reescreva de forma natural, informe esse valor e siga para o proximo dado faltante. "
+                . ($fixedBriefingConflict ? "A ideia e a area ja estao confirmadas; nao peca outra referencia, arte, tamanho ou detalhe. Pergunte o dia e horario preferidos. " : '')
+                . "Nao diga que o valor exato ainda precisa ser avaliado. Resposta candidata rejeitada: "
+                . (string)($result['reply_text'] ?? '');
+            $correctionResult = studio_openai_text(
+                $config['api_key'],
+                $aiModel,
+                $effectiveSystemPrompt,
+                $correctionPrompt,
+                (string)($config['base_url'] ?? 'https://api.openai.com/v1'),
+                45
+            );
+            if (!empty($correctionResult['ok']) && trim((string)($correctionResult['reply_text'] ?? '')) !== '') {
+                $result = $correctionResult;
+            }
+        }
+    }
+
     if (!empty($serviceFlowDecision['needs_human'])
         || $guardrailReason !== null
         || studio_whatsapp_ai_is_coverup_request($currentText)) {
@@ -18341,6 +18686,50 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
     }
     $replyText = studio_whatsapp_compact_multiline_text($replyText);
+    $fixedOfferSlotReady = is_array($bookingFlowState['selected_slot'] ?? null)
+        && !empty($bookingFlowState['selected_slot']['date'])
+        && !empty($bookingFlowState['selected_slot']['time'])
+        && !empty($bookingFlowState['slot_confirmed']);
+    $fixedOfferReady = $decisionIsUsable
+        && !empty($businessDecision['price_is_fixed'])
+        && (float)($businessDecision['price_amount'] ?? 0) > 0
+        && trim((string)($bookingFlowState['tattoo_idea'] ?? '')) !== ''
+        && trim((string)($bookingFlowState['body_area'] ?? '')) !== ''
+        && !$fixedOfferSlotReady
+        && !$addressRequested
+        && !in_array($currentIntent, ['payment_proof', 'payment_proof_text', 'payment_proof_denial', 'payment_terms', 'human_handoff'], true)
+        && !studio_whatsapp_ai_is_coverup_request($currentText);
+    if ($fixedOfferReady) {
+        $fixedOfferPrice = trim((string)($businessDecision['price'] ?? ''));
+        if ($fixedOfferPrice === '') {
+            $fixedOfferPrice = format_money((float)$businessDecision['price_amount']);
+        }
+        $fixedOfferName = trim($customerName !== '' ? $customerName : (string)($bookingFlowState['customer_name'] ?? ''));
+        $replyText = ($fixedOfferName !== '' ? 'Perfeito, ' . $fixedOfferName . '! ' : 'Perfeito! ')
+            . 'O fechamento de ' . trim((string)($bookingFlowState['body_area'] ?? ''))
+            . ' está na promoção por ' . $fixedOfferPrice . '. Qual dia e horário você prefere para eu conferir a agenda real?';
+        $result['needs_human'] = false;
+    }
+    if (($addressRequested || $currentIntent === 'address') && $studioAddress !== '') {
+        $replyText = 'O estúdio fica em ' . $studioAddress . '.';
+    }
+    if ($decisionIsUsable
+        && empty($businessDecision['needs_human'])
+        && !in_array($currentIntent, ['payment_proof', 'payment_proof_text', 'payment_proof_denial', 'human_handoff'], true)) {
+        $replyPlain = studio_calendar_remove_accents(mb_strtolower($replyText, 'UTF-8'));
+        foreach (array_values(array_filter(array_map('trim', (array)($businessDecision['must_say'] ?? [])))) as $followUp) {
+            $followUpPlain = studio_calendar_remove_accents(mb_strtolower($followUp, 'UTF-8'));
+            $followUpProbe = mb_substr($followUpPlain, 0, 54, 'UTF-8');
+            $replyAlreadyCoversSchedule = (bool)preg_match('/\b(dia|hor[aá]rio|agenda|vaga|disponibilidade)\b/iu', $replyText);
+            if ($replyAlreadyCoversSchedule && preg_match('/\b(dia|hor[aá]rio|agenda|vaga)\b/iu', $followUp)) {
+                continue;
+            }
+            if ($followUpProbe !== '' && !str_contains($replyPlain, $followUpProbe)) {
+                $replyText = rtrim($replyText, " .!?\n") . '. ' . $followUp;
+                break;
+            }
+        }
+    }
     if (!$freestyleMode
         && $serviceFlowResumeQuestion !== ''
         && empty($result['needs_human'])
@@ -18426,10 +18815,15 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         && $serviceFlowResumeQuestion === ''
         && $bookingFlowContinuation !== ''
         && in_array($currentIntent, ['address', 'business_hours', 'payment_terms'], true)
+        && !($addressRequested && !preg_match('/\b(dia|hor[aá]rio|agenda|vaga|agend)/iu', $bookingFlowContinuation))
         && !str_contains(studio_calendar_remove_accents(mb_strtolower($replyText, 'UTF-8')), studio_calendar_remove_accents(mb_strtolower($bookingFlowContinuation, 'UTF-8')))) {
         $replyText = rtrim($replyText, " .") . '. Sobre o agendamento, ' . lcfirst($bookingFlowContinuation);
     }
-    if (empty($bookingChecklist['ready'])
+    $slotReadyForDeposit = is_array($bookingFlowState['selected_slot'] ?? null)
+        && !empty($bookingFlowState['selected_slot']['date'])
+        && !empty($bookingFlowState['selected_slot']['time'])
+        && !empty($bookingFlowState['slot_confirmed']);
+    if ((empty($bookingChecklist['ready']) || !$slotReadyForDeposit)
         && !in_array($currentIntent, ['payment_proof', 'payment_proof_text', 'payment_proof_denial', 'payment_amount_variation'], true)) {
         $replyText = studio_whatsapp_ai_remove_early_payment_terms($replyText);
     }
@@ -18490,6 +18884,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $shortReply = preg_replace('/\s+\S*$/u', '', $shortReply) ?: $shortReply;
             $replyText = rtrim($shortReply, " ,;:.-") . '...';
         }
+    }
+    $finalAddressText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '') . ' ' . $messageText);
+    $finalAddressPlain = studio_calendar_remove_accents(mb_strtolower($finalAddressText, 'UTF-8'));
+    if (($addressRequested
+        || in_array('address', $pendingIntents, true)
+        || $currentIntent === 'address'
+        || str_contains($finalAddressPlain, 'endereco')
+        || str_contains($finalAddressPlain, 'onde fica'))
+        && $studioAddress !== '') {
+        $replyText = 'O estúdio fica em ' . $studioAddress . '.';
+        $result['needs_human'] = false;
     }
 
     if ($incomingMessageId !== '') {
