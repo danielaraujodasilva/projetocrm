@@ -5350,6 +5350,183 @@ function studio_whatsapp_service_flow_store_current_answer(array &$state, array 
     return true;
 }
 
+function studio_whatsapp_openai_flow_answer_analysis(
+    array $studio,
+    array $conversation,
+    array $state,
+    array $step,
+    string $messageText,
+    string $historyText,
+    string $memoryText
+): array {
+    $config = studio_openai_config($studio);
+    $fieldKey = trim((string)($step['field_key'] ?? ''));
+    $answerType = trim((string)($step['answer_type'] ?? 'text'));
+    if ($config['provider'] !== 'openai'
+        || $config['api_key'] === ''
+        || $fieldKey === ''
+        || in_array($answerType, ['system_quote', 'system_payment', 'payment_proof', 'system_finalize', 'handoff'], true)) {
+        return ['ok' => false, 'skipped' => true];
+    }
+    $payload = [
+        'etapa' => [
+            'titulo' => (string)($step['title'] ?? ''),
+            'campo' => $fieldKey,
+            'tipo' => $answerType,
+            'pergunta' => (string)($step['question_text'] ?? ''),
+            'opcoes' => array_values(array_filter(array_map('strval', (array)($step['options'] ?? [])))),
+        ],
+        'mensagem_atual' => $messageText,
+        'memoria' => $memoryText,
+        'estado' => studio_whatsapp_booking_state_summary($state),
+        'historico' => mb_substr($historyText, -60000, null, 'UTF-8'),
+        'cliente' => [
+            'nome_cadastrado' => (string)($conversation['name'] ?? ''),
+            'telefone' => (string)($conversation['phone'] ?? ''),
+        ],
+    ];
+    $userPrompt = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($userPrompt)) {
+        return ['ok' => false, 'error' => 'Falha ao montar análise da etapa.'];
+    }
+    $schema = [
+        'type' => 'object',
+        'properties' => [
+            'answer_valid' => ['type' => 'boolean'],
+            'confidence' => ['type' => 'number'],
+            'should_advance' => ['type' => 'boolean'],
+            'needs_clarification' => ['type' => 'boolean'],
+            'extracted_value' => ['type' => 'string'],
+            'extracted_name' => ['type' => 'string'],
+            'extracted_idea' => ['type' => 'string'],
+            'extracted_body_area' => ['type' => 'string'],
+            'extracted_body_position' => ['type' => 'string'],
+            'extracted_body_side' => ['type' => 'string'],
+            'extracted_choice' => ['type' => 'string'],
+            'extracted_schedule_preference' => ['type' => 'string'],
+            'customer_question' => ['type' => 'string'],
+            'response_guidance' => ['type' => 'string'],
+            'reasoning' => ['type' => 'string'],
+        ],
+        'required' => [
+            'answer_valid', 'confidence', 'should_advance', 'needs_clarification',
+            'extracted_value', 'extracted_name', 'extracted_idea',
+            'extracted_body_area', 'extracted_body_position', 'extracted_body_side',
+            'extracted_choice', 'extracted_schedule_preference', 'customer_question',
+            'response_guidance', 'reasoning',
+        ],
+        'additionalProperties' => false,
+    ];
+    $formatHint = '{"answer_valid":false,"confidence":0.0,"should_advance":false,"needs_clarification":true,"extracted_value":"","extracted_name":"","extracted_idea":"","extracted_body_area":"","extracted_body_position":"","extracted_body_side":"","extracted_choice":"","extracted_schedule_preference":"","customer_question":"","response_guidance":"","reasoning":""}';
+    $systemPrompt = <<<TXT
+Você controla a etapa atual do atendimento de um estúdio de tatuagem.
+Analise a última mensagem do cliente em relação à etapa atual, relendo o histórico para compreender respostas indiretas, gírias, erros, datas e horários naturais.
+Não trate mensagens antigas como resposta nova. Um primeiro nome já vale como nome; uma descrição informal vale como ideia; uma preferência de horário não é uma vaga confirmada.
+Se houver pergunta junto com uma resposta, registre a resposta extraída e a pergunta para a atendente responder depois.
+Não avance com mensagem vaga, saudação ou intenção futura. Não invente informações. Responda somente com o JSON solicitado.
+TXT;
+    $result = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $systemPrompt,
+        $userPrompt,
+        (string)$config['base_url'],
+        35,
+        false,
+        $schema,
+        $formatHint
+    );
+    if (empty($result['ok'])) {
+        return $result;
+    }
+    $analysis = is_array($result['raw_json'] ?? null) ? $result['raw_json'] : [];
+    if (!$analysis) {
+        $analysis = json_decode(trim((string)($result['summary'] ?? '')), true);
+    }
+    if (!is_array($analysis)) {
+        return ['ok' => false, 'error' => 'A OpenAI não devolveu análise estruturada.'];
+    }
+    $analysis['ok'] = true;
+    $analysis['confidence'] = max(0.0, min(1.0, (float)($analysis['confidence'] ?? 0)));
+    return $analysis;
+}
+
+function studio_whatsapp_apply_openai_flow_answer(array &$state, array $step, array $analysis): bool
+{
+    if (empty($analysis['ok']) || empty($analysis['answer_valid']) || empty($analysis['should_advance'])
+        || (float)($analysis['confidence'] ?? 0) < 0.68) {
+        return false;
+    }
+    $fieldKey = trim((string)($step['field_key'] ?? ''));
+    $value = trim((string)($analysis['extracted_value'] ?? ''));
+    $answers = is_array($state['script_answers'] ?? null) ? $state['script_answers'] : [];
+    $store = static function (array &$state, array &$answers, string $field, string $answer): bool {
+        if ($field === '' || trim($answer) === '') {
+            return false;
+        }
+        $answers[$field] = mb_substr(trim($answer), 0, 600, 'UTF-8');
+        $state['script_answers'] = $answers;
+        return true;
+    };
+    if ($fieldKey === 'customer_name') {
+        $name = trim((string)($analysis['extracted_name'] ?? $value));
+        if (!studio_whatsapp_ai_name_candidate_is_plausible($name, true)) {
+            return false;
+        }
+        $state['customer_name'] = mb_substr($name, 0, 160, 'UTF-8');
+        $state['customer_name_confirmed'] = true;
+        $answers[$fieldKey] = $state['customer_name'];
+        $state['script_answers'] = $answers;
+        return true;
+    }
+    if (in_array($fieldKey, ['tattoo_idea', 'project', 'idea'], true)) {
+        $idea = trim((string)($analysis['extracted_idea'] ?? $value));
+        if ($idea === '' || studio_whatsapp_ai_is_body_area_only($idea)) {
+            return false;
+        }
+        $state['tattoo_idea'] = mb_substr($idea, 0, 400, 'UTF-8');
+        return $store($state, $answers, $fieldKey, $state['tattoo_idea']);
+    }
+    if (in_array($fieldKey, ['body_area', 'body_details'], true)) {
+        $bodyText = trim((string)($analysis['extracted_body_area'] ?? $value));
+        $bodyArea = studio_whatsapp_ai_find_body_area($bodyText);
+        if (trim((string)($bodyArea['label'] ?? '')) === '') {
+            return false;
+        }
+        $state['body_area'] = (string)$bodyArea['label'];
+        $state['body_area_source'] = 'openai_flow';
+        $state['reference_body_area_confirmation_required'] = false;
+        $position = trim((string)($analysis['extracted_body_position'] ?? ''));
+        $side = trim((string)($analysis['extracted_body_side'] ?? ''));
+        if ($position !== '') {
+            $state['body_position'] = mb_substr($position, 0, 80, 'UTF-8');
+        }
+        if ($side !== '') {
+            $state['body_side'] = mb_substr($side, 0, 80, 'UTF-8');
+        }
+        return $store($state, $answers, $fieldKey, $state['body_area']);
+    }
+    if (in_array($fieldKey, ['selected_slot', 'schedule_preference'], true)
+        || (string)($step['answer_type'] ?? '') === 'schedule') {
+        $preference = trim((string)($analysis['extracted_schedule_preference'] ?? $value));
+        if ($preference === '') {
+            return false;
+        }
+        $state['schedule_preference'] = mb_substr($preference, 0, 180, 'UTF-8');
+        $state['script_schedule_preference_pending'] = true;
+        return $store($state, $answers, $fieldKey, 'Preferência de agenda: ' . $state['schedule_preference']);
+    }
+    if (in_array((string)($step['answer_type'] ?? ''), ['choice', 'yes_no'], true)) {
+        $choice = trim((string)($analysis['extracted_choice'] ?? $value));
+        if ($choice === '') {
+            return false;
+        }
+        $state[$fieldKey] = $choice;
+        return $store($state, $answers, $fieldKey, $choice);
+    }
+    return false;
+}
+
 function studio_whatsapp_service_flow_decide(
     array $studio,
     array $conversation,
@@ -17350,6 +17527,88 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $bookingFlowContinuation = (!$wantsScheduleOptions && $schedulePreferenceUnmetMessage !== '')
                 ? $schedulePreferenceUnmetMessage
                 : 'Qual dia e horário você prefere para eu conferir a agenda?';
+        }
+    }
+
+    // A OpenAI interpreta a resposta da etapa atual antes de o roteiro decidir
+    // se avança. Assim, a resposta pode ser natural sem perder o controle dos
+    // dados obrigatórios do agendamento.
+    $flowAnswerAnalysis = ['ok' => false];
+    $flowAnswerStateApplied = false;
+    $flowDefinitionForAnalysis = studio_whatsapp_service_flow($studio);
+    $flowStepsForAnalysis = array_values(array_filter(
+        (array)($flowDefinitionForAnalysis['steps'] ?? []),
+        static fn($flowStep): bool => is_array($flowStep) && !empty($flowStep['is_active'])
+    ));
+    $flowScriptState = is_array($bookingFlowState['script'] ?? null) ? $bookingFlowState['script'] : [];
+    $flowCurrentStepKey = trim((string)($flowScriptState['current_step_key'] ?? ''));
+    $flowCurrentStep = null;
+    foreach ($flowStepsForAnalysis as $flowStep) {
+        if ($flowCurrentStepKey !== '' && (string)($flowStep['step_key'] ?? '') === $flowCurrentStepKey) {
+            $flowCurrentStep = $flowStep;
+            break;
+        }
+    }
+    if (!is_array($flowCurrentStep) && $flowStepsForAnalysis) {
+        $flowCurrentStep = $flowStepsForAnalysis[0];
+    }
+    if (is_array($flowCurrentStep)
+        && studio_whatsapp_service_flow_field_complete((string)($flowCurrentStep['field_key'] ?? ''), $bookingFlowState)) {
+        $flowNextStepKey = studio_whatsapp_service_flow_step_next_key(
+            $flowCurrentStep,
+            $bookingFlowState,
+            $flowStepsForAnalysis
+        );
+        if ($flowNextStepKey !== null) {
+            foreach ($flowStepsForAnalysis as $flowStep) {
+                if ((string)($flowStep['step_key'] ?? '') === (string)$flowNextStepKey) {
+                    $flowCurrentStep = $flowStep;
+                    break;
+                }
+            }
+        }
+    }
+    if (is_array($flowCurrentStep)
+        && $messageText !== ''
+        && !in_array($messageType, ['sticker', 'reaction'], true)) {
+        $flowAnswerAnalysis = studio_whatsapp_openai_flow_answer_analysis(
+            $studio,
+            $conversation,
+            $bookingFlowState,
+            $flowCurrentStep,
+            $messageText,
+            $latestMessages,
+            $conversationMemory
+        );
+        if (!empty($flowAnswerAnalysis['ok'])) {
+            $flowAnswerStateApplied = studio_whatsapp_apply_openai_flow_answer(
+                $bookingFlowState,
+                $flowCurrentStep,
+                $flowAnswerAnalysis
+            );
+            $flowAnswerAnalysis['state_applied'] = $flowAnswerStateApplied;
+        }
+    }
+    if (!empty($flowAnswerAnalysis['ok'])) {
+        $flowAnalysisForPrompt = [];
+        foreach ([
+            'answer_valid', 'confidence', 'should_advance', 'needs_clarification',
+            'extracted_value', 'extracted_name', 'extracted_idea',
+            'extracted_body_area', 'extracted_body_position', 'extracted_body_side',
+            'extracted_choice', 'extracted_schedule_preference', 'customer_question',
+            'response_guidance', 'state_applied',
+        ] as $flowAnalysisKey) {
+            if (array_key_exists($flowAnalysisKey, $flowAnswerAnalysis)) {
+                $flowAnalysisForPrompt[$flowAnalysisKey] = $flowAnswerAnalysis[$flowAnalysisKey];
+            }
+        }
+        $flowAnalysisJson = json_encode($flowAnalysisForPrompt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($flowAnalysisJson)) {
+            $effectiveSystemPrompt .= "\n\nANÁLISE DA OPENAI SOBRE A RESPOSTA DA ETAPA ATUAL:\n"
+                . $flowAnalysisJson
+                . "\nUse esta análise para responder com suas próprias palavras. Se state_applied=true, não repita a pergunta dessa etapa: reconheça o dado e avance para o próximo dado faltante. "
+                . "Se customer_question não estiver vazio, responda também essa dúvida sem abandonar o próximo passo do agendamento. "
+                . "Se needs_clarification=true ou state_applied=false, faça uma pergunta curta e específica para esclarecer, sem inventar uma resposta.\n";
         }
     }
 
