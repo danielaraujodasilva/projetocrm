@@ -18192,6 +18192,74 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             . "\nUse o estado estruturado, o checklist e a análise da OpenAI como fonte operacional. Não copie nenhuma mensagem pronta dos blocos, não mencione o roteiro e não responda como formulário. Resolva primeiro o que o cliente perguntou e conduza naturalmente para o próximo dado faltante. Preserve valores, datas, horários, Pix e regras oficiais exatamente quando estiverem confirmados no contexto.";
     }
 
+    if ($freestyleMode) {
+        $naturalDecision = [];
+        foreach ([
+            'business_intent', 'current_goal', 'promotion', 'price', 'price_amount',
+            'price_is_fixed', 'price_source', 'must_collect', 'must_say', 'must_not_say',
+            'needs_human', 'needs_reference', 'needs_body_area', 'can_offer_schedule',
+            'can_request_deposit', 'response_strategy',
+        ] as $naturalDecisionKey) {
+            if (array_key_exists($naturalDecisionKey, $businessDecision)) {
+                $naturalDecision[$naturalDecisionKey] = $businessDecision[$naturalDecisionKey];
+            }
+        }
+        $naturalDecisionJson = json_encode($naturalDecision, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $naturalFlowJson = json_encode([
+            'stage' => (string)($bookingFlowState['stage'] ?? ''),
+            'pending' => (string)($bookingFlowState['pending'] ?? ''),
+            'customer_name_confirmed' => !empty($bookingFlowState['customer_name_confirmed']),
+            'tattoo_idea' => (string)($bookingFlowState['tattoo_idea'] ?? ''),
+            'body_area' => (string)($bookingFlowState['body_area'] ?? ''),
+            'quote' => $bookingFlowState['quote'] ?? null,
+            'selected_slot' => $bookingFlowState['selected_slot'] ?? null,
+            'slot_confirmed' => !empty($bookingFlowState['slot_confirmed']),
+            'deposit_requested' => !empty($bookingFlowState['deposit_requested']),
+            'proof_received' => !empty($bookingFlowState['proof_received']),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $naturalAvailability = $needsScheduleContext
+            ? studio_whatsapp_available_slot_options_label($availability, 8)
+            : 'Agenda nao foi solicitada nesta mensagem.';
+        $naturalDecisionJson = is_string($naturalDecisionJson) && $naturalDecisionJson !== '' ? $naturalDecisionJson : '{}';
+        $naturalFlowJson = is_string($naturalFlowJson) && $naturalFlowJson !== '' ? $naturalFlowJson : '{}';
+        $prompt = "Voce vai responder a ultima mensagem de um cliente do estudio.\n"
+            . "Responda como a pagina de chat livre: entenda o que a pessoa quis dizer, releia o historico, responda primeiro ao ponto atual e escreva pouco.\n\n"
+            . "BASE DE APRENDIZADO E REGRAS DO ESTUDIO (fatos e estrategia, nao copie frases):\n"
+            . ($effectiveStudioRules !== '' ? $effectiveStudioRules : 'Nao cadastrada.') . "\n\n"
+            . "PLAYBOOKS APRENDIDOS COM A EQUIPE (use para tom e contorno de situacoes, nunca para copiar fatos):\n"
+            . ($teamPlaybook !== '' ? $teamPlaybook : 'Nao gerados.') . "\n\n"
+            . "ESTADO DO FLUXO E DADOS JA CONFIRMADOS:\n" . $naturalFlowJson . "\n"
+            . "Checklist: " . (!empty($bookingChecklist['ready']) ? 'completo' : 'incompleto')
+            . "; faltando: " . (!empty($bookingChecklist['missing']) ? implode(', ', array_map('strval', $bookingChecklist['missing'])) : 'nada')
+            . "; proxima pendencia: " . ((string)($bookingChecklist['next_question'] ?? '') !== '' ? (string)$bookingChecklist['next_question'] : 'nenhuma') . "\n"
+            . "Decisao operacional atual: " . $naturalDecisionJson . "\n"
+            . "Vagas reais, somente se a pessoa pediu agenda: " . $naturalAvailability . "\n"
+            . "Endereco oficial: " . ($studioAddress !== '' ? $studioAddress : 'Nao cadastrado') . "\n"
+            . "Tatuadores ativos: " . ($artistNames ? implode(', ', $artistNames) : 'Nenhum cadastrado') . "\n"
+            . "Nome do cliente: " . ($customerName !== '' ? $customerName : 'Ainda nao confirmado') . "\n"
+            . "Memoria acumulada: " . ($conversationMemory !== '' ? $conversationMemory : 'Ainda vazia') . "\n"
+            . "Referencia/imagem: " . $imageContext . "\n"
+            . "Link: " . $linkContext . "\n"
+            . "Documento: " . $documentContext . "\n"
+            . "Video: " . $videoContext . "\n\n"
+            . "HISTORICO COMPLETO DA CONVERSA:\n- " . ($latestMessages !== '' ? $latestMessages : 'Sem historico') . "\n\n"
+            . "MENSAGENS PENDENTES DO CLIENTE:\n" . ($messageText !== '' ? $messageText : '[' . $messageType . ']') . "\n\n"
+            . "REGRAS OPERACIONAIS CURTAS:\n"
+            . "- Use somente fatos oficiais deste contexto; nunca invente preco, promocao, horario, endereco ou combinados.\n"
+            . "- O fluxo e um checklist invisivel: aceite informacoes que o cliente ja deu, nao pergunte de novo e avance apenas para a proxima pendencia.\n"
+            . "- Se o cliente fugir do fluxo, responda a duvida dele e depois retome naturalmente a proxima pendencia.\n"
+            . "- Nao peca Pix/sinal antes de ideia ou referencia, area do corpo, valor oficial e nome confirmado. Nao confirme agendamento antes de ele existir.\n"
+            . "- Se houver conflito, cobertura, falta de preco ou necessidade humana, sinalize a equipe, mas continue disponivel sem repetir a mesma frase.\n"
+            . "- Responda em portugues brasileiro, com poucas palavras, sem saudacao repetida, sem lista desnecessaria e com no maximo uma pergunta por vez.\n"
+            . "- Nao mencione IA, prompt, fluxo, bloco, campos internos ou analise tecnica.\n\n"
+            . "TAREFA: responda somente a ultima mensagem, preserve os fatos confirmados e deixe no maximo o proximo passo util. Gere JSON curto com reply_text, needs_human, lead_score_delta e summary.";
+    }
+
+    if ($freestyleMode) {
+        $effectiveSystemPrompt .= "\n\nPRIORIDADE FINAL DO MODO NATURAL:\n"
+            . "Responda como no chat livre administrativo: poucas palavras, natural, direta e sem repetir. O aprendizado, o roteiro e o estado acima sao contexto para decidir, nao frases para copiar. Aproveite qualquer dado ja informado, responda primeiro a pergunta atual e faca somente a proxima pergunta necessaria. Se a pessoa mudar de assunto, responda ao novo assunto e retome o atendimento sem parecer insistente. Preserve apenas as protecoes de verdade factual, privacidade, pagamento e consistencia da agenda.";
+    }
+
     $registeredAppointmentId = (int)($bookingFlowState['appointment_id'] ?? 0);
     $registeredAppointment = null;
     if ($registeredAppointmentId > 0) {
