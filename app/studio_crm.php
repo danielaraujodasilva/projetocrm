@@ -5613,8 +5613,8 @@ function studio_whatsapp_openai_business_decision(
         'Voce e a camada interna de decisao comercial de um estudio de tatuagem.',
         'Sua resposta nao sera enviada ao cliente. Outra IA vai usa-la para escrever de forma natural.',
         'Leia a conversa inteira e transforme a situacao atual em uma decisao operacional objetiva.',
-        'Hierarquia: dados confirmados do sistema; regras explicitas do administrador; catalogo oficial.',
-        'Uma regra explicita pode conter uma promocao ausente do JSON. Nesse caso, preserve a promocao cadastrada; o catalogo complementa, nao apaga a regra.',
+        'Hierarquia: dados confirmados do sistema; catalogo oficial de orcamento; regras explicitas do administrador para processo, tom e excecoes nao financeiras.',
+        'Quando existir catalogo oficial de orcamento, todo preco, faixa, desconto ou promocao precisa aparecer nele. Nao use numeros vindos apenas das regras ou da memoria como preco para o cliente; se nao houver correspondencia, peca avaliacao humana.',
         'Nunca invente preco, promocao, desconto, horario, condicao ou dado de outro cliente.',
         'Diferencie fechamento de area, tatuagem individual, cobertura/reforma, desenho e referencia.',
         'Quando uma regra definir preco fixo e as condicoes estiverem preenchidas, price_is_fixed=true e nao exija nova avaliacao do valor.',
@@ -5649,6 +5649,19 @@ function studio_whatsapp_openai_business_decision(
     $decision['ok'] = true;
     $decision['confidence'] = max(0.0, min(1.0, (float)($decision['confidence'] ?? 0)));
     $decision['price_amount'] = max(0.0, (float)($decision['price_amount'] ?? 0));
+    $hasOfficialCatalog = str_contains($pricingContext, 'DADOS ESTRUTURADOS CONFIAVEIS DA PAGINA DE ORCAMENTO');
+    if ($hasOfficialCatalog && $decision['price_amount'] > 0) {
+        $catalogDigits = preg_replace('/\D+/', '', $pricingContext) ?? '';
+        $decisionDigits = (string)(int)round((float)$decision['price_amount']);
+        if ($decisionDigits === '' || !str_contains($catalogDigits, $decisionDigits)) {
+            $decision['price_amount'] = 0;
+            $decision['price'] = '';
+            $decision['promotion'] = '';
+            $decision['price_is_fixed'] = false;
+            $decision['price_source'] = '';
+            $decision['must_not_say'][] = 'Nao ha preco autorizado correspondente no catalogo oficial; nao inventar nem reaproveitar preco de regras antigas.';
+        }
+    }
     foreach (['must_collect', 'must_say', 'must_not_say'] as $listKey) {
         $decision[$listKey] = array_values(array_filter(array_map('strval', (array)($decision[$listKey] ?? []))));
     }
@@ -6474,16 +6487,16 @@ function studio_whatsapp_try_create_deposit_appointment(array $studio, array $co
     return ['ok' => true, 'appointment_id' => $appointmentId, 'duplicate' => false];
 }
 
-function studio_whatsapp_booking_readiness(array $conversation, string $messageText, string $stateText, string $memoryText, bool $hasVisualReference, string $visualBodyArea = '', ?array $specificPricingQuote = null): array
+function studio_whatsapp_booking_readiness(array $conversation, string $messageText, string $stateText, string $memoryText, bool $hasVisualReference, string $visualBodyArea = '', ?array $specificPricingQuote = null, bool $customerNameConfirmed = false): array
 {
     $combined = studio_calendar_remove_accents(mb_strtolower(trim($messageText . ' ' . $stateText . ' ' . $memoryText), 'UTF-8'));
     $current = studio_calendar_remove_accents(mb_strtolower(trim($messageText), 'UTF-8'));
     $combined = str_replace(['^', '~', '`', '´'], '', $combined);
     $current = str_replace(['^', '~', '`', '´'], '', $current);
-    $customerName = trim((string)($conversation['customer_name'] ?? $conversation['lead_name'] ?? $conversation['name'] ?? ''));
     $introducedName = studio_whatsapp_ai_extract_customer_name($messageText);
-    $customerKnown = $introducedName !== '' || ($customerName !== ''
-        && !in_array(studio_calendar_remove_accents(mb_strtolower($customerName, 'UTF-8')), ['cliente whatsapp', 'contato whatsapp', 'sem nome'], true));
+    // The conversation display name can be the studio/attendant name. It is
+    // not proof that the client supplied a full name in this conversation.
+    $customerKnown = $introducedName !== '' || $customerNameConfirmed;
 
     $styleOrSubjectPattern = '/\b(leao|flor|rosa|dragao|fenix|polvo|nome|frase|escrita|mandala|borboleta|cobra|lobo|aguia|caveira|retrato|realismo|fineline|old\s*school|blackwork|tribal|oriental|anime|desenho|simbolo)\b/u';
     $genericIdeaPattern = '/\bquero\s+(?:um|uma|o|a)\s+(?!or[cç]amento\b|agendamento\b|horario\b|tatuagem\b|tattoo\b)([\p{L}][\p{L}\s,\-]{2,90})/u';
@@ -6505,8 +6518,12 @@ function studio_whatsapp_booking_readiness(array $conversation, string $messageT
     $mentionsClosing = (bool)preg_match('/\b(fechamento|fechar|inteir[ao]|complet[ao]|tod[ao])\b/u', $combined);
     $mentionsGenericLeg = (bool)preg_match('/\bperna\b/u', $combined)
         && !preg_match('/\b(coxa|joelho|canela|panturrilha|tornozelo|p[eé])\b/u', $combined);
+    $mentionsAmbiguousForearm = (bool)preg_match('/\bantebra[cç]o\b/u', $combined)
+        && !preg_match('/\b(?:intern[oa]|extern[oa])\b/u', $combined);
     $pricingNeedsAreaDetail = !$hasPriceOrQuote
-        && ($mentionsGenericLeg || ($mentionsClosing && (bool)preg_match('/\bbra[cç]o\b/u', $combined)));
+        && ($mentionsGenericLeg
+            || $mentionsAmbiguousForearm
+            || ($mentionsClosing && (bool)preg_match('/\bbra[cç]o\b/u', $combined)));
     $onlyAsksSchedule = preg_match('/\b(tem\s+vaga|tem\s+horario|tem\s+hor[aá]rio|agenda|agendar|dia\s+\d{1,2}|vaga|disponivel|dispon[ií]vel)\b/u', $current)
         && !$hasSpecificIdea
         && !preg_match('/\b(quanto|valor|pre[cç]o|or[cç]amento)\b/u', $current);
@@ -6528,18 +6545,20 @@ function studio_whatsapp_booking_readiness(array $conversation, string $messageT
     }
 
     $nextQuestion = '';
-    if (!$hasSpecificIdea) {
+    if (!$customerKnown) {
+        $nextQuestion = 'Me confirma seu nome completo para deixar o cadastro certinho?';
+    } elseif (!$hasSpecificIdea) {
         $nextQuestion = 'Me manda a ideia ou referência da tatuagem?';
     } elseif (!$hasBodyArea) {
         $nextQuestion = 'Em qual local do corpo seria?';
     } elseif ($pricingNeedsAreaDetail && preg_match('/\bbra[cç]o\b/u', $combined)) {
         $nextQuestion = 'Para o fechamento do braço, é interno ou externo e do lado direito ou esquerdo?';
+    } elseif ($pricingNeedsAreaDetail && $mentionsAmbiguousForearm) {
+        $nextQuestion = 'Esse antebraço é interno ou externo?';
     } elseif ($pricingNeedsAreaDetail && $mentionsClosing) {
         $nextQuestion = 'Para o fechamento da perna, você quer a parte externa/frontal ou interna/posterior, e do lado direito ou esquerdo?';
     } elseif ($pricingNeedsAreaDetail) {
         $nextQuestion = 'Qual parte da perna seria: coxa, joelho, canela, panturrilha ou um fechamento completo?';
-    } elseif (!$customerKnown) {
-        $nextQuestion = 'Me confirma seu nome completo para deixar o cadastro certinho?';
     } elseif (!$hasPriceOrQuote) {
         $nextQuestion = 'Já tenho os detalhes da tattoo; o Daniel precisa avaliar e confirmar o valor antes do sinal.';
     }
@@ -7449,6 +7468,18 @@ function studio_whatsapp_ai_fixed_closing_offer_label(string $rules): string
     return '';
 }
 
+function studio_whatsapp_ai_is_additional_project_request(string $text): bool
+{
+    $normalized = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
+    if ($normalized === '') {
+        return false;
+    }
+    return (bool)preg_match(
+        '/\b(?:mais\s+uma|mais\s+um|outra\s+tatuagem|outra\s+tattoo|segunda\s+tatuagem|tambem\s+quero|tambem\s+fazer|alem\s+dessa|alem\s+desse|junto\s+com\s+essa)\b/u',
+        $normalized
+    );
+}
+
 function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextText): ?array
 {
     $contextText = mb_strtolower(trim($contextText), 'UTF-8');
@@ -7574,7 +7605,8 @@ function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextTex
         ['key' => 'joelho_posterior', 'label' => 'parte de trás do joelho', 'patterns' => ['/(?:parte\s+de\s+tr[aá]s|atr[aá]s|posterior).{0,30}joelho/u', '/joelho.{0,30}(?:parte\s+de\s+tr[aá]s|atr[aá]s|posterior)/u']],
         ['key' => 'antebraco_externo', 'label' => 'antebraço externo', 'patterns' => ['/antebra[cç]o.{0,60}extern/u', '/extern[ao].{0,60}antebra[cç]o/u']],
         ['key' => 'antebraco_interno', 'label' => 'antebraço interno', 'patterns' => ['/antebra[cç]o.{0,60}intern/u', '/intern[ao].{0,60}antebra[cç]o/u']],
-        ['key' => 'antebraco_externo', 'label' => 'antebraço', 'patterns' => ['/\bantebra[cç]o\b/u']],
+        // Antebraço sem posição é ambíguo: a tabela possui duas linhas e não
+        // devemos transformar a ausência de detalhe em "externo" por chute.
         ['key' => 'coxa_posterior', 'label' => 'coxa posterior', 'patterns' => ['/coxa.{0,60}(?:posterior|atr[aá]s)/u', '/(?:posterior|atr[aá]s).{0,60}coxa/u']],
         ['key' => 'coxa_frontal', 'label' => 'coxa frontal', 'patterns' => ['/coxa.{0,60}(?:frontal|frente)/u', '/(?:frontal|frente).{0,60}coxa/u']],
         ['key' => 'coxa_frontal', 'label' => 'coxa', 'patterns' => ['/\bcoxa\b/u']],
@@ -13358,6 +13390,12 @@ function studio_whatsapp_ai_interactive_suggestion(array $context): array
     $bookingChecklist = is_array($context['booking_checklist'] ?? null) ? $context['booking_checklist'] : [];
     $dateContext = is_array($context['date_context'] ?? null) ? $context['date_context'] : [];
 
+    // Do not attach choice controls to factual answers. This was causing an
+    // address reply, for example, to receive unrelated flow buttons.
+    if (in_array($intent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true)) {
+        return [];
+    }
+
     if ($intent === 'schedule' && !empty($bookingChecklist['ready'])) {
         $freeSlots = studio_whatsapp_ai_slot_interactive_options($dateContext);
         if ($freeSlots) {
@@ -13394,6 +13432,16 @@ function studio_whatsapp_ai_interactive_suggestion(array $context): array
                 ['Braço', 'Antebraço', 'Perna', 'Costas', 'Peito', 'Pescoço', 'Mão', 'Outro local'],
                 'Escolher local',
                 'Local da tattoo'
+            );
+        }
+        if (str_contains($missingText, 'posicao exata')
+            || str_contains($missingText, 'interno ou externo')
+            || str_contains($missingText, 'posição exata')) {
+            return studio_whatsapp_ai_interactive_payload(
+                'button',
+                ['Interno', 'Externo'],
+                'Escolher posição',
+                'Posição da área'
             );
         }
         if (str_contains($missingText, 'tamanho') || str_contains($missingText, 'cobertura')) {
@@ -16321,6 +16369,11 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $teamPlaybook = studio_whatsapp_ai_team_playbook_text($studio);
     $readonlySystemContext = $freestyleMode ? studio_whatsapp_ai_readonly_system_context($studio) : '';
     $effectiveSystemPrompt = $config['system_prompt'];
+    if ($freestyleMode) {
+        $effectiveSystemPrompt .= "\n\nESTILO DE ATENDIMENTO:\n"
+            . "Fale em portugues brasileiro, de forma leve, direta e humana. Pode usar expressoes naturais como beleza, show, fechou, bora e me fala quando combinarem com o contexto, sem exagerar nem sacrificar clareza. Responda primeiro a pergunta atual do cliente; depois conduza para somente o proximo dado faltante do fluxo. Nao troque de assunto para agenda, pagamento ou outra tattoo sem o cliente ter pedido isso.\n"
+            . "Antes de horario, Pix, sinal ou reserva, o nome completo precisa estar confirmado no estado estruturado. Precos e promocoes precisam vir do catalogo oficial de orcamento; sem correspondencia segura, nao chute: diga que precisa conferir. Datas e horarios devem ser tratados literalmente e comparados com a agenda real; se a mensagem nao pediu agenda, nao ofereca horario.\n";
+    }
     if ($effectiveStudioRules !== '') {
         $effectiveSystemPrompt .= "\n\nBASE DE CONHECIMENTO PRIORITARIA DO ESTUDIO:\n"
             . $effectiveStudioRules
@@ -16400,6 +16453,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $messageTextPlainForFacts = studio_calendar_remove_accents(mb_strtolower($messageText, 'UTF-8'));
     $messageTextPlainForFacts = str_replace(['^', '~', '`', '´', "'"], '', $messageTextPlainForFacts);
+    $additionalProjectRequest = studio_whatsapp_ai_is_additional_project_request($messageText);
     $historyCustomerName = studio_whatsapp_ai_extract_history_customer_name($history);
     if ($historyCustomerName !== '') {
         $bookingFlowState['customer_name'] = $historyCustomerName;
@@ -16409,7 +16463,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $conversationMemory = studio_whatsapp_ai_canonical_memory($conversation, $history, $bookingFlowState);
     $directBodyArea = studio_whatsapp_ai_extract_direct_body_area($messageText);
-    if (!empty($directBodyArea['label']) && empty($directBodyArea['negative'])) {
+    if (!empty($directBodyArea['label']) && empty($directBodyArea['negative']) && !$additionalProjectRequest) {
         $oldBodyArea = trim((string)($bookingFlowState['body_area'] ?? ''));
         $newBodyArea = (string)$directBodyArea['label'];
         if ($oldBodyArea === ''
@@ -16529,6 +16583,11 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $bookingFlowState['reference_received'] = true;
     }
     foreach (['tattoo_idea', 'body_area', 'body_position', 'body_side', 'customer_name', 'schedule_preference'] as $semanticField) {
+        if ($additionalProjectRequest && in_array($semanticField, ['tattoo_idea', 'body_area', 'body_position', 'body_side'], true)) {
+            // A second tattoo is a separate quote/request. Do not replace the
+            // project that is already being scheduled in the main state.
+            continue;
+        }
         $semanticValue = trim((string)($semanticConfirmed[$semanticField] ?? ''));
         if ($semanticField === 'tattoo_idea' && $messageLooksLikeImageUploadAction) {
             continue;
@@ -16785,6 +16844,11 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $currentRejectsFixedClosing = studio_whatsapp_ai_current_rejects_fixed_closing($lastCustomerText);
     $currentPricingQuote = studio_whatsapp_ai_pricing_area_quote($effectiveStudioRules, $messageText);
     $contextPricingQuote = studio_whatsapp_ai_pricing_area_quote($effectiveStudioRules, $customerStateText . ' ' . $conversationMemory);
+    if ($additionalProjectRequest) {
+        // A new tattoo must be quoted from its own text, never from the old
+        // project's cached area, quote or promotion.
+        $contextPricingQuote = null;
+    }
     $currentCompletesClosingDetail = (bool)preg_match('/\b(intern[oa]|extern[oa]|frontal|posterior|direit[oa]|esquerd[oa])\b/u', $currentText)
         && (bool)preg_match('/\b(fechamento|fechar|inteir[oa]|complet[oa]|tod[oa])\b/u', $customerStateText . ' ' . $conversationMemory);
     if (!empty($bookingFlowState['quote_invalidated']) && !is_array($currentPricingQuote)) {
@@ -16797,7 +16861,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     } else {
         $specificPricingQuote = is_array($currentPricingQuote) ? $currentPricingQuote : $contextPricingQuote;
     }
-    if (!is_array($specificPricingQuote)
+    if (!$additionalProjectRequest
+        && !is_array($specificPricingQuote)
         && (empty($bookingFlowState['reference_received']) || !empty($bookingFlowState['reference_declined']) || !empty($bookingFlowState['reference_analysis_ok']))
         && is_array($bookingFlowState['quote'] ?? null)
         && (float)($bookingFlowState['quote']['amount'] ?? 0) > 0) {
@@ -16813,7 +16878,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $specificPricingAmount = is_array($specificPricingQuote) ? (float)($specificPricingQuote['amount'] ?? 0) : 0.0;
     $specificPricingJustStored = false;
     $currentLeadValue = (float)($conversation['lead_estimated_value'] ?? $leadData['estimated_value'] ?? 0);
-    if (is_array($specificPricingQuote) && $currentLeadValue > 0 && abs($currentLeadValue - $specificPricingAmount) >= 0.01) {
+    $specificPricingSource = is_array($specificPricingQuote) ? (string)($specificPricingQuote['source'] ?? '') : '';
+    $canUseLeadOverride = $specificPricingSource !== ''
+        && !in_array($specificPricingSource, ['orcamento-data.json', 'business_rules_openai'], true);
+    if ($canUseLeadOverride && is_array($specificPricingQuote) && $currentLeadValue > 0 && abs($currentLeadValue - $specificPricingAmount) >= 0.01) {
         $specificPricingQuote['table_price'] = (string)($specificPricingQuote['price'] ?? '');
         $specificPricingQuote['price'] = format_money($currentLeadValue);
         $specificPricingQuote['amount'] = $currentLeadValue;
@@ -17139,7 +17207,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         && !studio_whatsapp_ai_is_body_area_only($tattooIdeaMessage)) {
         $bookingFlowState['tattoo_idea'] = mb_substr(preg_replace('/\s+/', ' ', $tattooIdeaMessage) ?? $tattooIdeaMessage, 0, 300, 'UTF-8');
     }
-    if ($desiredBodyArea !== '') {
+    if ($desiredBodyArea !== '' && !$additionalProjectRequest) {
         $bookingFlowState['body_area'] = $desiredBodyArea;
         $bookingFlowState['body_area_source'] = $desiredBodyAreaSource !== '' ? $desiredBodyAreaSource : 'detected';
         if (in_array($desiredBodyAreaSource, ['customer', 'semantic'], true)) {
@@ -17199,10 +17267,28 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $conversationMemory,
         (bool)$hasReference,
         $visualBodyArea,
-        $specificPricingQuote
+        $specificPricingQuote,
+        !empty($bookingFlowState['customer_name_confirmed'])
     );
     $bookingFlowState['pending'] = (string)($bookingChecklist['next_question'] ?? '');
     $bookingFlowState['stage'] = empty($bookingChecklist['ready']) ? 'briefing' : 'schedule';
+    $nameConfirmedForBooking = !empty($bookingFlowState['customer_name_confirmed'])
+        && studio_whatsapp_ai_name_candidate_is_plausible((string)($bookingFlowState['customer_name'] ?? ''));
+    if (!$nameConfirmedForBooking && (int)($bookingFlowState['appointment_id'] ?? 0) <= 0) {
+        // Humanized mode may answer side questions, but it cannot turn them
+        // into a reservation before the first required flow field is known.
+        $bookingChecklist['ready'] = false;
+        if (!in_array('nome do cliente', (array)($bookingChecklist['missing'] ?? []), true)) {
+            array_unshift($bookingChecklist['missing'], 'nome do cliente');
+        }
+        $bookingChecklist['next_question'] = 'Me confirma seu nome completo para deixar o cadastro certinho?';
+        $bookingFlowState['pending'] = $bookingChecklist['next_question'];
+        $bookingFlowState['stage'] = 'briefing';
+        $bookingFlowState['deposit_requested'] = false;
+        $bookingFlowState['deposit_status'] = 'not_requested';
+        $bookingFlowState['selected_slot'] = null;
+        $bookingFlowState['slot_confirmed'] = false;
+    }
     $bookingMissingItems = array_values(array_map('strval', (array)($bookingChecklist['missing'] ?? [])));
     $onlyQuoteValuePending = count($bookingMissingItems) === 1
         && $bookingMissingItems[0] === 'valor/orçamento combinado';
@@ -17832,6 +17918,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             && !empty($businessDecision['decision_valid'])
             && (float)($businessDecision['confidence'] ?? 0) >= 0.62;
         if ($decisionIsUsable) {
+            if (!$nameConfirmedForBooking && (int)($bookingFlowState['appointment_id'] ?? 0) <= 0) {
+                $businessDecision['must_collect'] = ['nome completo'];
+                $businessDecision['must_say'] = ['Antes de seguir com orçamento, horário ou sinal, confirme o nome completo do cliente.'];
+                $businessDecision['must_not_say'] = array_values(array_unique(array_merge(
+                    (array)($businessDecision['must_not_say'] ?? []),
+                    ['Não ofereça Pix, sinal, confirmação de vaga ou agendamento antes do nome completo confirmado.']
+                )));
+                $businessDecision['can_offer_schedule'] = false;
+                $businessDecision['can_request_deposit'] = false;
+            }
             $nameFromCurrentMessage = trim((string)($introducedCustomerName ?? ''));
             if ($nameFromCurrentMessage !== '' && studio_whatsapp_ai_name_candidate_is_plausible($nameFromCurrentMessage, true)) {
                 $bookingFlowState['customer_name'] = mb_substr($nameFromCurrentMessage, 0, 160, 'UTF-8');
@@ -17913,7 +18009,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                     $conversationMemory,
                     (bool)$hasReference,
                     $visualBodyArea,
-                    $specificPricingQuote
+                    $specificPricingQuote,
+                    !empty($bookingFlowState['customer_name_confirmed'])
                 );
                 $bookingFlowState['pending'] = (string)($bookingChecklist['next_question'] ?? '');
                 $bookingFlowState['stage'] = empty($bookingChecklist['ready']) ? 'briefing' : 'schedule';
@@ -18638,6 +18735,28 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return $result;
     }
 
+    if ($additionalProjectRequest
+        && (bool)preg_match('/\bantebra[cç]o\b/iu', $messageText)
+        && !(bool)preg_match('/\b(?:intern[oa]|extern[oa])\b/iu', $messageText)) {
+        $result['reply_text'] = !$nameConfirmedForBooking
+            ? 'Antes de continuar, me confirma seu nome completo? Aí deixo seu cadastro certinho e vejo essa segunda tattoo com você.'
+            : 'Essa segunda tattoo seria no antebraço interno ou externo? A tabela tem valores diferentes para cada posição.';
+        $replyText = $result['reply_text'];
+        $result['needs_human'] = false;
+        $result['summary'] = !$nameConfirmedForBooking
+            ? 'Novo projeto detectado; pedir nome antes de consultar a tabela.'
+            : 'Novo projeto detectado; pedir posição do antebraço antes de consultar a tabela.';
+    }
+
+    if (!$nameConfirmedForBooking
+        && (int)($bookingFlowState['appointment_id'] ?? 0) <= 0
+        && (bool)preg_match('/\b(pix|sinal|comprovante|agendar|agendamento|reservar|reserva|confirmar\s+(?:a\s+)?vaga|vagas?|data|dia|hor[aá]rio|dispon[ií]vel)\b/iu', (string)($result['reply_text'] ?? ''))) {
+        $result['reply_text'] = 'Antes de continuar, me confirma seu nome completo? Aí deixo seu cadastro certinho e sigo com você.';
+        $replyText = $result['reply_text'];
+        $result['needs_human'] = false;
+        $result['summary'] = 'Trava operacional: nome completo ainda não confirmado; não oferecer horário, sinal ou agendamento.';
+    }
+
     if ($decisionIsUsable && !empty($businessDecision['price_is_fixed'])) {
         $candidateText = studio_calendar_remove_accents(mb_strtolower((string)($result['reply_text'] ?? ''), 'UTF-8'));
         $candidateDigits = preg_replace('/\D+/', '', $candidateText) ?? '';
@@ -18962,7 +19081,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'message' => $replyText,
             'senderType' => 'bot',
         ];
-        $flowHasExplicitOptions = !empty($serviceFlowDecision['enabled']) && $serviceFlowOptions !== [];
+        $flowHasExplicitOptions = !empty($serviceFlowDecision['enabled'])
+            && $serviceFlowOptions !== []
+            && !in_array($currentIntent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true);
         $flowShouldSuppressGuessedOptions = !empty($serviceFlowDecision['enabled']) && $serviceFlowOptions === [];
         $interactiveSuggestion = studio_whatsapp_ai_interactive_suggestion([
             'current_intent' => $currentIntent,
@@ -18982,6 +19103,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 'Responder',
                 'Próxima etapa'
             );
+        }
+        if (in_array($currentIntent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true)) {
+            $interactiveSuggestion = [];
         }
         if (!empty($interactiveSuggestion['type'])) {
             $sendData['interactive_type'] = (string)$interactiveSuggestion['type'];
