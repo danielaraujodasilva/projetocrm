@@ -17658,15 +17658,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     if (!empty($serviceFlowDecision['enabled'])) {
         $effectiveSystemPrompt .= $freestyleMode
-            ? "\n\nROTEIRO DISPONÍVEL COMO CONTEXTO:\nUse o roteiro para não esquecer dados importantes, mas conduza a conversa naturalmente. Se o cliente fugir da pergunta, responda primeiro ao que ele quis dizer e retome o próximo dado apenas quando fizer sentido."
+            ? "\n\nROTEIRO DISPONÍVEL COMO CHECKLIST INTERNO:\nUse os campos do roteiro somente para não esquecer dados importantes. Os blocos, etapas e perguntas fixas nunca devem aparecer para o cliente. Conduza a conversa como uma atendente humana: responda primeiro ao que ele quis dizer, aproveite informações que ele já forneceu e faça apenas a próxima pergunta necessária quando fizer sentido. Não diga que está seguindo um fluxo, analisando uma etapa ou retomando um bloco."
             : "\n\nROTEIRO RIGIDO ATIVO:\n"
                 . "O sistema controla as perguntas sequenciais do atendimento. Você só deve responder à dúvida ou intercorrência atual do cliente, de forma curta, natural e verdadeira. "
                 . "Não invente uma nova pergunta de triagem, não reinicie o atendimento e não antecipe etapas. Depois da sua resposta, o sistema retomará automaticamente a pergunta fixa que estava pendente.";
     }
     if ($freestyleMode && $serviceFlowDirectReply !== '') {
-        $effectiveSystemPrompt .= "\n\nORIENTAÇÃO DA ETAPA ATUAL DO ROTEIRO:\n"
-            . $serviceFlowDirectReply
-            . "\nUse essa orientação como objetivo operacional e fatos de apoio, mas não copie a frase pronta nem responda como um formulário. Releia a última mensagem do cliente, resolva primeiro o que ele perguntou e conduza naturalmente para essa etapa. Se a orientação contiver valor, data, horário, Pix ou regra do estúdio, preserve esses dados exatamente.";
+        $flowOperationalSummary = trim((string)($serviceFlowDecision['summary'] ?? ''));
+        $effectiveSystemPrompt .= "\n\nOBJETIVO OPERACIONAL INTERNO DO ROTEIRO:\n"
+            . ($flowOperationalSummary !== '' ? $flowOperationalSummary : 'Continue coletando os dados obrigatórios do agendamento.')
+            . "\nUse o estado estruturado, o checklist e a análise da OpenAI como fonte operacional. Não copie nenhuma mensagem pronta dos blocos, não mencione o roteiro e não responda como formulário. Resolva primeiro o que o cliente perguntou e conduza naturalmente para o próximo dado faltante. Preserve valores, datas, horários, Pix e regras oficiais exatamente quando estiverem confirmados no contexto.";
     }
 
     $registeredAppointmentId = (int)($bookingFlowState['appointment_id'] ?? 0);
@@ -17718,6 +17719,23 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'lead_score_delta' => 1,
             'summary' => 'Cliente escolheu enviar uma foto de referência; aguardando o arquivo de imagem para analisar e continuar o briefing.',
         ];
+    } elseif ($freestyleMode
+        && !empty($serviceFlowDecision['enabled'])
+        && empty($paymentProof['present'])) {
+        // No modo livre, os blocos orientam o estado, mas nunca substituem a
+        // resposta da OpenAI. Comprovantes e ações críticas ficam nos ramos
+        // determinísticos abaixo para preservar a segurança operacional.
+        $result = studio_openai_text(
+            $config['api_key'],
+            $aiModel,
+            $effectiveSystemPrompt,
+            $prompt,
+            (string)($config['base_url'] ?? 'https://api.openai.com/v1'),
+            3000,
+            false,
+            null,
+            ''
+        );
     } elseif ($currentIntent === 'human_handoff') {
         $reasonText = mb_strtolower((string)$guardrailReason, 'UTF-8');
         if (str_contains($reasonText, 'fora do atendimento')) {
@@ -18310,6 +18328,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     if (empty($result['ok'])) {
         return $result;
+    }
+
+    if (!empty($serviceFlowDecision['needs_human'])
+        || $guardrailReason !== null
+        || studio_whatsapp_ai_is_coverup_request($currentText)) {
+        $result['needs_human'] = true;
     }
 
     $replyText = trim((string)$result['reply_text']);
