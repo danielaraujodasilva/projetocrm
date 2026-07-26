@@ -6946,14 +6946,14 @@ function studio_whatsapp_ai_current_rejects_fixed_closing(string $text): bool
 
 function studio_whatsapp_ai_text_asks_price(string $text): bool
 {
-    return (bool)preg_match('/(quanto\s+(que\s+)?(custa|fica|sai|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da|vai\s+sair)/u', mb_strtolower($text, 'UTF-8'));
+    return (bool)preg_match('/(quanto\s+(que\s+)?(custa|fica|sai|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+(?:d[ao]s?|de|para|pra|desse|dessa)|vai\s+sair)/u', mb_strtolower($text, 'UTF-8'));
 }
 
 function studio_whatsapp_ai_detect_intent(string $text, bool $hasImage = false, string $messageType = 'text'): string
 {
     $text = trim(mb_strtolower($text, 'UTF-8'));
     $messageType = strtolower(trim($messageType));
-    $asksPrice = preg_match('/(quanto\s+(que\s+)?(custa|fica|sai|t[aá])|qual\s+(o\s+)?valor|pre[cç]o|or[cç]amento|valor\s+da|vai\s+sair)/u', $text) === 1;
+    $asksPrice = studio_whatsapp_ai_text_asks_price($text);
     $asksStyle = preg_match('/((que|qual)\s+(e\s+)?(o\s+)?estilo|estilo\s+de\s+tatuagem|\bestilo\b|\belementos?\b|\bdescrev)/u', $text) === 1;
 
     if (preg_match('/(onde\s+fica|qual\s+(e\s+)?o\s+endere[cç]o|endere[cç]o\s+do\s+est[uú]dio|localiza[cç][aã]o)/u', $text)) {
@@ -16004,6 +16004,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $activeArtists = array_values(array_filter(studio_list_artists($studio), static fn(array $artist): bool => !isset($artist['is_active']) || !empty($artist['is_active'])));
     $artistNames = array_values(array_filter(array_map(static fn(array $artist): string => trim((string)($artist['name'] ?? '')), $activeArtists)));
     $customerName = trim((string)($conversation['name'] ?? $conversation['customer_name'] ?? $conversation['lead_name'] ?? ''));
+    $flowCustomerName = trim((string)($bookingFlowState['customer_name'] ?? ''));
+    if (!empty($bookingFlowState['customer_name_confirmed']) && $flowCustomerName !== '') {
+        $customerName = $flowCustomerName;
+    }
     $customerId = (int)($conversation['customer_id'] ?? 0);
     $leadId = (int)($conversation['lead_id'] ?? 0);
     $customerActivity = $customerId > 0 ? studio_customer_activity($studio, $customerId) : ['leads' => [], 'appointments' => [], 'conversations' => []];
@@ -17400,6 +17404,11 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
                 . "O sistema controla as perguntas sequenciais do atendimento. Você só deve responder à dúvida ou intercorrência atual do cliente, de forma curta, natural e verdadeira. "
                 . "Não invente uma nova pergunta de triagem, não reinicie o atendimento e não antecipe etapas. Depois da sua resposta, o sistema retomará automaticamente a pergunta fixa que estava pendente.";
     }
+    if ($freestyleMode && $serviceFlowDirectReply !== '') {
+        $effectiveSystemPrompt .= "\n\nORIENTAÇÃO DA ETAPA ATUAL DO ROTEIRO:\n"
+            . $serviceFlowDirectReply
+            . "\nUse essa orientação como objetivo operacional e fatos de apoio, mas não copie a frase pronta nem responda como um formulário. Releia a última mensagem do cliente, resolva primeiro o que ele perguntou e conduza naturalmente para essa etapa. Se a orientação contiver valor, data, horário, Pix ou regra do estúdio, preserve esses dados exatamente.";
+    }
 
     $registeredAppointmentId = (int)($bookingFlowState['appointment_id'] ?? 0);
     $registeredAppointment = null;
@@ -17484,7 +17493,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'lead_score_delta' => 2,
             'summary' => 'Cliente quer cobertura de tatuagem já enviada por imagem; precisa de avaliação humana do Daniel, faltando confirmar tamanho/cobertura desejada.',
         ];
-    } elseif ($serviceFlowDirectReply !== ''
+    } elseif (!$freestyleMode
+        && $serviceFlowDirectReply !== ''
         && empty($paymentProof['present'])
         && !in_array($currentIntent, ['payment_proof', 'payment_amount_variation', 'payment_deposit_question', 'payment_proof_confusion', 'payment_terms'], true)
         && !($wantsScheduleOptions && $currentIntent === 'schedule')) {
@@ -18026,7 +18036,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'lead_score_delta' => 1,
             'summary' => 'Cliente pediu identificação do estilo e orçamento de uma referência.',
         ];
-    } elseif ($bookingFlowContinuation !== ''
+    } elseif (!$freestyleMode
+        && $bookingFlowContinuation !== ''
         && in_array($currentIntent, ['general', 'tattoo_idea', 'quote_status', 'quote_ready'], true)) {
         $result = [
             'ok' => true,
@@ -18047,7 +18058,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
     }
     $replyText = studio_whatsapp_compact_multiline_text($replyText);
-    if ($serviceFlowResumeQuestion !== ''
+    if (!$freestyleMode
+        && $serviceFlowResumeQuestion !== ''
         && empty($result['needs_human'])
         && (int)($bookingFlowState['appointment_id'] ?? 0) <= 0
         && !in_array($currentIntent, ['payment_deposit_question', 'payment_proof_confusion', 'payment_terms'], true)) {
