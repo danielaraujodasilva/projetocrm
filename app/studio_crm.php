@@ -8574,7 +8574,11 @@ function studio_whatsapp_ai_reply_is_repetitive(string $reply, array $previousRe
             return true;
         }
         similar_text(mb_substr($candidate, 0, 240), mb_substr($previous, 0, 240), $similarity);
-        if ($similarity >= 84) {
+        $candidateWords = array_values(array_unique(array_filter(explode(' ', $candidate), static fn(string $word): bool => mb_strlen($word, 'UTF-8') >= 4)));
+        $previousWords = array_values(array_unique(array_filter(explode(' ', $previous), static fn(string $word): bool => mb_strlen($word, 'UTF-8') >= 4)));
+        $sharedWords = count(array_intersect($candidateWords, $previousWords));
+        $shortestWordSet = min(count($candidateWords), count($previousWords));
+        if ($similarity >= 76 || ($sharedWords >= 5 && $shortestWordSet > 0 && ($sharedWords / $shortestWordSet) >= 0.5)) {
             return true;
         }
     }
@@ -8590,6 +8594,60 @@ function studio_whatsapp_ai_reply_signature(string $text): string
     return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
 }
 
+function studio_whatsapp_ai_compact_direct_reply(string $text, int $maxCharacters = 360, int $maxSentences = 2): string
+{
+    $text = studio_whatsapp_compact_multiline_text($text);
+    if ($text === '') {
+        return '';
+    }
+
+    $sentences = array_values(array_filter(array_map('trim', preg_split('/(?<=[.!?])\s+/u', $text) ?: [$text])));
+    $kept = [];
+    foreach ($sentences as $sentence) {
+        $signature = studio_whatsapp_ai_reply_signature($sentence);
+        if ($signature === '') {
+            continue;
+        }
+        $repeatedInsideReply = false;
+        foreach ($kept as $previousSentence) {
+            $previousSignature = studio_whatsapp_ai_reply_signature($previousSentence);
+            similar_text($signature, $previousSignature, $similarity);
+            if ($signature === $previousSignature || $similarity >= 68) {
+                $repeatedInsideReply = true;
+                break;
+            }
+        }
+        if (!$repeatedInsideReply) {
+            $kept[] = $sentence;
+        }
+        if (count($kept) >= $maxSentences) {
+            break;
+        }
+    }
+    $questionSentence = '';
+    foreach (array_reverse($sentences) as $sentence) {
+        if (str_contains($sentence, '?')) {
+            $questionSentence = $sentence;
+            break;
+        }
+    }
+    if ($questionSentence !== '' && !in_array($questionSentence, $kept, true)) {
+        if (count($kept) >= $maxSentences) {
+            $kept[$maxSentences - 1] = $questionSentence;
+        } else {
+            $kept[] = $questionSentence;
+        }
+    }
+    $compact = trim(implode(' ', $kept ?: [$text]));
+    if (mb_strlen($compact, 'UTF-8') <= $maxCharacters) {
+        return $compact;
+    }
+
+    $compact = mb_substr($compact, 0, $maxCharacters - 3, 'UTF-8');
+    $compact = preg_replace('/\s+\S*$/u', '', $compact) ?: $compact;
+    return rtrim($compact, " ,;:.-") . '...';
+}
+
 function studio_whatsapp_ai_repetition_count(string $reply, array $previousReplies): int
 {
     $candidate = studio_whatsapp_ai_reply_signature($reply);
@@ -8603,7 +8661,7 @@ function studio_whatsapp_ai_repetition_count(string $reply, array $previousRepli
             continue;
         }
         similar_text(mb_substr($candidate, 0, 260), mb_substr($previous, 0, 260), $similarity);
-        if ($candidate === $previous || $similarity >= 82) {
+        if ($candidate === $previous || $similarity >= 76) {
             $count++;
             continue;
         }
@@ -13357,6 +13415,61 @@ function studio_whatsapp_ai_reply_looks_like_yes_no_question(string $replyText):
     return (bool)preg_match('/\b(sim ou nao|confirma|confirmar|esta correto|ta correto|pode ser|quer|deseja|posso|pode|vamos seguir|seguimos)\b/u', $text);
 }
 
+function studio_whatsapp_ai_flow_options_fit_reply(array $options, string $replyText, string $intent, array $bookingChecklist = []): bool
+{
+    $intent = strtolower(trim($intent));
+    if (in_array($intent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true)) {
+        return false;
+    }
+    $options = studio_whatsapp_ai_clean_interactive_options($options, 10);
+    $replyNorm = studio_calendar_remove_accents(mb_strtolower(trim($replyText), 'UTF-8'));
+    if (!$options || $replyNorm === '' || !str_contains($replyNorm, '?')) {
+        return false;
+    }
+
+    $normalizedOptions = array_map(
+        static function (string $option): string {
+            $normalized = studio_calendar_remove_accents(mb_strtolower(trim($option), 'UTF-8'));
+            $normalized = str_replace(['^', '~', '`', '´'], '', $normalized);
+            return trim((string)preg_replace('/\bn[aã]o\b/u', 'nao', $normalized));
+        },
+        $options
+    );
+    $isYesNo = count($normalizedOptions) === 2
+        && in_array('sim', $normalizedOptions, true)
+        && in_array('nao', $normalizedOptions, true);
+    if ($isYesNo) {
+        return studio_whatsapp_ai_reply_looks_like_yes_no_question($replyText);
+    }
+
+    $missingText = studio_calendar_remove_accents(mb_strtolower(
+        implode(' | ', array_map('strval', (array)($bookingChecklist['missing'] ?? [])))
+        . ' ' . (string)($bookingChecklist['next_question'] ?? ''),
+        'UTF-8'
+    ));
+    if (str_contains($missingText, 'local do corpo')
+        || str_contains($missingText, 'posicao exata')
+        || str_contains($missingText, 'tamanho')
+        || str_contains($missingText, 'cobertura')
+        || str_contains($missingText, 'ideia')
+        || str_contains($missingText, 'referencia')) {
+        return true;
+    }
+
+    $mentioned = 0;
+    foreach ($normalizedOptions as $option) {
+        $words = array_values(array_filter(
+            preg_split('/\s+/u', preg_replace('/[^\p{L}\p{N}]+/u', ' ', $option) ?? $option) ?: [],
+            static fn(string $word): bool => mb_strlen($word, 'UTF-8') >= 4
+        ));
+        if ($words && (bool)preg_match('/\b' . preg_quote($words[0], '/') . '\b/u', $replyNorm)) {
+            $mentioned++;
+        }
+    }
+
+    return $mentioned >= max(1, (int)ceil(count($normalizedOptions) / 2));
+}
+
 function studio_whatsapp_ai_slot_interactive_options(array $dateContext): array
 {
     $date = trim((string)($dateContext['date'] ?? ''));
@@ -13393,6 +13506,9 @@ function studio_whatsapp_ai_interactive_suggestion(array $context): array
     // Do not attach choice controls to factual answers. This was causing an
     // address reply, for example, to receive unrelated flow buttons.
     if (in_array($intent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true)) {
+        return [];
+    }
+    if (!str_contains($replyNorm, '?')) {
         return [];
     }
 
@@ -16371,7 +16487,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $effectiveSystemPrompt = $config['system_prompt'];
     if ($freestyleMode) {
         $effectiveSystemPrompt .= "\n\nESTILO DE ATENDIMENTO:\n"
-            . "Fale em portugues brasileiro, de forma leve, direta e humana. Pode usar expressoes naturais como beleza, show, fechou, bora e me fala quando combinarem com o contexto, sem exagerar nem sacrificar clareza. Responda primeiro a pergunta atual do cliente; depois conduza para somente o proximo dado faltante do fluxo. Nao troque de assunto para agenda, pagamento ou outra tattoo sem o cliente ter pedido isso.\n"
+            . "Fale em portugues brasileiro, de forma leve, direta e humana. Use no maximo duas frases curtas por resposta comum, sem introducao, resumo ou explicacao do que voce esta fazendo. Pode usar expressoes naturais como beleza, show, fechou, bora e me fala quando combinarem com o contexto, sem exagerar nem sacrificar clareza. Responda primeiro a pergunta atual do cliente; depois conduza para somente o proximo dado faltante do fluxo. Nao troque de assunto para agenda, pagamento ou outra tattoo sem o cliente ter pedido isso.\n"
+            . "Leia as ultimas respostas antes de escrever. Se a informacao ja foi explicada, nao repita a mesma justificativa: reconheca em poucas palavras e responda apenas o ponto novo. Nao use duas perguntas na mesma mensagem.\n"
             . "Antes de horario, Pix, sinal ou reserva, o nome completo precisa estar confirmado no estado estruturado. Precos e promocoes precisam vir do catalogo oficial de orcamento; sem correspondencia segura, nao chute: diga que precisa conferir. Datas e horarios devem ser tratados literalmente e comparados com a agenda real; se a mensagem nao pediu agenda, nao ofereca horario.\n";
     }
     if ($effectiveStudioRules !== '') {
@@ -18995,6 +19112,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'intent' => $currentIntent,
         ];
     }
+    if ($freestyleMode && !in_array($currentIntent, [
+        'reservation', 'payment_proof', 'payment_proof_text', 'payment_proof_denial',
+        'payment_amount_variation', 'payment_terms', 'address',
+    ], true)) {
+        $replyText = studio_whatsapp_ai_compact_direct_reply($replyText, 360, 2);
+    }
     if (mb_strlen($replyText) > 480) {
         $parts = preg_split('/(?<=[.!?])\s+/u', $replyText) ?: [$replyText];
         $replyText = trim(implode(' ', array_slice($parts, 0, 4)));
@@ -19084,6 +19207,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $flowHasExplicitOptions = !empty($serviceFlowDecision['enabled'])
             && $serviceFlowOptions !== []
             && !in_array($currentIntent, ['address', 'price', 'image_price', 'quote_status', 'business_hours', 'artist'], true);
+        $flowOptionsFitReply = $flowHasExplicitOptions
+            && studio_whatsapp_ai_flow_options_fit_reply(
+                $serviceFlowOptions,
+                $replyText,
+                $currentIntent,
+                $bookingChecklist
+            );
         $flowShouldSuppressGuessedOptions = !empty($serviceFlowDecision['enabled']) && $serviceFlowOptions === [];
         $interactiveSuggestion = studio_whatsapp_ai_interactive_suggestion([
             'current_intent' => $currentIntent,
@@ -19093,9 +19223,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'handoff_requested' => $handoffRequested,
             'already_waiting_for_human' => $alreadyWaitingForHuman,
             'keep_ai_active_until_human_reply' => $keepAiActiveUntilHumanReply,
-            'suppress_interactive' => $selectedImageUploadAction || $selectedQuoteAction || $flowShouldSuppressGuessedOptions,
+            'suppress_interactive' => $selectedImageUploadAction
+                || $selectedQuoteAction
+                || $flowShouldSuppressGuessedOptions
+                || ($flowHasExplicitOptions && !$flowOptionsFitReply),
         ]);
-        if ($flowHasExplicitOptions) {
+        if ($flowOptionsFitReply) {
             $resultFlowOptions = $serviceFlowOptions;
             $interactiveSuggestion = studio_whatsapp_ai_interactive_payload(
                 count($resultFlowOptions) <= 3 ? 'button' : 'list',
