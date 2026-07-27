@@ -1843,6 +1843,33 @@ if ($action === 'studio_login') {
             redirect_to('studio_whatsapp_flow');
         }
 
+        if (in_array($action, ['save_ai_custom_rule', 'delete_ai_custom_rule'], true)) {
+            $studio = require_studio();
+            if (!studio_current_user_is_admin()) {
+                throw new RuntimeException('Apenas administradores podem alterar as regras da IA.');
+            }
+            $user = current_studio_user();
+            if ($action === 'delete_ai_custom_rule') {
+                studio_ai_custom_rule_delete($studio, (int)($_POST['id'] ?? 0));
+                studio_event((int)$studio['id'], 'whatsapp_ai_custom_rule_deleted', 'Regra personalizada da IA removida.', [
+                    'category' => 'settings',
+                    'target_type' => 'whatsapp_ai_custom_rule',
+                    'target_id' => (int)($_POST['id'] ?? 0),
+                ]);
+                flash_set('success', 'Regra removida.');
+            } else {
+                $ruleId = studio_ai_custom_rule_save($studio, $_POST, (int)($user['id'] ?? 0));
+                studio_event((int)$studio['id'], 'whatsapp_ai_custom_rule_saved', 'Regra personalizada da IA salva.', [
+                    'category' => 'settings',
+                    'target_type' => 'whatsapp_ai_custom_rule',
+                    'target_id' => $ruleId,
+                    'context' => ['active' => !empty($_POST['is_active'])],
+                ]);
+                flash_set('success', 'Regra salva e aplicada às próximas conversas.');
+            }
+            redirect_to('studio_ai_rules');
+        }
+
         if ($action === 'generate_ai_team_playbook') {
             $studio = require_studio();
             if (!studio_current_user_is_admin()) {
@@ -2221,8 +2248,9 @@ if ($action === 'studio_login') {
             $studio = require_studio();
             if (!studio_current_user_is_admin()) {
                 throw new RuntimeException('Apenas administradores podem conectar Meta Ads.');
-            }
-            $settings = studio_settings($studio);
+         }
+         $settings = studio_settings($studio);
+         $officialReferenceLinks = studio_whatsapp_official_reference_links($studio);
             $appId = trim((string)($settings['meta_ads_app_id'] ?? ''));
             $redirectUri = 'https://danieltatuador.com/projetocrm/meta_oauth_callback.php';
             if ($appId === '') {
@@ -3113,13 +3141,13 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
 }
 
-$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads'];
+$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads'];
 if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
     flash_set('error', 'Apenas administradores podem acessar esta área.');
     redirect_to('studio_home');
@@ -7613,6 +7641,51 @@ if ($page === 'studio_artists') {
     exit;
 }
 
+if ($page === 'studio_ai_rules') {
+    $studio = require_studio();
+    if (!studio_current_user_is_admin()) {
+        flash_set('error', 'Apenas administradores podem visualizar e alterar as regras da IA.');
+        redirect_to('studio_home');
+    }
+    $settings = studio_settings($studio);
+    $customRules = studio_ai_custom_rules($studio);
+    $flow = studio_whatsapp_service_flow($studio);
+    render_studio_shell('Regras aplicadas à IA', 'Veja o que está ativo no atendimento e altere somente as regras personalizadas do estúdio.', 'settings', function () use ($studio, $settings, $customRules, $flow) {
+        $links = studio_whatsapp_official_reference_links($studio);
+        $systemRules = [
+            ['Proteção de fatos', 'A IA não pode inventar preços, promoções, horários, endereço, Pix ou agendamentos.'],
+            ['Agenda real', 'Datas e horários são comparados com as vagas reais do banco antes de serem oferecidos.'],
+            ['Orçamento oficial', 'Preços e promoções vêm da página/JSON de orçamento configurada para este estúdio.'],
+            ['Memória da conversa', 'O histórico e o estado estruturado são relidos antes de seguir o atendimento.'],
+            ['Pagamento e sinal', 'O sinal só é solicitado depois de dados suficientes, valor e vaga confirmados.'],
+            ['Continuidade humana', 'Quando a equipe precisa conferir, a conversa é sinalizada sem desligar a IA antes de um atendente assumir.'],
+        ];
+        echo '<section class="panel" style="margin-bottom:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:16px"><div><span class="section-eyebrow">Somente ADM</span><h2 style="margin:4px 0">O que está governando o chat</h2><p class="muted" style="margin:0;max-width:760px">As regras abaixo não ficam escondidas no código. As proteções essenciais são fixas; as regras personalizadas desta página entram no contexto do WhatsApp assim que forem salvas.</p></div><a class="btn secondary" href="' . h(app_url('studio_settings', ['tab' => 'ia'])) . '"><i class="fa-solid fa-sliders"></i> Configurações da IA</a></div></section>';
+        echo '<section class="panel"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">Proteções essenciais</h2><p class="muted" style="margin:6px 0 0">Ativas em qualquer provedor. Elas não podem ser removidas porque evitam respostas perigosas ou inventadas.</p></div><span class="badge ok">Ativas</span></div><div class="grid cols-2" style="margin-top:14px">';
+        foreach ($systemRules as [$title, $copy]) {
+            echo '<article class="drilldown-card compact"><span class="badge ok"><i class="fa-solid fa-shield-halved"></i> Sistema</span><strong>' . h($title) . '</strong><p class="muted" style="margin:6px 0 0">' . h($copy) . '</p></article>';
+        }
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:center"><div><h2 style="margin:0">Camadas atualmente ligadas</h2><p class="muted" style="margin:6px 0 0">Esta é a configuração real deste estúdio agora.</p></div></div><div class="stack-list" style="margin-top:14px">';
+        $modeLabel = !empty($settings['ai_chat_freestyle_mode']) ? 'Modo natural ativo: a IA conversa livremente e usa o fluxo como checklist de segurança.' : 'Modo guiado ativo: o fluxo conduz as etapas do atendimento.';
+        echo '<div class="drilldown-card compact"><strong>Modo de conversa</strong><span>' . h($modeLabel) . '</span></div>';
+        echo '<div class="drilldown-card compact"><strong>Regras comerciais</strong><span>' . (!empty($settings['business_rules']) ? 'Texto cadastrado e aplicado.' : 'Nenhum texto adicional cadastrado.') . ' <a href="' . h(app_url('studio_settings', ['tab' => 'rules'])) . '">Editar base comercial</a></span></div>';
+        echo '<div class="drilldown-card compact"><strong>Fluxograma de atendimento</strong><span>' . (!empty($flow['config']['enabled']) ? 'Ativo como fallback; o modo natural atual é priorizado.' : 'Desativado.') . ' <a href="' . h(app_url('studio_whatsapp_flow')) . '">Ver fluxograma</a></span></div>';
+        echo '<div class="drilldown-card compact"><strong>Links de portfólio</strong><span>' . ($links ? h(implode(' · ', $links)) : 'Nenhum link cadastrado.') . ' <a href="' . h(app_url('studio_settings', ['tab' => 'studio'])) . '">Editar links</a></span></div>';
+        echo '</div></section>';
+        echo '<section class="panel" style="margin-top:16px"><div class="actions" style="justify-content:space-between;align-items:flex-start;gap:14px"><div><h2 style="margin:0">Regras personalizadas</h2><p class="muted" style="margin:6px 0 0">Adicione orientações específicas do estúdio, ative/desative sem apagar e remova o que não fizer mais sentido.</p></div><span class="badge">' . h((string)count($customRules)) . ' regras</span></div>';
+        echo '<form class="panel soft" method="post" style="margin-top:14px">' . csrf_field() . '<input type="hidden" name="action" value="save_ai_custom_rule"><input type="hidden" name="id" value="0"><div class="grid cols-2"><div class="field"><label>Nome curto da regra</label><input name="title" maxlength="160" required placeholder="Ex.: Como falar sobre referências"></div><div class="field"><label>Ordem</label><input type="number" name="sort_order" min="0" max="9999" value="100"><small class="muted">Menor número aparece primeiro.</small></div></div><div class="field"><label>Instrução para a IA</label><textarea name="instruction" rows="4" maxlength="4000" required placeholder="Quando o cliente pedir referências de trabalhos, envie o site e o Instagram oficiais."></textarea></div><label class="checkline"><input type="checkbox" name="is_active" value="1" checked> Aplicar esta regra agora</label><button class="btn" type="submit"><i class="fa-solid fa-plus"></i> Adicionar regra</button></form>';
+        if (!$customRules) {
+            echo '<div class="panel soft" style="margin-top:14px"><span class="muted">Nenhuma regra personalizada adicionada ainda.</span></div>';
+        }
+        foreach ($customRules as $rule) {
+            echo '<form class="panel soft" method="post" style="margin-top:12px"><input type="hidden" name="csrf_token" value="' . h(csrf_token()) . '"><input type="hidden" name="action" value="save_ai_custom_rule"><input type="hidden" name="id" value="' . h((string)$rule['id']) . '"><div class="grid cols-2"><div class="field"><label>Nome curto</label><input name="title" maxlength="160" value="' . h((string)$rule['title']) . '" required></div><div class="field"><label>Ordem</label><input type="number" name="sort_order" min="0" max="9999" value="' . h((string)$rule['sort_order']) . '"></div></div><div class="field"><label>Instrução</label><textarea name="instruction" rows="3" maxlength="4000" required>' . h((string)$rule['instruction']) . '</textarea></div><div class="actions" style="justify-content:space-between;align-items:center"><label class="checkline"><input type="checkbox" name="is_active" value="1" ' . (!empty($rule['is_active']) ? 'checked' : '') . '> Aplicar esta regra</label><span class="actions"><button class="btn tiny" type="submit">Salvar alteração</button><button class="btn tiny danger" type="submit" name="action" value="delete_ai_custom_rule" onclick="return confirm(\'Excluir esta regra da IA?\')">Excluir</button></span></div></form>';
+        }
+        echo '</section>';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_whatsapp_flow') {
     $studio = require_studio();
     $flow = studio_whatsapp_service_flow($studio);
@@ -7761,6 +7834,7 @@ if ($page === 'studio_settings') {
         }
         if (studio_current_user_is_admin()) {
             echo '<a class="settings-category-card settings-flow-card" href="' . h(app_url('studio_whatsapp_flow')) . '"><span class="settings-category-icon"><i class="fa-solid fa-diagram-project"></i></span><span class="settings-category-status">ADM</span><strong>Roteiro do atendimento</strong><small>Fluxograma rígido, perguntas e ordem do agendamento</small><span class="settings-category-link">Editar fluxo <i class="fa-solid fa-arrow-right"></i></span></a>';
+            echo '<a class="settings-category-card settings-flow-card" href="' . h(app_url('studio_ai_rules')) . '"><span class="settings-category-icon"><i class="fa-solid fa-list-check"></i></span><span class="settings-category-status">ADM</span><strong>Regras aplicadas à IA</strong><small>Veja proteções, fontes, modo natural e regras personalizadas</small><span class="settings-category-link">Ver regras <i class="fa-solid fa-arrow-right"></i></span></a>';
         }
         echo '<a class="settings-category-card" href="' . h(app_url('studio_finance')) . '"><span class="settings-category-icon"><i class="fa-solid fa-wallet"></i></span><span class="settings-category-status">Gestão</span><strong>Financeiro</strong><small>Despesas e leitura do resultado mensal</small><span class="settings-category-link">Abrir módulo <i class="fa-solid fa-arrow-right"></i></span></a>';
         if (studio_current_user_is_admin()) {
@@ -7779,7 +7853,8 @@ if ($page === 'studio_settings') {
         echo '<div class="field"><label>Nome do estudio</label><input name="studio_name" value="' . h($settings['studio_name'] ?? $studio['name']) . '" required></div>';
         echo '<div class="field"><label>WhatsApp habilitado neste estudio</label><label class="checkline"><input type="checkbox" name="whatsapp_enabled" value="1" ' . (!empty($settings['whatsapp_enabled']) ? 'checked' : '') . '> Ativar/Desativar integração</label></div>';
         echo '</div>';
-        echo '<div class="field"><label>Endereço oficial do estúdio</label><input name="studio_address" value="' . h($settings['studio_address'] ?? '') . '" placeholder="Rua, número, bairro, cidade"><small class="muted">A IA usa exatamente este endereço e nunca inventa um local.</small></div>';
+         echo '<div class="field"><label>Endereço oficial do estúdio</label><input name="studio_address" value="' . h($settings['studio_address'] ?? '') . '" placeholder="Rua, número, bairro, cidade"><small class="muted">A IA usa exatamente este endereço e nunca inventa um local.</small></div>';
+         echo '<div class="grid cols-2"><div class="field"><label>Site/portfólio oficial</label><input type="url" name="studio_website_url" value="' . h($settings['studio_website_url'] ?? ($officialReferenceLinks['site'] ?? '')) . '" placeholder="https://seu-site.com"><small class="muted">Link que a IA pode enviar quando o cliente pedir trabalhos e referências.</small></div><div class="field"><label>Instagram oficial</label><input type="url" name="studio_instagram_url" value="' . h($settings['studio_instagram_url'] ?? ($officialReferenceLinks['instagram'] ?? '')) . '" placeholder="https://instagram.com/seu-perfil"><small class="muted">Também aparece nas respostas sobre portfólio.</small></div></div>';
         echo '<div class="settings-save-row"><span class="muted">Salva somente os dados essenciais exibidos neste painel.</span><button class="btn" type="button" data-settings-submit>Salvar dados do estúdio</button></div>';
         echo '</div></div>';
         echo '<div id="settingsSourceAgenda" hidden><div class="settings-panel" id="settings-agenda" data-settings-panel="agenda">';
