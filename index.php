@@ -7957,10 +7957,10 @@ if ($page === 'studio_settings') {
         echo '<div id="settingsSourceIa" hidden><div class="settings-panel" id="settings-ia" data-settings-panel="ia">';
         echo '<div class="actions" style="justify-content:space-between;align-items:center"><h3 style="margin:0">IA</h3><a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a></div>';
         echo '<div class="panel soft">';
-        echo '<h3 style="margin-top:0">Motor principal do chatbot</h3>';
-        echo '<p class="muted">O fornecedor selecionado abaixo é usado pelo chatbot do WhatsApp. As demais chaves continuam guardadas como alternativas, sem misturar credenciais.</p>';
+        echo '<h3 style="margin-top:0">IA que responde o chat do WhatsApp</h3>';
+        echo '<p class="muted">Escolha aqui qual IA escreve as respostas do chatbot. A troca só passa a valer depois de clicar em <strong>Salvar configurações</strong>. As outras chaves e modelos ficam guardados para você poder alternar sem recadastrar nada.</p>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Fornecedor da IA</label><select name="ai_provider"><option value="nvidia"' . ($aiProviderCurrent === 'nvidia' ? ' selected' : '') . '>NVIDIA API - Llama 70B</option><option value="openai"' . ($aiProviderCurrent === 'openai' ? ' selected' : '') . '>OpenAI</option><option value="ollama"' . ($aiProviderCurrent === 'ollama' ? ' selected' : '') . '>Ollama local</option></select><small class="muted">Este é o provedor usado pelo chatbot do WhatsApp e pelas sugestões de resposta.</small></div>';
+        echo '<div class="field"><label>IA do chat</label><select id="whatsappChatAiProvider" name="ai_provider"><option value="nvidia"' . ($aiProviderCurrent === 'nvidia' ? ' selected' : '') . '>NVIDIA API - Qwen3 (alternativa)</option><option value="openai"' . ($aiProviderCurrent === 'openai' ? ' selected' : '') . '>OpenAI - modelo configurado</option><option value="ollama"' . ($aiProviderCurrent === 'ollama' ? ' selected' : '') . '>Ollama local</option></select><small class="muted">NVIDIA pode funcionar dentro da franquia/limites da API; não é uma garantia de uso gratuito ilimitado.</small></div>';
         echo '<div class="field"><label>URL da IA</label><input name="ai_api_base_url" value="' . h($aiBaseUrlCurrent) . '" placeholder="https://integrate.api.nvidia.com/v1"><small class="muted">NVIDIA: https://integrate.api.nvidia.com/v1 | OpenAI: https://api.openai.com/v1 | Ollama: http://localhost:11434/v1</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
