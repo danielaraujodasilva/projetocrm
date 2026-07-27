@@ -4312,6 +4312,7 @@ function studio_whatsapp_booking_state(array $conversation): array
         'reference_analysis_ok' => false,
         'reference_analysis_error' => '',
         'reference_summary' => '',
+        'reference_exact' => false,
         'references' => [],
         'reference_body_area_confirmation_required' => false,
         'tattoo_idea' => '',
@@ -4338,6 +4339,7 @@ function studio_whatsapp_booking_state(array $conversation): array
     $state['active'] = !empty($state['active']);
     $state['reference_received'] = !empty($state['reference_received']);
     $state['reference_analysis_ok'] = !empty($state['reference_analysis_ok']);
+    $state['reference_exact'] = !empty($state['reference_exact']);
     $state['reference_body_area_confirmation_required'] = !empty($state['reference_body_area_confirmation_required']);
     $state['deposit_requested'] = !empty($state['deposit_requested']);
     $depositStatus = strtolower(trim((string)($state['deposit_status'] ?? '')));
@@ -11856,6 +11858,7 @@ function studio_whatsapp_build_image_analysis_result(array $decoded, string $det
     $tattooInk = !empty($decoded['tattoo_ink_on_skin_visible']);
     $standaloneArt = !empty($decoded['standalone_art_or_logo_visible']);
     $bodyArea = mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 60);
+    $position = mb_substr(trim((string)($decoded['position'] ?? '')), 0, 80);
     $style = mb_substr(trim((string)($decoded['style'] ?? '')), 0, 60);
     $elements = mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 160);
     $coverage = mb_substr(trim((string)($decoded['coverage'] ?? '')), 0, 100);
@@ -11884,6 +11887,7 @@ function studio_whatsapp_build_image_analysis_result(array $decoded, string $det
         'model' => $model,
         'visual_type' => $visualType,
         'body_area' => $bodyArea,
+        'position' => $position,
         'style' => $style,
         'elements' => $elements,
         'coverage' => $coverage,
@@ -11918,12 +11922,14 @@ function studio_whatsapp_analyze_image_with_nvidia(array $studio, string $absolu
 
     $prompt = 'Analise somente os pixels visiveis desta imagem para um atendimento de estudio de tatuagem no Brasil. '
         . 'Responda exclusivamente com JSON valido e compacto, sem markdown, neste formato: '
-        . '{"human_skin_visible":true,"tattoo_ink_on_skin_visible":false,"standalone_art_or_logo_visible":false,"body_area":"","style":"","elements":"","coverage":"","color_mode":"unknown","safety":"safe"}. '
+        . '{"human_skin_visible":true,"tattoo_ink_on_skin_visible":false,"standalone_art_or_logo_visible":false,"body_area":"","position":"","style":"","elements":"","coverage":"","color_mode":"unknown","safety":"safe"}. '
         . 'human_skin_visible=true apenas se houver corpo/pele humana real visivel. '
         . 'tattoo_ink_on_skin_visible=true apenas se houver tinta de tatuagem aplicada em pele. '
         . 'standalone_art_or_logo_visible=true para desenho, ilustracao, referencia, logo ou arte fora da pele. '
         . 'body_area deve ficar vazio se nao houver corpo humano visivel. '
-        . 'Use portugues do Brasil em body_area, style e elements. '
+        . 'position deve registrar somente uma posição visível ou claramente dedutível, como interno, externo, frontal, posterior, direito ou esquerdo; se não der para saber, deixe vazio. '
+        . 'Se a tatuagem ocupar praticamente toda a área visível de um braço, perna ou costas, indique coverage como fechamento ou área inteira. '
+        . 'Use portugues do Brasil em body_area, position, style e elements. '
         . 'coverage deve descrever somente o que a imagem permite perceber, como "parte da area", "area inteira", "fechamento" ou "indeterminado"; nunca invente centimetros. '
         . 'elements deve ter no maximo 3 itens visiveis separados por virgula. '
         . 'color_mode deve ser black_and_grey, color ou unknown. '
@@ -12906,6 +12912,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
             'tattoo_ink_on_skin_visible' => ['type' => 'boolean'],
             'standalone_art_or_logo_visible' => ['type' => 'boolean'],
             'body_area' => ['type' => 'string'],
+            'position' => ['type' => 'string'],
             'style' => ['type' => 'string'],
             'elements' => ['type' => 'string'],
             'coverage' => ['type' => 'string'],
@@ -12917,6 +12924,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
             'tattoo_ink_on_skin_visible',
             'standalone_art_or_logo_visible',
             'body_area',
+            'position',
             'style',
             'elements',
             'coverage',
@@ -12930,7 +12938,9 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         . 'tattoo_ink_on_skin_visible=true only when tattoo ink is visibly applied to skin. '
         . 'standalone_art_or_logo_visible=true for a drawing, illustration, graphic or logo shown by itself rather than on skin. '
         . 'body_area must be empty when no human body is visible. '
-        . 'Use Brazilian Portuguese for body_area, style, elements and coverage. '
+        . 'position should contain only a visibly identifiable position such as interno, externo, frontal, posterior, direito or esquerdo; leave it empty when uncertain. '
+        . 'If the tattoo fills nearly all of the visible arm, leg or back, set coverage to fechamento or área inteira. '
+        . 'Use Brazilian Portuguese for body_area, position, style, elements and coverage. '
         . 'coverage must describe only visible coverage, such as "parte da área", "área inteira", "fechamento" or "indeterminado"; never invent centimeters. '
         . 'For big cats, distinguish lion (mane), tiger (stripes), and leopard or jaguar (spots). '
         . 'Describe stylized words as lettering; do not guess an English object from decorative text. '
@@ -16382,6 +16392,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         || str_contains(strtolower(trim((string)($newMessage['media_mime'] ?? ''))), 'pdf');
     if ($isReferenceAttachment) {
         $state['reference_received'] = true;
+        $state['reference_exact'] = true;
         $state['reference_analysis_ok'] = true;
         studio_whatsapp_booking_state_add_reference($state, [
             'source' => 'whatsapp_reference',
@@ -16409,27 +16420,49 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         }
         if (is_array($visualAnalysis) && !empty($visualAnalysis['ok'])) {
             $visualBodyArea = trim((string)($visualAnalysis['body_area'] ?? ''));
+            $visualPosition = trim((string)($visualAnalysis['position'] ?? ''));
             $visualStyle = trim((string)($visualAnalysis['style'] ?? ''));
             $visualElements = trim((string)($visualAnalysis['elements'] ?? ''));
             $visualCoverage = trim((string)($visualAnalysis['coverage'] ?? ''));
+            $visualEvidence = $visualBodyArea . ' ' . $visualPosition . ' ' . $visualStyle . ' ' . $visualElements . ' ' . $visualCoverage;
+            $visualEvidencePlain = studio_calendar_remove_accents(mb_strtolower($visualEvidence, 'UTF-8'));
+            $normalizedVisualArea = studio_whatsapp_ai_find_body_area($visualEvidence);
+            $visualAreaLabel = trim((string)($normalizedVisualArea['label'] ?? ''));
+            $visualPositionParts = [];
+            foreach (['interno', 'externo', 'frontal', 'posterior', 'direito', 'esquerdo'] as $positionWord) {
+                if (preg_match('/\b' . preg_quote($positionWord, '/') . '\b/u', $visualEvidencePlain)) {
+                    $visualPositionParts[] = $positionWord;
+                }
+            }
             studio_whatsapp_booking_state_add_reference($state, [
                 'source' => 'whatsapp_vision',
                 'message_id' => $incomingMessageId,
                 'local_message_id' => (int)($newMessage['id'] ?? 0),
                 'summary' => trim(implode('; ', array_filter([
                     $visualBodyArea !== '' ? 'área: ' . $visualBodyArea : '',
+                    $visualPosition !== '' ? 'posição: ' . $visualPosition : '',
                     $visualStyle !== '' ? 'estilo: ' . $visualStyle : '',
                     $visualElements !== '' ? 'elementos: ' . $visualElements : '',
                     $visualCoverage !== '' ? 'cobertura: ' . $visualCoverage : '',
                 ]))) ?: 'Referência visual analisada.',
                 'body_area' => $visualBodyArea,
+                'position' => $visualPosition,
                 'style' => $visualStyle,
                 'elements' => $visualElements,
                 'visual_type' => (string)($visualAnalysis['visual_type'] ?? 'artwork'),
             ]);
             $state['reference_analysis_ok'] = true;
-            if ($visualBodyArea !== '' && trim((string)($state['body_area'] ?? '')) === '') {
+            $state['reference_exact'] = true;
+            if ($visualAreaLabel !== '' && trim((string)($state['body_area'] ?? '')) === '') {
+                $state['body_area'] = $visualAreaLabel;
+            } elseif ($visualBodyArea !== '' && trim((string)($state['body_area'] ?? '')) === '') {
                 $state['body_area'] = $visualBodyArea;
+            }
+            if ($visualPositionParts && trim((string)($state['body_details'] ?? '')) === '') {
+                $state['body_details'] = implode(' ', array_values(array_unique($visualPositionParts))) . ' (igual à referência)';
+            }
+            if ($visualPosition === '' && trim((string)($state['body_details'] ?? '')) === '') {
+                $state['body_details'] = 'igual à referência visual enviada';
             }
             if ($visualStyle !== '' && trim((string)($state['style_preference'] ?? '')) === '') {
                 $state['style_preference'] = $visualStyle;
@@ -16437,8 +16470,16 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             if (($visualAnalysis['color_mode'] ?? '') === 'black_and_grey' && trim((string)($state['style_preference'] ?? '')) === '') {
                 $state['style_preference'] = 'preto e branco';
             }
-            if ($visualCoverage !== '' && trim((string)($state['size_coverage'] ?? '')) === '') {
-                $state['size_coverage'] = $visualCoverage;
+            if (trim((string)($state['size_coverage'] ?? '')) === '') {
+                $coveragePlain = studio_calendar_remove_accents(mb_strtolower($visualCoverage, 'UTF-8'));
+                $areaForCoverage = $visualAreaLabel !== '' ? $visualAreaLabel : $visualBodyArea;
+                if ($areaForCoverage !== '' && preg_match('/\b(fechamento|area inteira|inteir[ao]|complet[ao]|tod[ao])\b/u', $coveragePlain)) {
+                    $state['size_coverage'] = 'fechamento completo de ' . $areaForCoverage;
+                } else {
+                    $state['size_coverage'] = $visualCoverage !== ''
+                        ? 'igual à referência visual (' . $visualCoverage . ')'
+                        : 'igual à referência visual enviada';
+                }
             }
             if ($visualElements !== '' && trim((string)($state['tattoo_idea'] ?? '')) === '') {
                 $state['tattoo_idea'] = $visualElements;
@@ -16450,6 +16491,18 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
     if ($body === '') {
         $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
+    }
+    $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+    if (preg_match('/\b(?:diferente|alterar|mudar|modificar|sem\s+ser\s+igual|parecid[oa]\s+mas)\b/u', $bodyPlain)) {
+        $state['reference_exact'] = false;
+    }
+    if (!empty($state['reference_received']) && $state['reference_exact'] !== false
+        && trim((string)($state['size_coverage'] ?? '')) === '') {
+        $state['size_coverage'] = 'igual à referência visual enviada';
+    }
+    if (!empty($state['reference_received']) && $state['reference_exact'] !== false
+        && trim((string)($state['body_details'] ?? '')) === '') {
+        $state['body_details'] = 'igual à referência visual enviada';
     }
     if (preg_match('/\b(exatamente|igual|mesm[oa])\b.{0,35}\b(imagem|foto|refer[eê]ncia)\b/iu', $body)
         && trim((string)($state['size_coverage'] ?? '')) === '') {
@@ -21361,7 +21414,7 @@ Seu único objetivo nesta conversa é reunir, de forma natural, os dados necess�
 
 Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
 
-Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
+Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição, dimensão, estilo e cor, e não pergunte novamente esses dados. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
 Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou. A confirmação da vaga e a gravação do agendamento são responsabilidades do sistema depois que esta ficha estiver completa.
 
