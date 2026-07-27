@@ -114,6 +114,12 @@ try {
     $expect(substr((string)($appointment['start_time'] ?? ''), 0, 5) === $slotTime, 'O agendamento foi criado em horário diferente do confirmado.');
     $expect((float)($appointment['value'] ?? 0) > 0, 'O agendamento não registrou o valor calculado pela tabela.');
     $expect((float)($appointment['deposit_value'] ?? 0) === 0.0, 'O pré-agendamento não deveria registrar sinal sem comprovante.');
+
+    $conversationAfterBooking = studio_find_whatsapp_conversation($studio, $conversationId) ?: [];
+    $stateAfterBooking = studio_whatsapp_booking_state($conversationAfterBooking);
+    $expect((int)($stateAfterBooking['appointment_id'] ?? 0) === (int)($appointment['id'] ?? 0), 'O estado do WhatsApp não guardou o appointment_id após a confirmação.');
+    $followup = $send('Qual é o endereço do estúdio?', 'pós-agendamento');
+    $expect($contains($followup['reply'], 'estúdio') || $contains($followup['reply'], 'endereço'), 'A IA não continuou a conversa depois de criar o agendamento.');
 } finally {
     foreach (array_unique($createdAppointmentIds) as $appointmentId) {
         if ($appointmentId > 0) {

@@ -17208,6 +17208,9 @@ function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversati
             'ai_last_message_id' => $incomingMessageId,
             'ai_last_at' => date('Y-m-d H:i:s'),
         ]);
+        // A próxima mensagem precisa saber que a reserva já existe para cair
+        // no atendimento pós-agendamento, em vez de reabrir a coleta da ficha.
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
         return [
             'ok' => true,
             'reply' => $sendResult,
