@@ -16985,6 +16985,15 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
     }
     $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+    $pendingReference = (bool)preg_match('/\b(?:refer[eê]ncia|imagem|foto)\b/iu', (string)($state['pending'] ?? ''));
+    $referenceDeclined = (bool)preg_match('/\b(?:nao|não)\s+(?:tenho|possuo|quero)\b|\bsem\s+(?:refer[eê]ncia|imagem|foto)\b|^\s*(?:sem|nenhuma|nao|não)\s*[.!?]*$/iu', $body);
+    if ($referenceDeclined && ($pendingReference || preg_match('/\b(?:refer[eê]ncia|imagem|foto)\b/iu', $body))) {
+        $state['reference_declined'] = true;
+        $state['reference_received'] = false;
+        $state['reference_analysis_ok'] = false;
+        $state['reference_summary'] = '';
+        $state['references'] = [];
+    }
     $detectedBodyArea = studio_whatsapp_ai_find_body_area($body);
     $detectedBodyAreas = studio_whatsapp_ai_find_body_areas($body);
     $currentBodyArea = trim((string)($state['body_area'] ?? ''));
@@ -17366,10 +17375,16 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     if (mb_strlen($currentComparable, 'UTF-8') >= 60 && mb_strlen($previousComparable, 'UTF-8') >= 60) {
         similar_text($currentComparable, $previousComparable, $similarity);
     }
-    if (empty($answer['complete']) && $currentComparable !== '' && $previousComparable !== ''
-        && ($currentComparable === $previousComparable || $similarity >= 88.0)) {
-        $missingFieldsForRetry = array_values((array)($answer['missing_fields'] ?? []));
-        $nextMissing = trim((string)($missingFieldsForRetry[0] ?? ''));
+    $repeatMissingFields = array_values((array)($answer['missing_fields'] ?? []));
+    $repeatMissingField = $actualMissingField !== ''
+        ? $actualMissingField
+        : trim((string)($repeatMissingFields[0] ?? ''));
+    if ($currentComparable !== '' && $previousComparable !== ''
+        && ($currentComparable === $previousComparable || $similarity >= 88.0)
+        && $repeatMissingField !== '') {
+        $nextMissing = $repeatMissingField;
+        $answer['complete'] = false;
+        $answer['missing_fields'] = [$nextMissing];
         $answer['reply_text'] = match (true) {
             preg_match('/nome/i', $nextMissing) === 1 => 'Me confirma seu nome completo, por favor?',
             preg_match('/ideia|desenho/i', $nextMissing) === 1 => 'Me conta o que você quer tatuar.',
