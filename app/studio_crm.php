@@ -7531,7 +7531,7 @@ function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextTex
     foreach (['externo', 'interno'] as $position) {
         foreach (['esquerdo', 'direito'] as $side) {
             $sidePattern = str_starts_with($side, 'esquerd') ? 'esquerd[oa]' : 'direit[oa]';
-            $positionPattern = $position === 'externo' ? 'extern[oa]' : 'intern[oa]';
+            $positionPattern = $position === 'externo' ? '(?:extern[oa]|por\s+fora)' : '(?:intern[oa]|por\s+dentro)';
             $componentPattern = $position === 'externo'
                 ? '/^(?=[\s\S]*\bantebra[cç]o\b.{0,45}\bextern[oa]\b)(?=[\s\S]*\bbra[cç]o\b.{0,45}\bextern[oa]\b)(?=[\s\S]*\bombro\b)(?=[\s\S]*\b' . $sidePattern . '\b)[\s\S]*$/u'
                 : '/^(?=[\s\S]*\bantebra[cç]o\b.{0,45}\bintern[oa]\b)(?=[\s\S]*\bbra[cç]o\b.{0,45}\bintern[oa]\b)(?=[\s\S]*\b' . $sidePattern . '\b)[\s\S]*$/u';
@@ -7541,9 +7541,9 @@ function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextTex
                 'label' => 'fechamento de braço ' . $position . ' ' . $side,
                 'title' => 'Fechamento de braço ' . $position . ' ' . $side,
                 'patterns' => [
-                    '/\b(?:fechamento|fechar)\b.{0,45}\bbra[cç]o\b.{0,45}\b' . $position . '\b.{0,45}\b' . $side . '\b/u',
-                    '/\bbra[cç]o\b.{0,45}\b' . $position . '\b.{0,45}\b' . $side . '\b.{0,45}\b(?:completo|inteiro|fechamento)\b/u',
-                    '/\b(?:fechamento|fechar)\b.{0,45}\bbra[cç]o\b.{0,45}\b' . $side . '\b.{0,45}\b' . $position . '\b/u',
+                    '/\b(?:fechamento|fechar)\b.{0,45}\bbra[cç]o\b.{0,45}\b' . $positionPattern . '\b.{0,45}\b' . $sidePattern . '\b/u',
+                    '/\bbra[cç]o\b.{0,45}\b' . $positionPattern . '\b.{0,45}\b' . $sidePattern . '\b.{0,45}\b(?:completo|inteiro|fechamento)\b/u',
+                    '/\b(?:fechamento|fechar)\b.{0,45}\bbra[cç]o\b.{0,45}\b' . $sidePattern . '\b.{0,45}\b' . $positionPattern . '\b/u',
                     $componentPattern,
                     $closingPattern,
                 ],
@@ -7552,7 +7552,7 @@ function studio_whatsapp_ai_pricing_area_quote(string $rules, string $contextTex
     }
     foreach (['frontal', 'posterior'] as $position) {
         foreach (['esquerda', 'direita'] as $side) {
-            $positionPattern = $position === 'frontal' ? '(?:frontal|extern[oa])' : '(?:posterior|intern[oa])';
+            $positionPattern = $position === 'frontal' ? '(?:frontal|extern[oa]|por\s+fora)' : '(?:posterior|intern[oa]|por\s+dentro)';
             $positionLabel = $position === 'frontal' ? 'externa/frontal' : 'interna/posterior';
             $sidePattern = str_starts_with($side, 'esquerd') ? 'esquerd[oa]' : 'direit[oa]';
             $componentPattern = $position === 'frontal'
@@ -11291,10 +11291,10 @@ function studio_ai_pricing_page_structured_summary(array $state, array $rawIdToR
 
 function studio_ai_pricing_page_extract_structured_summary(string $body): string
 {
-    if (!preg_match('~<script\b[^>]*>(.*?)</script>~isu', $body, $scriptMatch)) {
+    if (!preg_match_all('~<script\b[^>]*>(.*?)</script>~isu', $body, $scriptMatches)) {
         return '';
     }
-    $script = (string)$scriptMatch[1];
+    $script = implode("\n", array_map('strval', $scriptMatches[1]));
     $state = null;
     if (preg_match('~const\s+savedState\s*=\s*(\{.*?\})\s*;~s', $script, $stateMatch)) {
         $decoded = json_decode((string)$stateMatch[1], true);
@@ -11346,7 +11346,33 @@ function studio_ai_pricing_page_extract_structured_summary(string $body): string
         $state['areas'] = $mergedAreas ?: $savedAreas;
     }
 
-    return is_array($state) ? studio_ai_pricing_page_structured_summary($state, $rawIdToRegion, 'HTML da pagina como fallback') : '';
+    // Algumas versões da página pública mantêm as promoções em JavaScript
+    // quando o savedState está vazio. Extraia-as para não perder fechamentos.
+    $fallbackPromos = [];
+    if (preg_match('~(?:let|const)\s+promos\s*=\s*\[(.*?)\];~s', $script, $promosMatch)
+        && preg_match_all('~promo\(\s*[\'\"]([^\'\"]+)[\'\"]\s*,\s*[\'\"]([^\'\"]*)[\'\"]\s*,\s*\[([^\]]*)\]\s*,\s*(0?\.\d+|\d+(?:\.\d+)?)\s*,\s*[\'\"]([^\'\"]+)[\'\"]\s*\)~u', (string)$promosMatch[1], $promoMatches, PREG_SET_ORDER)) {
+        foreach ($promoMatches as $match) {
+            preg_match_all('~[\'\"]([^\'\"]+)[\'\"]~u', (string)$match[3], $idMatches);
+            $title = trim((string)$match[1]);
+            $fallbackPromos[] = [
+                'id' => preg_replace('/[^a-z0-9]+/i', '_', strtolower($title)) ?: 'promocao_' . count($fallbackPromos),
+                'titulo' => $title,
+                'desc' => trim((string)$match[2]),
+                'ids' => array_values(array_filter(array_map('strval', $idMatches[1] ?? []))),
+                'desconto' => (float)$match[4],
+                'view' => (string)$match[5],
+                'ativa' => true,
+            ];
+        }
+    }
+    if (!is_array($state)) {
+        $state = [];
+    }
+    if (!is_array($state['promos'] ?? null) || !$state['promos']) {
+        $state['promos'] = $fallbackPromos;
+    }
+
+    return studio_ai_pricing_page_structured_summary($state, $rawIdToRegion, 'HTML da pagina como fallback');
 }
 
 function studio_ai_pricing_page_extract_text(string $body): string
@@ -11416,6 +11442,37 @@ function studio_ai_pricing_page_json_candidates(string $url): array
     ];
 }
 
+function studio_ai_pricing_page_local_json_path(string $url): string
+{
+    if (!defined('APP_BASE_PATH')) {
+        return '';
+    }
+    $parts = parse_url($url);
+    $path = (string)($parts['path'] ?? '');
+    if ($path === '' || !str_ends_with(strtolower($path), '.json')) {
+        return '';
+    }
+
+    $siteRoot = realpath(dirname(APP_BASE_PATH));
+    if ($siteRoot === false) {
+        return '';
+    }
+    $relativePath = ltrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, rawurldecode($path)), DIRECTORY_SEPARATOR);
+    $candidate = $siteRoot . DIRECTORY_SEPARATOR . $relativePath;
+    if (!is_file($candidate)) {
+        return '';
+    }
+    $realCandidate = realpath($candidate);
+    if ($realCandidate === false) {
+        return '';
+    }
+    $rootPrefix = rtrim(strtolower($siteRoot), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    if (!str_starts_with(strtolower($realCandidate), $rootPrefix)) {
+        return '';
+    }
+    return $realCandidate;
+}
+
 function studio_ai_pricing_page_fetch_json(string $url): array
 {
     if ($url === '' || (!studio_whatsapp_reference_url_allowed($url) && !studio_trusted_local_http_url_allowed($url))) {
@@ -11425,15 +11482,31 @@ function studio_ai_pricing_page_fetch_json(string $url): array
     if (empty($fetch['ok'])) {
         return ['ok' => false, 'error' => (string)($fetch['error'] ?? 'falha ao abrir JSON')];
     }
-    $decoded = json_decode((string)($fetch['body'] ?? ''), true);
-    if (!is_array($decoded)) {
-        return ['ok' => false, 'error' => 'JSON invalido: ' . json_last_error_msg()];
+    $raw = (string)($fetch['body'] ?? '');
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded) || $decoded === []) {
+        $localPath = studio_ai_pricing_page_local_json_path($url);
+        if ($localPath !== '') {
+            $localRaw = file_get_contents($localPath);
+            $localDecoded = is_string($localRaw) ? json_decode($localRaw, true) : null;
+            if (is_array($localDecoded) && $localDecoded !== []) {
+                return [
+                    'ok' => true,
+                    'data' => $localDecoded,
+                    'raw' => (string)$localRaw,
+                    'url' => $url,
+                    'source' => 'arquivo local correspondente à URL configurada',
+                ];
+            }
+        }
+        return ['ok' => false, 'error' => is_array($decoded) ? 'JSON vazio.' : 'JSON invalido: ' . json_last_error_msg()];
     }
     return [
         'ok' => true,
         'data' => $decoded,
-        'raw' => (string)($fetch['body'] ?? ''),
+        'raw' => $raw,
         'url' => (string)($fetch['url'] ?? $url),
+        'source' => 'endpoint remoto',
     ];
 }
 
@@ -11589,7 +11662,8 @@ function studio_ai_pricing_page_context(array $studio, array $settings, array $c
     studio_ai_pricing_page_ensure_schema($studio);
     $cachedSummary = trim((string)($settings['ai_pricing_page_summary'] ?? ''));
     $syncedAt = trim((string)($settings['ai_pricing_page_synced_at'] ?? ''));
-    if ($cachedSummary !== '' && $syncedAt !== '' && strtotime($syncedAt) !== false && (time() - (int)strtotime($syncedAt)) < 6 * 3600) {
+    $cachedSummaryHasPromotions = str_contains($cachedSummary, 'Promocoes ativas:');
+    if ($cachedSummary !== '' && $cachedSummaryHasPromotions && $syncedAt !== '' && strtotime($syncedAt) !== false && (time() - (int)strtotime($syncedAt)) < 6 * 3600) {
         return $cachedSummary;
     }
 
