@@ -89,11 +89,12 @@ try {
     $expect($contains($round['reply'], 'nome'), 'A abertura não pediu o nome do cliente.');
 
     $fullRequest = 'Meu nome é João Pereira. Quero um dragão realista com flores no antebraço esquerdo externo, cerca de 15 cm, preto e branco. Não tenho referência. Quero agendar dia '
-        . date('d/m/Y', strtotime($slotDate)) . ' às ' . $slotTime . ' e o orçamento é R$ 500.';
+        . date('d/m/Y', strtotime($slotDate)) . ' às ' . $slotTime . '.';
     $round = $send($fullRequest, 'ficha completa');
     $reply = $round['reply'];
     $expect($contains($reply, 'agendamento criado') || $contains($reply, 'agendamento'), 'A confirmação final não mencionou o agendamento.');
     $expect($contains($reply, 'joão pereira'), 'A confirmação final não trouxe o nome do cliente.');
+    $expect($contains($reply, 'r$ 500'), 'O orçamento não foi calculado automaticamente pela tabela oficial.');
     $slotTimeLabel = studio_whatsapp_schedule_time_label($slotTime);
     $expect($contains($reply, $slotTime) || $contains($reply, $slotTimeLabel), 'A confirmação final não trouxe o horário escolhido.');
 
@@ -111,6 +112,7 @@ try {
     $expect($appointment !== [], 'Nenhum agendamento foi criado pela IA após comprovante confirmado.');
     $expect((string)($appointment['appointment_date'] ?? '') === $slotDate, 'O agendamento foi criado em data diferente da confirmada.');
     $expect(substr((string)($appointment['start_time'] ?? ''), 0, 5) === $slotTime, 'O agendamento foi criado em horário diferente do confirmado.');
+    $expect((float)($appointment['value'] ?? 0) > 0, 'O agendamento não registrou o valor calculado pela tabela.');
     $expect((float)($appointment['deposit_value'] ?? 0) === 0.0, 'O pré-agendamento não deveria registrar sinal sem comprovante.');
 } finally {
     foreach (array_unique($createdAppointmentIds) as $appointmentId) {

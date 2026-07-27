@@ -11858,6 +11858,7 @@ function studio_whatsapp_build_image_analysis_result(array $decoded, string $det
     $bodyArea = mb_substr(trim((string)($decoded['body_area'] ?? '')), 0, 60);
     $style = mb_substr(trim((string)($decoded['style'] ?? '')), 0, 60);
     $elements = mb_substr(trim((string)($decoded['elements'] ?? '')), 0, 160);
+    $coverage = mb_substr(trim((string)($decoded['coverage'] ?? '')), 0, 100);
     $safety = in_array((string)($decoded['safety'] ?? ''), ['safe', 'sensitive', 'unsafe'], true)
         ? (string)$decoded['safety']
         : 'sensitive';
@@ -11885,6 +11886,7 @@ function studio_whatsapp_build_image_analysis_result(array $decoded, string $det
         'body_area' => $bodyArea,
         'style' => $style,
         'elements' => $elements,
+        'coverage' => $coverage,
         'color_mode' => $detectedColorMode !== 'unknown'
             ? $detectedColorMode
             : (in_array((string)($decoded['color_mode'] ?? ''), ['black_and_grey', 'color', 'unknown'], true)
@@ -11916,12 +11918,13 @@ function studio_whatsapp_analyze_image_with_nvidia(array $studio, string $absolu
 
     $prompt = 'Analise somente os pixels visiveis desta imagem para um atendimento de estudio de tatuagem no Brasil. '
         . 'Responda exclusivamente com JSON valido e compacto, sem markdown, neste formato: '
-        . '{"human_skin_visible":true,"tattoo_ink_on_skin_visible":false,"standalone_art_or_logo_visible":false,"body_area":"","style":"","elements":"","color_mode":"unknown","safety":"safe"}. '
+        . '{"human_skin_visible":true,"tattoo_ink_on_skin_visible":false,"standalone_art_or_logo_visible":false,"body_area":"","style":"","elements":"","coverage":"","color_mode":"unknown","safety":"safe"}. '
         . 'human_skin_visible=true apenas se houver corpo/pele humana real visivel. '
         . 'tattoo_ink_on_skin_visible=true apenas se houver tinta de tatuagem aplicada em pele. '
         . 'standalone_art_or_logo_visible=true para desenho, ilustracao, referencia, logo ou arte fora da pele. '
         . 'body_area deve ficar vazio se nao houver corpo humano visivel. '
         . 'Use portugues do Brasil em body_area, style e elements. '
+        . 'coverage deve descrever somente o que a imagem permite perceber, como "parte da area", "area inteira", "fechamento" ou "indeterminado"; nunca invente centimetros. '
         . 'elements deve ter no maximo 3 itens visiveis separados por virgula. '
         . 'color_mode deve ser black_and_grey, color ou unknown. '
         . 'safety deve ser safe, sensitive ou unsafe. '
@@ -12905,6 +12908,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
             'body_area' => ['type' => 'string'],
             'style' => ['type' => 'string'],
             'elements' => ['type' => 'string'],
+            'coverage' => ['type' => 'string'],
             'color_mode' => ['type' => 'string', 'enum' => ['black_and_grey', 'color', 'unknown']],
             'safety' => ['type' => 'string', 'enum' => ['safe', 'sensitive', 'unsafe']],
         ],
@@ -12915,6 +12919,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
             'body_area',
             'style',
             'elements',
+            'coverage',
             'color_mode',
             'safety',
         ],
@@ -12925,7 +12930,8 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         . 'tattoo_ink_on_skin_visible=true only when tattoo ink is visibly applied to skin. '
         . 'standalone_art_or_logo_visible=true for a drawing, illustration, graphic or logo shown by itself rather than on skin. '
         . 'body_area must be empty when no human body is visible. '
-        . 'Use Brazilian Portuguese for body_area, style and elements. '
+        . 'Use Brazilian Portuguese for body_area, style, elements and coverage. '
+        . 'coverage must describe only visible coverage, such as "parte da área", "área inteira", "fechamento" or "indeterminado"; never invent centimeters. '
         . 'For big cats, distinguish lion (mane), tiger (stripes), and leopard or jaguar (spots). '
         . 'Describe stylized words as lettering; do not guess an English object from decorative text. '
         . 'elements must contain at most 3 visible items separated by commas. '
@@ -16360,6 +16366,16 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
 
     $state = studio_whatsapp_booking_state($conversation);
+    if ((int)($state['appointment_id'] ?? 0) > 0) {
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            'Seu agendamento já está registrado. Se quiser ajustar algum dado, me diga qual informação mudou.',
+            $state,
+            true
+        );
+    }
     $body = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
     $isReferenceAttachment = in_array($messageType, ['image', 'document', 'video'], true)
         || str_starts_with(strtolower(trim((string)($newMessage['media_mime'] ?? ''))), 'image/')
@@ -16382,11 +16398,62 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $body = 'Enviei uma referência visual para a tatuagem.';
         }
     }
+    $visualAnalysis = null;
+    $isImageReference = $messageType === 'image'
+        || str_starts_with(strtolower(trim((string)($newMessage['media_mime'] ?? ''))), 'image/');
+    if ($isImageReference) {
+        try {
+            $visualAnalysis = studio_whatsapp_analyze_image($studio, $newMessage);
+        } catch (Throwable) {
+            $visualAnalysis = null;
+        }
+        if (is_array($visualAnalysis) && !empty($visualAnalysis['ok'])) {
+            $visualBodyArea = trim((string)($visualAnalysis['body_area'] ?? ''));
+            $visualStyle = trim((string)($visualAnalysis['style'] ?? ''));
+            $visualElements = trim((string)($visualAnalysis['elements'] ?? ''));
+            $visualCoverage = trim((string)($visualAnalysis['coverage'] ?? ''));
+            studio_whatsapp_booking_state_add_reference($state, [
+                'source' => 'whatsapp_vision',
+                'message_id' => $incomingMessageId,
+                'local_message_id' => (int)($newMessage['id'] ?? 0),
+                'summary' => trim(implode('; ', array_filter([
+                    $visualBodyArea !== '' ? 'área: ' . $visualBodyArea : '',
+                    $visualStyle !== '' ? 'estilo: ' . $visualStyle : '',
+                    $visualElements !== '' ? 'elementos: ' . $visualElements : '',
+                    $visualCoverage !== '' ? 'cobertura: ' . $visualCoverage : '',
+                ]))) ?: 'Referência visual analisada.',
+                'body_area' => $visualBodyArea,
+                'style' => $visualStyle,
+                'elements' => $visualElements,
+                'visual_type' => (string)($visualAnalysis['visual_type'] ?? 'artwork'),
+            ]);
+            $state['reference_analysis_ok'] = true;
+            if ($visualBodyArea !== '' && trim((string)($state['body_area'] ?? '')) === '') {
+                $state['body_area'] = $visualBodyArea;
+            }
+            if ($visualStyle !== '' && trim((string)($state['style_preference'] ?? '')) === '') {
+                $state['style_preference'] = $visualStyle;
+            }
+            if (($visualAnalysis['color_mode'] ?? '') === 'black_and_grey' && trim((string)($state['style_preference'] ?? '')) === '') {
+                $state['style_preference'] = 'preto e branco';
+            }
+            if ($visualCoverage !== '' && trim((string)($state['size_coverage'] ?? '')) === '') {
+                $state['size_coverage'] = $visualCoverage;
+            }
+            if ($visualElements !== '' && trim((string)($state['tattoo_idea'] ?? '')) === '') {
+                $state['tattoo_idea'] = $visualElements;
+            }
+        }
+    }
     if ($body === '') {
         $body = trim((string)($newMessage['transcricao'] ?? $newMessage['transcript'] ?? ''));
     }
     if ($body === '') {
         $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
+    }
+    if (preg_match('/\b(exatamente|igual|mesm[oa])\b.{0,35}\b(imagem|foto|refer[eê]ncia)\b/iu', $body)
+        && trim((string)($state['size_coverage'] ?? '')) === '') {
+        $state['size_coverage'] = 'igual à referência visual enviada';
     }
 
     $historyStmt = studio_db($studio)->prepare(
@@ -16424,7 +16491,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'style_preference' => (string)($state['style_preference'] ?? ''),
         'preferred_date' => (string)($state['preferred_date'] ?? $state['schedule_preference'] ?? ''),
         'preferred_time' => (string)($state['preferred_time'] ?? ($state['selected_slot']['time'] ?? '')),
-        'quote' => (string)($quoteState['label'] ?? $quoteState['price'] ?? ''),
+        'quote' => (string)($quoteState['label'] ?? $quoteState['price'] ?? 'calcular pela tabela oficial'),
     ];
     if (!empty($state['reference_received']) && trim($naturalState['reference']) === '') {
         $naturalState['reference'] = 'referência visual recebida do cliente';
@@ -16439,6 +16506,14 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     ]);
     if (empty($answer['ok'])) {
         return $answer + ['ok' => false];
+    }
+
+    $priorCustomerMessages = count(array_filter($history, static fn(array $item): bool => ($item['role'] ?? '') === 'user'));
+    if ($priorCustomerMessages <= 1 && empty($answer['complete'])) {
+        $firstReply = trim((string)$answer['reply_text']);
+        if ($firstReply !== '' && !preg_match('/^(oi|olá|ola|bom dia|boa tarde|boa noite)\b/iu', $firstReply)) {
+            $answer['reply_text'] = 'Oi! Vamos cuidar do seu agendamento. ' . $firstReply;
+        }
     }
 
     studio_whatsapp_ai_apply_natural_intake_summary($state, (array)($answer['booking_summary'] ?? []));
@@ -16529,7 +16604,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $studio,
             $conversation,
             $incomingMessageId,
-            'Já tenho os dados da tatuagem. Só falta confirmar o orçamento para eu criar o agendamento.',
+            'Já reuni os dados, mas não encontrei uma combinação correspondente na tabela oficial para calcular o valor. Não vou inventar um preço; o pedido ficou pendente para conferência.',
             $state,
             false
         );
@@ -16594,7 +16669,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             'Referência: ' . (trim((string)($state['reference_summary'] ?? '')) ?: 'não informada'),
             'Parte do corpo: ' . trim((string)($summary['body_area'] ?? $state['body_area'] ?? '')),
             'Lado/posição: ' . trim((string)($summary['body_details'] ?? $state['body_details'] ?? '')),
-            'Tamanho/cobertura: ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')),
+            'Dimensão/área ocupada: ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')),
             'Estilo/cor: ' . trim((string)($summary['style_preference'] ?? $state['style_preference'] ?? '')),
         ];
         $primaryReference = studio_whatsapp_booking_primary_reference($state);
@@ -16655,7 +16730,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         . '*Ideia:* ' . trim((string)($summary['tattoo_idea'] ?? $state['tattoo_idea'] ?? '')) . "\n"
         . '*Parte do corpo:* ' . trim((string)($summary['body_area'] ?? $state['body_area'] ?? '')) . "\n"
         . '*Lado/posição:* ' . trim((string)($summary['body_details'] ?? $state['body_details'] ?? '')) . "\n"
-        . '*Tamanho/cobertura:* ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')) . "\n"
+        . '*Dimensão/área ocupada:* ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')) . "\n"
         . '*Estilo/cor:* ' . trim((string)($summary['style_preference'] ?? $state['style_preference'] ?? '')) . "\n"
         . '*Referência:* ' . $referenceLabel . "\n"
         . '*Orçamento:* ' . format_money($value) . "\n\n"
@@ -21185,7 +21260,7 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'reference' => 'referência ou confirmação de que não há referência',
         'body_area' => 'parte do corpo',
         'body_details' => 'lado ou posição na área',
-        'size_coverage' => 'tamanho ou cobertura',
+        'size_coverage' => 'dimensão aproximada ou quanto da área será ocupado',
         'style_preference' => 'estilo e cor',
         'preferred_date' => 'dia desejado',
         'preferred_time' => 'horário desejado',
@@ -21264,9 +21339,9 @@ Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “qui
 Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou. A confirmação da vaga e a gravação do agendamento são responsabilidades do sistema depois que esta ficha estiver completa.
 
 A ficha precisa reunir estes campos: {$fieldGuide}.
-Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, tamanho/cobertura, estilo/cor, dia, horário e orçamento são necessários para considerar a coleta completa. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
+Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, dimensão/área ocupada, estilo/cor e dia/horário são necessários para considerar a coleta completa. O orçamento é calculado pela tabela oficial, não é perguntado ao cliente. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
 
-Adjetivos e descrições também valem como dados: “dragão realista” preenche ideia e estilo realista; “preto e branco” preenche estilo/cor; “colorido” preenche estilo/cor; “15 cm”, “pequena” ou “fechamento” preenche tamanho/cobertura. “Não tenho referência” preenche a referência como ausência confirmada. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Tamanho/cobertura, Estilo/cor, Dia, Horário e Orçamento.
+Adjetivos e descrições também valem como dados: “dragão realista” preenche ideia e estilo realista; “preto e branco” preenche estilo/cor; “colorido” preenche estilo/cor; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Estilo/cor, Dia, Horário e Orçamento.
 
 Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","style_preference":"","preferred_date":"","preferred_time":"","quote":""}}.
 A configuração efetiva desta página é {$effectiveRuntime}.
