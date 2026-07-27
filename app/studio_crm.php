@@ -16335,6 +16335,393 @@ function studio_meta_ads_insights_summary(array $studio, int $days = 30): array
     ];
 }
 
+/**
+ * Caminho único do atendimento em produção: coleta natural, valida a vaga e
+ * grava um pré-agendamento. Não usa playbook, handoff, botões ou mensagens
+ * comerciais intermediárias.
+ */
+function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversation, array $newMessage): array
+{
+    $conversationId = (int)($conversation['id'] ?? 0);
+    $incomingMessageId = trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? $newMessage['wamid'] ?? ''));
+    $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
+    if ($messageType === 'sticker') {
+        return ['ok' => true, 'skipped' => true, 'reply_text' => ''];
+    }
+
+    if ($incomingMessageId !== '') {
+        $storedMessageStmt = studio_db($studio)->prepare('SELECT * FROM whatsapp_messages WHERE message_id = ? LIMIT 1');
+        $storedMessageStmt->execute([$incomingMessageId]);
+        $storedMessage = $storedMessageStmt->fetch();
+        if (is_array($storedMessage)) {
+            $newMessage = array_merge($storedMessage, $newMessage);
+            $messageType = strtolower(trim((string)($newMessage['message_type'] ?? $messageType)));
+        }
+    }
+
+    $state = studio_whatsapp_booking_state($conversation);
+    $body = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? ''));
+    $isReferenceAttachment = in_array($messageType, ['image', 'document', 'video'], true)
+        || str_starts_with(strtolower(trim((string)($newMessage['media_mime'] ?? ''))), 'image/')
+        || str_contains(strtolower(trim((string)($newMessage['media_mime'] ?? ''))), 'pdf');
+    if ($isReferenceAttachment) {
+        $state['reference_received'] = true;
+        $state['reference_analysis_ok'] = true;
+        studio_whatsapp_booking_state_add_reference($state, [
+            'source' => 'whatsapp_reference',
+            'message_id' => $incomingMessageId,
+            'local_message_id' => (int)($newMessage['id'] ?? 0),
+            'media_url' => (string)($newMessage['media_url'] ?? ''),
+            'media_file_path' => (string)($newMessage['media_file_path'] ?? ''),
+            'media_file_name' => (string)($newMessage['media_file_name'] ?? ''),
+            'media_mime' => (string)($newMessage['media_mime'] ?? ''),
+            'summary' => 'Referência enviada pelo cliente.',
+            'visual_type' => $messageType,
+        ]);
+        if ($body === '') {
+            $body = 'Enviei uma referência visual para a tatuagem.';
+        }
+    }
+    if ($body === '') {
+        $body = trim((string)($newMessage['transcricao'] ?? $newMessage['transcript'] ?? ''));
+    }
+    if ($body === '') {
+        $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
+    }
+
+    $historyStmt = studio_db($studio)->prepare(
+        'SELECT direction, body, transcricao, transcript, message_type, context_preview, sent_at
+         FROM whatsapp_messages WHERE conversation_id = ? ORDER BY id ASC'
+    );
+    $historyStmt->execute([$conversationId]);
+    $history = [];
+    foreach (array_slice($historyStmt->fetchAll() ?: [], -100) as $item) {
+        $content = trim((string)($item['body'] ?? ''));
+        if ($content === '') {
+            $content = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
+        }
+        if ($content === '') {
+            $content = '[' . trim((string)($item['message_type'] ?? 'mensagem')) . ']';
+        }
+        $contextPreview = trim((string)($item['context_preview'] ?? ''));
+        if ($contextPreview !== '') {
+            $content = 'respondendo a "' . mb_substr($contextPreview, 0, 160, 'UTF-8') . '": ' . $content;
+        }
+        $history[] = [
+            'role' => strtolower((string)($item['direction'] ?? 'in')) === 'out' ? 'assistant' : 'user',
+            'content' => mb_substr($content, 0, 3500, 'UTF-8'),
+        ];
+    }
+
+    $quoteState = is_array($state['quote'] ?? null) ? $state['quote'] : [];
+    $naturalState = [
+        'customer_name' => (string)($state['customer_name'] ?? ''),
+        'tattoo_idea' => (string)($state['tattoo_idea'] ?? ''),
+        'reference' => (string)($state['reference_summary'] ?? ''),
+        'body_area' => (string)($state['body_area'] ?? ''),
+        'body_details' => (string)($state['body_details'] ?? $state['body_position'] ?? $state['body_side'] ?? ''),
+        'size_coverage' => (string)($state['size_coverage'] ?? ''),
+        'style_preference' => (string)($state['style_preference'] ?? ''),
+        'preferred_date' => (string)($state['preferred_date'] ?? $state['schedule_preference'] ?? ''),
+        'preferred_time' => (string)($state['preferred_time'] ?? ($state['selected_slot']['time'] ?? '')),
+        'quote' => (string)($quoteState['label'] ?? $quoteState['price'] ?? ''),
+    ];
+    if (!empty($state['reference_received']) && trim($naturalState['reference']) === '') {
+        $naturalState['reference'] = 'referência visual recebida do cliente';
+    }
+
+    $settings = studio_settings($studio);
+    $config = studio_openai_config($studio);
+    $pricingContext = studio_ai_pricing_page_context($studio, $settings, $config);
+    $answer = studio_ai_free_chat_answer($studio, $history, $body, $naturalState, [
+        'tabela_oficial_de_orcamento' => $pricingContext,
+        'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
+    ]);
+    if (empty($answer['ok'])) {
+        return $answer + ['ok' => false];
+    }
+
+    studio_whatsapp_ai_apply_natural_intake_summary($state, (array)($answer['booking_summary'] ?? []));
+    $state['active'] = true;
+    $state['stage'] = 'briefing';
+    $state['pending'] = (string)($answer['missing_fields'][0] ?? '');
+    if (empty($answer['complete'])) {
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, (string)$answer['reply_text'], $state, false);
+    }
+
+    $summary = (array)($answer['booking_summary'] ?? []);
+    $dateText = trim((string)($summary['preferred_date'] ?? $state['schedule_preference'] ?? ''));
+    $timeText = trim((string)($summary['preferred_time'] ?? ''));
+    $dateObject = null;
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateText)) {
+        $dateObject = DateTimeImmutable::createFromFormat('!Y-m-d', $dateText, new DateTimeZone('America/Sao_Paulo')) ?: null;
+    }
+    if (!$dateObject) {
+        $dateObject = studio_whatsapp_ai_parse_natural_date_pt($dateText);
+    }
+    if (!$dateObject && ($slotFromText = studio_whatsapp_ai_parse_offered_slot($dateText . ' ' . $timeText))) {
+        $dateText = (string)$slotFromText['date'];
+        $timeText = (string)$slotFromText['time'];
+        $dateObject = DateTimeImmutable::createFromFormat('!Y-m-d', $dateText, new DateTimeZone('America/Sao_Paulo')) ?: null;
+    }
+    $date = $dateObject instanceof DateTimeImmutable ? $dateObject->format('Y-m-d') : '';
+    $time = studio_whatsapp_ai_extract_time_choice($timeText !== '' ? $timeText : $dateText);
+    if ($time === '' && is_array($state['selected_slot'] ?? null)) {
+        $time = substr((string)($state['selected_slot']['time'] ?? ''), 0, 5);
+    }
+    if ($date === '' || !preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $time)) {
+        $state['pending'] = $date === '' ? 'dia desejado' : 'horário desejado';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            $date === '' ? 'Só falta me confirmar o dia que você quer.' : 'Só falta me confirmar o horário que você quer.',
+            $state,
+            false
+        );
+    }
+    if (!studio_schedule_slot_is_available($studio, $date, $time)) {
+        $state['schedule_preference'] = trim($dateText . ' ' . $timeText);
+        $state['pending'] = 'outro dia e horário disponíveis';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            'Esse horário não está livre na agenda. Me diga outro dia e horário que você prefere.',
+            $state,
+            false
+        );
+    }
+
+    $quoteText = trim((string)($summary['quote'] ?? ''));
+    $value = 0.0;
+    if (preg_match('/(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:[,.][0-9]{2})?)/iu', $quoteText, $quoteMatch)) {
+        $value = money_to_float((string)$quoteMatch[1]);
+    }
+    if ($value <= 0 && $pricingContext !== '') {
+        $pricingInput = implode(' | ', [
+            (string)($summary['tattoo_idea'] ?? ''),
+            (string)($summary['body_area'] ?? ''),
+            (string)($summary['body_details'] ?? ''),
+            (string)($summary['size_coverage'] ?? ''),
+            (string)($summary['style_preference'] ?? ''),
+        ]);
+        $calculatedQuote = studio_whatsapp_ai_pricing_area_quote($pricingContext, $pricingInput);
+        $value = (float)($calculatedQuote['amount'] ?? 0);
+        if ($value > 0) {
+            $quoteText = (string)($calculatedQuote['price'] ?? format_money($value));
+            $state['quote'] = [
+                'amount' => $value,
+                'price' => $quoteText,
+                'label' => (string)($calculatedQuote['label'] ?? $quoteText),
+                'description' => 'Calculado pela tabela oficial do orçamento.',
+                'source' => 'orcamento-data.json',
+            ];
+        }
+    }
+    if ($value <= 0) {
+        $state['pending'] = 'orçamento confirmado';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            'Já tenho os dados da tatuagem. Só falta confirmar o orçamento para eu criar o agendamento.',
+            $state,
+            false
+        );
+    }
+
+    $leadId = (int)($conversation['lead_id'] ?? 0);
+    $customerId = (int)($conversation['customer_id'] ?? 0);
+    $customerName = trim((string)($summary['customer_name'] ?? $state['customer_name'] ?? 'Cliente WhatsApp'));
+    if ($leadId <= 0 && $customerId <= 0) {
+        try {
+            $profile = studio_update_whatsapp_profile($studio, [
+                'conversation_id' => $conversationId,
+                'name' => $customerName,
+                'phone' => (string)($conversation['phone'] ?? ''),
+                'create_customer' => true,
+                'create_lead' => true,
+                'attendance_mode' => 'bot',
+            ]);
+        } catch (Throwable) {
+            $state['pending'] = 'cadastro do cliente';
+            studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+            return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, 'Já tenho os dados, mas não consegui salvar o cadastro do cliente agora.', $state, false);
+        }
+        $leadId = (int)($profile['lead_id'] ?? 0);
+        $customerId = (int)($profile['customer_id'] ?? 0);
+    }
+    $artistId = (int)(default_artist_id($studio) ?? 0);
+    if ($artistId <= 0 || ($leadId <= 0 && $customerId <= 0)) {
+        $state['pending'] = 'vínculo do cliente e tatuador';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            'Reuni todas as informações, mas ainda não consegui vincular o cliente e o tatuador para gravar a agenda.',
+            $state,
+            false
+        );
+    }
+
+    $existingId = (int)($state['appointment_id'] ?? 0);
+    if ($existingId <= 0) {
+        $duplicateSql = 'SELECT id FROM appointments WHERE appointment_date = ? AND start_time = ? AND status NOT IN ("cancelado", "falta", "finalizado")';
+        $duplicateParams = [$date, $time];
+        if ($leadId > 0) {
+            $duplicateSql .= ' AND lead_id = ?';
+            $duplicateParams[] = $leadId;
+        } elseif ($customerId > 0) {
+            $duplicateSql .= ' AND customer_id = ?';
+            $duplicateParams[] = $customerId;
+        }
+        $duplicateSql .= ' ORDER BY id DESC LIMIT 1';
+        $duplicateStmt = studio_db($studio)->prepare($duplicateSql);
+        $duplicateStmt->execute($duplicateParams);
+        $existingId = (int)($duplicateStmt->fetchColumn() ?: 0);
+    }
+    if ($existingId <= 0) {
+        $references = array_values(array_filter((array)($state['references'] ?? []), static fn($item): bool => is_array($item)));
+        $descriptionLines = [
+            'Pré-agendamento criado automaticamente pelo WhatsApp IA.',
+            'Ideia: ' . trim((string)($summary['tattoo_idea'] ?? $state['tattoo_idea'] ?? '')),
+            'Referência: ' . (trim((string)($state['reference_summary'] ?? '')) ?: 'não informada'),
+            'Parte do corpo: ' . trim((string)($summary['body_area'] ?? $state['body_area'] ?? '')),
+            'Lado/posição: ' . trim((string)($summary['body_details'] ?? $state['body_details'] ?? '')),
+            'Tamanho/cobertura: ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')),
+            'Estilo/cor: ' . trim((string)($summary['style_preference'] ?? $state['style_preference'] ?? '')),
+        ];
+        $primaryReference = studio_whatsapp_booking_primary_reference($state);
+        try {
+            $existingId = studio_save_appointment($studio, [
+                'customer_id' => $customerId,
+                'lead_id' => $leadId,
+                'artist_id' => $artistId,
+                'title' => 'Tatuagem - ' . $customerName,
+                'description' => implode("\n", $descriptionLines),
+                'appointment_date' => $date,
+                'start_time' => $time,
+                'status' => 'pre_agendado',
+                'value' => number_format($value, 2, '.', ''),
+                'deposit_value' => '0.00',
+                'source' => 'WhatsApp',
+                'import_source' => 'whatsapp_ai_simple_booking',
+                'raw_title' => 'WhatsApp IA - conversa ' . $conversationId,
+                'reference_image_path' => (string)($primaryReference['media_file_path'] ?? ''),
+                'reference_image_name' => (string)($primaryReference['media_file_name'] ?? ''),
+                'reference_image_mime' => (string)($primaryReference['media_mime'] ?? ''),
+                'reference_images' => $references,
+            ]);
+        } catch (Throwable $exception) {
+            $state['pending'] = 'gravação do agendamento';
+            studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+            return studio_whatsapp_ai_simple_booking_send(
+                $studio,
+                $conversation,
+                $incomingMessageId,
+                'Já reuni tudo, mas não consegui gravar esse horário agora. O horário pode ter sido ocupado neste instante; me diga outra opção para eu tentar novamente.',
+                $state,
+                false
+            );
+        }
+    }
+
+    $state['appointment_id'] = $existingId;
+    $state['selected_slot'] = ['date' => $date, 'time' => $time, 'source' => 'simple_booking'];
+    $state['slot_confirmed'] = true;
+    $state['quote'] = array_merge((array)($state['quote'] ?? []), [
+        'amount' => $value,
+        'price' => $quoteText !== '' ? $quoteText : format_money($value),
+        'label' => $quoteText !== '' ? $quoteText : format_money($value),
+        'source' => 'orcamento-data.json',
+    ]);
+    $state['stage'] = 'completed';
+    $state['pending'] = '';
+    $state['active'] = false;
+    studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+    $referenceLabel = count((array)($state['references'] ?? [])) > 0
+        ? count((array)$state['references']) . ' referência(s) recebida(s)'
+        : 'não informada';
+    $final = "*Agendamento criado!*\n\n"
+        . '*Cliente:* ' . $customerName . "\n"
+        . '*Dia:* ' . studio_whatsapp_schedule_date_label($date) . "\n"
+        . '*Horário:* ' . studio_whatsapp_schedule_time_label($time) . "\n"
+        . '*Ideia:* ' . trim((string)($summary['tattoo_idea'] ?? $state['tattoo_idea'] ?? '')) . "\n"
+        . '*Parte do corpo:* ' . trim((string)($summary['body_area'] ?? $state['body_area'] ?? '')) . "\n"
+        . '*Lado/posição:* ' . trim((string)($summary['body_details'] ?? $state['body_details'] ?? '')) . "\n"
+        . '*Tamanho/cobertura:* ' . trim((string)($summary['size_coverage'] ?? $state['size_coverage'] ?? '')) . "\n"
+        . '*Estilo/cor:* ' . trim((string)($summary['style_preference'] ?? $state['style_preference'] ?? '')) . "\n"
+        . '*Referência:* ' . $referenceLabel . "\n"
+        . '*Orçamento:* ' . format_money($value) . "\n\n"
+        . 'O registro ficou como pré-agendado para a equipe conferir.';
+    return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $final, $state, true);
+}
+
+function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversation, string $incomingMessageId, string $replyText, array $state, bool $completed): array
+{
+    $conversationId = (int)($conversation['id'] ?? 0);
+    $replyText = trim($replyText);
+    if ($replyText === '') {
+        return ['ok' => true, 'reply_text' => '', 'skipped' => true];
+    }
+    try {
+        $aiDryRun = filter_var((string)(getenv('STUDIO_WHATSAPP_AI_DRY_RUN') ?: ''), FILTER_VALIDATE_BOOLEAN);
+        if ($aiDryRun) {
+            $sendResult = studio_record_whatsapp_message($studio, [
+                'conversation_id' => $conversationId,
+                'phone' => (string)($conversation['phone'] ?? ''),
+                'body' => $replyText,
+                'message_type' => 'texto',
+                'sender_type' => 'bot',
+                'from_me' => true,
+                'message_id' => 'dry-simple-ai-' . $conversationId . '-' . time() . '-' . random_int(1000, 9999),
+                'timestamp' => time(),
+            ]);
+            $sendResult['dry_run'] = true;
+        } else {
+            $sendResult = studio_send_whatsapp_message($studio, [
+                'conversation_id' => $conversationId,
+                'phone' => (string)($conversation['phone'] ?? ''),
+                'message' => $replyText,
+                'senderType' => 'bot',
+                'context_message_id' => $incomingMessageId,
+            ]);
+        }
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => $conversationId,
+            'attendance_mode' => 'bot',
+            'needs_human' => 0,
+            'ai_last_status' => $completed ? 'Agendamento criado pela IA' : 'IA coletando dados do agendamento',
+            'ai_last_message' => $replyText,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return [
+            'ok' => true,
+            'reply' => $sendResult,
+            'reply_text' => $replyText,
+            'complete' => $completed,
+            'appointment_id' => (int)($state['appointment_id'] ?? 0),
+            'needs_human' => false,
+        ];
+    } catch (Throwable $exception) {
+        $status = 'IA sem resposta: ' . mb_substr($exception->getMessage(), 0, 160, 'UTF-8');
+        studio_update_whatsapp_conversation($studio, [
+            'conversation_id' => $conversationId,
+            'ai_last_status' => $status,
+            'ai_last_message_id' => $incomingMessageId,
+            'ai_last_at' => date('Y-m-d H:i:s'),
+        ]);
+        return ['ok' => false, 'error' => $status, 'ai_last_message_id' => $incomingMessageId];
+    }
+}
+
 function studio_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
     $settings = studio_settings($studio);
@@ -16366,6 +16753,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
         return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
+    }
+    if ($freestyleMode) {
+        return studio_whatsapp_ai_simple_booking_reply($studio, $conversation, $newMessage);
     }
     $incomingTypeForAck = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $incomingMimeForAck = strtolower(trim((string)($newMessage['media_mime'] ?? '')));
@@ -20832,7 +21222,7 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'endereco_cadastrado' => studio_whatsapp_studio_address($studio),
         'dias_de_atendimento_configurados' => studio_schedule_days($studio),
         'horarios_configurados' => studio_schedule_slots($studio),
-        'observacao' => 'Esta tela coleta dados; nao confirma disponibilidade e nao cria agendamento automaticamente.',
+        'observacao' => 'A IA apenas extrai e organiza os dados; em produção, o sistema confirma a vaga e cria o agendamento quando a ficha estiver completa.',
     ];
     foreach ($additionalContext as $contextKey => $contextValue) {
         if (!is_string($contextKey) || $contextKey === '') {
@@ -20867,16 +21257,16 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
 Você é uma atendente humana de um estúdio de tatuagem no Brasil.
 Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
 
-Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô.
+Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
 
 Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
-Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. A tela não confirma a vaga nem cria a agenda. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou.
+Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou. A confirmação da vaga e a gravação do agendamento são responsabilidades do sistema depois que esta ficha estiver completa.
 
 A ficha precisa reunir estes campos: {$fieldGuide}.
 Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, tamanho/cobertura, estilo/cor, dia, horário e orçamento são necessários para considerar a coleta completa. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
 
-Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Tamanho/cobertura, Estilo/cor, Dia, Horário e Orçamento.
+Adjetivos e descrições também valem como dados: “dragão realista” preenche ideia e estilo realista; “preto e branco” preenche estilo/cor; “colorido” preenche estilo/cor; “15 cm”, “pequena” ou “fechamento” preenche tamanho/cobertura. “Não tenho referência” preenche a referência como ausência confirmada. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Tamanho/cobertura, Estilo/cor, Dia, Horário e Orçamento.
 
 Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","style_preference":"","preferred_date":"","preferred_time":"","quote":""}}.
 A configuração efetiva desta página é {$effectiveRuntime}.
@@ -20937,6 +21327,69 @@ TXT;
         if ($candidate !== '') {
             $state[$field] = mb_substr($candidate, 0, 600, 'UTF-8');
         }
+    }
+    // A resposta estruturada pode deixar passar um fato que já está explícito
+    // na mensagem. Estas inferências genéricas evitam uma pergunta artificial
+    // sem amarrar o atendimento a um desenho ou cliente específico.
+    $userEvidence = $message;
+    foreach ($safeHistory as $historyItem) {
+        if (($historyItem['role'] ?? '') === 'user') {
+            $userEvidence .= "\n" . (string)($historyItem['content'] ?? '');
+        }
+    }
+    $evidencePlain = studio_calendar_remove_accents(mb_strtolower($userEvidence, 'UTF-8'));
+    if (trim($state['customer_name']) === '') {
+        $nameCandidate = studio_whatsapp_ai_extract_customer_name($userEvidence);
+        if ($nameCandidate !== '') {
+            $state['customer_name'] = $nameCandidate;
+        }
+    }
+    if (trim($state['body_area']) === '') {
+        $areaCandidate = studio_whatsapp_ai_find_body_area($userEvidence);
+        if (trim((string)($areaCandidate['label'] ?? '')) !== '') {
+            $state['body_area'] = (string)$areaCandidate['label'];
+        }
+    }
+    if (trim($state['reference']) === '' && preg_match('/\b(nao\s+tenho|sem\s+referencia|nenhuma\s+referencia|nao\s+possuo)\b/u', $evidencePlain)) {
+        $state['reference'] = 'não tenho referência';
+    }
+    if (trim($state['style_preference']) === '') {
+        $styleParts = [];
+        foreach (['realista', 'hiper-realista', 'fine line', 'blackwork', 'old school', 'cartoon', 'minimalista', 'oriental', 'tribal', 'aquarela'] as $styleWord) {
+            if (str_contains($evidencePlain, studio_calendar_remove_accents($styleWord))) {
+                $styleParts[] = $styleWord;
+            }
+        }
+        if (preg_match('/\b(preto\s+e\s+branco|preto\s*\/\s*branco|p\s*&\s*b)\b/u', $evidencePlain)) {
+            $styleParts[] = 'preto e branco';
+        } elseif (preg_match('/\b(colorid[ao]|colorida|colorido)\b/u', $evidencePlain)) {
+            $styleParts[] = 'colorido';
+        }
+        if ($styleParts) {
+            $state['style_preference'] = implode(', ', array_values(array_unique($styleParts)));
+        }
+    }
+    if (trim($state['size_coverage']) === '') {
+        if (preg_match('/\b\d{1,3}\s*(?:cm|centimetros?|centímetros?)\b/iu', $userEvidence, $sizeMatch)) {
+            $state['size_coverage'] = trim((string)$sizeMatch[0]);
+        } elseif (preg_match('/\b(pequen[ao]|medi[ao]|grand[ea]|fechamento|inteir[ao]|complet[ao])\b/iu', $evidencePlain, $sizeMatch)) {
+            $state['size_coverage'] = trim((string)$sizeMatch[1]);
+        }
+    }
+    if (trim($state['preferred_date']) === '') {
+        $naturalDate = studio_whatsapp_ai_parse_natural_date_pt($message);
+        if ($naturalDate instanceof DateTimeImmutable) {
+            $state['preferred_date'] = $naturalDate->format('d/m/Y');
+        }
+    }
+    if (trim($state['preferred_time']) === '') {
+        $naturalTime = studio_whatsapp_ai_extract_time_choice($message);
+        if ($naturalTime !== '') {
+            $state['preferred_time'] = $naturalTime;
+        }
+    }
+    if (trim($state['quote']) === '' && preg_match('/\br\$\s*[0-9][0-9.,]*/iu', $userEvidence, $quoteMatch)) {
+        $state['quote'] = trim((string)$quoteMatch[0]);
     }
     $missing = [];
     foreach ($fields as $field) {

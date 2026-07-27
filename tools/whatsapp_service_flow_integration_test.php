@@ -85,41 +85,14 @@ try {
         break;
     }
     $expect($slotDate !== '' && $slotTime !== '', 'Não há vaga livre na agenda para executar o teste de ponta a ponta.');
-    $slotRequest = 'Quero dia ' . date('d/m/Y', strtotime($slotDate)) . ' às ' . $slotTime;
-
     $round = $send('Oi', 'abertura');
-    $expect($contains($round['reply'], 'nome completo'), 'A abertura não iniciou pelo nome.');
+    $expect($contains($round['reply'], 'nome'), 'A abertura não pediu o nome do cliente.');
 
-    $round = $send('Meu nome é João Pereira', 'nome');
-    $expect($contains($round['reply'], 'quer tatuar'), 'A integração não avançou para a ideia.');
-
-    $round = $send('Quero um dragão realista com flores', 'ideia');
-    $expect($contains($round['reply'], 'parte do corpo'), 'A integração não avançou para área do corpo.');
-
-    $round = $send('Onde fica o estúdio?', 'dúvida lateral');
-    $expect($contains($round['reply'], 'rua catende'), 'A dúvida lateral de endereço não foi respondida.');
-    $expect($contains($round['reply'], 'parte do corpo'), 'O roteiro não retomou a pergunta de área após o endereço.');
-
-    $round = $send('antebraço esquerdo externo', 'área');
-    $expect($contains($round['reply'], 'cobrir'), 'A integração não avançou para cobertura.');
-
-    $round = $send('não', 'sem cobertura');
-    $expect($contains($round['reply'], 'colorido') || $contains($round['reply'], 'preto'), 'A integração não avançou para estilo/cor.');
-
-    $round = $send('preto e branco', 'estilo');
-    $expect($contains($round['reply'], 'dia') && $contains($round['reply'], 'horário'), 'A integração não avançou para escolha de vaga.');
-
-    $round = $send($slotRequest, 'vaga real');
-    $expect(str_contains($round['reply'], 'R$'), 'A integração não apresentou orçamento antes de confirmar a vaga.');
-    $expect($contains($round['reply'], 'funcionam para você'), 'A integração não pediu confirmação da vaga.');
-
-    $round = $send('Sim, funciona', 'confirmar vaga');
-    $expect($contains($round['reply'], 'pix') && $contains($round['reply'], 'comprovante'), 'A integração não pediu Pix e comprovante depois da confirmação.');
-
-    $proofText = 'Comprovante Pix R$ 50,00 para 363.262.368-60 em nome de Daniel Araújo da Silva.';
-    $round = $send($proofText, 'comprovante PDF', 'document', 'application/pdf', 'comprovante.pdf');
+    $fullRequest = 'Meu nome é João Pereira. Quero um dragão realista com flores no antebraço esquerdo externo, cerca de 15 cm, preto e branco. Não tenho referência. Quero agendar dia '
+        . date('d/m/Y', strtotime($slotDate)) . ' às ' . $slotTime . ' e o orçamento é R$ 500.';
+    $round = $send($fullRequest, 'ficha completa');
     $reply = $round['reply'];
-    $expect($contains($reply, 'agendamento') || $contains($reply, 'agendado'), 'A confirmação final não mencionou o agendamento.');
+    $expect($contains($reply, 'agendamento criado') || $contains($reply, 'agendamento'), 'A confirmação final não mencionou o agendamento.');
     $expect($contains($reply, 'joão pereira'), 'A confirmação final não trouxe o nome do cliente.');
     $slotTimeLabel = studio_whatsapp_schedule_time_label($slotTime);
     $expect($contains($reply, $slotTime) || $contains($reply, $slotTimeLabel), 'A confirmação final não trouxe o horário escolhido.');
@@ -127,7 +100,7 @@ try {
     $appointmentStmt = $pdo->prepare(
         'SELECT id, appointment_date, start_time, status, value, deposit_value
          FROM appointments
-         WHERE lead_id = ? AND import_source = "whatsapp_ai"
+        WHERE lead_id = ? AND import_source = "whatsapp_ai_simple_booking"
          ORDER BY id DESC LIMIT 1'
     );
     $appointmentStmt->execute([$leadId]);
@@ -138,7 +111,7 @@ try {
     $expect($appointment !== [], 'Nenhum agendamento foi criado pela IA após comprovante confirmado.');
     $expect((string)($appointment['appointment_date'] ?? '') === $slotDate, 'O agendamento foi criado em data diferente da confirmada.');
     $expect(substr((string)($appointment['start_time'] ?? ''), 0, 5) === $slotTime, 'O agendamento foi criado em horário diferente do confirmado.');
-    $expect((float)($appointment['deposit_value'] ?? 0) >= 50, 'O agendamento não registrou o sinal.');
+    $expect((float)($appointment['deposit_value'] ?? 0) === 0.0, 'O pré-agendamento não deveria registrar sinal sem comprovante.');
 } finally {
     foreach (array_unique($createdAppointmentIds) as $appointmentId) {
         if ($appointmentId > 0) {
