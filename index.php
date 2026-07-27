@@ -1709,9 +1709,11 @@ if ($action === 'studio_login') {
             $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
                 || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
             $currentUser = current_studio_user();
-            $sessionKey = 'studio_ai_free_chat_' . (int)($studio['id'] ?? 0) . '_' . (int)($currentUser['id'] ?? 0);
+            $sessionKey = 'studio_ai_booking_chat_' . (int)($studio['id'] ?? 0) . '_' . (int)($currentUser['id'] ?? 0);
+            $stateKey = $sessionKey . '_state';
             if ($action === 'studio_ai_free_chat_reset') {
                 unset($_SESSION[$sessionKey]);
+                unset($_SESSION[$stateKey]);
                 if ($expectsJson) {
                     header('Content-Type: application/json; charset=utf-8');
                     echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -1730,8 +1732,9 @@ if ($action === 'studio_login') {
                 throw new RuntimeException('Escreva uma mensagem de até 4.000 caracteres.');
             }
             $history = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
+            $bookingState = is_array($_SESSION[$stateKey] ?? null) ? $_SESSION[$stateKey] : [];
             try {
-                $result = studio_ai_free_chat_answer($studio, $history, $message);
+                $result = studio_ai_free_chat_answer($studio, $history, $message, $bookingState);
             } catch (Throwable $e) {
                 if ($expectsJson) {
                     header('Content-Type: application/json; charset=utf-8');
@@ -1744,7 +1747,10 @@ if ($action === 'studio_login') {
             if (!empty($result['ok'])) {
                 $history[] = ['role' => 'user', 'content' => $message, 'created_at' => date('Y-m-d H:i:s')];
                 $history[] = ['role' => 'assistant', 'content' => (string)$result['reply_text'], 'created_at' => date('Y-m-d H:i:s')];
-                $_SESSION[$sessionKey] = array_slice($history, -24);
+                $_SESSION[$sessionKey] = array_slice($history, -40);
+                if (is_array($result['booking_summary'] ?? null)) {
+                    $_SESSION[$stateKey] = $result['booking_summary'];
+                }
             }
             if ($expectsJson) {
                 header('Content-Type: application/json; charset=utf-8');
@@ -2587,7 +2593,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
             ['finance', 'fa-wallet', 'Financeiro', 'studio_finance'],
             ['reports', 'fa-chart-pie', 'Relatórios', 'studio_reports'],
             ['assistant', 'fa-robot', 'Assistente IA', 'studio_data_assistant'],
-            ['free_ai', 'fa-comments', 'Chat livre IA', 'studio_ai_chat'],
+            ['free_ai', 'fa-comments', 'Pré-atendimento IA', 'studio_ai_chat'],
         ],
         'Configurações' => [
             ['settings', 'fa-sliders', 'Configurações', 'studio_settings'],
@@ -7100,15 +7106,16 @@ if ($page === 'studio_reports') {
 
 if ($page === 'studio_ai_chat') {
     $studio = require_studio();
-    render_studio_shell('Chat livre da IA', 'Converse diretamente com a IA configurada, usando os dados do sistema em modo somente leitura.', 'free_ai', function () use ($studio) {
+    render_studio_shell('Atendimento de agendamento', 'Converse naturalmente e reúna os dados necessários para preparar um agendamento.', 'free_ai', function () use ($studio) {
         $dbStatus = studio_db_status_for($studio);
         if (!$dbStatus['ok']) {
             render_studio_db_missing($studio, $dbStatus['error']);
             return;
         }
         $currentUser = current_studio_user();
-        $sessionKey = 'studio_ai_free_chat_' . (int)($studio['id'] ?? 0) . '_' . (int)($currentUser['id'] ?? 0);
+        $sessionKey = 'studio_ai_booking_chat_' . (int)($studio['id'] ?? 0) . '_' . (int)($currentUser['id'] ?? 0);
         $history = is_array($_SESSION[$sessionKey] ?? null) ? $_SESSION[$sessionKey] : [];
+        $bookingState = is_array($_SESSION[$sessionKey . '_state'] ?? null) ? $_SESSION[$sessionKey . '_state'] : [];
         $config = studio_openai_config($studio);
         $providerLabel = (string)($config['provider'] ?? 'IA');
         $modelLabel = (string)($config['model'] ?? 'modelo configurado');
@@ -7123,13 +7130,14 @@ if ($page === 'studio_ai_chat') {
             .free-ai-message.assistant{align-self:flex-start;border:1px solid rgba(15,44,34,.10);border-top-left-radius:5px;background:#fff}.free-ai-message.user{align-self:flex-end;border-top-right-radius:5px;background:#0f765b;color:#fff}.free-ai-message.error{align-self:flex-start;background:#fff3f2;color:#a32920;border:1px solid #f2c0ba}
             .free-ai-message small{display:block;margin-bottom:5px;font-size:11px;font-weight:800;opacity:.65;text-transform:uppercase;letter-spacing:.06em}
             .free-ai-composer{padding:18px 22px;border-top:1px solid rgba(15,44,34,.09);background:#fff}.free-ai-form{display:flex;gap:10px;align-items:flex-end}.free-ai-form textarea{flex:1;min-height:54px;max-height:180px;resize:vertical;border:1px solid rgba(15,44,34,.18);border-radius:16px;padding:14px 15px;line-height:1.45;background:#fbfdfc}.free-ai-form button{white-space:nowrap}.free-ai-actions{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:10px}.free-ai-status{min-height:18px;color:#61736b;font-size:12px}.free-ai-status.loading:before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;background:#15a579;box-shadow:12px 0 #8bd9ba,24px 0 #d1f0e3;animation:freeAiDots 1s infinite alternate}@keyframes freeAiDots{to{opacity:.35}}
-            @media(max-width:720px){.free-ai-head{display:block;padding:20px}.free-ai-pills{justify-content:flex-start;margin-top:13px}.free-ai-messages{min-height:46vh;padding:18px}.free-ai-composer{padding:14px}.free-ai-form{display:block}.free-ai-form button{width:100%;margin-top:8px}.free-ai-message{max-width:94%}}
+            .free-ai-summary{margin:18px 22px 0;padding:18px;border:1px solid rgba(15,118,87,.18);border-radius:20px;background:linear-gradient(135deg,#f4fbf7,#edf8f3)}.free-ai-summary[hidden]{display:none}.free-ai-summary-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.free-ai-summary h3{margin:0 0 4px;font-size:18px}.free-ai-summary p{margin:0;color:#61736b;font-size:13px}.free-ai-summary-status{border-radius:999px;padding:6px 9px;background:#fff;color:#0f765b;font-size:11px;font-weight:800;white-space:nowrap}.free-ai-summary-status.pending{color:#9a5a00;background:#fff7df}.free-ai-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}.free-ai-summary-item{min-width:0;padding:10px 11px;border-radius:13px;background:rgba(255,255,255,.78);border:1px solid rgba(15,44,34,.08)}.free-ai-summary-item strong{display:block;margin-bottom:3px;color:#61736b;font-size:11px;text-transform:uppercase;letter-spacing:.04em}.free-ai-summary-item span{display:block;overflow-wrap:anywhere;color:#17352a;font-size:13px;line-height:1.35}.free-ai-summary-item.missing{background:#fff9e9;border-color:#f1d690}.free-ai-summary-item.missing span{color:#8a5a00}.free-ai-summary-note{margin-top:12px;color:#61736b;font-size:12px}
+            @media(max-width:720px){.free-ai-head{display:block;padding:20px}.free-ai-pills{justify-content:flex-start;margin-top:13px}.free-ai-messages{min-height:46vh;padding:18px}.free-ai-composer{padding:14px}.free-ai-form{display:block}.free-ai-form button{width:100%;margin-top:8px}.free-ai-message{max-width:94%}.free-ai-summary{margin:14px 14px 0}.free-ai-summary-grid{grid-template-columns:1fr}.free-ai-summary-head{display:block}.free-ai-summary-status{display:inline-block;margin-top:9px}}
         </style>';
         echo '<div class="free-ai-wrap"><section class="free-ai-card">';
-        echo '<header class="free-ai-head"><div><span class="section-eyebrow">Laboratório privado</span><h2>Conversa livre</h2><p>Fale normalmente. A IA pode consultar o sistema, mas não altera nada e não aplica o fluxo do WhatsApp.</p></div><div class="free-ai-pills"><span class="free-ai-pill">Somente leitura</span><span class="free-ai-pill">' . h($providerLabel . ' · ' . $modelLabel) . '</span></div></header>';
+        echo '<header class="free-ai-head"><div><span class="section-eyebrow">Laboratório privado</span><h2>Pré-atendimento</h2><p>Fale normalmente. A atendente vai entender seu pedido, coletar os dados e confirmar tudo antes de concluir.</p></div><div class="free-ai-pills"><span class="free-ai-pill">Foco: agendamento</span><span class="free-ai-pill">' . h($providerLabel . ' · ' . $modelLabel) . '</span></div></header>';
         echo '<div class="free-ai-messages" id="freeAiMessages" aria-live="polite">';
         if (!$history) {
-            echo '<div class="free-ai-message assistant"><small>IA</small>Oi! Pode me perguntar qualquer coisa ou simplesmente conversar comigo. Quando a resposta depender do CRM, eu consulto os dados disponíveis em modo somente leitura.</div>';
+            echo '<div class="free-ai-message assistant"><small>Atendimento</small>Oi! Vou te ajudar a deixar seu agendamento pronto. Me conta primeiro: qual é o seu nome completo?</div>';
         }
         foreach ($history as $item) {
             if (!is_array($item)) {
@@ -7139,11 +7147,18 @@ if ($page === 'studio_ai_chat') {
             $role = $role === 'user' ? 'user' : 'assistant';
             echo '<div class="free-ai-message ' . $role . '"><small>' . ($role === 'user' ? 'Você' : 'IA') . '</small>' . h((string)($item['content'] ?? '')) . '</div>';
         }
-        echo '</div><div class="free-ai-composer">';
+        $summaryLabels = ['customer_name' => 'Nome', 'tattoo_idea' => 'Ideia', 'reference' => 'Referência', 'body_area' => 'Parte do corpo', 'body_details' => 'Lado / posição', 'size_coverage' => 'Tamanho / cobertura', 'style_preference' => 'Estilo e cor', 'preferred_date' => 'Dia', 'preferred_time' => 'Horário', 'quote' => 'Orçamento'];
+        $summaryComplete = $bookingState !== [] && count(array_filter($summaryLabels, static fn(string $label, string $key): bool => trim((string)($bookingState[$key] ?? '')) !== '', ARRAY_FILTER_USE_BOTH)) === count($summaryLabels);
+        echo '<section id="freeAiSummary" class="free-ai-summary"' . ($bookingState ? '' : ' hidden') . '><div class="free-ai-summary-head"><div><h3>Resumo do pré-agendamento</h3><p id="freeAiSummaryIntro">' . ($summaryComplete ? 'A atendente conseguiu reunir os dados necessários para preparar o agendamento.' : 'As informações já identificadas nesta conversa.') . '</p></div><span id="freeAiSummaryStatus" class="free-ai-summary-status' . ($summaryComplete ? '' : ' pending') . '">' . ($summaryComplete ? 'Coleta completa' : 'Em coleta') . '</span></div><div id="freeAiSummaryGrid" class="free-ai-summary-grid">';
+        foreach ($summaryLabels as $key => $label) {
+            $value = trim((string)($bookingState[$key] ?? ''));
+            echo '<div class="free-ai-summary-item' . ($value === '' ? ' missing' : '') . '" data-summary-key="' . h($key) . '"><strong>' . h($label) . '</strong><span>' . h($value !== '' ? $value : 'Ainda não informado') . '</span></div>';
+        }
+        echo '</div><p id="freeAiSummaryNote" class="free-ai-summary-note">' . ($summaryComplete ? 'Resumo confirmado nesta conversa. Esta tela não cria a agenda automaticamente.' : 'Nada é criado automaticamente nesta tela; ela serve para validar se a coleta ficou completa.') . '</p></section><div class="free-ai-composer">';
         echo '<form id="freeAiForm" class="free-ai-form" method="post">' . csrf_field() . '<input type="hidden" name="action" value="studio_ai_free_chat_send"><textarea id="freeAiMessage" name="message" maxlength="4000" required placeholder="Escreva sua mensagem..."></textarea><button id="freeAiSend" class="btn" type="submit"><i class="fa-solid fa-paper-plane"></i> Enviar</button></form>';
-        echo '<div class="free-ai-actions"><span id="freeAiStatus" class="free-ai-status" aria-live="polite">A IA só consulta dados; nenhum botão desta tela altera o sistema.</span><button id="freeAiReset" class="btn tiny secondary" type="button">Nova conversa</button></div>';
+        echo '<div class="free-ai-actions"><span id="freeAiStatus" class="free-ai-status" aria-live="polite">A atendente faz uma pergunta por vez e confirma o resumo no final.</span><button id="freeAiReset" class="btn tiny secondary" type="button">Nova conversa</button></div>';
         echo '</div></section></div>';
-        echo '<script>(function(){const form=document.getElementById("freeAiForm");const input=document.getElementById("freeAiMessage");const send=document.getElementById("freeAiSend");const reset=document.getElementById("freeAiReset");const messages=document.getElementById("freeAiMessages");const status=document.getElementById("freeAiStatus");if(!form||!input||!send||!reset||!messages)return;const csrf=form.querySelector("[name=csrf_token]")?.value||"";const escapeHtml=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const addMessage=(role,text)=>{const item=document.createElement("div");item.className="free-ai-message "+(role==="error"?"error":role);item.innerHTML="<small>"+(role==="user"?"Você":role==="error"?"Aviso":"IA")+"</small>"+escapeHtml(text);messages.appendChild(item);messages.scrollTop=messages.scrollHeight;return item;};const setLoading=(loading)=>{send.disabled=loading;input.disabled=loading;status.classList.toggle("loading",loading);status.textContent=loading?"Consultando os dados e pensando...":"A IA só consulta dados; nenhum botão desta tela altera o sistema.";};messages.scrollTop=messages.scrollHeight;form.addEventListener("submit",async(event)=>{event.preventDefault();const text=input.value.trim();if(!text||send.disabled)return;addMessage("user",text);input.value="";setLoading(true);try{const body=new FormData(form);body.set("message",text);const response=await fetch(location.href,{method:"POST",body,credentials:"same-origin",headers:{"Accept":"application/json","X-Requested-With":"XMLHttpRequest"}});let data=null;try{data=await response.json();}catch(error){throw new Error("O servidor devolveu uma resposta inválida.");}if(!response.ok||!data?.ok)throw new Error(data?.error||"A IA não respondeu agora.");addMessage("assistant",data.reply_text||"A IA não retornou texto.");}catch(error){addMessage("error",error?.message||"Não foi possível falar com a IA agora.");}finally{setLoading(false);input.focus();}});input.addEventListener("keydown",(event)=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();form.requestSubmit();}});reset.addEventListener("click",async()=>{if(!confirm("Começar uma nova conversa e apagar apenas este histórico de teste?"))return;const body=new FormData(form);body.set("action","studio_ai_free_chat_reset");try{const response=await fetch(location.href,{method:"POST",body,credentials:"same-origin",headers:{"Accept":"application/json","X-Requested-With":"XMLHttpRequest"}});const data=await response.json();if(!response.ok||!data?.ok)throw new Error(data?.error||"Não foi possível limpar.");messages.innerHTML="";addMessage("assistant","Oi! Pode me perguntar qualquer coisa ou simplesmente conversar comigo. Quando a resposta depender do CRM, eu consulto os dados disponíveis em modo somente leitura.");status.textContent="Nova conversa iniciada.";input.focus();}catch(error){addMessage("error",error?.message||"Não foi possível limpar a conversa.");}});})();</script>';
+        echo '<script>(function(){const form=document.getElementById("freeAiForm");const input=document.getElementById("freeAiMessage");const send=document.getElementById("freeAiSend");const reset=document.getElementById("freeAiReset");const messages=document.getElementById("freeAiMessages");const status=document.getElementById("freeAiStatus");const summary=document.getElementById("freeAiSummary");const summaryStatus=document.getElementById("freeAiSummaryStatus");const summaryIntro=document.getElementById("freeAiSummaryIntro");const summaryNote=document.getElementById("freeAiSummaryNote");if(!form||!input||!send||!reset||!messages||!status)return;const escapeHtml=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));const addMessage=(role,text)=>{const item=document.createElement("div");item.className="free-ai-message "+(role==="error"?"error":role);item.innerHTML="<small>"+(role==="user"?"Você":role==="error"?"Aviso":"Atendimento")+"</small>"+escapeHtml(text);messages.appendChild(item);messages.scrollTop=messages.scrollHeight;return item;};const labels={customer_name:"Nome",tattoo_idea:"Ideia",reference:"Referência",body_area:"Parte do corpo",body_details:"Lado / posição",size_coverage:"Tamanho / cobertura",style_preference:"Estilo e cor",preferred_date:"Dia",preferred_time:"Horário",quote:"Orçamento"};const renderSummary=(booking,complete,missing)=>{if(!summary||!summaryStatus)return;summary.hidden=false;summaryStatus.textContent=complete?"Coleta completa":"Em coleta";summaryStatus.classList.toggle("pending",!complete);if(summaryIntro)summaryIntro.textContent=complete?"A atendente conseguiu reunir os dados necessários para preparar o agendamento.":"As informações já identificadas nesta conversa.";const grid=document.getElementById("freeAiSummaryGrid");if(grid){grid.innerHTML=Object.keys(labels).map((key)=>{const value=String(booking?.[key]??"").trim();const missingValue=!value;return "<div class=\"free-ai-summary-item"+(missingValue?" missing":"")+"\" data-summary-key=\""+key+"\"><strong>"+labels[key]+"</strong><span>"+escapeHtml(value||"Ainda não informado")+"</span></div>";}).join("");}if(summaryNote)summaryNote.textContent=complete?"Resumo confirmado pelo cliente nesta conversa. Esta tela não cria a agenda automaticamente.":(missing?.length?"Ainda falta: "+missing.join(", ")+".":"A coleta continua; a próxima pergunta aparece no chat.");};const setLoading=(loading)=>{send.disabled=loading;input.disabled=loading;status.classList.toggle("loading",loading);status.textContent=loading?"Entendendo o pedido e conferindo o que já foi informado...":"A atendente faz uma pergunta por vez e confirma o resumo no final.";};messages.scrollTop=messages.scrollHeight;form.addEventListener("submit",async(event)=>{event.preventDefault();const text=input.value.trim();if(!text||send.disabled)return;addMessage("user",text);input.value="";setLoading(true);try{const body=new FormData(form);body.set("message",text);const response=await fetch(location.href,{method:"POST",body,credentials:"same-origin",headers:{"Accept":"application/json","X-Requested-With":"XMLHttpRequest"}});let data=null;try{data=await response.json();}catch(error){throw new Error("O servidor devolveu uma resposta inválida.");}if(!response.ok||!data?.ok)throw new Error(data?.error||"A atendente não respondeu agora.");addMessage("assistant",data.reply_text||"Não consegui continuar a coleta agora.");renderSummary(data.booking_summary||{},!!data.complete,data.missing_fields||[]);}catch(error){addMessage("error",error?.message||"Não foi possível continuar a conversa agora.");}finally{setLoading(false);input.focus();}});input.addEventListener("keydown",(event)=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();form.requestSubmit();}});reset.addEventListener("click",async()=>{if(!confirm("Começar uma nova conversa e apagar apenas este histórico de teste?"))return;const body=new FormData(form);body.set("action","studio_ai_free_chat_reset");try{const response=await fetch(location.href,{method:"POST",body,credentials:"same-origin",headers:{"Accept":"application/json","X-Requested-With":"XMLHttpRequest"}});const data=await response.json();if(!response.ok||!data?.ok)throw new Error(data?.error||"Não foi possível limpar.");messages.innerHTML="";addMessage("assistant","Oi! Vou te ajudar a deixar seu agendamento pronto. Me conta primeiro: qual é o seu nome completo?");if(summary)summary.hidden=true;status.textContent="Nova conversa iniciada.";input.focus();}catch(error){addMessage("error",error?.message||"Não foi possível limpar a conversa.");}});})();</script>';
     }, $flash);
     exit;
 }

@@ -20673,10 +20673,213 @@ function studio_data_assistant_context(array $studio): array
 }
 
 /**
- * Chat administrativo livre: mantém contexto de conversa, mas não carrega o
- * roteiro comercial do WhatsApp nem executa ações no sistema.
+ * Atendimento de teste para coleta de dados de agendamento.
+ *
+ * Mantém uma ficha estruturada fora do texto da conversa. Assim, a IA pode
+ * conversar naturalmente sem perder um nome, uma referência ou uma escolha
+ * de horário que já tenha sido informada alguns turnos antes.
  */
-function studio_ai_free_chat_answer(array $studio, array $history, string $message): array
+function studio_ai_free_chat_answer(array $studio, array $history, string $message, array $bookingState = []): array
+{
+    $message = trim($message);
+    if ($message === '') {
+        throw new RuntimeException('Digite uma mensagem para iniciar a conversa.');
+    }
+
+    $config = studio_openai_config($studio);
+    if (trim((string)($config['api_key'] ?? '')) === '') {
+        return ['ok' => false, 'error' => 'A IA nao esta configurada nas configuracoes do estudio.'];
+    }
+
+    $fields = [
+        'customer_name',
+        'tattoo_idea',
+        'reference',
+        'body_area',
+        'body_details',
+        'size_coverage',
+        'style_preference',
+        'preferred_date',
+        'preferred_time',
+        'quote',
+    ];
+    $labels = [
+        'customer_name' => 'nome completo',
+        'tattoo_idea' => 'ideia da tatuagem',
+        'reference' => 'referência ou confirmação de que não há referência',
+        'body_area' => 'parte do corpo',
+        'body_details' => 'lado ou posição na área',
+        'size_coverage' => 'tamanho ou cobertura',
+        'style_preference' => 'estilo e cor',
+        'preferred_date' => 'dia desejado',
+        'preferred_time' => 'horário desejado',
+        'quote' => 'orçamento ou indicação para calcular pela tabela oficial',
+    ];
+    $state = [];
+    foreach ($fields as $field) {
+        $state[$field] = mb_substr(trim((string)($bookingState[$field] ?? '')), 0, 600, 'UTF-8');
+    }
+
+    $safeHistory = [];
+    foreach (array_slice($history, -40) as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+        $role = (string)($item['role'] ?? '');
+        if (!in_array($role, ['user', 'assistant'], true)) {
+            continue;
+        }
+        $content = trim((string)($item['content'] ?? ''));
+        if ($content === '') {
+            continue;
+        }
+        $safeHistory[] = [
+            'role' => $role,
+            'content' => mb_substr($content, 0, 3500, 'UTF-8'),
+        ];
+    }
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo'));
+    $studioContext = [
+        'data_atual' => $now->format('Y-m-d'),
+        'data_atual_legivel' => $now->format('d/m/Y'),
+        'endereco_cadastrado' => studio_whatsapp_studio_address($studio),
+        'dias_de_atendimento_configurados' => studio_schedule_days($studio),
+        'horarios_configurados' => studio_schedule_slots($studio),
+        'observacao' => 'Esta tela coleta dados; nao confirma disponibilidade e nao cria agendamento automaticamente.',
+    ];
+    $contextJson = json_encode($studioContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $stateJson = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $historyJson = json_encode($safeHistory, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($contextJson)) {
+        $contextJson = '{}';
+    }
+    if (!is_string($stateJson)) {
+        $stateJson = '{}';
+    }
+    if (!is_string($historyJson)) {
+        $historyJson = '[]';
+    }
+
+    $effectiveRuntime = 'provedor=' . (string)($config['provider'] ?? 'nao informado')
+        . '; modelo=' . (string)($config['model'] ?? 'nao informado');
+    $fieldGuide = implode('; ', array_map(
+        static fn(string $field): string => $field . ': ' . ($labels[$field] ?? $field),
+        $fields
+    ));
+    $systemPrompt = <<<TXT
+Você é uma atendente humana de um estúdio de tatuagem no Brasil.
+Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
+
+Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô.
+
+Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
+
+Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. A tela não confirma a vaga nem cria a agenda. Para o orçamento, aceite um valor já informado pelo cliente; se ainda não houver valor, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou.
+
+A ficha precisa reunir estes campos: {$fieldGuide}.
+Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, tamanho/cobertura, estilo/cor, dia, horário e orçamento são necessários para considerar a coleta completa. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
+
+Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Tamanho/cobertura, Estilo/cor, Dia, Horário e Orçamento.
+
+Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","style_preference":"","preferred_date":"","preferred_time":"","quote":""}}.
+A configuração efetiva desta página é {$effectiveRuntime}.
+TXT;
+
+    $userPrompt = "FICHA ESTRUTURADA ATUAL (preserve o que já estiver correto e atualize apenas o que o cliente corrigir):\n"
+        . $stateJson
+        . "\n\nHISTÓRICO COMPLETO DISPONÍVEL DESTA CONVERSA:\n"
+        . $historyJson
+        . "\n\nCONTEXTO SEGURO DO ESTÚDIO (somente referência; não invente além dele):\n"
+        . $contextJson
+        . "\n\nNOVA MENSAGEM DO CLIENTE:\n"
+        . $message
+        . "\n\nReleia o histórico e a ficha antes de responder. Extraia dados da nova mensagem, mantenha os dados anteriores, faça apenas a próxima pergunta que falta ou entregue o resumo final.";
+
+    $bookingProperties = [];
+    foreach ($fields as $field) {
+        $bookingProperties[$field] = ['type' => 'string'];
+    }
+    $responseSchema = [
+        'type' => 'object',
+        'properties' => [
+            'reply_text' => ['type' => 'string'],
+            'complete' => ['type' => 'boolean'],
+            'missing_fields' => ['type' => 'array', 'items' => ['type' => 'string']],
+            'booking' => [
+                'type' => 'object',
+                'properties' => $bookingProperties,
+                'required' => $fields,
+                'additionalProperties' => false,
+            ],
+        ],
+        'required' => ['reply_text', 'complete', 'missing_fields', 'booking'],
+        'additionalProperties' => false,
+    ];
+    $response = studio_openai_text(
+        (string)$config['api_key'],
+        (string)$config['model'],
+        $systemPrompt,
+        $userPrompt,
+        (string)$config['base_url'],
+        75,
+        true,
+        $responseSchema,
+        '{"reply_text":"...","complete":false,"missing_fields":[],"booking":{}}'
+    );
+    if (empty($response['ok']) || trim((string)($response['reply_text'] ?? '')) === '') {
+        return [
+            'ok' => false,
+            'error' => (string)($response['error'] ?? 'A IA nao retornou uma resposta.'),
+        ];
+    }
+
+    $raw = is_array($response['raw_json'] ?? null) ? $response['raw_json'] : [];
+    $newBooking = is_array($raw['booking'] ?? null) ? $raw['booking'] : [];
+    foreach ($fields as $field) {
+        $candidate = trim((string)($newBooking[$field] ?? ''));
+        if ($candidate !== '') {
+            $state[$field] = mb_substr($candidate, 0, 600, 'UTF-8');
+        }
+    }
+    $missing = [];
+    foreach ($fields as $field) {
+        if (trim((string)($state[$field] ?? '')) === '') {
+            $missing[] = $labels[$field] ?? $field;
+        }
+    }
+    $complete = !empty($raw['complete']) && $missing === [];
+    $reply = trim((string)$response['reply_text']);
+    if ($complete && !preg_match('/consegui|reuni|resumo/i', $reply)) {
+        $reply = "Perfeito, consegui reunir todas as informações para preparar o agendamento:\n\n"
+            . 'Nome: ' . $state['customer_name'] . "\n"
+            . 'Ideia: ' . $state['tattoo_idea'] . "\n"
+            . 'Referência: ' . $state['reference'] . "\n"
+            . 'Parte do corpo: ' . $state['body_area'] . "\n"
+            . 'Lado/posição: ' . $state['body_details'] . "\n"
+            . 'Tamanho/cobertura: ' . $state['size_coverage'] . "\n"
+            . 'Estilo/cor: ' . $state['style_preference'] . "\n"
+            . 'Dia: ' . $state['preferred_date'] . "\n"
+            . 'Horário: ' . $state['preferred_time'] . "\n"
+            . 'Orçamento: ' . $state['quote'];
+    }
+
+    return [
+        'ok' => true,
+        'reply_text' => $reply,
+        'complete' => $complete,
+        'missing_fields' => $missing,
+        'booking_summary' => $state,
+        'model' => (string)($response['fallback_model'] ?? $config['model']),
+        'provider' => (string)($config['provider'] ?? ''),
+    ];
+}
+
+/**
+ * Chat administrativo livre legado, mantido para não quebrar instalações que
+ * ainda tenham histórico ou chamadas antigas gravadas.
+ */
+function studio_ai_free_chat_answer_legacy(array $studio, array $history, string $message): array
 {
     $message = trim($message);
     if ($message === '') {
