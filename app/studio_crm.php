@@ -6376,7 +6376,7 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
         $configuredSemanticModel = trim((string)($settings['ai_semantic_model'] ?? getenv('NVIDIA_SEMANTIC_MODEL') ?: ''));
         $semanticConfig['model'] = $configuredSemanticModel !== ''
             ? $configuredSemanticModel
-            : 'qwen/qwen3-next-80b-a3b-instruct';
+             : 'meta/llama-3.1-70b-instruct';
     }
     $result = studio_openai_text(
         (string)$config['api_key'],
@@ -15023,7 +15023,7 @@ function studio_openai_config(array $studio): array
     $model = $model !== '' ? $model : match ($provider) {
         'openai' => 'gpt-4o-mini',
         'ollama' => 'llama3.2:3b',
-        default => 'qwen/qwen3-next-80b-a3b-instruct',
+        default => 'meta/llama-3.1-70b-instruct',
     };
     $baseUrl = trim((string)($settings['ai_api_base_url'] ?? ''));
     if ($provider === 'ollama') {
@@ -15049,7 +15049,7 @@ function studio_openai_config(array $studio): array
         $looksLikeUnnamespacedLocalModel = !str_contains($model, '/')
             && (bool)preg_match('/^(qwen|llama3\.2|mistral|gemma|phi|orca|deepseek|codellama)/i', $model);
         if ($model === '' || preg_match('/^(gpt-|chatgpt|o[0-9])/i', $model) || $looksLikeUnnamespacedLocalModel) {
-            $model = 'qwen/qwen3-next-80b-a3b-instruct';
+            $model = 'meta/llama-3.1-70b-instruct';
         }
     }
     $systemPrompt = trim((string)($settings['ai_whatsapp_prompt'] ?? ''));
@@ -15172,7 +15172,7 @@ function studio_openai_text(string $apiKey, string $model, string $systemPrompt,
     $nvidiaFallbackModels = [];
     if ($isNvidia && $allowProviderFallback) {
         $nvidiaFallbackModels = array_values(array_filter(
-            ['meta/llama-3.3-70b-instruct', 'meta/llama-3.1-70b-instruct', 'meta/llama-3.2-3b-instruct'],
+            ['meta/llama-3.1-70b-instruct', 'meta/llama-3.3-70b-instruct', 'meta/llama-3.2-3b-instruct'],
             static fn(string $candidate): bool => strcasecmp($candidate, $model) !== 0
         ));
     }
@@ -25721,9 +25721,9 @@ function studio_save_settings(array $studio, array $data): void
     $aiEnabled = $boolSetting('ai_enabled', 0);
     $aiChatFreestyleMode = $boolSetting('ai_chat_freestyle_mode', 0);
     $aiSemanticInterpreterEnabled = $boolSetting('ai_semantic_interpreter_enabled', 1);
-    $aiSemanticModel = mb_substr(trim((string)($data['ai_semantic_model'] ?? ($settings['ai_semantic_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct'))), 0, 160, 'UTF-8');
+    $aiSemanticModel = mb_substr(trim((string)($data['ai_semantic_model'] ?? ($settings['ai_semantic_model'] ?? 'meta/llama-3.1-70b-instruct'))), 0, 160, 'UTF-8');
     if ($aiSemanticModel === '') {
-        $aiSemanticModel = 'qwen/qwen3-next-80b-a3b-instruct';
+        $aiSemanticModel = 'meta/llama-3.1-70b-instruct';
     }
     $assistantAutofillEnabled = $boolSetting('assistant_autofill_enabled', 0);
     $aiLearnFromAttendantsEnabled = $boolSetting('ai_learn_from_attendants_enabled', 1);
@@ -25739,7 +25739,7 @@ function studio_save_settings(array $studio, array $data): void
     if ($nvidiaApiKey === '') {
         $nvidiaApiKey = trim((string)($settings['nvidia_api_key'] ?? ''));
     }
-    $nvidiaModel = trim((string)($data['nvidia_model'] ?? ($settings['nvidia_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct')));
+    $nvidiaModel = trim((string)($data['nvidia_model'] ?? ($settings['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct')));
     $nvidiaVisionApiKey = trim((string)($data['nvidia_vision_api_key'] ?? ''));
     if ($nvidiaVisionApiKey === '') {
         $nvidiaVisionApiKey = trim((string)($settings['nvidia_vision_api_key'] ?? ''));
@@ -25889,7 +25889,7 @@ function studio_save_settings(array $studio, array $data): void
         'openai_api_key' => 'TEXT NULL',
         'openai_model' => 'VARCHAR(80) NOT NULL DEFAULT "gpt-4o-mini"',
         'nvidia_api_key' => 'TEXT NULL',
-        'nvidia_model' => 'VARCHAR(120) NOT NULL DEFAULT "qwen/qwen3-next-80b-a3b-instruct"',
+        'nvidia_model' => 'VARCHAR(120) NOT NULL DEFAULT "meta/llama-3.1-70b-instruct"',
         'nvidia_vision_api_key' => 'TEXT NULL',
         'nvidia_vision_model' => 'VARCHAR(120) NOT NULL DEFAULT "meta/llama-3.2-11b-vision-instruct"',
         'nvidia_vision_base_url' => 'VARCHAR(180) NOT NULL DEFAULT "https://integrate.api.nvidia.com/v1"',
@@ -25923,7 +25923,7 @@ function studio_save_settings(array $studio, array $data): void
         'ai_auto_create_appointment_after_proof' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_learn_from_attendants_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_semantic_interpreter_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
-        'ai_semantic_model' => 'VARCHAR(160) NOT NULL DEFAULT "qwen/qwen3-next-80b-a3b-instruct"',
+        'ai_semantic_model' => 'VARCHAR(160) NOT NULL DEFAULT "meta/llama-3.1-70b-instruct"',
         'ai_conversation_summary_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_team_playbook_enabled' => 'TINYINT(1) NOT NULL DEFAULT 1',
         'ai_team_playbook_text' => 'MEDIUMTEXT NULL',
@@ -26012,7 +26012,7 @@ function studio_save_settings(array $studio, array $data): void
         $openAiKey,
         $openAiModel !== '' ? $openAiModel : 'gpt-4o-mini',
         $nvidiaApiKey,
-        $nvidiaModel !== '' ? $nvidiaModel : 'qwen/qwen3-next-80b-a3b-instruct',
+        $nvidiaModel !== '' ? $nvidiaModel : 'meta/llama-3.1-70b-instruct',
         $nvidiaVisionApiKey,
         $nvidiaVisionModel !== '' ? $nvidiaVisionModel : 'meta/llama-3.2-11b-vision-instruct',
         $nvidiaVisionEnabled,

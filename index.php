@@ -8040,7 +8040,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave da NVIDIA</label><input name="nvidia_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_api_key'] ?? ''))) . '</small></div>';
-        echo '<div class="field"><label>Modelo NVIDIA</label><input name="nvidia_model" value="' . h($settings['nvidia_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct') . '" placeholder="qwen/qwen3-next-80b-a3b-instruct"><small class="muted">Padrão testado: Qwen3 Next 80B, usado tanto para compreender quanto para redigir exceções do roteiro. Foi mais rápido e direto que o Llama 3.1 70B nesta API.</small></div>';
+        echo '<div class="field"><label>Modelo NVIDIA</label><input name="nvidia_model" value="' . h($settings['nvidia_model'] ?? 'meta/llama-3.1-70b-instruct') . '" placeholder="meta/llama-3.1-70b-instruct"><small class="muted">Modelo NVIDIA estável para o chat. Se você trocar por outro modelo indisponível, o sistema tenta os modelos de segurança configurados.</small></div>';
         echo '</div>';
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Chave NVIDIA Vision</label><input name="nvidia_vision_api_key" type="password" value="" placeholder="nvapi-..."><small class="muted">Atual: ' . h(studio_meta_ads_mask_secret((string)($settings['nvidia_vision_api_key'] ?? ''))) . ' · se ficar vazia, usa a chave NVIDIA principal.</small></div>';
@@ -8160,8 +8160,8 @@ if ($page === 'studio_settings') {
         echo '<div class="grid cols-2">';
         echo '<div class="field"><label>Modelo Ollama/local</label><input name="ai_model" value="' . h($settings['ai_model'] ?? $studio['ai_model'] ?? 'llama3.2:3b') . '" placeholder="llama3.2:3b"><small class="muted">Usado apenas se você trocar o fornecedor para Ollama local.</small></div>';
         echo '<div class="field"><label>Modelo para compreender conversas</label><select name="ai_semantic_model">';
-        $semanticModelCurrent = (string)($settings['ai_semantic_model'] ?? 'qwen/qwen3-next-80b-a3b-instruct');
-        foreach (['qwen/qwen3-next-80b-a3b-instruct' => 'Qwen3 Next 80B - melhor compreensão (recomendado)', 'meta/llama-3.1-70b-instruct' => 'Llama 3.1 70B - modelo principal', 'meta/llama-3.1-8b-instruct' => 'Llama 3.1 8B - mais rápido'] as $semanticModelValue => $semanticModelLabel) {
+        $semanticModelCurrent = (string)($settings['ai_semantic_model'] ?? 'meta/llama-3.1-70b-instruct');
+        foreach (['meta/llama-3.1-70b-instruct' => 'Llama 3.1 70B - estável (recomendado)', 'meta/llama-3.1-8b-instruct' => 'Llama 3.1 8B - mais rápido', 'qwen/qwen3-next-80b-a3b-instruct' => 'Qwen3 Next 80B - se disponível na sua chave'] as $semanticModelValue => $semanticModelLabel) {
             echo '<option value="' . h($semanticModelValue) . '"' . ($semanticModelCurrent === $semanticModelValue ? ' selected' : '') . '>' . h($semanticModelLabel) . '</option>';
         }
         echo '</select><small class="muted">Lê contexto, abreviações, correções e mensagens fragmentadas antes do modelo principal escrever a resposta.</small></div>';
