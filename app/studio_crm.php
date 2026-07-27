@@ -7203,7 +7203,7 @@ function studio_whatsapp_ai_extract_history_customer_name(array $history): strin
         if ($candidate === '' && $lastBotReply !== '') {
             $candidate = studio_whatsapp_ai_bare_name_after_prompt($body, [$lastBotReply]);
         }
-        if ($candidate !== '' && studio_whatsapp_ai_name_candidate_is_plausible($candidate)) {
+        if ($candidate !== '' && studio_whatsapp_ai_name_candidate_is_plausible($candidate, true)) {
             $latestName = $candidate;
         }
     }
@@ -19075,6 +19075,24 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $result['needs_human'] = true;
     }
 
+    // Natural language models sometimes mark ordinary uncertainty as a
+    // handoff. Keep the booking moving when the customer did not ask for a
+    // person and the system still has a safe next question to ask.
+    $routineBriefingHandoff = !empty($result['needs_human'])
+        && $currentIntent !== 'human_handoff'
+        && !studio_whatsapp_needs_human($messageText)
+        && empty($serviceFlowDecision['needs_human'])
+        && $guardrailReason === null
+        && !studio_whatsapp_ai_is_coverup_request($currentText)
+        && empty($schedulePreferenceNeedsHuman)
+        && !$onlyQuoteValuePending
+        && in_array($currentIntent, ['general', 'tattoo_idea', 'image_reference', 'image_price', 'quote_status', 'quote_ready'], true)
+        && (int)($bookingFlowState['appointment_id'] ?? 0) <= 0;
+    if ($routineBriefingHandoff) {
+        $result['needs_human'] = false;
+        $result['summary'] = trim((string)($result['summary'] ?? '') . ' Encaminhamento automático evitado: briefing ainda pode continuar pela IA.');
+    }
+
     $replyText = trim((string)$result['reply_text']);
     if ($replyText === '') {
         return ['ok' => false, 'error' => 'A IA devolveu resposta vazia.'];
@@ -19182,17 +19200,32 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             // A model repetition is recoverable: ask a contextual next question
             // instead of escalating a normal booking message to a human.
             $fallbackNeedsHuman = false;
+            $fallbackNextQuestion = trim((string)($bookingChecklist['next_question'] ?? ''));
+            if ($fallbackNextQuestion === '' && !empty($bookingFlowState['script']['current_step_key'])) {
+                $fallbackFlow = studio_whatsapp_service_flow($studio);
+                foreach ((array)($fallbackFlow['steps'] ?? []) as $fallbackStep) {
+                    if ((string)($fallbackStep['step_key'] ?? '') !== (string)$bookingFlowState['script']['current_step_key']) {
+                        continue;
+                    }
+                    $fallbackNextQuestion = studio_whatsapp_service_flow_render_text(
+                        (string)($fallbackStep['question_text'] ?? ''),
+                        $studio,
+                        $bookingFlowState
+                    );
+                    break;
+                }
+            }
             $replyText = match ($currentIntent) {
                 'image_price' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Para calcular o valor, voce quer cobrir a area inteira ou apenas uma parte?',
                 'price' => 'O orçamento é definido principalmente pela área do corpo. Em qual região você quer tatuar?',
                 'image_reference' => 'Vi a referencia' . ($imageArea !== '' ? ' para ' . $imageArea : '') . '. Voce quer reproduzir esse desenho ou adaptar algum detalhe?',
                 'tattoo_idea' => 'Entendi a ideia. Em qual área do corpo você quer fazer essa tatuagem?',
                 'audio_unavailable' => 'Nao consegui entender o audio. Pode me mandar por texto ou reenviar o audio?',
-                default => $tattooBriefingFollowup
+                default => $fallbackNextQuestion !== ''
+                    ? 'Perfeito, anotei. ' . $fallbackNextQuestion
+                    : ($tattooBriefingFollowup
                     ? 'Perfeito. Quer que eu gere uma referencia visual dessa ideia ou prefere seguir para tamanho, valor e agenda?'
-                    : (!empty($conversation['needs_human'])
-                    ? 'Combinado. A equipe já está sinalizada para assumir por aqui, mas se quiser eu ainda consigo te passar endereço, valores cadastrados ou próximas vagas.'
-                    : 'Vou deixar a equipe sinalizada para continuar por aqui sem ficar repetindo pergunta.'),
+                    : 'Perfeito, anotei. Me conta só o próximo detalhe para eu continuar com o orçamento.'),
             };
             $result['needs_human'] = $fallbackNeedsHuman;
         }
@@ -19203,6 +19236,16 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $result['summary'] = 'Proteção de consistência impediu confirmação de agendamento inexistente.';
     }
     $replyText = studio_whatsapp_ai_clean_customer_reply($replyText);
+    if ($routineBriefingHandoff) {
+        $replyText = trim((string)(preg_replace(
+            '/\s*(?:Avisei|Avisei a equipe|A equipe foi sinalizada)[^.!?]*(?:[.!?]\s*Enquanto isso,?[^.!?]*[.!?]?)?/iu',
+            '',
+            $replyText
+        ) ?? $replyText));
+    }
+    // A flow re-entry can concatenate the same fixed question twice. Keep one
+    // copy so the client does not feel that the assistant is stuck.
+    $replyText = preg_replace('/([^.!?\n]{8,160}\?)\s+\1/iu', '$1', $replyText) ?: $replyText;
 
     // Never send a context-free question. It is especially confusing after
     // a client has already supplied a reference and the model says only
