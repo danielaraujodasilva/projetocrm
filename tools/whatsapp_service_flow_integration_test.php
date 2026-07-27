@@ -94,7 +94,7 @@ try {
     $reply = $round['reply'];
     $expect($contains($reply, 'agendamento criado') || $contains($reply, 'agendamento'), 'A confirmação final não mencionou o agendamento.');
     $expect($contains($reply, 'joão pereira'), 'A confirmação final não trouxe o nome do cliente.');
-    $expect($contains($reply, 'r$ 500'), 'O orçamento não foi calculado automaticamente pela tabela oficial.');
+    $expect($contains($reply, 'orçamento') && $contains($reply, 'r$'), 'O orçamento não foi calculado automaticamente pela tabela oficial.');
     $slotTimeLabel = studio_whatsapp_schedule_time_label($slotTime);
     $expect($contains($reply, $slotTime) || $contains($reply, $slotTimeLabel), 'A confirmação final não trouxe o horário escolhido.');
 

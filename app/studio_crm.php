@@ -16437,6 +16437,107 @@ function studio_whatsapp_ai_simple_booking_followup_reply(array $studio, array $
     return studio_whatsapp_ai_simple_booking_send($studio, $conversation, (string)($newMessage['message_id'] ?? ''), $reply, $state, true);
 }
 
+/**
+ * Retorna somente vagas reais compatíveis com a preferência informada pelo
+ * cliente. A IA pode redigir a mensagem, mas nunca inventa uma combinação de
+ * data, período ou horário que não esteja disponível na agenda.
+ */
+function studio_whatsapp_ai_simple_schedule_options(array $studio, array $preference, int $daysAhead = 60): array
+{
+    $availability = studio_schedule_available_slots($studio, max(1, min(90, $daysAhead)));
+    $preferredDate = trim((string)($preference['date'] ?? ''));
+    $weekday = (int)($preference['weekday'] ?? 0);
+    $period = trim((string)($preference['period'] ?? ''));
+    $requestedTime = substr(trim((string)($preference['time'] ?? '')), 0, 5);
+    $today = new DateTimeImmutable('today', new DateTimeZone('America/Sao_Paulo'));
+    $matching = [];
+    $afterRequestedDate = [];
+    $all = [];
+
+    foreach ($availability as $day) {
+        if (empty($day['allowed'])) {
+            continue;
+        }
+        $date = trim((string)($day['date'] ?? ''));
+        if ($date === '') {
+            continue;
+        }
+        try {
+            $dateObject = new DateTimeImmutable($date . ' 00:00:00', new DateTimeZone('America/Sao_Paulo'));
+        } catch (Throwable) {
+            continue;
+        }
+        $matchesDate = $preferredDate === '' || $date === $preferredDate;
+        $matchesWeekday = $weekday <= 0 || (int)$dateObject->format('N') === $weekday;
+        foreach (array_values(array_map('strval', $day['free_slots'] ?? [])) as $slot) {
+            $slot = substr(trim($slot), 0, 5);
+            if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $slot)) {
+                continue;
+            }
+            $option = ['date' => $date, 'time' => $slot];
+            $all[] = $option;
+            if ($matchesDate && $matchesWeekday
+                && ($requestedTime === '' || $slot === $requestedTime)
+                && studio_whatsapp_slot_matches_period($slot, $period)) {
+                $matching[] = $option;
+            }
+            if (($preferredDate === '' || $date >= $preferredDate)
+                && ($weekday <= 0 || (int)$dateObject->format('N') === $weekday)
+                && ($requestedTime === '' || $slot === $requestedTime)
+                && studio_whatsapp_slot_matches_period($slot, $period)) {
+                $afterRequestedDate[] = $option;
+            }
+        }
+    }
+
+    $distance = static function (array $option) use ($today): int {
+        try {
+            return abs((int)$today->diff(new DateTimeImmutable((string)$option['date'] . ' 00:00:00', new DateTimeZone('America/Sao_Paulo')))->days);
+        } catch (Throwable) {
+            return PHP_INT_MAX;
+        }
+    };
+    usort($afterRequestedDate, static fn(array $left, array $right): int => $distance($left) <=> $distance($right));
+    usort($all, static fn(array $left, array $right): int => $distance($left) <=> $distance($right));
+
+    $allAfterRequestedDate = array_values(array_filter($all, static function (array $option) use ($preferredDate): bool {
+        return $preferredDate === '' || (string)($option['date'] ?? '') >= $preferredDate;
+    }));
+    $nearby = [];
+    $seen = [];
+    $nearbyCandidates = $preferredDate !== ''
+        ? $allAfterRequestedDate
+        : array_merge($afterRequestedDate, $all);
+    foreach ($nearbyCandidates as $option) {
+        $key = (string)$option['date'] . '|' . (string)$option['time'];
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $nearby[] = $option;
+        if (count($nearby) >= 5) {
+            break;
+        }
+    }
+
+    $label = static function (array $options, int $limit = 3): string {
+        $labels = [];
+        foreach (array_slice($options, 0, max(1, $limit)) as $option) {
+            $labels[] = studio_whatsapp_schedule_date_label((string)$option['date'])
+                . ' às ' . studio_whatsapp_schedule_time_label((string)$option['time']);
+        }
+        return implode('; ', $labels);
+    };
+
+    return [
+        'availability' => $availability,
+        'matching' => $matching,
+        'nearby' => $nearby,
+        'matching_label' => $label($matching),
+        'nearby_label' => $label($nearby),
+    ];
+}
+
 function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversation, array $newMessage): array
 {
     $conversationId = (int)($conversation['id'] ?? 0);
@@ -16655,8 +16756,118 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $settings = studio_settings($studio);
     $config = studio_openai_config($studio);
     $pricingContext = studio_ai_pricing_page_context($studio, $settings, $config);
+    $scheduleAvailability = studio_whatsapp_ai_simple_schedule_options($studio, [], 60);
+    $currentSchedulePreference = studio_whatsapp_ai_schedule_preference($body);
+    $lastUserIndex = null;
+    for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
+        if (($history[$historyIndex]['role'] ?? '') === 'user') {
+            $lastUserIndex = $historyIndex;
+            break;
+        }
+    }
+    $previousUserMessage = '';
+    if ($lastUserIndex !== null) {
+        for ($historyIndex = $lastUserIndex - 1; $historyIndex >= 0; $historyIndex--) {
+            if (($history[$historyIndex]['role'] ?? '') === 'user') {
+                $previousUserMessage = trim((string)($history[$historyIndex]['content'] ?? ''));
+                break;
+            }
+        }
+    }
+    $previousSchedulePreference = studio_whatsapp_ai_schedule_preference($previousUserMessage);
+    $lastAssistantMessage = '';
+    for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
+        if (($history[$historyIndex]['role'] ?? '') === 'assistant') {
+            $lastAssistantMessage = trim((string)($history[$historyIndex]['content'] ?? ''));
+            break;
+        }
+    }
+    $shortTime = '';
+    if (preg_match('/^\s*(?:as\s*)?([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\s*h?\s*$/iu', $body, $shortTimeMatch)) {
+        $shortTime = sprintf('%02d:%02d', (int)$shortTimeMatch[1], isset($shortTimeMatch[2]) && $shortTimeMatch[2] !== '' ? (int)$shortTimeMatch[2] : 0);
+    }
+    $forcedSchedule = null;
+    $scheduleReply = static function (array &$bookingState, string $reply, string $preference) use ($studio, $conversationId, $conversation, $incomingMessageId): array {
+        $bookingState['schedule_preference'] = $preference;
+        $bookingState['preferred_time'] = '';
+        $bookingState['pending'] = 'horário desejado';
+        $bookingState['active'] = true;
+        $bookingState['stage'] = 'briefing';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $bookingState);
+        return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $reply, $bookingState, false);
+    };
+
+    // A preferência de período/data é resolvida no servidor antes da IA. Isso
+    // impede que o modelo ofereça um horário plausível, mas já ocupado.
+    $hasDateOrPeriod = !empty($currentSchedulePreference['date'])
+        || (int)($currentSchedulePreference['weekday'] ?? 0) > 0
+        || trim((string)($currentSchedulePreference['period'] ?? '')) !== '';
+    if (!empty($currentSchedulePreference['active']) && $hasDateOrPeriod) {
+        $currentOptions = studio_whatsapp_ai_simple_schedule_options($studio, $currentSchedulePreference, 60);
+        if (trim((string)($currentSchedulePreference['time'] ?? '')) === '') {
+            $preferenceLabel = trim((string)($currentSchedulePreference['natural'] ?? $body));
+            if ($currentOptions['matching_label'] !== '') {
+                $reply = 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei: ' . $currentOptions['matching_label'] . '. Qual você prefere?';
+            } else {
+                $reply = 'Não tenho vaga para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
+                if ($currentOptions['nearby_label'] !== '') {
+                    $reply .= ' Posso te oferecer ' . $currentOptions['nearby_label'] . '. Qual funciona melhor?';
+                } else {
+                    $reply .= ' Me diga outro dia ou período que eu confiro.';
+                }
+            }
+            return $scheduleReply($state, $reply, $preferenceLabel);
+        }
+        if (!empty($currentOptions['matching'][0])) {
+            $forcedSchedule = $currentOptions['matching'][0];
+        } else {
+            $preferenceLabel = trim((string)($currentSchedulePreference['natural'] ?? $body));
+            $reply = 'Não tenho vaga para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
+            if ($currentOptions['nearby_label'] !== '') {
+                $reply .= ' Posso te oferecer ' . $currentOptions['nearby_label'] . '. Qual funciona melhor?';
+            }
+            return $scheduleReply($state, $reply, $preferenceLabel);
+        }
+    } elseif (!empty($previousSchedulePreference['active'])
+        && ($shortTime !== '' || studio_whatsapp_ai_is_reservation_confirmation($body))) {
+        $confirmationPreference = $previousSchedulePreference;
+        $offeredSlot = studio_whatsapp_ai_parse_offered_slot($lastAssistantMessage);
+        if ($shortTime !== '') {
+            $confirmationPreference['time'] = $shortTime;
+        } elseif (is_array($offeredSlot)) {
+            $confirmationPreference['date'] = (string)($offeredSlot['date'] ?? '');
+            $confirmationPreference['time'] = (string)($offeredSlot['time'] ?? '');
+        }
+        $confirmedOptions = studio_whatsapp_ai_simple_schedule_options($studio, $confirmationPreference, 60);
+        if (count($confirmedOptions['matching']) === 1) {
+            $forcedSchedule = $confirmedOptions['matching'][0];
+        } elseif (count($confirmedOptions['matching']) > 1 && $shortTime === '') {
+            return $scheduleReply(
+                $state,
+                'Encontrei mais de uma vaga para essa preferência: ' . $confirmedOptions['matching_label'] . '. Qual horário você prefere?',
+                trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage))
+            );
+        } else {
+            $preferenceLabel = trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage));
+            $reply = 'Esse horário não está disponível para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
+            if ($confirmedOptions['nearby_label'] !== '') {
+                $reply .= ' Posso te oferecer ' . $confirmedOptions['nearby_label'] . '. Qual você prefere?';
+            } else {
+                $reply .= ' Me diga outro dia ou horário que eu confiro.';
+            }
+            return $scheduleReply($state, $reply, $preferenceLabel);
+        }
+    }
+    $realAvailabilityNotes = [];
+    foreach ($scheduleAvailability['availability'] as $availableDay) {
+        if (!empty($availableDay['free_slots'])) {
+            $realAvailabilityNotes[] = (string)$availableDay['date'] . ' => ' . implode(', ', array_map('strval', $availableDay['free_slots']));
+        }
+    }
     $answer = studio_ai_free_chat_answer($studio, $history, $body, $naturalState, [
         'tabela_oficial_de_orcamento' => $pricingContext,
+        'agenda_disponibilidade_real' => $realAvailabilityNotes ?: ['sem vagas livres no período consultado'],
+        'regra_agenda' => 'Nunca cite nem aceite data/horário fora da lista agenda_disponibilidade_real. Manhã é antes de 12h; tarde é de 12h a 17h59; noite é a partir de 18h.',
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
     ]);
     if (empty($answer['ok'])) {
@@ -16713,6 +16924,17 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
                 ? 'Recebi referências de áreas diferentes (' . implode(' e ', array_slice($areas, 0, 2)) . '). Você quer fazer em qual parte do corpo?'
                 : 'Recebi mais de uma referência. Para eu calcular corretamente, qual parte do corpo devo considerar?';
         }
+    }
+
+    if (is_array($forcedSchedule)) {
+        $answer['booking_summary']['preferred_date'] = (string)$forcedSchedule['date'];
+        $answer['booking_summary']['preferred_time'] = (string)$forcedSchedule['time'];
+        $answer['booking_summary']['quote'] = (string)($answer['booking_summary']['quote'] ?? 'calcular pela tabela oficial');
+        $answer['missing_fields'] = array_values(array_filter(
+            array_map('strval', (array)($answer['missing_fields'] ?? [])),
+            static fn(string $field): bool => !preg_match('/\b(dia|hor[aá]rio)\b/iu', $field)
+        ));
+        $answer['complete'] = empty($answer['missing_fields']);
     }
 
     $priorCustomerMessages = count(array_filter($history, static fn(array $item): bool => ($item['role'] ?? '') === 'user'));
