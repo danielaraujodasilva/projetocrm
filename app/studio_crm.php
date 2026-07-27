@@ -4603,6 +4603,25 @@ function studio_whatsapp_ai_find_body_area(string $text): array
     return ['raw' => '', 'normalized' => '', 'label' => ''];
 }
 
+function studio_whatsapp_ai_find_body_areas(string $text): array
+{
+    $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
+    $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
+    $catalog = studio_whatsapp_ai_body_area_catalog();
+    uksort($catalog, static fn(string $left, string $right): int => mb_strlen($right, 'UTF-8') <=> mb_strlen($left, 'UTF-8'));
+    $areas = [];
+    foreach ($catalog as $needle => $label) {
+        $normalizedNeedle = studio_calendar_remove_accents(mb_strtolower((string)$needle, 'UTF-8'));
+        $normalizedNeedle = str_replace(['^', '~', '`', '´', "'"], '', $normalizedNeedle);
+        if ($normalizedNeedle === '' || !preg_match('/(?<![\p{L}\p{N}])' . preg_quote($normalizedNeedle, '/') . '(?![\p{L}\p{N}])/u', $plain)) {
+            continue;
+        }
+        $areas[] = ['position' => (int)mb_strpos($plain, $normalizedNeedle, 0, 'UTF-8'), 'label' => (string)$label];
+    }
+    usort($areas, static fn(array $left, array $right): int => $left['position'] <=> $right['position']);
+    return array_values(array_unique(array_map(static fn(array $area): string => $area['label'], $areas)));
+}
+
 function studio_whatsapp_ai_is_body_area_only(string $text): bool
 {
     $plain = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
@@ -16967,12 +16986,33 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
     $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
     $detectedBodyArea = studio_whatsapp_ai_find_body_area($body);
+    $detectedBodyAreas = studio_whatsapp_ai_find_body_areas($body);
     $currentBodyArea = trim((string)($state['body_area'] ?? ''));
     $pendingBodyArea = (bool)preg_match('/\b(?:parte|area|área|local)\s+do\s+corpo\b/iu', (string)($state['pending'] ?? ''));
-    if (trim((string)($detectedBodyArea['label'] ?? '')) !== '' && ($currentBodyArea === '' || $pendingBodyArea)) {
-        $state['body_area'] = (string)$detectedBodyArea['label'];
+    $isBodyAreaCorrection = (bool)preg_match('/\b(?:na\s+verdade|corrig(?:e|indo)|troca(?:r)?|muda(?:r)?|em\s+vez\s+de|queria)\b/u', $bodyPlain);
+    $bodyAreaToStore = count($detectedBodyAreas) >= 2
+        ? implode(' e ', $detectedBodyAreas)
+        : trim((string)($detectedBodyArea['label'] ?? ''));
+    if ($bodyAreaToStore !== '' && ($currentBodyArea === '' || $pendingBodyArea || $isBodyAreaCorrection)) {
+        if ($currentBodyArea !== '' && studio_calendar_remove_accents(mb_strtolower($currentBodyArea, 'UTF-8')) !== studio_calendar_remove_accents(mb_strtolower($bodyAreaToStore, 'UTF-8'))) {
+            studio_whatsapp_booking_invalidate_quote($state, 'A área do corpo foi corrigida pelo cliente.');
+        }
+        $state['body_area'] = $bodyAreaToStore;
         $state['body_area_source'] = 'customer_context';
         $state['reference_body_area_confirmation_required'] = false;
+    }
+    if ($currentBodyArea !== '' && ($pendingBodyArea || preg_match('/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/u', (string)($state['pending'] ?? '')))) {
+        $bodyDetails = '';
+        if (preg_match('/\b(direit[oa]|esquerd[oa]|ambos|ambas)\b/u', $bodyPlain, $detailsMatch)) {
+            $bodyDetails = $detailsMatch[1];
+            $state['body_side'] = $bodyDetails;
+        } elseif (preg_match('/\b(intern[oa]|extern[oa]|frontal|posterior|traseir[oa]|lateral|superior|inferior)\b/u', $bodyPlain, $detailsMatch)) {
+            $bodyDetails = $detailsMatch[1];
+            $state['body_position'] = $bodyDetails;
+        }
+        if ($bodyDetails !== '') {
+            $state['body_details'] = $bodyDetails;
+        }
     }
     if (preg_match('/\b(?:diferente|alterar|mudar|modificar|sem\s+ser\s+igual|parecid[oa]\s+mas)\b/u', $bodyPlain)) {
         $state['reference_exact'] = false;
@@ -17036,6 +17076,42 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $pricingContext = studio_ai_pricing_page_context($studio, $settings, $config);
     $scheduleAvailability = studio_whatsapp_ai_simple_schedule_options($studio, [], 60);
     $currentSchedulePreference = studio_whatsapp_ai_schedule_preference($body);
+    $scheduleHistoryStmt = studio_db($studio)->prepare(
+        'SELECT direction, body, transcricao, transcript FROM whatsapp_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 80'
+    );
+    $scheduleHistoryStmt->execute([$conversationId]);
+    $scheduleHistoryRows = $scheduleHistoryStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $storedSchedulePreference = studio_whatsapp_ai_schedule_preference((string)($state['schedule_preference'] ?? ''));
+    $scheduleDateFromContext = trim((string)($storedSchedulePreference['date'] ?? ''));
+    if ($scheduleDateFromContext === '') {
+        foreach ($scheduleHistoryRows as $scheduleRow) {
+            if (strtolower((string)($scheduleRow['direction'] ?? 'in')) === 'out') {
+                continue;
+            }
+            $scheduleText = trim((string)($scheduleRow['body'] ?? ''));
+            if ($scheduleText === '') {
+                $scheduleText = trim((string)($scheduleRow['transcricao'] ?? $scheduleRow['transcript'] ?? ''));
+            }
+            if ($scheduleText === '') {
+                continue;
+            }
+            $scheduleFromHistory = studio_whatsapp_ai_schedule_preference($scheduleText);
+            if (trim((string)($scheduleFromHistory['date'] ?? '')) !== '') {
+                $scheduleDateFromContext = (string)$scheduleFromHistory['date'];
+                break;
+            }
+        }
+    }
+    // Uma resposta curta como "às 15h" completa a data já escolhida antes;
+    // sem essa junção, a segunda tentativa podia voltar a consultar a data
+    // do primeiro horário ou responder que o horário errado estava ocupado.
+    if (!empty($currentSchedulePreference['active'])
+        && trim((string)($currentSchedulePreference['date'] ?? '')) === ''
+        && (trim((string)($currentSchedulePreference['time'] ?? '')) !== ''
+            || trim((string)($currentSchedulePreference['period'] ?? '')) !== '')
+        && $scheduleDateFromContext !== '') {
+        $currentSchedulePreference['date'] = $scheduleDateFromContext;
+    }
     $lastUserIndex = null;
     for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
         if (($history[$historyIndex]['role'] ?? '') === 'user') {
@@ -17230,6 +17306,44 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             }
             $answer['reply_text'] = 'Vou calcular o valor pela tabela oficial. ' . $nextQuestion;
         }
+    }
+
+    // A resposta do modelo não pode reabrir uma etapa já preenchida. Valide
+    // também o resumo retornado antes de decidir qual pergunta vem a seguir.
+    $previewState = $state;
+    studio_whatsapp_ai_apply_natural_intake_summary($previewState, (array)($answer['booking_summary'] ?? []));
+    $actualMissingField = studio_whatsapp_ai_natural_missing_field($previewState);
+    $answerReply = trim((string)($answer['reply_text'] ?? ''));
+    $knownFieldAsked = false;
+    $knownFieldChecks = [
+        '/\b(?:tamanho|dimens[aã]o|cobertura|cm)\b/iu' => trim((string)($previewState['size_coverage'] ?? '')) !== '',
+        '/\b(?:refer[eê]ncia|imagem|foto)\b/iu' => !empty($previewState['reference_received']) || !empty($previewState['reference_declined']),
+        '/\b(?:estilo|cor|colorido|preto\s+e\s+branco)\b/iu' => trim((string)($previewState['style_preference'] ?? '')) !== '',
+        '/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/iu' => trim((string)($previewState['body_details'] ?? ($previewState['body_side'] ?? $previewState['body_position'] ?? ''))) !== '',
+        '/\b(?:dia|data)\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'dia desejado',
+        '/\bhor[aá]rio\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'horário desejado',
+    ];
+    foreach ($knownFieldChecks as $pattern => $isKnown) {
+        if ($isKnown && preg_match($pattern, $answerReply)) {
+            $knownFieldAsked = true;
+            break;
+        }
+    }
+    if ($actualMissingField !== '' && ((bool)($answer['complete'] ?? false) || $knownFieldAsked)) {
+        $answer['complete'] = false;
+        $answer['missing_fields'] = [$actualMissingField];
+        $answer['reply_text'] = match ($actualMissingField) {
+            'nome completo' => 'Me confirma seu nome completo, por favor?',
+            'ideia da tatuagem' => 'Me conta o que você quer tatuar.',
+            'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
+            'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
+            'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
+            'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
+            'estilo ou cor' => 'Você prefere colorido ou preto e branco?',
+            'dia desejado' => 'Qual dia você prefere?',
+            'horário desejado' => 'Qual horário fica melhor?',
+            default => 'Me passa só a próxima informação para eu continuar.',
+        };
     }
 
     // Se o modelo repetir a resposta anterior, não envie o mesmo bloco de
@@ -22444,6 +22558,56 @@ function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $s
     if ($date !== '' || $time !== '') {
         $state['schedule_preference'] = trim($date . ($date !== '' && $time !== '' ? ' ' : '') . $time);
     }
+}
+
+function studio_whatsapp_ai_natural_missing_field(array $state): string
+{
+    if (trim((string)($state['customer_name'] ?? '')) === '') {
+        return 'nome completo';
+    }
+    if (trim((string)($state['tattoo_idea'] ?? '')) === '') {
+        return 'ideia da tatuagem';
+    }
+    if (empty($state['reference_received']) && empty($state['reference_declined'])) {
+        return 'referência ou confirmação de que não há referência';
+    }
+    if (trim((string)($state['body_area'] ?? '')) === '') {
+        return 'parte do corpo';
+    }
+    if (trim((string)($state['body_details'] ?? '')) === ''
+        && trim((string)($state['body_position'] ?? '')) === ''
+        && trim((string)($state['body_side'] ?? '')) === '') {
+        return 'lado ou posição na área';
+    }
+    if (trim((string)($state['size_coverage'] ?? '')) === '') {
+        return 'dimensão ou área ocupada';
+    }
+    if (trim((string)($state['style_preference'] ?? '')) === '') {
+        return 'estilo ou cor';
+    }
+    $schedule = studio_whatsapp_ai_schedule_preference((string)($state['schedule_preference'] ?? ''));
+    $date = trim((string)($state['preferred_date'] ?? ($schedule['date'] ?? '')));
+    $time = trim((string)($state['preferred_time'] ?? ($schedule['time'] ?? '')));
+    if ($date === '' && preg_match('/\b(\d{4}-\d{2}-\d{2})\b/', (string)($state['schedule_preference'] ?? ''), $isoDate)) {
+        $date = (string)$isoDate[1];
+    }
+    if ($time === '' && preg_match('/\b([01]?\d|2[0-3]):([0-5]\d)\b/', (string)($state['schedule_preference'] ?? ''), $isoTime)) {
+        $time = sprintf('%02d:%02d', (int)$isoTime[1], (int)$isoTime[2]);
+    }
+    $selectedSlot = is_array($state['selected_slot'] ?? null) ? $state['selected_slot'] : [];
+    if ($date === '') {
+        $date = trim((string)($selectedSlot['date'] ?? ''));
+    }
+    if ($time === '') {
+        $time = trim((string)($selectedSlot['time'] ?? ''));
+    }
+    if ($date === '') {
+        return 'dia desejado';
+    }
+    if ($time === '') {
+        return 'horário desejado';
+    }
+    return '';
 }
 
 /**
