@@ -18362,6 +18362,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         }
     }
 
+    $naturalIntakeUsed = false;
+    $naturalIntakeComplete = false;
     if (is_array($registeredAppointment)
         && empty($paymentProof['present'])
         && !$selectedImageUploadAction
@@ -18400,22 +18402,103 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'summary' => 'Cliente escolheu enviar uma foto de referência; aguardando o arquivo de imagem para analisar e continuar o briefing.',
         ];
     } elseif ($freestyleMode
-        && !empty($serviceFlowDecision['enabled'])
-        && empty($paymentProof['present'])) {
-        // No modo livre, os blocos orientam o estado, mas nunca substituem a
-        // resposta da OpenAI. Comprovantes e ações críticas ficam nos ramos
-        // determinísticos abaixo para preservar a segurança operacional.
-        $result = studio_openai_text(
-            $config['api_key'],
-            $aiModel,
-            $effectiveSystemPrompt,
-            $prompt,
-            (string)($config['base_url'] ?? 'https://api.openai.com/v1'),
-            3000,
-            false,
-            null,
-            ''
-        );
+        && empty($paymentProof['present'])
+        && !in_array($currentIntent, ['image_reference', 'image_price', 'image_price_style'], true)) {
+        // O modo natural usa o mesmo coletor da página de teste. As decisões
+        // críticas (agenda real, Pix, comprovante e criação do agendamento)
+        // continuam nos ramos determinísticos abaixo.
+        $naturalHistory = [];
+        foreach (array_slice($history, -40) as $historyItem) {
+            if (!is_array($historyItem)) {
+                continue;
+            }
+            $historyItemText = trim((string)($historyItem['body'] ?? ''));
+            if ($historyItemText === '') {
+                $historyItemText = trim((string)($historyItem['transcricao'] ?? $historyItem['transcript'] ?? ''));
+            }
+            if ($historyItemText === '') {
+                continue;
+            }
+            $naturalHistory[] = [
+                'role' => (string)($historyItem['direction'] ?? 'in') === 'out' ? 'assistant' : 'user',
+                'content' => $historyItemText,
+            ];
+        }
+        $existingQuote = is_array($bookingFlowState['quote'] ?? null)
+            ? trim((string)($bookingFlowState['quote']['label'] ?? $bookingFlowState['quote']['price'] ?? ''))
+            : '';
+        $existingReference = trim((string)($bookingFlowState['reference_summary'] ?? ''));
+        if ($existingReference === '' && !empty($bookingFlowState['reference_received'])) {
+            $existingReference = 'referência enviada pelo cliente';
+        } elseif ($existingReference === '' && !empty($bookingFlowState['reference_declined'])) {
+            $existingReference = 'não tenho referência';
+        }
+        $naturalState = [
+            'customer_name' => (string)($bookingFlowState['customer_name'] ?? ''),
+            'tattoo_idea' => (string)($bookingFlowState['tattoo_idea'] ?? ''),
+            'reference' => $existingReference,
+            'body_area' => (string)($bookingFlowState['body_area'] ?? ''),
+            'body_details' => trim((string)($bookingFlowState['body_details'] ?? '')) ?: trim(implode(' / ', array_filter([
+                (string)($bookingFlowState['body_side'] ?? ''),
+                (string)($bookingFlowState['body_position'] ?? ''),
+            ]))),
+            'size_coverage' => (string)($bookingFlowState['size_coverage'] ?? ''),
+            'style_preference' => (string)($bookingFlowState['style_preference'] ?? ''),
+            'preferred_date' => is_array($bookingFlowState['selected_slot'] ?? null) ? (string)($bookingFlowState['selected_slot']['date'] ?? '') : '',
+            'preferred_time' => is_array($bookingFlowState['selected_slot'] ?? null) ? (string)($bookingFlowState['selected_slot']['time'] ?? '') : '',
+            'quote' => $existingQuote,
+        ];
+        $naturalResult = studio_ai_free_chat_answer($studio, $naturalHistory, $messageText, $naturalState, [
+            'regras_oficiais_do_estudio' => $effectiveStudioRules,
+            'tabela_oficial_de_orcamento' => $pricingPageContext,
+            'modo_de_atendimento' => 'coleta natural dos dados para agendamento; sem executar ações nesta etapa',
+        ]);
+        if (!empty($naturalResult['ok'])) {
+            studio_whatsapp_ai_apply_natural_intake_summary(
+                $bookingFlowState,
+                is_array($naturalResult['booking_summary'] ?? null) ? $naturalResult['booking_summary'] : []
+            );
+            $bookingStateText = trim($bookingStateText . ' ' . studio_whatsapp_booking_state_summary($bookingFlowState));
+            $bookingChecklist = studio_whatsapp_booking_readiness(
+                $conversation,
+                $messageText,
+                $bookingStateText,
+                $conversationMemory,
+                !empty($bookingFlowState['reference_received']),
+                $visualBodyArea,
+                $specificPricingQuote,
+                !empty($bookingFlowState['customer_name_confirmed'])
+            );
+            $bookingFlowState['pending'] = (string)($bookingChecklist['next_question'] ?? '');
+            $bookingFlowState['stage'] = empty($bookingChecklist['ready']) ? 'briefing' : 'schedule';
+            $result = [
+                'ok' => true,
+                'reply_text' => (string)$naturalResult['reply_text'],
+                'needs_human' => false,
+                'lead_score_delta' => !empty($naturalResult['complete']) ? 2 : 1,
+                'summary' => !empty($naturalResult['complete'])
+                    ? 'Coleta natural do pré-atendimento concluída; dados exibidos ao cliente.'
+                    : 'Coleta natural do pré-atendimento; próxima informação pendente: ' . implode(', ', array_map('strval', (array)($naturalResult['missing_fields'] ?? []))) . '.',
+            ];
+            $naturalIntakeUsed = true;
+            $naturalIntakeComplete = !empty($naturalResult['complete']);
+            $decisionIsUsable = false;
+            $serviceFlowOptions = [];
+        } else {
+            // Se o provedor estruturado falhar, mantém o caminho anterior como
+            // fallback para não interromper uma conversa já em andamento.
+            $result = studio_openai_text(
+                $config['api_key'],
+                $aiModel,
+                $effectiveSystemPrompt,
+                $prompt,
+                (string)($config['base_url'] ?? 'https://api.openai.com/v1'),
+                3000,
+                false,
+                null,
+                ''
+            );
+        }
     } elseif ($currentIntent === 'human_handoff') {
         $reasonText = mb_strtolower((string)$guardrailReason, 'UTF-8');
         if (str_contains($reasonText, 'fora do atendimento')) {
@@ -19111,7 +19194,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         && !$addressRequested
         && !in_array($currentIntent, ['payment_proof', 'payment_proof_text', 'payment_proof_denial', 'payment_terms', 'human_handoff'], true)
         && !studio_whatsapp_ai_is_coverup_request($currentText);
-    if ($fixedOfferReady) {
+    if (!$naturalIntakeUsed && $fixedOfferReady) {
         $fixedOfferPrice = trim((string)($businessDecision['price'] ?? ''));
         if ($fixedOfferPrice === '') {
             $fixedOfferPrice = format_money((float)$businessDecision['price_amount']);
@@ -19125,7 +19208,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     if (($addressRequested || $currentIntent === 'address') && $studioAddress !== '') {
         $replyText = 'O estúdio fica em ' . $studioAddress . '.';
     }
-    if ($decisionIsUsable
+    if (!$naturalIntakeUsed
+        && $decisionIsUsable
         && empty($businessDecision['needs_human'])
         && !in_array($currentIntent, ['payment_proof', 'payment_proof_text', 'payment_proof_denial', 'human_handoff'], true)) {
         $replyPlain = studio_calendar_remove_accents(mb_strtolower($replyText, 'UTF-8'));
@@ -19158,7 +19242,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     $unverifiedPolicyTopic = !empty($serviceFlowDecision['enabled'])
         ? studio_whatsapp_service_flow_unverified_policy_topic($messageText, $effectiveStudioRules)
         : '';
-    if ($unverifiedPolicyTopic !== '' && empty($result['needs_human'])) {
+    if (!$naturalIntakeUsed && $unverifiedPolicyTopic !== '' && empty($result['needs_human'])) {
         $replyText = 'Essa condição sobre ' . $unverifiedPolicyTopic . ' não está definida nas regras cadastradas, então sinalizei a equipe para confirmar sem te passar uma informação errada.';
         if ($serviceFlowResumeQuestion !== '') {
             $replyText .= ' Enquanto isso, seguimos de onde paramos: ' . $serviceFlowResumeQuestion;
@@ -19271,7 +19355,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         $result['needs_human'] = false;
     }
     $replyText = studio_whatsapp_ai_guard_unconfirmed_reservation($replyText, $bookingFlowState, $bookingChecklist);
-    if (!empty($bookingFlowState['active'])
+    if (!$naturalIntakeUsed
+        && !empty($bookingFlowState['active'])
         && empty($result['needs_human'])
         && $serviceFlowResumeQuestion === ''
         && $bookingFlowContinuation !== ''
@@ -19356,13 +19441,13 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'intent' => $currentIntent,
         ];
     }
-    if ($freestyleMode && !in_array($currentIntent, [
+    if ($freestyleMode && !$naturalIntakeComplete && !in_array($currentIntent, [
         'reservation', 'payment_proof', 'payment_proof_text', 'payment_proof_denial',
         'payment_amount_variation', 'payment_terms', 'address',
     ], true)) {
         $replyText = studio_whatsapp_ai_compact_direct_reply($replyText, 360, 2);
     }
-    if (mb_strlen($replyText) > 480) {
+    if (!$naturalIntakeComplete && mb_strlen($replyText) > 480) {
         $parts = preg_split('/(?<=[.!?])\s+/u', $replyText) ?: [$replyText];
         $replyText = trim(implode(' ', array_slice($parts, 0, 4)));
         if (mb_strlen($replyText) > 480) {
@@ -19373,7 +19458,8 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
     $finalAddressText = trim((string)($newMessage['body'] ?? $newMessage['mensagem'] ?? '') . ' ' . $messageText);
     $finalAddressPlain = studio_calendar_remove_accents(mb_strtolower($finalAddressText, 'UTF-8'));
-    if (($addressRequested
+    if (!$naturalIntakeUsed
+        && ($addressRequested
         || in_array('address', $pendingIntents, true)
         || $currentIntent === 'address'
         || str_contains($finalAddressPlain, 'endereco')
@@ -20679,7 +20765,7 @@ function studio_data_assistant_context(array $studio): array
  * conversar naturalmente sem perder um nome, uma referência ou uma escolha
  * de horário que já tenha sido informada alguns turnos antes.
  */
-function studio_ai_free_chat_answer(array $studio, array $history, string $message, array $bookingState = []): array
+function studio_ai_free_chat_answer(array $studio, array $history, string $message, array $bookingState = [], array $additionalContext = []): array
 {
     $message = trim($message);
     if ($message === '') {
@@ -20748,6 +20834,16 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'horarios_configurados' => studio_schedule_slots($studio),
         'observacao' => 'Esta tela coleta dados; nao confirma disponibilidade e nao cria agendamento automaticamente.',
     ];
+    foreach ($additionalContext as $contextKey => $contextValue) {
+        if (!is_string($contextKey) || $contextKey === '') {
+            continue;
+        }
+        if (is_scalar($contextValue)) {
+            $studioContext[$contextKey] = mb_substr((string)$contextValue, 0, 30000, 'UTF-8');
+        } elseif (is_array($contextValue)) {
+            $studioContext[$contextKey] = $contextValue;
+        }
+    }
     $contextJson = json_encode($studioContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $stateJson = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $historyJson = json_encode($safeHistory, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -20775,7 +20871,7 @@ Faça uma pergunta por vez e aproveite qualquer informação que o cliente já t
 
 Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
-Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. A tela não confirma a vaga nem cria a agenda. Para o orçamento, aceite um valor já informado pelo cliente; se ainda não houver valor, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou.
+Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. A tela não confirma a vaga nem cria a agenda. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou.
 
 A ficha precisa reunir estes campos: {$fieldGuide}.
 Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, tamanho/cobertura, estilo/cor, dia, horário e orçamento são necessários para considerar a coleta completa. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
@@ -20848,9 +20944,12 @@ TXT;
             $missing[] = $labels[$field] ?? $field;
         }
     }
-    $complete = !empty($raw['complete']) && $missing === [];
+    // O servidor confirma a completude pela ficha, não apenas pela decisão
+    // textual do modelo, para evitar que uma resposta natural se esqueça do
+    // resumo final quando todos os campos já foram preenchidos.
+    $complete = $missing === [];
     $reply = trim((string)$response['reply_text']);
-    if ($complete && !preg_match('/consegui|reuni|resumo/i', $reply)) {
+    if ($complete) {
         $reply = "Perfeito, consegui reunir todas as informações para preparar o agendamento:\n\n"
             . 'Nome: ' . $state['customer_name'] . "\n"
             . 'Ideia: ' . $state['tattoo_idea'] . "\n"
@@ -20873,6 +20972,67 @@ TXT;
         'model' => (string)($response['fallback_model'] ?? $config['model']),
         'provider' => (string)($config['provider'] ?? ''),
     ];
+}
+
+/**
+ * Transfere a ficha natural de pré-atendimento para o estado persistido do
+ * WhatsApp sem substituir referências, comprovantes ou horários já confirmados.
+ */
+function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $summary): void
+{
+    $value = static fn(string $key): string => trim((string)($summary[$key] ?? ''));
+    $customerName = $value('customer_name');
+    if ($customerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($customerName)) {
+        $state['customer_name'] = mb_substr($customerName, 0, 160, 'UTF-8');
+        $state['customer_name_confirmed'] = true;
+    }
+
+    $idea = $value('tattoo_idea');
+    if ($idea !== '' && !studio_whatsapp_ai_is_body_area_only($idea)) {
+        $state['tattoo_idea'] = mb_substr($idea, 0, 500, 'UTF-8');
+    }
+    $bodyArea = $value('body_area');
+    if ($bodyArea !== '') {
+        $state['body_area'] = mb_substr($bodyArea, 0, 160, 'UTF-8');
+    }
+    $bodyDetails = $value('body_details');
+    if ($bodyDetails !== '') {
+        $state['body_details'] = mb_substr($bodyDetails, 0, 300, 'UTF-8');
+        $detailsPlain = studio_calendar_remove_accents(mb_strtolower($bodyDetails, 'UTF-8'));
+        if (preg_match('/\b(esquerdo|direito|interno|externo)\b/u', $detailsPlain, $match)) {
+            $state['body_side'] = $match[1];
+        }
+        if (preg_match('/\b(frente|costas|lateral|parte de cima|parte de baixo)\b/u', $detailsPlain, $match)) {
+            $state['body_position'] = $match[1];
+        }
+    }
+
+    foreach (['size_coverage', 'style_preference'] as $field) {
+        $fieldValue = $value($field);
+        if ($fieldValue !== '') {
+            $state[$field] = mb_substr($fieldValue, 0, 240, 'UTF-8');
+        }
+    }
+
+    $reference = $value('reference');
+    if ($reference !== '') {
+        $referencePlain = studio_calendar_remove_accents(mb_strtolower($reference, 'UTF-8'));
+        if (preg_match('/\b(nao\s+tenho|sem\s+refer|nao\s+possuo|nenhuma)\b/u', $referencePlain)) {
+            $state['reference_declined'] = true;
+            $state['reference_received'] = false;
+            $state['reference_summary'] = '';
+        } else {
+            $state['reference_received'] = true;
+            $state['reference_declined'] = false;
+            $state['reference_summary'] = mb_substr($reference, 0, 600, 'UTF-8');
+        }
+    }
+
+    $date = $value('preferred_date');
+    $time = $value('preferred_time');
+    if ($date !== '' || $time !== '') {
+        $state['schedule_preference'] = trim($date . ($date !== '' && $time !== '' ? ' ' : '') . $time);
+    }
 }
 
 /**
