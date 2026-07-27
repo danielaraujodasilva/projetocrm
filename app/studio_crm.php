@@ -16508,6 +16508,31 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         return $answer + ['ok' => false];
     }
 
+    $answerReply = trim((string)($answer['reply_text'] ?? ''));
+    $answerAsksBudget = (bool)preg_match('/\b(or[cç]amento|pre[cç]o|valor)\b.{0,90}\?/iu', $answerReply);
+    if ($answerAsksBudget && empty($answer['complete'])) {
+        $nonBudgetMissing = array_values(array_filter(
+            array_map('strval', (array)($answer['missing_fields'] ?? [])),
+            static fn(string $field): bool => !preg_match('/\b(or[cç]amento|pre[cç]o|valor)\b/iu', $field)
+        ));
+        if (!$nonBudgetMissing) {
+            $answer['booking_summary']['quote'] = 'calcular pela tabela oficial';
+            $answer['missing_fields'] = [];
+            $answer['complete'] = true;
+        } else {
+            $nextMissing = $nonBudgetMissing[0];
+            $nextQuestion = 'Pode me dizer ' . mb_strtolower($nextMissing, 'UTF-8') . '?';
+            if (preg_match('/\bparte do corpo\b/iu', $nextMissing)) {
+                $nextQuestion = 'Em qual parte do corpo você quer fazer a tatuagem?';
+            } elseif (preg_match('/\bdia desejado\b/iu', $nextMissing)) {
+                $nextQuestion = 'Qual dia você prefere?';
+            } elseif (preg_match('/\bhor[aá]rio desejado\b/iu', $nextMissing)) {
+                $nextQuestion = 'Qual horário você prefere?';
+            }
+            $answer['reply_text'] = 'Vou calcular o valor pela tabela oficial. ' . $nextQuestion;
+        }
+    }
+
     $priorCustomerMessages = count(array_filter($history, static fn(array $item): bool => ($item['role'] ?? '') === 'user'));
     if ($priorCustomerMessages <= 1 && empty($answer['complete'])) {
         $firstReply = trim((string)$answer['reply_text']);
@@ -16529,13 +16554,16 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $dateText = trim((string)($summary['preferred_date'] ?? $state['schedule_preference'] ?? ''));
     $timeText = trim((string)($summary['preferred_time'] ?? ''));
     $dateObject = null;
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateText)) {
+    $datePlain = studio_calendar_remove_accents(mb_strtolower($dateText, 'UTF-8'));
+    $ambiguousWeekend = (bool)preg_match('/\b(fim|final)\s+de\s+semana\b/u', $datePlain)
+        && !preg_match('/\b(sabado|domingo)\b/u', $datePlain);
+    if (!$ambiguousWeekend && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateText)) {
         $dateObject = DateTimeImmutable::createFromFormat('!Y-m-d', $dateText, new DateTimeZone('America/Sao_Paulo')) ?: null;
     }
-    if (!$dateObject) {
+    if (!$ambiguousWeekend && !$dateObject) {
         $dateObject = studio_whatsapp_ai_parse_natural_date_pt($dateText);
     }
-    if (!$dateObject && ($slotFromText = studio_whatsapp_ai_parse_offered_slot($dateText . ' ' . $timeText))) {
+    if (!$ambiguousWeekend && !$dateObject && ($slotFromText = studio_whatsapp_ai_parse_offered_slot($dateText . ' ' . $timeText))) {
         $dateText = (string)$slotFromText['date'];
         $timeText = (string)$slotFromText['time'];
         $dateObject = DateTimeImmutable::createFromFormat('!Y-m-d', $dateText, new DateTimeZone('America/Sao_Paulo')) ?: null;
@@ -16571,11 +16599,10 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         );
     }
 
-    $quoteText = trim((string)($summary['quote'] ?? ''));
+    // Nunca use um valor sugerido pelo cliente ou inventado pela IA como preço
+    // oficial. O valor do agendamento vem exclusivamente da tabela carregada.
+    $quoteText = '';
     $value = 0.0;
-    if (preg_match('/(?:r\$\s*)?([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:[,.][0-9]{2})?)/iu', $quoteText, $quoteMatch)) {
-        $value = money_to_float((string)$quoteMatch[1]);
-    }
     if ($value <= 0 && $pricingContext !== '') {
         $pricingInput = implode(' | ', [
             (string)($summary['tattoo_idea'] ?? ''),
@@ -21334,12 +21361,14 @@ Seu único objetivo nesta conversa é reunir, de forma natural, os dados necess�
 
 Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
 
-Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
+Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
 Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou. A confirmação da vaga e a gravação do agendamento são responsabilidades do sistema depois que esta ficha estiver completa.
 
 A ficha precisa reunir estes campos: {$fieldGuide}.
 Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, dimensão/área ocupada, estilo/cor e dia/horário são necessários para considerar a coleta completa. O orçamento é calculado pela tabela oficial, não é perguntado ao cliente. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
+
+“Fechamento” significa cobrir a área completa indicada, não uma tatuagem pequena. “Fechamento de costas” significa todas as partes de costas previstas na tabela e deve usar a promoção de fechamento de costas; o mesmo raciocínio vale para fechamento de braço ou perna. Se a pessoa disser apenas “fechamento”, pergunte de qual região do corpo. Para braço e perna, confirme interno ou externo quando essa distinção existir na tabela oficial.
 
 Adjetivos e descrições também valem como dados: “dragão realista” preenche ideia e estilo realista; “preto e branco” preenche estilo/cor; “colorido” preenche estilo/cor; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Estilo/cor, Dia, Horário e Orçamento.
 
@@ -21425,6 +21454,24 @@ TXT;
             $state['body_area'] = (string)$areaCandidate['label'];
         }
     }
+    if (preg_match('/\b(fechamento|fechar|fech[aá]r|inteir[ao]|complet[ao])\b/u', $evidencePlain)) {
+        $closingArea = studio_whatsapp_ai_find_body_area($userEvidence);
+        $closingLabel = trim((string)($closingArea['label'] ?? $state['body_area'] ?? ''));
+        if ($closingLabel !== '') {
+            $closingPlain = studio_calendar_remove_accents(mb_strtolower($closingLabel, 'UTF-8'));
+            if (str_contains($closingPlain, 'costas')) {
+                $state['body_area'] = 'costas';
+                $state['body_details'] = 'área inteira';
+                $state['size_coverage'] = 'fechamento completo de costas';
+            } elseif (str_contains($closingPlain, 'braço') || str_contains($closingPlain, 'braco')) {
+                $state['body_area'] = 'braço';
+                $state['size_coverage'] = 'fechamento completo de braço';
+            } elseif (str_contains($closingPlain, 'perna')) {
+                $state['body_area'] = 'perna';
+                $state['size_coverage'] = 'fechamento completo de perna';
+            }
+        }
+    }
     if (trim($state['reference']) === '' && preg_match('/\b(nao\s+tenho|sem\s+referencia|nenhuma\s+referencia|nao\s+possuo)\b/u', $evidencePlain)) {
         $state['reference'] = 'não tenho referência';
     }
@@ -21451,7 +21498,9 @@ TXT;
             $state['size_coverage'] = trim((string)$sizeMatch[1]);
         }
     }
-    if (trim($state['preferred_date']) === '') {
+    $mentionsAmbiguousWeekend = (bool)preg_match('/\b(fim|final)\s+de\s+semana\b/u', $evidencePlain)
+        && !preg_match('/\b(sabado|domingo)\b/u', $evidencePlain);
+    if (trim($state['preferred_date']) === '' && !$mentionsAmbiguousWeekend) {
         $naturalDate = studio_whatsapp_ai_parse_natural_date_pt($message);
         if ($naturalDate instanceof DateTimeImmutable) {
             $state['preferred_date'] = $naturalDate->format('d/m/Y');
@@ -21466,10 +21515,15 @@ TXT;
     if (trim($state['quote']) === '' && preg_match('/\br\$\s*[0-9][0-9.,]*/iu', $userEvidence, $quoteMatch)) {
         $state['quote'] = trim((string)$quoteMatch[0]);
     }
+    $preferredDatePlain = studio_calendar_remove_accents(mb_strtolower((string)$state['preferred_date'], 'UTF-8'));
+    $ambiguousWeekend = (bool)preg_match('/\b(fim|final)\s+de\s+semana\b/u', $preferredDatePlain . ' ' . $evidencePlain)
+        && !preg_match('/\b(sabado|domingo)\b/u', $preferredDatePlain . ' ' . $evidencePlain);
     $missing = [];
     foreach ($fields as $field) {
-        if (trim((string)($state[$field] ?? '')) === '') {
-            $missing[] = $labels[$field] ?? $field;
+        if (trim((string)($state[$field] ?? '')) === '' || ($field === 'preferred_date' && $ambiguousWeekend)) {
+            $missing[] = $field === 'preferred_date' && $ambiguousWeekend
+                ? 'dia desejado: sábado ou domingo'
+                : ($labels[$field] ?? $field);
         }
     }
     // O servidor confirma a completude pela ficha, não apenas pela decisão
@@ -21477,6 +21531,9 @@ TXT;
     // resumo final quando todos os campos já foram preenchidos.
     $complete = $missing === [];
     $reply = trim((string)$response['reply_text']);
+    if ($ambiguousWeekend) {
+        $reply = 'Você prefere sábado ou domingo?';
+    }
     if ($complete) {
         $reply = "Perfeito, consegui reunir todas as informações para preparar o agendamento:\n\n"
             . 'Nome: ' . $state['customer_name'] . "\n"
@@ -21484,7 +21541,7 @@ TXT;
             . 'Referência: ' . $state['reference'] . "\n"
             . 'Parte do corpo: ' . $state['body_area'] . "\n"
             . 'Lado/posição: ' . $state['body_details'] . "\n"
-            . 'Tamanho/cobertura: ' . $state['size_coverage'] . "\n"
+            . 'Dimensão/área ocupada: ' . $state['size_coverage'] . "\n"
             . 'Estilo/cor: ' . $state['style_preference'] . "\n"
             . 'Dia: ' . $state['preferred_date'] . "\n"
             . 'Horário: ' . $state['preferred_time'] . "\n"
