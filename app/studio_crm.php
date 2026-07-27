@@ -4256,6 +4256,12 @@ function studio_whatsapp_is_reference_work_request(string $text): bool
     return $plain !== '' && (bool)preg_match('/\b(portfolio|portifolio|trabalhos?|fotos?|referencias?\s+(?:de\s+)?trabalhos?|instagram|site|modelos?)\b/u', $plain);
 }
 
+function studio_whatsapp_is_artist_info_request(string $text): bool
+{
+    $plain = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
+    return $plain !== '' && (bool)preg_match('/\b(tatuador(?:a|es)?|artista(?:s)?|equipe|conhecer\s+(?:o\s+)?tatuador|fotos?\s+(?:do|de)\s+(?:trabalho|ele|anime))\b/u', $plain);
+}
+
 function studio_whatsapp_service_flow_save(array $studio, array $payload, int $userId = 0): void
 {
     studio_whatsapp_service_flow_ensure_schema($studio);
@@ -4540,6 +4546,58 @@ function studio_whatsapp_ai_find_body_area(string $text): array
         $normalizedNeedle = str_replace(['^', '~', '`', '´', "'"], '', $normalizedNeedle);
         if ($normalizedNeedle !== '' && preg_match('/(?<![\p{L}\p{N}])' . preg_quote($normalizedNeedle, '/') . '(?![\p{L}\p{N}])/u', $plain)) {
             return ['raw' => (string)$needle, 'normalized' => $normalizedNeedle, 'label' => (string)$label];
+        }
+    }
+
+    // Respostas curtas no WhatsApp costumam chegar com erro de digitação
+    // (por exemplo, "gosta" ou "cota" quando a pessoa quis dizer "costas").
+    // Só usamos aproximação quando a mensagem parece ser uma resposta isolada
+    // à pergunta da área, evitando alterar frases comuns do cliente.
+    $shortAnswer = trim((string)(preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $plain) ?? $plain));
+    $shortAnswer = trim((string)(preg_replace('/\s+/u', ' ', $shortAnswer) ?? $shortAnswer));
+    $shortWords = $shortAnswer === '' ? [] : preg_split('/\s+/u', $shortAnswer);
+    if (is_array($shortWords) && count($shortWords) <= 3) {
+        // Erros frequentes em respostas curtas observados no atendimento.
+        // São aliases explícitos porque a distância simples confundiria
+        // "cota" com "coxa", embora o contexto indique "costas".
+        $shortAliases = [
+            'gosta' => 'costas',
+            'cota' => 'costas',
+        ];
+        if (isset($shortAliases[$shortAnswer])) {
+            $aliasNeedle = $shortAliases[$shortAnswer];
+            foreach ($catalog as $needle => $label) {
+                $normalizedNeedle = studio_calendar_remove_accents(mb_strtolower((string)$needle, 'UTF-8'));
+                if ($normalizedNeedle === $aliasNeedle) {
+                    return ['raw' => (string)$needle, 'normalized' => $normalizedNeedle, 'label' => (string)$label];
+                }
+            }
+        }
+
+        $best = null;
+        $bestDistance = PHP_INT_MAX;
+        $tie = false;
+        foreach ($catalog as $needle => $label) {
+            $candidate = studio_calendar_remove_accents(mb_strtolower((string)$needle, 'UTF-8'));
+            $candidate = trim((string)(preg_replace('/\s+/u', ' ', $candidate) ?? $candidate));
+            if ($candidate === '' || str_word_count($candidate) > 3) {
+                continue;
+            }
+            $distance = levenshtein($shortAnswer, $candidate);
+            $maxDistance = 1;
+            if ($distance > $maxDistance) {
+                continue;
+            }
+            if ($distance < $bestDistance) {
+                $best = ['raw' => (string)$needle, 'normalized' => $candidate, 'label' => (string)$label];
+                $bestDistance = $distance;
+                $tie = false;
+            } elseif ($distance === $bestDistance) {
+                $tie = true;
+            }
+        }
+        if (is_array($best) && !$tie) {
+            return $best;
         }
     }
     return ['raw' => '', 'normalized' => '', 'label' => ''];
@@ -8042,6 +8100,18 @@ function studio_whatsapp_ai_schedule_preference(string $text, ?DateTimeImmutable
 {
     $plain = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
+    $greetingCheck = trim((string)(preg_replace('/[\p{P}\p{S}]+/u', ' ', $plain) ?? $plain));
+    if (in_array($greetingCheck, ['oi', 'ola', 'bom dia', 'boa tarde', 'boa noite'], true)) {
+        return [
+            'active' => false,
+            'date' => '',
+            'weekday' => 0,
+            'period' => '',
+            'time' => '',
+            'natural' => trim($text),
+            'from_history' => false,
+        ];
+    }
     $parsedDate = studio_whatsapp_ai_parse_natural_date_pt($text, $today);
     $weekday = 0;
     foreach ([
@@ -16896,6 +16966,14 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
     }
     $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+    $detectedBodyArea = studio_whatsapp_ai_find_body_area($body);
+    $currentBodyArea = trim((string)($state['body_area'] ?? ''));
+    $pendingBodyArea = (bool)preg_match('/\b(?:parte|area|área|local)\s+do\s+corpo\b/iu', (string)($state['pending'] ?? ''));
+    if (trim((string)($detectedBodyArea['label'] ?? '')) !== '' && ($currentBodyArea === '' || $pendingBodyArea)) {
+        $state['body_area'] = (string)$detectedBodyArea['label'];
+        $state['body_area_source'] = 'customer_context';
+        $state['reference_body_area_confirmation_required'] = false;
+    }
     if (preg_match('/\b(?:diferente|alterar|mudar|modificar|sem\s+ser\s+igual|parecid[oa]\s+mas)\b/u', $bodyPlain)) {
         $state['reference_exact'] = false;
     }
@@ -17013,7 +17091,10 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         if (trim((string)($currentSchedulePreference['time'] ?? '')) === '') {
             $preferenceLabel = $schedulePreferenceLabel(trim((string)($currentSchedulePreference['natural'] ?? $body)));
             if ($currentOptions['matching_label'] !== '') {
-                $reply = 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei: ' . $currentOptions['matching_label'] . '. Qual você prefere?';
+                $matchingSlots = array_values((array)($currentOptions['matching'] ?? []));
+                $reply = count($matchingSlots) === 1
+                    ? 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei ' . $currentOptions['matching_label'] . '. Esse horário funciona para você?'
+                    : 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei: ' . $currentOptions['matching_label'] . '. Qual você prefere?';
             } else {
                 $reply = 'Não tenho vaga para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
                 if ($currentOptions['nearby_label'] !== '') {
@@ -17064,6 +17145,52 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             return $scheduleReply($state, $reply, $preferenceLabel);
         }
     }
+    $isPortfolioRequest = (bool)preg_match('/\b(portfolio|portifolio|trabalhos?|instagram|site|modelos?)\b/iu', $body)
+        || (bool)preg_match('/\bfotos?.{0,35}\b(anime|trabalho|ele)\b/iu', $body);
+    if (studio_whatsapp_is_artist_info_request($body) || $isPortfolioRequest) {
+        $studioName = studio_calendar_remove_accents(mb_strtolower(trim((string)($studio['name'] ?? '')), 'UTF-8'));
+        $artistNames = [];
+        foreach (studio_list_artists($studio) as $artist) {
+            $artistName = trim((string)($artist['name'] ?? ''));
+            if ($artistName === '' || studio_calendar_remove_accents(mb_strtolower($artistName, 'UTF-8')) === $studioName) {
+                continue;
+            }
+            $artistNames[] = $artistName;
+        }
+        $artistNames = array_values(array_unique($artistNames));
+        $links = studio_whatsapp_official_reference_links($studio);
+        $reply = $artistNames !== []
+            ? 'Claro! Aqui no estúdio, o tatuador cadastrado é ' . implode(' e ', $artistNames) . '.'
+            : 'Claro! Posso confirmar com a equipe quem vai atender você.';
+        if (preg_match('/\b(anime|fotos?|trabalhos?|portf[oó]lio|portfolio)\b/iu', $body)) {
+            $reply .= ' Não tenho um álbum específico de anime cadastrado, mas você pode ver os trabalhos reais';
+            $linkParts = [];
+            if (!empty($links['site'])) {
+                $linkParts[] = 'no site: ' . $links['site'];
+            }
+            if (!empty($links['instagram'])) {
+                $linkParts[] = 'no Instagram: ' . $links['instagram'];
+            }
+            $reply .= $linkParts !== [] ? ' ' . implode(' e ', $linkParts) . '.' : '.';
+        }
+        $nextQuestion = '';
+        if (trim((string)($state['customer_name'] ?? '')) === '') {
+            $nextQuestion = 'Quando quiser, me fala seu nome completo.';
+        } elseif (trim((string)($state['tattoo_idea'] ?? '')) === '') {
+            $nextQuestion = 'E me conta o que você quer tatuar.';
+        } elseif (trim((string)($state['body_area'] ?? '')) === '') {
+            $nextQuestion = 'Depois me diz em qual parte do corpo você quer fazer.';
+        } elseif (empty($state['reference_received']) && empty($state['reference_declined'])) {
+            $nextQuestion = 'Se tiver uma referência, pode mandar por aqui; se não tiver, tudo bem.';
+        }
+        if ($nextQuestion !== '') {
+            $reply .= ' ' . $nextQuestion;
+            $state['pending'] = $nextQuestion;
+            $state['active'] = true;
+            $state['stage'] = 'briefing';
+        }
+        return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $reply, $state, false);
+    }
     $realAvailabilityNotes = [];
     foreach ($scheduleAvailability['availability'] as $availableDay) {
         if (!empty($availableDay['free_slots'])) {
@@ -17103,6 +17230,45 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             }
             $answer['reply_text'] = 'Vou calcular o valor pela tabela oficial. ' . $nextQuestion;
         }
+    }
+
+    // Se o modelo repetir a resposta anterior, não envie o mesmo bloco de
+    // texto novamente: avance para a próxima informação realmente pendente.
+    $answerReply = trim((string)($answer['reply_text'] ?? ''));
+    $lastAssistantReply = '';
+    for ($historyIndex = count($history) - 1; $historyIndex >= 0; $historyIndex--) {
+        if (($history[$historyIndex]['role'] ?? '') === 'assistant') {
+            $lastAssistantReply = trim((string)($history[$historyIndex]['content'] ?? ''));
+            break;
+        }
+    }
+    $normalizeForComparison = static function (string $value): string {
+        $value = studio_calendar_remove_accents(mb_strtolower($value, 'UTF-8'));
+        return trim((string)(preg_replace('/\s+/u', ' ', $value) ?? $value));
+    };
+    $currentComparable = $normalizeForComparison($answerReply);
+    $previousComparable = $normalizeForComparison($lastAssistantReply);
+    $similarity = 0.0;
+    if (mb_strlen($currentComparable, 'UTF-8') >= 60 && mb_strlen($previousComparable, 'UTF-8') >= 60) {
+        similar_text($currentComparable, $previousComparable, $similarity);
+    }
+    if (empty($answer['complete']) && $currentComparable !== '' && $previousComparable !== ''
+        && ($currentComparable === $previousComparable || $similarity >= 88.0)) {
+        $missingFieldsForRetry = array_values((array)($answer['missing_fields'] ?? []));
+        $nextMissing = trim((string)($missingFieldsForRetry[0] ?? ''));
+        $answer['reply_text'] = match (true) {
+            preg_match('/nome/i', $nextMissing) === 1 => 'Me confirma seu nome completo, por favor?',
+            preg_match('/ideia|desenho/i', $nextMissing) === 1 => 'Me conta o que você quer tatuar.',
+            preg_match('/refer[eê]ncia/i', $nextMissing) === 1 => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
+            preg_match('/parte do corpo|local do corpo/i', $nextMissing) === 1 => 'Em qual parte do corpo você quer fazer?',
+            preg_match('/posi[cç][aã]o|lado|interno|externo/i', $nextMissing) === 1 => 'Qual lado ou posição você prefere nessa área?',
+            preg_match('/tamanho|cobertura/i', $nextMissing) === 1 => 'Vai ocupar a área inteira ou só uma parte?',
+            preg_match('/estilo|cor/i', $nextMissing) === 1 => 'Você prefere colorido ou preto e branco?',
+            preg_match('/dia/i', $nextMissing) === 1 => 'Qual dia você prefere?',
+            preg_match('/hor[aá]rio/i', $nextMissing) === 1 => 'Qual horário fica melhor?',
+            default => 'Me passa só a próxima informação para eu continuar.',
+        };
+        $answer['summary'] = 'Resposta repetida bloqueada; retomada na próxima pendência.';
     }
 
     if (!empty($state['reference_body_area_confirmation_required'])) {
@@ -21950,12 +22116,19 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     }
 
     $now = new DateTimeImmutable('now', new DateTimeZone('America/Sao_Paulo'));
+    $referenceLinks = studio_whatsapp_official_reference_links($studio);
+    $artistNames = array_values(array_filter(array_map(
+        static fn(array $artist): string => trim((string)($artist['name'] ?? '')),
+        studio_list_artists($studio)
+    )));
     $studioContext = [
         'data_atual' => $now->format('Y-m-d'),
         'data_atual_legivel' => $now->format('d/m/Y'),
         'endereco_cadastrado' => studio_whatsapp_studio_address($studio),
         'dias_de_atendimento_configurados' => studio_schedule_days($studio),
         'horarios_configurados' => studio_schedule_slots($studio),
+        'tatuadores_cadastrados' => $artistNames,
+        'links_oficiais' => $referenceLinks,
         'observacao' => 'A IA apenas extrai e organiza os dados; em produção, o sistema confirma a vaga e cria o agendamento quando a ficha estiver completa.',
     ];
     foreach ($additionalContext as $contextKey => $contextValue) {
@@ -21991,9 +22164,11 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
 Você é uma atendente humana de um estúdio de tatuagem no Brasil.
 Seu nome é Hellen. Se o cliente perguntar seu nome, diga que você é a Hellen, sem se apresentar novamente em toda mensagem.
 Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
+Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
 Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
 Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e o estilo já confirmados quando o histórico permitir; não faça a mesma pergunta novamente.
+Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
 Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição, dimensão, estilo e cor, e não pergunte novamente esses dados. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
