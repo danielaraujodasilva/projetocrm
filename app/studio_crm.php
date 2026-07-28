@@ -5170,8 +5170,7 @@ function studio_whatsapp_service_flow_field_complete(string $fieldKey, array $st
         'tattoo_idea', 'body_position', 'body_side', 'schedule_preference' => trim((string)($state[$fieldKey] ?? '')) !== '',
         'body_area' => empty($state['reference_body_area_confirmation_required']) && trim((string)($state[$fieldKey] ?? '')) !== '',
         'reference_received' => !empty($state['reference_received']) || !empty($state['reference_declined']),
-        'body_details' => trim((string)($state['body_position'] ?? '')) !== ''
-            || trim((string)($state['body_side'] ?? '')) !== ''
+        'body_details' => !studio_whatsapp_ai_body_details_required($state)
             || trim((string)($answers[$fieldKey] ?? '')) !== '',
         'size_coverage', 'style_preference' => trim((string)($state[$fieldKey] ?? $answers[$fieldKey] ?? '')) !== '',
         'quote' => is_array($state['quote'] ?? null)
@@ -17483,7 +17482,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         '/\b(?:tamanho|dimens[aã]o|cobertura|cm)\b/iu' => trim((string)($previewState['size_coverage'] ?? '')) !== '',
         '/\b(?:refer[eê]ncia|imagem|foto)\b/iu' => !empty($previewState['reference_received']) || !empty($previewState['reference_declined']),
         '/\b(?:estilo|cor|colorido|preto\s+e\s+branco)\b/iu' => trim((string)($previewState['style_preference'] ?? '')) !== '',
-        '/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/iu' => trim((string)($previewState['body_details'] ?? ($previewState['body_side'] ?? $previewState['body_position'] ?? ''))) !== '',
+        '/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/iu' => !studio_whatsapp_ai_body_details_required($previewState)
+            || trim((string)($previewState['body_details'] ?? ($previewState['body_side'] ?? $previewState['body_position'] ?? ''))) !== '',
         '/\b(?:dia|data)\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'dia desejado',
         '/\bhor[aá]rio\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'horário desejado',
     ];
@@ -22733,6 +22733,39 @@ function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $s
     }
 }
 
+function studio_whatsapp_ai_body_details_required(array $state): bool
+{
+    if (trim((string)($state['body_details'] ?? '')) !== ''
+        || trim((string)($state['body_position'] ?? '')) !== ''
+        || trim((string)($state['body_side'] ?? '')) !== '') {
+        return false;
+    }
+
+    $area = studio_calendar_remove_accents(mb_strtolower(trim((string)($state['body_area'] ?? '')), 'UTF-8'));
+    if ($area === '') {
+        return true;
+    }
+
+    // Estas áreas já identificam uma linha suficientemente precisa da tabela.
+    // Não faz sentido perguntar lado/posição novamente depois de "joelho todo"
+    // ou "costas", por exemplo. Braço, antebraço, coxa e perna continuam
+    // exigindo o detalhe quando ele altera a promoção ou o preço.
+    $selfDescribingAreas = [
+        'costas', 'lombar', 'peito', 'peitoral', 'abdomen', 'costela',
+        'quadril', 'virilha', 'gluteo', 'ombro', 'ombros', 'cabeca', 'nuca',
+        'pescoco', 'joelho', 'parte de tras do joelho', 'canela', 'panturrilha',
+        'tornozelo', 'pulso', 'mao', 'dedos da mao', 'pe', 'dedos do pe',
+    ];
+    foreach ($selfDescribingAreas as $candidate) {
+        $candidatePattern = '/(?:^|\s)' . preg_quote($candidate, '/') . '(?=\s|$)/u';
+        if ($area === $candidate || preg_match($candidatePattern, $area)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function studio_whatsapp_ai_natural_missing_field(array $state): string
 {
     if (trim((string)($state['customer_name'] ?? '')) === '') {
@@ -22747,9 +22780,7 @@ function studio_whatsapp_ai_natural_missing_field(array $state): string
     if (trim((string)($state['body_area'] ?? '')) === '') {
         return 'parte do corpo';
     }
-    if (trim((string)($state['body_details'] ?? '')) === ''
-        && trim((string)($state['body_position'] ?? '')) === ''
-        && trim((string)($state['body_side'] ?? '')) === '') {
+    if (studio_whatsapp_ai_body_details_required($state)) {
         return 'lado ou posição na área';
     }
     if (trim((string)($state['size_coverage'] ?? '')) === '') {
