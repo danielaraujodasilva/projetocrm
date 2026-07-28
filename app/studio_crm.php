@@ -4643,6 +4643,9 @@ function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
         || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\s+(?:de\s+)?(?:fazer\s+)?(?:um\s+)?(?:orcamento|agendamento|agendar|marcar)\s*[.!?]*$/u', $plain)
         || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\s+(?:de\s+)?(?:fazer\s+)?(?:uma?\s+)?tatuagem\s*[.!?]*$/u', $plain)
         || preg_match('/^(?:tem|possui|existe)\s+(?:vaga|horario|horarios|disponibilidade)\b.*$/u', $plain)
+        || preg_match('/^(?:quanto|qual)\b.*\b(?:custa|valor|preco|orcamento)\b.*\??$/u', $plain)
+        || preg_match('/\b(?:mandar|enviar)\s+(?:uma?\s+)?(?:foto|imagem|referencia)\b/u', $plain)
+        || preg_match('/\b(?:falar|conversar)\s+com\s+(?:um\s+)?(?:atendente|humano|pessoa)\b/u', $plain)
     );
 }
 
@@ -4696,12 +4699,16 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
     }
     $candidate = trim((string)(preg_replace('/^\s*(?:um|uma|o|a)\s+/iu', '', $candidate) ?? $candidate));
     $candidate = trim((string)(preg_replace('/^\s*(?:uma?\s+)?tatuagem(?:\s+de)?\s+/iu', '', $candidate) ?? $candidate));
+    if (preg_match('/^\s*(?:um|uma)?\s*(?:or[cç]amento|pre[cç]o|valor)\s+(?:de|da|do|para)\s+(.+)$/iu', $candidate, $commercialMatch)) {
+        $candidate = trim((string)($commercialMatch[1] ?? ''));
+        $candidate = trim((string)(preg_replace('/^\s*(?:um|uma|o|a)\s+/iu', '', $candidate) ?? $candidate));
+    }
     foreach (studio_whatsapp_ai_find_body_areas($candidate) as $area) {
         $normalizedArea = studio_calendar_remove_accents($area);
         $areaPattern = '/\b(?:' . preg_quote($area, '/') . '|' . preg_quote($normalizedArea, '/') . ')\b/iu';
         $candidate = trim((string)(preg_replace($areaPattern, ' ', $candidate) ?? $candidate));
     }
-    $candidate = trim((string)(preg_replace('/\b(?:no|na|em|nas|nos|do|da|dos|das)\s*$/iu', '', $candidate) ?? $candidate));
+    $candidate = trim((string)(preg_replace('/\b(?:no|na|em|nas|nos|do|da|dos|das|de)\s*$/iu', '', $candidate) ?? $candidate));
     $candidate = trim((string)(preg_replace('/\s+/u', ' ', $candidate) ?? $candidate));
     if ($candidate === ''
         || studio_whatsapp_ai_is_body_area_only($candidate)
@@ -17296,6 +17303,35 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         && $scheduleDateFromContext !== '') {
         $currentSchedulePreference['date'] = $scheduleDateFromContext;
     }
+    $intakePendingBeforeSchedule = studio_whatsapp_ai_natural_missing_field($state);
+    $intakePendingLabels = [
+        'nome completo' => 'Antes de conferir a agenda, me confirma seu nome completo?',
+        'ideia da tatuagem' => 'Antes de olhar horário, me conta o que você quer tatuar.',
+        'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
+        'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
+        'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
+        'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
+        'estilo ou cor' => 'Você prefere colorido ou preto e branco?',
+    ];
+    if (!empty($currentSchedulePreference['active'])
+        && isset($intakePendingLabels[$intakePendingBeforeSchedule])) {
+        $state['schedule_preference'] = trim((string)($currentSchedulePreference['natural'] ?? $body));
+        $state['schedule_period'] = trim((string)($currentSchedulePreference['period'] ?? ''));
+        $state['preferred_date'] = trim((string)($currentSchedulePreference['date'] ?? ''));
+        $state['preferred_time'] = trim((string)($currentSchedulePreference['time'] ?? ''));
+        $state['pending'] = $intakePendingBeforeSchedule;
+        $state['active'] = true;
+        $state['stage'] = 'briefing';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            $intakePendingLabels[$intakePendingBeforeSchedule],
+            $state,
+            false
+        );
+    }
     if (!empty($currentSchedulePreference['ambiguous_weekend'])) {
         $state['schedule_preference'] = trim((string)($currentSchedulePreference['natural'] ?? $body));
         $state['schedule_period'] = trim((string)($currentSchedulePreference['period'] ?? ''));
@@ -17550,6 +17586,35 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         if ($isKnown && preg_match($pattern, $answerReply)) {
             $knownFieldAsked = true;
             break;
+        }
+    }
+    if ($actualMissingField !== '') {
+        $pendingOrder = [
+            'nome completo' => 0,
+            'ideia da tatuagem' => 1,
+            'referência ou confirmação de que não há referência' => 2,
+            'parte do corpo' => 3,
+            'lado ou posição na área' => 4,
+            'dimensão ou área ocupada' => 5,
+            'estilo ou cor' => 6,
+            'dia desejado' => 7,
+            'horário desejado' => 8,
+        ][$actualMissingField] ?? null;
+        if ($pendingOrder !== null) {
+            $laterStepPatterns = [
+                0 => '/\b(?:ideia|desenho|tatuar|tatuagem|refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                1 => '/\b(?:refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                2 => '/\b(?:parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                3 => '/\b(?:tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                4 => '/\b(?:tamanho|cobertura|estilo|cor|dia|data|hor[aá]rio|vaga)\b/iu',
+                5 => '/\b(?:estilo|cor|dia|data|hor[aá]rio|vaga)\b/iu',
+                6 => '/\b(?:dia|data|hor[aá]rio|vaga)\b/iu',
+                7 => '/\b(?:hor[aá]rio|vaga)\b/iu',
+                8 => '/\b(?:vaga|reserva|sinal|comprovante)\b/iu',
+            ];
+            if (isset($laterStepPatterns[$pendingOrder]) && preg_match($laterStepPatterns[$pendingOrder], $answerReply)) {
+                $knownFieldAsked = true;
+            }
         }
     }
     $replyIsUnhelpful = (bool)preg_match('/\b(?:me\s+passa\s+s[oó]|me\s+conta\s+o\s+que\s+voc[eê]\s+quer\s+tatuar|me\s+confirma\s+seu\s+nome)\b/iu', $answerReply)
