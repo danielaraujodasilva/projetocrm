@@ -4441,6 +4441,7 @@ function studio_whatsapp_booking_state(array $conversation): array
         'appointment_id' => 0,
         'stage' => 'briefing',
         'pending' => 'ideia ou referência da tatuagem',
+        'greeting_sent' => false,
         'updated_at' => '',
     ];
     $decoded = json_decode((string)($conversation['ai_booking_state'] ?? ''), true);
@@ -4465,6 +4466,7 @@ function studio_whatsapp_booking_state(array $conversation): array
     }
     $state['deposit_status'] = $depositStatus;
     $state['customer_name_confirmed'] = !empty($state['customer_name_confirmed']);
+    $state['greeting_sent'] = !empty($state['greeting_sent']);
     if (trim((string)($state['customer_name'] ?? '')) !== ''
         && !studio_whatsapp_ai_name_candidate_is_plausible((string)$state['customer_name'])) {
         $state['customer_name'] = '';
@@ -5228,7 +5230,9 @@ function studio_whatsapp_service_flow_field_complete(string $fieldKey, array $st
         'reference_received' => !empty($state['reference_received']) || !empty($state['reference_declined']),
         'body_details' => !studio_whatsapp_ai_body_details_required($state)
             || trim((string)($answers[$fieldKey] ?? '')) !== '',
-        'size_coverage', 'style_preference' => trim((string)($state[$fieldKey] ?? $answers[$fieldKey] ?? '')) !== '',
+        'size_coverage' => trim((string)($state[$fieldKey] ?? $answers[$fieldKey] ?? '')) !== '',
+        // O estúdio não precisa restringir o estilo: essa informação é opcional.
+        'style_preference' => true,
         'quote' => is_array($state['quote'] ?? null)
             && (float)($state['quote']['amount'] ?? 0) > 0
             && (empty($state['reference_received']) || !empty($state['reference_declined']) || !empty($state['reference_analysis_ok'])),
@@ -13935,6 +13939,28 @@ function studio_whatsapp_ai_slot_interactive_options(array $dateContext): array
     }, $slots);
 }
 
+function studio_whatsapp_ai_schedule_slot_labels(array $slots, int $limit = 10): array
+{
+    $labels = [];
+    $weekdays = ['1' => 'Seg', '2' => 'Ter', '3' => 'Qua', '4' => 'Qui', '5' => 'Sex', '6' => 'Sáb', '7' => 'Dom'];
+    foreach (array_slice($slots, 0, max(1, $limit)) as $slot) {
+        $date = trim((string)($slot['date'] ?? ''));
+        $time = trim((string)($slot['time'] ?? ''));
+        if ($date === '' || $time === '') {
+            continue;
+        }
+        try {
+            $dateObject = new DateTimeImmutable($date . ' 00:00:00', new DateTimeZone('America/Sao_Paulo'));
+            $dayLabel = $weekdays[$dateObject->format('N')] ?? 'Dia';
+            $dateLabel = $dayLabel . ' ' . $dateObject->format('d/m');
+        } catch (Throwable) {
+            $dateLabel = $date;
+        }
+        $labels[] = $dateLabel . ' ' . studio_whatsapp_schedule_time_label($time);
+    }
+    return studio_whatsapp_ai_clean_interactive_options($labels, $limit);
+}
+
 function studio_whatsapp_ai_interactive_suggestion(array $context): array
 {
     if (!empty($context['suppress_interactive'])) {
@@ -17245,6 +17271,26 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         }
     }
 
+    // A primeira resposta abre espaço para o cliente explicar o pedido. Os
+    // dados que ele já tiver enviado ficam preservados no estado para a
+    // próxima mensagem, sem começar a entrevista de forma mecânica.
+    $rawBookingState = trim((string)($conversation['ai_booking_state'] ?? ''));
+    if ($rawBookingState === '' && empty($state['greeting_sent'])) {
+        $state['greeting_sent'] = true;
+        $state['active'] = true;
+        $state['stage'] = 'briefing';
+        $state['pending'] = 'pedido inicial do cliente';
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            'Oi! Tudo certo? Como podemos te ajudar?',
+            $state,
+            false
+        );
+    }
+
     $quoteState = is_array($state['quote'] ?? null) ? $state['quote'] : [];
     $naturalState = [
         'customer_name' => (string)($state['customer_name'] ?? ''),
@@ -17311,7 +17357,6 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
         'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
         'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
-        'estilo ou cor' => 'Você prefere colorido ou preto e branco?',
     ];
     if (!empty($currentSchedulePreference['active'])
         && isset($intakePendingLabels[$intakePendingBeforeSchedule])) {
@@ -17346,7 +17391,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $incomingMessageId,
             'Você quer sábado ou domingo?',
             $state,
-            false
+            false,
+            studio_whatsapp_ai_interactive_payload('button', ['Sábado', 'Domingo'], 'Escolher dia', 'Fim de semana')
         );
     }
     $ambiguousTimes = array_values(array_filter(array_map('strval', (array)($currentSchedulePreference['ambiguous_times'] ?? []))));
@@ -17364,7 +17410,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $incomingMessageId,
             'Você prefere ' . implode(' ou ', $timeLabels) . '?',
             $state,
-            false
+            false,
+            studio_whatsapp_ai_interactive_payload('button', $timeLabels, 'Escolher horário', 'Horários')
         );
     }
     $lastUserIndex = null;
@@ -17395,6 +17442,10 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     if (preg_match('/^\s*(?:as\s*)?([01]?\d|2[0-3])(?:[:.]([0-5]\d))?\s*h?\s*$/iu', $body, $shortTimeMatch)) {
         $shortTime = sprintf('%02d:%02d', (int)$shortTimeMatch[1], isset($shortTimeMatch[2]) && $shortTimeMatch[2] !== '' ? (int)$shortTimeMatch[2] : 0);
     }
+    $isScheduleAlternative = (bool)preg_match(
+        '/\b(?:outro|outra)\s+(?:hor[aá]rio|dia|vaga)|\bescolher\s+outro|\btrocar\s+(?:o\s+)?hor[aá]rio|\bmudar\s+(?:o\s+)?hor[aá]rio\b/iu',
+        $body
+    );
     $forcedSchedule = null;
     $schedulePreferenceLabel = static function (string $label): string {
         $label = trim($label);
@@ -17402,14 +17453,14 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $cleaned = trim((string)($cleaned !== null ? $cleaned : $label));
         return $cleaned !== '' ? $cleaned : $label;
     };
-    $scheduleReply = static function (array &$bookingState, string $reply, string $preference) use ($studio, $conversationId, $conversation, $incomingMessageId): array {
+    $scheduleReply = static function (array &$bookingState, string $reply, string $preference, array $interactive = []) use ($studio, $conversationId, $conversation, $incomingMessageId): array {
         $bookingState['schedule_preference'] = $preference;
         $bookingState['preferred_time'] = '';
         $bookingState['pending'] = 'horário desejado';
         $bookingState['active'] = true;
         $bookingState['stage'] = 'briefing';
         studio_whatsapp_booking_state_save($studio, $conversationId, $bookingState);
-        return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $reply, $bookingState, false);
+        return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $reply, $bookingState, false, $interactive);
     };
 
     // A preferência de período/data é resolvida no servidor antes da IA. Isso
@@ -17419,22 +17470,37 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         || trim((string)($currentSchedulePreference['period'] ?? '')) !== '';
     if (!empty($currentSchedulePreference['active']) && $hasDateOrPeriod) {
         $currentOptions = studio_whatsapp_ai_simple_schedule_options($studio, $currentSchedulePreference, 60);
+        $interactive = [];
         if (trim((string)($currentSchedulePreference['time'] ?? '')) === '') {
             $preferenceLabel = $schedulePreferenceLabel(trim((string)($currentSchedulePreference['natural'] ?? $body)));
             if ($currentOptions['matching_label'] !== '') {
                 $matchingSlots = array_values((array)($currentOptions['matching'] ?? []));
                 $reply = count($matchingSlots) === 1
                     ? 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei ' . $currentOptions['matching_label'] . '. Esse horário funciona para você?'
-                    : 'Para ' . mb_strtolower($preferenceLabel, 'UTF-8') . ', encontrei: ' . $currentOptions['matching_label'] . '. Qual você prefere?';
+                    : 'Encontrei algumas opções para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '. Escolha uma:';
+                $interactive = count($matchingSlots) === 1
+                    ? studio_whatsapp_ai_interactive_payload('button', ['Sim', 'Outro horário'], 'Responder', 'Confirmação')
+                    : studio_whatsapp_ai_interactive_payload(
+                        count($matchingSlots) <= 3 ? 'button' : 'list',
+                        studio_whatsapp_ai_schedule_slot_labels($matchingSlots),
+                        'Escolher horário',
+                        'Horários livres'
+                    );
             } else {
                 $reply = 'Não tenho vaga para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
                 if ($currentOptions['nearby_label'] !== '') {
-                    $reply .= ' Posso te oferecer ' . $currentOptions['nearby_label'] . '. Qual funciona melhor?';
+                    $reply .= ' Tenho outras opções próximas. Escolha uma:';
+                    $interactive = studio_whatsapp_ai_interactive_payload(
+                        count((array)($currentOptions['nearby'] ?? [])) <= 3 ? 'button' : 'list',
+                        studio_whatsapp_ai_schedule_slot_labels((array)($currentOptions['nearby'] ?? [])),
+                        'Escolher horário',
+                        'Próximas opções'
+                    );
                 } else {
                     $reply .= ' Me diga outro dia ou período que eu confiro.';
                 }
             }
-            return $scheduleReply($state, $reply, $preferenceLabel);
+            return $scheduleReply($state, $reply, $preferenceLabel, $interactive ?? []);
         }
         if (!empty($currentOptions['matching'][0])) {
             $forcedSchedule = $currentOptions['matching'][0];
@@ -17442,13 +17508,38 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $preferenceLabel = $schedulePreferenceLabel(trim((string)($currentSchedulePreference['natural'] ?? $body)));
             $reply = 'Não tenho vaga para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
             if ($currentOptions['nearby_label'] !== '') {
-                $reply .= ' Posso te oferecer ' . $currentOptions['nearby_label'] . '. Qual funciona melhor?';
+                $reply .= ' Tenho outras opções próximas. Escolha uma:';
+                $interactive = studio_whatsapp_ai_interactive_payload(
+                    count((array)($currentOptions['nearby'] ?? [])) <= 3 ? 'button' : 'list',
+                    studio_whatsapp_ai_schedule_slot_labels((array)($currentOptions['nearby'] ?? [])),
+                    'Escolher horário',
+                    'Próximas opções'
+                );
             }
-            return $scheduleReply($state, $reply, $preferenceLabel);
+            return $scheduleReply($state, $reply, $preferenceLabel, $interactive ?? []);
         }
     } elseif (!empty($previousSchedulePreference['active'])
-        && ($shortTime !== '' || studio_whatsapp_ai_is_reservation_confirmation($body))) {
+        && ($shortTime !== '' || studio_whatsapp_ai_is_reservation_confirmation($body) || $isScheduleAlternative)) {
         $confirmationPreference = $previousSchedulePreference;
+        if ($isScheduleAlternative) {
+            $confirmationPreference['time'] = '';
+            $alternativeOptions = studio_whatsapp_ai_simple_schedule_options($studio, $confirmationPreference, 60);
+            $alternativeSlots = !empty($alternativeOptions['matching'])
+                ? (array)$alternativeOptions['matching']
+                : (array)($alternativeOptions['nearby'] ?? []);
+            $alternativeInteractive = studio_whatsapp_ai_interactive_payload(
+                count($alternativeSlots) <= 3 ? 'button' : 'list',
+                studio_whatsapp_ai_schedule_slot_labels($alternativeSlots),
+                'Escolher horário',
+                'Horários livres'
+            );
+            return $scheduleReply(
+                $state,
+                $alternativeSlots !== [] ? 'Claro. Escolha outra opção:' : 'Claro. Me diga outro dia ou período que eu confiro.',
+                trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage)),
+                $alternativeInteractive
+            );
+        }
         $offeredSlot = studio_whatsapp_ai_parse_offered_slot($lastAssistantMessage);
         if ($shortTime !== '') {
             $confirmationPreference['time'] = $shortTime;
@@ -17462,18 +17553,31 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         } elseif (count($confirmedOptions['matching']) > 1 && $shortTime === '') {
             return $scheduleReply(
                 $state,
-                'Encontrei mais de uma vaga para essa preferência: ' . $confirmedOptions['matching_label'] . '. Qual horário você prefere?',
-                trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage))
+                'Encontrei algumas opções. Escolha uma:',
+                trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage)),
+                studio_whatsapp_ai_interactive_payload(
+                    count((array)$confirmedOptions['matching']) <= 3 ? 'button' : 'list',
+                    studio_whatsapp_ai_schedule_slot_labels((array)$confirmedOptions['matching']),
+                    'Escolher horário',
+                    'Horários livres'
+                )
             );
         } else {
             $preferenceLabel = $schedulePreferenceLabel(trim((string)($previousSchedulePreference['natural'] ?? $previousUserMessage)));
             $reply = 'Esse horário não está disponível para ' . mb_strtolower($preferenceLabel, 'UTF-8') . '.';
+            $interactive = [];
             if ($confirmedOptions['nearby_label'] !== '') {
-                $reply .= ' Posso te oferecer ' . $confirmedOptions['nearby_label'] . '. Qual você prefere?';
+                $reply .= ' Tenho outras opções próximas. Escolha uma:';
+                $interactive = studio_whatsapp_ai_interactive_payload(
+                    count((array)($confirmedOptions['nearby'] ?? [])) <= 3 ? 'button' : 'list',
+                    studio_whatsapp_ai_schedule_slot_labels((array)($confirmedOptions['nearby'] ?? [])),
+                    'Escolher horário',
+                    'Próximas opções'
+                );
             } else {
                 $reply .= ' Me diga outro dia ou horário que eu confiro.';
             }
-            return $scheduleReply($state, $reply, $preferenceLabel);
+            return $scheduleReply($state, $reply, $preferenceLabel, $interactive);
         }
     }
     $isPortfolioRequest = (bool)preg_match('/\b(portfolio|portifolio|trabalhos?|instagram|site|modelos?)\b/iu', $body)
@@ -17576,7 +17680,6 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         '/\b(?:parte\s+do\s+corpo|[aá]rea\s+do\s+corpo|local\s+do\s+corpo)\b/iu' => trim((string)($previewState['body_area'] ?? '')) !== '',
         '/\b(?:tamanho|dimens[aã]o|cobertura|cm)\b/iu' => trim((string)($previewState['size_coverage'] ?? '')) !== '',
         '/\b(?:refer[eê]ncia|imagem|foto)\b/iu' => !empty($previewState['reference_received']) || !empty($previewState['reference_declined']),
-        '/\b(?:estilo|cor|colorido|preto\s+e\s+branco)\b/iu' => trim((string)($previewState['style_preference'] ?? '')) !== '',
         '/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/iu' => !studio_whatsapp_ai_body_details_required($previewState)
             || trim((string)($previewState['body_details'] ?? ($previewState['body_side'] ?? $previewState['body_position'] ?? ''))) !== '',
         '/\b(?:dia|data)\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'dia desejado',
@@ -17602,12 +17705,12 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         ][$actualMissingField] ?? null;
         if ($pendingOrder !== null) {
             $laterStepPatterns = [
-                0 => '/\b(?:ideia|desenho|tatuar|tatuagem|refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
-                1 => '/\b(?:refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
-                2 => '/\b(?:parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
-                3 => '/\b(?:tamanho|cobertura|estilo|cor|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
-                4 => '/\b(?:tamanho|cobertura|estilo|cor|dia|data|hor[aá]rio|vaga)\b/iu',
-                5 => '/\b(?:estilo|cor|dia|data|hor[aá]rio|vaga)\b/iu',
+                0 => '/\b(?:ideia|desenho|tatuar|tatuagem|refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                1 => '/\b(?:refer[eê]ncia|imagem|foto|parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                2 => '/\b(?:parte\s+do\s+corpo|[aá]rea|local|tamanho|cobertura|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                3 => '/\b(?:tamanho|cobertura|lado|posi[cç][aã]o|intern[oa]|extern[oa]|dia|data|hor[aá]rio|vaga)\b/iu',
+                4 => '/\b(?:tamanho|cobertura|dia|data|hor[aá]rio|vaga)\b/iu',
+                5 => '/\b(?:dia|data|hor[aá]rio|vaga)\b/iu',
                 6 => '/\b(?:dia|data|hor[aá]rio|vaga)\b/iu',
                 7 => '/\b(?:hor[aá]rio|vaga)\b/iu',
                 8 => '/\b(?:vaga|reserva|sinal|comprovante)\b/iu',
@@ -17965,10 +18068,13 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     return studio_whatsapp_ai_simple_booking_send($studio, $conversation, $incomingMessageId, $final, $state, true);
 }
 
-function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversation, string $incomingMessageId, string $replyText, array $state, bool $completed): array
+function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversation, string $incomingMessageId, string $replyText, array $state, bool $completed, array $interactive = []): array
 {
     $conversationId = (int)($conversation['id'] ?? 0);
     $replyText = trim($replyText);
+    if (!$completed) {
+        $replyText = studio_whatsapp_ai_compact_direct_reply($replyText, 280, 2);
+    }
     if ($replyText === '') {
         return ['ok' => true, 'reply_text' => '', 'skipped' => true];
     }
@@ -17987,13 +18093,20 @@ function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversati
             ]);
             $sendResult['dry_run'] = true;
         } else {
-            $sendResult = studio_send_whatsapp_message($studio, [
+            $sendData = [
                 'conversation_id' => $conversationId,
                 'phone' => (string)($conversation['phone'] ?? ''),
                 'message' => $replyText,
                 'senderType' => 'bot',
                 'context_message_id' => $incomingMessageId,
-            ]);
+            ];
+            if ($interactive !== []) {
+                $sendData['interactive_type'] = (string)($interactive['type'] ?? '');
+                $sendData['interactive_options'] = (array)($interactive['options'] ?? []);
+                $sendData['interactive_button_text'] = (string)($interactive['button_text'] ?? 'Ver opções');
+                $sendData['interactive_section_title'] = (string)($interactive['section_title'] ?? 'Opções');
+            }
+            $sendResult = studio_send_whatsapp_message($studio, $sendData);
         }
         studio_update_whatsapp_conversation($studio, [
             'conversation_id' => $conversationId,
@@ -18011,6 +18124,7 @@ function studio_whatsapp_ai_simple_booking_send(array $studio, array $conversati
             'ok' => true,
             'reply' => $sendResult,
             'reply_text' => $replyText,
+            'interactive' => $interactive,
             'complete' => $completed,
             'appointment_id' => (int)($state['appointment_id'] ?? 0),
             'needs_human' => false,
@@ -22484,7 +22598,6 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'body_area',
         'body_details',
         'size_coverage',
-        'style_preference',
         'preferred_date',
         'preferred_time',
         'quote',
@@ -22496,7 +22609,6 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'body_area' => 'parte do corpo',
         'body_details' => 'lado ou posição na área',
         'size_coverage' => 'dimensão aproximada ou quanto da área será ocupado',
-        'style_preference' => 'estilo e cor',
         'preferred_date' => 'dia desejado',
         'preferred_time' => 'horário desejado',
         'quote' => 'orçamento ou indicação para calcular pela tabela oficial',
@@ -22577,21 +22689,21 @@ Seu único objetivo nesta conversa é reunir, de forma natural, os dados necess�
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
 Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
-Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e o estilo já confirmados quando o histórico permitir; não faça a mesma pergunta novamente.
+    Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
-Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição, dimensão, estilo e cor, e não pergunte novamente esses dados. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
+Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição e dimensão, sem perguntar novamente estilo ou cor. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
 Não invente preço, disponibilidade, endereço, sinal ou qualquer outro dado. Para o orçamento, aceite um valor já informado pelo cliente ou use a tabela oficial fornecida no contexto; se ainda não houver valor seguro, use “calcular pela tabela oficial” somente quando os dados da tatuagem estiverem completos e não faça a pessoa repetir o que já explicou. A confirmação da vaga e a gravação do agendamento são responsabilidades do sistema depois que esta ficha estiver completa.
 
 A ficha precisa reunir estes campos: {$fieldGuide}.
-Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, dimensão/área ocupada, estilo/cor e dia/horário são necessários para considerar a coleta completa. O orçamento é calculado pela tabela oficial, não é perguntado ao cliente. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
+Nome completo, ideia, referência (ou “não tenho referência”), parte do corpo, lado/posição, dimensão/área ocupada e dia/horário são necessários para considerar a coleta completa. Não pergunte sobre estilo ou cor: os tatuadores trabalham com qualquer estilo. O orçamento é calculado pela tabela oficial, não é perguntado ao cliente. “Qualquer dia”, “qualquer horário”, “a primeira vaga” e equivalentes podem ser registrados como preferência, mas não invente uma data ou hora.
 
 “Fechamento” significa cobrir a área completa indicada, não uma tatuagem pequena. “Fechamento de costas” significa todas as partes de costas previstas na tabela e deve usar a promoção de fechamento de costas; o mesmo raciocínio vale para fechamento de braço ou perna. Se a pessoa disser apenas “fechamento”, pergunte de qual região do corpo. Para braço e perna, confirme interno ou externo quando essa distinção existir na tabela oficial.
 
-Adjetivos e descrições também valem como dados: “dragão realista” preenche ideia e estilo realista; “preto e branco” preenche estilo/cor; “colorido” preenche estilo/cor; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Estilo/cor, Dia, Horário e Orçamento.
+Adjetivos e descrições também valem como dados: “dragão realista” preenche a ideia; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Dia, Horário e Orçamento.
 
-Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","style_preference":"","preferred_date":"","preferred_time":"","quote":""}}.
+Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","preferred_date":"","preferred_time":"","quote":""}}.
 A configuração efetiva desta página é {$effectiveRuntime}.
 TXT;
 
@@ -22920,9 +23032,6 @@ function studio_whatsapp_ai_natural_missing_field(array $state): string
     }
     if (trim((string)($state['size_coverage'] ?? '')) === '') {
         return 'dimensão ou área ocupada';
-    }
-    if (trim((string)($state['style_preference'] ?? '')) === '') {
-        return 'estilo ou cor';
     }
     $schedule = studio_whatsapp_ai_schedule_preference((string)($state['schedule_preference'] ?? ''));
     $date = trim((string)($state['preferred_date'] ?? ($schedule['date'] ?? '')));
