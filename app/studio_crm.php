@@ -4432,6 +4432,7 @@ function studio_whatsapp_booking_state(array $conversation): array
         'quote' => null,
         'customer_name' => '',
         'customer_name_confirmed' => false,
+        'customer_name_full_confirmed' => false,
         'schedule_preference' => '',
         'selected_slot' => null,
         'slot_confirmed' => false,
@@ -4466,11 +4467,14 @@ function studio_whatsapp_booking_state(array $conversation): array
     }
     $state['deposit_status'] = $depositStatus;
     $state['customer_name_confirmed'] = !empty($state['customer_name_confirmed']);
+    $state['customer_name_full_confirmed'] = !empty($state['customer_name_full_confirmed'])
+        || studio_whatsapp_ai_name_has_full_name((string)($state['customer_name'] ?? ''));
     $state['greeting_sent'] = !empty($state['greeting_sent']);
     if (trim((string)($state['customer_name'] ?? '')) !== ''
         && !studio_whatsapp_ai_name_candidate_is_plausible((string)$state['customer_name'])) {
         $state['customer_name'] = '';
         $state['customer_name_confirmed'] = false;
+        $state['customer_name_full_confirmed'] = false;
     }
     $state['slot_confirmed'] = !empty($state['slot_confirmed']);
     $state['proof_received'] = !empty($state['proof_received']);
@@ -7462,6 +7466,11 @@ function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate, bool 
     }
     $additionalWords = $allowSingleWord ? '{0,4}' : '{1,4}';
     return (bool)preg_match('/^[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30})' . $additionalWords . '$/u', $candidate);
+}
+
+function studio_whatsapp_ai_name_has_full_name(string $candidate): bool
+{
+    return studio_whatsapp_ai_name_candidate_is_plausible($candidate);
 }
 
 function studio_whatsapp_ai_extract_history_customer_name(array $history): string
@@ -17146,8 +17155,14 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
     $directCustomerName = studio_whatsapp_ai_extract_customer_name($body);
     if ($directCustomerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($directCustomerName, true)) {
-        $state['customer_name'] = $directCustomerName;
+        if (trim((string)($state['customer_name'] ?? '')) === ''
+            || studio_whatsapp_ai_name_has_full_name($directCustomerName)) {
+            $state['customer_name'] = $directCustomerName;
+        }
         $state['customer_name_confirmed'] = true;
+        if (studio_whatsapp_ai_name_has_full_name($directCustomerName)) {
+            $state['customer_name_full_confirmed'] = true;
+        }
     }
     $pendingReference = (bool)preg_match('/\b(?:refer[eê]ncia|imagem|foto)\b/iu', (string)($state['pending'] ?? ''));
     $referenceDeclined = (bool)preg_match('/\b(?:nao|não)\s+(?:tenho|possuo|quero)\b|\bsem\s+(?:refer[eê]ncia|imagem|foto)\b|\b(?:ja|já)\s+(?:disse|falei|respondi)\s+que\s+(?:nao|não)\b|^\s*(?:sem|nenhuma|nao|não)\s*[.!?]*$/iu', $body);
@@ -17253,6 +17268,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         if ($historyName !== '') {
             $state['customer_name'] = $historyName;
             $state['customer_name_confirmed'] = true;
+            $state['customer_name_full_confirmed'] = studio_whatsapp_ai_name_has_full_name($historyName);
         }
     }
     if (trim((string)($state['tattoo_idea'] ?? '')) === '') {
@@ -17351,7 +17367,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
     $intakePendingBeforeSchedule = studio_whatsapp_ai_natural_missing_field($state);
     $intakePendingLabels = [
-        'nome completo' => 'Antes de conferir a agenda, me confirma seu nome completo?',
+        'nome' => 'Antes de conferir a agenda, qual é seu nome?',
+        'nome completo' => 'Para finalizar, me passa seu nome completo? Preciso dele para registrar o agendamento.',
         'ideia da tatuagem' => 'Antes de olhar horário, me conta o que você quer tatuar.',
         'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
         'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
@@ -17685,6 +17702,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         '/\b(?:dia|data)\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'dia desejado',
         '/\bhor[aá]rio\b/iu' => studio_whatsapp_ai_natural_missing_field($previewState) !== 'horário desejado',
     ];
+    if ($actualMissingField === 'nome' && preg_match('/\bnome\b/iu', $answerReply)) {
+        $knownFieldAsked = true;
+    }
     foreach ($knownFieldChecks as $pattern => $isKnown) {
         if ($isKnown && preg_match($pattern, $answerReply)) {
             $knownFieldAsked = true;
@@ -17693,15 +17713,15 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
     if ($actualMissingField !== '') {
         $pendingOrder = [
-            'nome completo' => 0,
+            'nome' => 0,
             'ideia da tatuagem' => 1,
             'referência ou confirmação de que não há referência' => 2,
             'parte do corpo' => 3,
             'lado ou posição na área' => 4,
             'dimensão ou área ocupada' => 5,
-            'estilo ou cor' => 6,
-            'dia desejado' => 7,
-            'horário desejado' => 8,
+            'dia desejado' => 6,
+            'horário desejado' => 7,
+            'nome completo' => 8,
         ][$actualMissingField] ?? null;
         if ($pendingOrder !== null) {
             $laterStepPatterns = [
@@ -17726,7 +17746,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $answer['complete'] = false;
         $answer['missing_fields'] = [$actualMissingField];
         $answer['reply_text'] = match ($actualMissingField) {
-            'nome completo' => 'Me confirma seu nome completo, por favor?',
+            'nome' => 'Qual é seu nome?',
+            'nome completo' => 'Para finalizar, me passa seu nome completo? Preciso dele para registrar o agendamento.',
             'ideia da tatuagem' => 'Me conta o que você quer tatuar.',
             'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
             'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
@@ -17770,7 +17791,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $answer['complete'] = false;
         $answer['missing_fields'] = [$nextMissing];
         $answer['reply_text'] = match (true) {
-            preg_match('/nome/i', $nextMissing) === 1 => 'Me confirma seu nome completo, por favor?',
+            preg_match('/^nome$/i', $nextMissing) === 1 => 'Qual é seu nome?',
+            preg_match('/nome completo/i', $nextMissing) === 1 => 'Para finalizar, me passa seu nome completo? Preciso dele para registrar o agendamento.',
             preg_match('/ideia|desenho/i', $nextMissing) === 1 => 'Me conta o que você quer tatuar.',
             preg_match('/refer[eê]ncia/i', $nextMissing) === 1 => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
             preg_match('/parte do corpo|local do corpo/i', $nextMissing) === 1 => 'Em qual parte do corpo você quer fazer?',
@@ -17831,6 +17853,23 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
 
     studio_whatsapp_ai_apply_natural_intake_summary($state, (array)($answer['booking_summary'] ?? []));
+    $finalMissingField = studio_whatsapp_ai_natural_missing_field($state);
+    if ($finalMissingField !== '') {
+        $answer['complete'] = false;
+        $answer['missing_fields'] = [$finalMissingField];
+        $answer['reply_text'] = match ($finalMissingField) {
+            'nome' => 'Qual é seu nome?',
+            'nome completo' => 'Para finalizar, me passa seu nome completo? Preciso dele para registrar o agendamento.',
+            'ideia da tatuagem' => 'Me conta o que você quer tatuar.',
+            'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
+            'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
+            'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
+            'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
+            'dia desejado' => 'Qual dia você prefere?',
+            'horário desejado' => 'Qual horário fica melhor?',
+            default => 'Me passa só a próxima informação para eu continuar.',
+        };
+    }
     $state['active'] = true;
     $state['stage'] = 'briefing';
     $state['pending'] = (string)($answer['missing_fields'][0] ?? '');
@@ -22651,6 +22690,7 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
         'horarios_configurados' => studio_schedule_slots($studio),
         'tatuadores_cadastrados' => $artistNames,
         'links_oficiais' => $referenceLinks,
+        'nome_completo_confirmado' => !empty($bookingState['customer_name_full_confirmed']),
         'observacao' => 'A IA apenas extrai e organiza os dados; em produção, o sistema confirma a vaga e cria o agendamento quando a ficha estiver completa.',
     ];
     foreach ($additionalContext as $contextKey => $contextValue) {
@@ -22688,7 +22728,7 @@ Seu nome é Hellen. Se o cliente perguntar seu nome, diga que você é a Hellen,
 Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
-Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro o nome completo. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
+    Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro apenas o nome. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
@@ -22915,10 +22955,17 @@ function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $s
 {
     $value = static fn(string $key): string => trim((string)($summary[$key] ?? ''));
     $customerName = $value('customer_name');
-    if ($customerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($customerName)
-        && (trim((string)($state['customer_name'] ?? '')) === '' || empty($state['customer_name_confirmed']))) {
-        $state['customer_name'] = mb_substr($customerName, 0, 160, 'UTF-8');
+    if ($customerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($customerName, true)
+        && (trim((string)($state['customer_name'] ?? '')) === ''
+            || empty($state['customer_name_confirmed'])
+            || studio_whatsapp_ai_name_has_full_name($customerName))) {
+        if (trim((string)($state['customer_name'] ?? '')) === '' || studio_whatsapp_ai_name_has_full_name($customerName)) {
+            $state['customer_name'] = mb_substr($customerName, 0, 160, 'UTF-8');
+        }
         $state['customer_name_confirmed'] = true;
+        if (studio_whatsapp_ai_name_has_full_name($customerName)) {
+            $state['customer_name_full_confirmed'] = true;
+        }
     }
 
     $idea = $value('tattoo_idea');
@@ -23016,7 +23063,7 @@ function studio_whatsapp_ai_body_details_required(array $state): bool
 function studio_whatsapp_ai_natural_missing_field(array $state): string
 {
     if (trim((string)($state['customer_name'] ?? '')) === '') {
-        return 'nome completo';
+        return 'nome';
     }
     if (trim((string)($state['tattoo_idea'] ?? '')) === '') {
         return 'ideia da tatuagem';
@@ -23054,6 +23101,10 @@ function studio_whatsapp_ai_natural_missing_field(array $state): string
     }
     if ($time === '') {
         return 'horário desejado';
+    }
+    if (empty($state['customer_name_full_confirmed'])
+        && !studio_whatsapp_ai_name_has_full_name((string)($state['customer_name'] ?? ''))) {
+        return 'nome completo';
     }
     return '';
 }
