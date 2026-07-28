@@ -4694,12 +4694,12 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
     if (preg_match('/\b(?:quero|queria|vou\s+(?:fazer|tatuar)|fazer\s+(?:uma\s+)?tatuagem(?:\s+de)?|tatuar)\s+(.+)$/iu', $text, $match)) {
         $candidate = trim((string)$match[1]);
     }
-    $candidate = studio_calendar_remove_accents($candidate);
     $candidate = trim((string)(preg_replace('/^\s*(?:um|uma|o|a)\s+/iu', '', $candidate) ?? $candidate));
     $candidate = trim((string)(preg_replace('/^\s*(?:uma?\s+)?tatuagem(?:\s+de)?\s+/iu', '', $candidate) ?? $candidate));
     foreach (studio_whatsapp_ai_find_body_areas($candidate) as $area) {
         $normalizedArea = studio_calendar_remove_accents($area);
-        $candidate = trim((string)(preg_replace('/\b' . preg_quote($normalizedArea, '/') . '\b/iu', ' ', $candidate) ?? $candidate));
+        $areaPattern = '/\b(?:' . preg_quote($area, '/') . '|' . preg_quote($normalizedArea, '/') . ')\b/iu';
+        $candidate = trim((string)(preg_replace($areaPattern, ' ', $candidate) ?? $candidate));
     }
     $candidate = trim((string)(preg_replace('/\b(?:no|na|em|nas|nos|do|da|dos|das)\s*$/iu', '', $candidate) ?? $candidate));
     $candidate = trim((string)(preg_replace('/\s+/u', ' ', $candidate) ?? $candidate));
