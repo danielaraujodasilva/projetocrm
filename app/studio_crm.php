@@ -22686,7 +22686,15 @@ function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $s
     }
 
     $idea = $value('tattoo_idea');
-    if ($idea !== '' && !studio_whatsapp_ai_is_body_area_only($idea)) {
+    $normalizedIdea = studio_calendar_remove_accents(mb_strtolower($idea, 'UTF-8'));
+    $normalizedCustomerName = studio_calendar_remove_accents(mb_strtolower((string)($state['customer_name'] ?? ''), 'UTF-8'));
+    $isCustomerNameEcho = $normalizedIdea !== ''
+        && $normalizedCustomerName !== ''
+        && preg_replace('/\s+/u', ' ', trim($normalizedIdea)) === preg_replace('/\s+/u', ' ', trim($normalizedCustomerName));
+    // A semantic summary can accidentally copy the name into the tattoo idea
+    // when the customer only answered the identification question. Never let
+    // that false positive advance the flow past the idea step.
+    if ($idea !== '' && !$isCustomerNameEcho && !studio_whatsapp_ai_is_body_area_only($idea)) {
         $state['tattoo_idea'] = mb_substr($idea, 0, 500, 'UTF-8');
     }
     $bodyArea = $value('body_area');
