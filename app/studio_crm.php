@@ -4622,6 +4622,30 @@ function studio_whatsapp_ai_find_body_areas(string $text): array
     return array_values(array_unique(array_map(static fn(array $area): string => $area['label'], $areas)));
 }
 
+function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
+{
+    $text = trim((string)(preg_replace('/\s+/u', ' ', $text) ?? $text));
+    if ($text === '') {
+        return true;
+    }
+    $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
+    $plain = trim((string)(preg_replace(
+        '/^(?:(?:oi|ola|opa|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '',
+        $plain
+    ) ?? $plain));
+    if ($plain === '') {
+        return true;
+    }
+
+    return (bool)(
+        preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\b.*\b(?:orcamento|agendamento|agendar|marcar)\s*[.!?]*$/u', $plain)
+        || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\s+(?:de\s+)?(?:fazer\s+)?(?:um\s+)?(?:orcamento|agendamento|agendar|marcar)\s*[.!?]*$/u', $plain)
+        || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\s+(?:de\s+)?(?:fazer\s+)?(?:uma?\s+)?tatuagem\s*[.!?]*$/u', $plain)
+        || preg_match('/^(?:tem|possui|existe)\s+(?:vaga|horario|horarios|disponibilidade)\b.*$/u', $plain)
+    );
+}
+
 function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
 {
     $text = trim((string)(preg_replace('/\s+/u', ' ', $text) ?? $text));
@@ -4632,7 +4656,31 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
     if (preg_match('/\b(?:nao|não)\s+sei\b|\b(?:sem|nenhuma)\b/u', $plain)) {
         return '';
     }
-    if (preg_match('/^(?:oi|ola|olá|hey|bom\s+dia|boa\s+tarde|boa\s+noite|meu\s+nome|me\s+chamo|sou|aqui\s+[eé])\b/u', $plain)) {
+    $withoutGreeting = trim((string)(preg_replace(
+        '/^(?:(?:oi|ola|olá|opa|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '',
+        $text
+    ) ?? $text));
+    $withoutGreetingPlain = studio_calendar_remove_accents(mb_strtolower($withoutGreeting, 'UTF-8'));
+    if ($withoutGreeting === ''
+        || preg_match('/^(?:meu\s+nome|me\s+chamo|sou|aqui\s+[eé])\b/u', $withoutGreetingPlain)) {
+        return '';
+    }
+    // "Quero fazer um orçamento" or "gostaria de agendar" expresses an
+    // objective, not the tattoo design. Do not save that sentence as the idea.
+    if (studio_whatsapp_ai_is_non_idea_intake_text($text)
+        || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\b.*\b(?:or[cç]amento|agendamento)\s*[.!?]*$/u', $withoutGreetingPlain)
+        || preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\s+(?:de\s+)?(?:fazer\s+)?(?:uma?\s+)?tatuagem\s*[.!?]*$/u', $withoutGreetingPlain)) {
+        return '';
+    }
+    $schedulePreference = studio_whatsapp_ai_schedule_preference($text);
+    $hasDesignSignal = (bool)preg_match(
+        '/(?:\b(?:tatuagem|tattoo|tatuar|desenho|ideia|referencia|flor|rosa|leao|dragao|caveira|frase|nome|simbolo)\b'
+            . '|\b(?:quero|queria|vou|pretendo)\s+(?:fazer|tatuar)\b'
+            . '|\b(?:quero|queria)\s+(?:um|uma)\s+(?!vaga|horario|orcamento|agendamento)[\p{L}]{3,})/u',
+        $withoutGreetingPlain
+    );
+    if (!empty($schedulePreference['active']) && !$hasDesignSignal) {
         return '';
     }
     if (preg_match('/\b(?:talvez|quer\s+dizer)\b/u', $plain)
@@ -4648,6 +4696,7 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
     }
     $candidate = studio_calendar_remove_accents($candidate);
     $candidate = trim((string)(preg_replace('/^\s*(?:um|uma|o|a)\s+/iu', '', $candidate) ?? $candidate));
+    $candidate = trim((string)(preg_replace('/^\s*(?:uma?\s+)?tatuagem(?:\s+de)?\s+/iu', '', $candidate) ?? $candidate));
     foreach (studio_whatsapp_ai_find_body_areas($candidate) as $area) {
         $normalizedArea = studio_calendar_remove_accents($area);
         $candidate = trim((string)(preg_replace('/\b' . preg_quote($normalizedArea, '/') . '\b/iu', ' ', $candidate) ?? $candidate));
@@ -8160,6 +8209,16 @@ function studio_whatsapp_ai_schedule_preference(string $text, ?DateTimeImmutable
 {
     $plain = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
+    // A greeting such as "boa noite" is not a request for a night slot.
+    // Remove only a leading greeting so phrases like "boa noite, sábado à
+    // tarde" still keep the actual scheduling preference.
+    $scheduleText = trim((string)(preg_replace(
+        '/^(?:(?:oi|ola|opa|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '',
+        trim($text)
+    ) ?? trim($text)));
+    $schedulePlain = studio_calendar_remove_accents(mb_strtolower($scheduleText, 'UTF-8'));
+    $schedulePlain = str_replace(['^', '~', '`', '´', "'"], '', $schedulePlain);
     $greetingCheck = trim((string)(preg_replace('/[\p{P}\p{S}]+/u', ' ', $plain) ?? $plain));
     $greetingOnly = in_array($greetingCheck, ['oi', 'ola', 'bom dia', 'boa tarde', 'boa noite'], true)
         || (bool)preg_match('/^(?:oi|ola|bom\s+dia|boa\s+tarde|boa\s+noite)(?:\s+(?:kk+|haha+|rs+|hehe+|;)*)+$/u', $greetingCheck);
@@ -8174,7 +8233,7 @@ function studio_whatsapp_ai_schedule_preference(string $text, ?DateTimeImmutable
             'from_history' => false,
         ];
     }
-    $parsedDate = studio_whatsapp_ai_parse_natural_date_pt($text, $today);
+    $parsedDate = studio_whatsapp_ai_parse_natural_date_pt($scheduleText, $today);
     $ambiguousWeekend = (bool)preg_match('/\b(?:fim|final)\s+de\s+semana\b/u', $plain)
         && !preg_match('/\b(?:sabado|sábado|domingo)\b/u', $plain);
     if ($ambiguousWeekend) {
@@ -8192,26 +8251,26 @@ function studio_whatsapp_ai_schedule_preference(string $text, ?DateTimeImmutable
         6 => 'sabado',
         7 => 'domingo',
     ] as $number => $name) {
-        if (preg_match('/\b' . $name . '(?:-feira)?s?\b/u', $plain)) {
+        if (preg_match('/\b' . $name . '(?:-feira)?s?\b/u', $schedulePlain)) {
             $weekday = $number;
             break;
         }
     }
     if ($parsedDate instanceof DateTimeImmutable
         && $weekday > 0
-        && preg_match('/\b(toda?s?|qualquer)\s+(?:as?\s+)?(?:segundas?|tercas?|terças?|quartas?|quintas?|sextas?|sabados?|sábados?|domingos?)\b/u', $plain)) {
+        && preg_match('/\b(toda?s?|qualquer)\s+(?:as?\s+)?(?:segundas?|tercas?|terças?|quartas?|quintas?|sextas?|sabados?|sábados?|domingos?)\b/u', $schedulePlain)) {
         $parsedDate = null;
     }
     $period = '';
-    if (preg_match('/\b(manha|cedo|cedinho|manhazinha|primeiro\s+horario|primeira\s+hora|logo\s+cedo|pela\s+manha|de\s+manha)\b/u', $plain)) {
+    if (preg_match('/\b(manha|cedo|cedinho|manhazinha|primeiro\s+horario|primeira\s+hora|logo\s+cedo|pela\s+manha|de\s+manha)\b/u', $schedulePlain)) {
         $period = 'morning';
-    } elseif (preg_match('/\b(tarde|apos\s+o\s+almoco|depois\s+do\s+almoco|pela\s+tarde|de\s+tarde)\b/u', $plain)) {
+    } elseif (preg_match('/\b(tarde|apos\s+o\s+almoco|depois\s+do\s+almoco|pela\s+tarde|de\s+tarde)\b/u', $schedulePlain)) {
         $period = 'afternoon';
-    } elseif (preg_match('/\b(noite|noturno|a\s+noite|de\s+noite|pela\s+noite)\b/u', $plain)) {
+    } elseif (preg_match('/\b(noite|noturno|a\s+noite|de\s+noite|pela\s+noite)\b/u', $schedulePlain)) {
         $period = 'evening';
     }
     $timeChoices = [];
-    foreach (preg_split('/\s+ou\s+|\s*[,;]\s*/iu', $text) ?: [$text] as $timePart) {
+    foreach (preg_split('/\s+ou\s+|\s*[,;]\s*/iu', $scheduleText) ?: [$scheduleText] as $timePart) {
         $timePart = trim((string)$timePart);
         if ($timePart === '') {
             continue;
@@ -8222,7 +8281,7 @@ function studio_whatsapp_ai_schedule_preference(string $text, ?DateTimeImmutable
         }
     }
     $timeChoices = array_values(array_unique($timeChoices));
-    $time = count($timeChoices) === 1 ? $timeChoices[0] : studio_whatsapp_ai_extract_time_choice($text);
+    $time = count($timeChoices) === 1 ? $timeChoices[0] : studio_whatsapp_ai_extract_time_choice($scheduleText);
     if (count($timeChoices) > 1) {
         $time = '';
     }
@@ -22694,7 +22753,10 @@ function studio_whatsapp_ai_apply_natural_intake_summary(array &$state, array $s
     // A semantic summary can accidentally copy the name into the tattoo idea
     // when the customer only answered the identification question. Never let
     // that false positive advance the flow past the idea step.
-    if ($idea !== '' && !$isCustomerNameEcho && !studio_whatsapp_ai_is_body_area_only($idea)) {
+    if ($idea !== ''
+        && !$isCustomerNameEcho
+        && !studio_whatsapp_ai_is_non_idea_intake_text($idea)
+        && !studio_whatsapp_ai_is_body_area_only($idea)) {
         $state['tattoo_idea'] = mb_substr($idea, 0, 500, 'UTF-8');
     }
     $bodyArea = $value('body_area');
