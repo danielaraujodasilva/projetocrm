@@ -8290,7 +8290,7 @@ if ($page === 'studio_settings') {
     }
   }
   function decorateAll(){document.querySelectorAll(cardSelector).forEach(decorate);}
-  function updateCount(){document.querySelectorAll('[data-learning-library]').forEach((library)=>{const list=library.querySelector(listSelector);if(!list)return;const count=library.querySelector('[data-learning-count]');const cards=list.querySelectorAll(':scope > '+cardSelector);if(count)count.textContent=String(cards.length);});}
+  function updateCount(){document.querySelectorAll('[data-learning-library]').forEach((library)=>{const list=library.querySelector(listSelector);if(!list)return;const count=library.querySelector('[data-learning-count]');const cards=list.querySelectorAll(':scope > '+cardSelector);const next=String(cards.length);if(count&&count.textContent!==next)count.textContent=next;});}
   function createCard(item){
     const card=document.createElement('article'); card.className='panel'; card.dataset.learningCard=String(item.id||item.import_id||''); card.style.cssText='margin:0;padding:14px';
     const head=document.createElement('div'); head.className='actions'; head.style.cssText='justify-content:space-between;align-items:flex-start;gap:12px';
