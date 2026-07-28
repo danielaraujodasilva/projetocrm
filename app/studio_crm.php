@@ -9306,6 +9306,89 @@ function studio_whatsapp_learning_delete_import(array $studio, int $importId): b
     return $stmt->rowCount() > 0;
 }
 
+function studio_whatsapp_learning_update_import(
+    array $studio,
+    int $importId,
+    string $title,
+    string $learnedText
+): bool {
+    if ($importId <= 0) {
+        return false;
+    }
+    $title = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $title) ?? '');
+    $learnedText = trim($learnedText);
+    if ($title === '') {
+        $title = 'Aprendizado importado';
+    }
+    if ($learnedText === '') {
+        throw new InvalidArgumentException('O aprendizado não pode ficar vazio.');
+    }
+    if (mb_strlen($learnedText, 'UTF-8') > 18000) {
+        throw new InvalidArgumentException('O aprendizado pode ter no máximo 18.000 caracteres.');
+    }
+    studio_ensure_whatsapp_learning_schema($studio);
+    $existing = studio_db($studio)->prepare('SELECT id FROM whatsapp_ai_learning_imports WHERE id = ? LIMIT 1');
+    $existing->execute([$importId]);
+    if (!$existing->fetchColumn()) {
+        return false;
+    }
+    $stmt = studio_db($studio)->prepare(
+        'UPDATE whatsapp_ai_learning_imports
+         SET original_file_name = ?, learned_text = ?
+         WHERE id = ?'
+    );
+    $stmt->execute([
+        mb_substr($title, 0, 255, 'UTF-8'),
+        mb_substr($learnedText, 0, 18000, 'UTF-8'),
+        $importId,
+    ]);
+    return true;
+}
+
+function studio_whatsapp_learning_create_manual(
+    array $studio,
+    string $title,
+    string $learnedText,
+    int $createdByUserId = 0
+): array {
+    $title = trim(preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $title) ?? '');
+    $learnedText = trim($learnedText);
+    if ($title === '') {
+        $title = 'Anotação manual';
+    }
+    if ($learnedText === '') {
+        throw new InvalidArgumentException('Escreva o aprendizado antes de adicionar.');
+    }
+    if (mb_strlen($learnedText, 'UTF-8') > 18000) {
+        throw new InvalidArgumentException('O aprendizado pode ter no máximo 18.000 caracteres.');
+    }
+    studio_ensure_whatsapp_learning_schema($studio);
+    $label = 'Manual: ' . mb_substr($title, 0, 245, 'UTF-8');
+    $sourceHash = hash('sha256', 'manual|' . $label . '|' . $learnedText . '|' . microtime(true) . '|' . random_int(1, PHP_INT_MAX));
+    $stmt = studio_db($studio)->prepare(
+        'INSERT INTO whatsapp_ai_learning_imports
+            (original_file_name, source_hash, learned_text, summary, message_count, participant_count,
+             audio_count, audio_transcribed, media_count, media_analyzed, processing_seconds,
+             created_by_user_id, created_at)
+         VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, ?, NOW())'
+    );
+    $stmt->execute([
+        $label,
+        $sourceHash,
+        mb_substr($learnedText, 0, 18000, 'UTF-8'),
+        'Aprendizado manual adicionado pelo administrador.',
+        $createdByUserId > 0 ? $createdByUserId : null,
+    ]);
+    $id = (int)studio_db($studio)->lastInsertId();
+    $row = studio_db($studio)->prepare('SELECT * FROM whatsapp_ai_learning_imports WHERE id = ? LIMIT 1');
+    $row->execute([$id]);
+    $import = $row->fetch();
+    if (!is_array($import)) {
+        throw new RuntimeException('O aprendizado foi salvo, mas não pôde ser recarregado.');
+    }
+    return $import;
+}
+
 function studio_whatsapp_ai_team_playbook_text(array $studio): string
 {
     if (!studio_whatsapp_ai_team_playbook_enabled($studio)) {
