@@ -23234,7 +23234,10 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
             (string)($historyItem['content'] ?? '')
         );
     }
-    $turnByTurnText = implode("\n", $turnByTurn);
+    $turnByTurnJson = json_encode($turnByTurn, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($turnByTurnJson)) {
+        $turnByTurnJson = '[]';
+    }
 
     $effectiveRuntime = 'provedor=' . (string)($config['provider'] ?? 'nao informado')
         . '; modelo=' . (string)($config['model'] ?? 'nao informado');
@@ -23276,9 +23279,10 @@ TXT;
         . $contextJson
         . "\n\nNOVA MENSAGEM DO CLIENTE:\n"
         . $message
-        . "\n\nLEITURA OBRIGATÓRIA TURNO A TURNO:\n"
-        . $turnByTurnText
-        . "\n\nAntes de escrever, faça silenciosamente esta sequência: 1) entenda a mensagem atual em relação à pergunta anterior; 2) consolide somente fatos do cliente; 3) aplique correções; 4) responda o pedido atual; 5) faça apenas a próxima pergunta realmente faltante. Não avance por ordem mecânica se a conversa já tiver respondido algo e não repita uma pergunta que o cliente já respondeu.";
+        . "\n\nCONTEXTO DE TURNOS, SOMENTE PARA LEITURA (não copie nem transforme em resposta):\n"
+        . $turnByTurnJson
+        . "\nFIM DO CONTEXTO DE TURNOS.\n"
+        . "Antes de escrever, faça silenciosamente esta sequência: 1) entenda a mensagem atual em relação à pergunta anterior; 2) consolide somente fatos do cliente; 3) aplique correções; 4) responda o pedido atual; 5) faça apenas a próxima pergunta realmente faltante. Não avance por ordem mecânica se a conversa já tiver respondido algo e não repita uma pergunta que o cliente já respondeu. Responda agora SOMENTE com o JSON solicitado, sem prefácio, lista de turnos ou explicação.";
 
     $bookingProperties = [];
     foreach ($fields as $field) {
@@ -23300,6 +23304,10 @@ TXT;
         'required' => ['reply_text', 'complete', 'missing_fields', 'booking'],
         'additionalProperties' => false,
     ];
+    $responseFormatHint = '{"reply_text":"...","complete":false,"missing_fields":[],"booking":{'
+        . '"customer_name":"","tattoo_idea":"","reference":"","body_area":"",'
+        . '"body_details":"","size_coverage":"","preferred_date":"",'
+        . '"preferred_time":"","quote":""}}';
     $response = studio_openai_text(
         (string)$config['api_key'],
         (string)$config['model'],
@@ -23309,7 +23317,7 @@ TXT;
         75,
         true,
         $responseSchema,
-        '{"reply_text":"...","complete":false,"missing_fields":[],"booking":{}}'
+        $responseFormatHint
     );
     if (empty($response['ok']) || trim((string)($response['reply_text'] ?? '')) === '') {
         return [
