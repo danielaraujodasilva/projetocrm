@@ -187,6 +187,10 @@ process_latest_message:
         }
     } catch (Throwable) {
     }
-    worker_log('Erro fatal', ['error' => $e->getMessage()]);
+    worker_log('Erro fatal', [
+        'error' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+    ]);
     exit(1);
 }

@@ -22896,13 +22896,13 @@ TXT;
         }
     }
     $evidencePlain = studio_calendar_remove_accents(mb_strtolower($userEvidence, 'UTF-8'));
-    if (trim($state['customer_name']) === '') {
+    if (trim((string)($state['customer_name'] ?? '')) === '') {
         $nameCandidate = studio_whatsapp_ai_extract_customer_name($userEvidence);
         if ($nameCandidate !== '') {
             $state['customer_name'] = $nameCandidate;
         }
     }
-    if (trim($state['body_area']) === '') {
+    if (trim((string)($state['body_area'] ?? '')) === '') {
         $areaEvidence = !empty($state['reference_body_area_confirmation_required']) ? $message : $userEvidence;
         $areaCandidate = studio_whatsapp_ai_find_body_area($areaEvidence);
         if (trim((string)($areaCandidate['label'] ?? '')) !== '') {
@@ -22930,10 +22930,10 @@ TXT;
             }
         }
     }
-    if (trim($state['reference']) === '' && preg_match('/\b(nao\s+tenho|sem\s+referencia|nenhuma\s+referencia|nao\s+possuo)\b/u', $evidencePlain)) {
+    if (trim((string)($state['reference'] ?? '')) === '' && preg_match('/\b(nao\s+tenho|sem\s+referencia|nenhuma\s+referencia|nao\s+possuo)\b/u', $evidencePlain)) {
         $state['reference'] = 'não tenho referência';
     }
-    if (trim($state['style_preference']) === '') {
+    if (trim((string)($state['style_preference'] ?? '')) === '') {
         $styleParts = [];
         foreach (['realista', 'hiper-realista', 'fine line', 'blackwork', 'old school', 'cartoon', 'minimalista', 'oriental', 'tribal', 'aquarela'] as $styleWord) {
             if (str_contains($evidencePlain, studio_calendar_remove_accents($styleWord))) {
@@ -22949,7 +22949,7 @@ TXT;
             $state['style_preference'] = implode(', ', array_values(array_unique($styleParts)));
         }
     }
-    if (trim($state['size_coverage']) === '') {
+    if (trim((string)($state['size_coverage'] ?? '')) === '') {
         if (preg_match('/\b\d{1,3}\s*(?:cm|centimetros?|centímetros?)\b/iu', $userEvidence, $sizeMatch)) {
             $state['size_coverage'] = trim((string)$sizeMatch[0]);
         } elseif (preg_match('/\b(pequen[ao]|medi[ao]|grand[ea]|fechamento|inteir[ao]|complet[ao])\b/iu', $evidencePlain, $sizeMatch)) {
@@ -22958,19 +22958,19 @@ TXT;
     }
     $mentionsAmbiguousWeekend = (bool)preg_match('/\b(fim|final)\s+de\s+semana\b/u', $evidencePlain)
         && !preg_match('/\b(sabado|domingo)\b/u', $evidencePlain);
-    if (trim($state['preferred_date']) === '' && !$mentionsAmbiguousWeekend) {
+    if (trim((string)($state['preferred_date'] ?? '')) === '' && !$mentionsAmbiguousWeekend) {
         $naturalDate = studio_whatsapp_ai_parse_natural_date_pt($message);
         if ($naturalDate instanceof DateTimeImmutable) {
             $state['preferred_date'] = $naturalDate->format('d/m/Y');
         }
     }
-    if (trim($state['preferred_time']) === '') {
+    if (trim((string)($state['preferred_time'] ?? '')) === '') {
         $naturalTime = studio_whatsapp_ai_extract_time_choice($message);
         if ($naturalTime !== '') {
             $state['preferred_time'] = $naturalTime;
         }
     }
-    if (trim($state['quote']) === '' && preg_match('/\br\$\s*[0-9][0-9.,]*/iu', $userEvidence, $quoteMatch)) {
+    if (trim((string)($state['quote'] ?? '')) === '' && preg_match('/\br\$\s*[0-9][0-9.,]*/iu', $userEvidence, $quoteMatch)) {
         $state['quote'] = trim((string)$quoteMatch[0]);
     }
     $preferredDatePlain = studio_calendar_remove_accents(mb_strtolower((string)$state['preferred_date'], 'UTF-8'));
