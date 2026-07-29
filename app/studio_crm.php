@@ -6528,6 +6528,7 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
         . "Sua tarefa NÃO é responder ao cliente, calcular preço, escolher vaga ou executar ação. Extraia apenas o que o cliente realmente afirmou ou confirmou.\n"
         . "Nunca transforme pergunta do atendente em fato do cliente. Nunca apague um fato confirmado só porque ele não apareceu na última mensagem.\n"
         . "Quando a mensagem atual corrigir algo antigo, a correção vence. Diferencie uma dúvida paralela do abandono do objetivo de agendar.\n"
+        . "Se uma mensagem trouxer mais de um ato, como o nome do cliente e uma pergunta sobre o seu nome, registre o dado do cliente e responda a pergunta lateral; nunca descarte um deles por tratar o turno como resposta de um campo só.\n"
         . "Qualquer parte, região ou localização anatômica mencionada deve ir em body_area/body_position/body_side, nunca em tattoo_idea. tattoo_idea descreve somente o desenho, tema, texto ou conceito que será tatuado. Isso vale mesmo para áreas raras que não apareçam em exemplos.\n"
         . "Faça uma revisão interna antes de devolver o JSON: consolide fatos, aplique correções recentes, detecte contradições e só depois interprete a mensagem atual. confirmed representa a verdade consolidada da conversa depois da mensagem atual: preserve dados antigos que continuam válidos e substitua os corrigidos. Resolva expressões como 'isso', 'ela inteira' e 'o mesmo horário' usando o histórico.\n"
         . "Somente reference_received e payment_proof_claimed podem ser booleanos. Todos os demais valores de confirmed devem ser texto literal, nunca true ou false.\n"
@@ -7488,6 +7489,39 @@ function studio_whatsapp_ai_extract_customer_name(string $text): string
         return '';
     }
 
+    // Uma resposta pode trazer o nome e uma pergunta lateral no mesmo turno,
+    // por exemplo: "Daniel e o seu?" ou "Sou a Fran, como voce se chama?".
+    // Remova somente a pergunta lateral antes de validar o nome; nao trate o
+    // turno inteiro como se fosse um unico campo da ficha.
+    $nameAndAssistantQuestion = preg_replace(
+        '/\s*(?:,\s*)?(?:e\s+o\s+seu(?:\s+nome)?|e\s+a\s+sua(?:\s+atendente)?|e\s+voc[eê]|voc[eê]|qual\s+(?:e|é)\s+(?:o\s+)?seu(?:\s+nome)?|qual\s+o\s+seu\s+nome|qual\s+seu\s+nome|como\s+voc[eê]\s+se\s+chama).*$/iu',
+        '',
+        $text,
+        1
+    );
+    if (is_string($nameAndAssistantQuestion)) {
+        $nameAndAssistantQuestion = trim($nameAndAssistantQuestion, " \t\n\r\\.,;:!?-");
+        $nameAndAssistantQuestion = preg_replace(
+            '/^(?:meu\s+nome\s+(?:[eé]|eh)|me\s+chamo|aqui\s+(?:[eé]|eh)|sou)\s+(?:a|o)\s+/iu',
+            '',
+            $nameAndAssistantQuestion,
+            1
+        );
+        $nameAndAssistantQuestion = preg_replace(
+            '/^(?:meu\s+nome\s+(?:[eé]|eh)|me\s+chamo|aqui\s+(?:[eé]|eh)|sou)\s+/iu',
+            '',
+            (string)$nameAndAssistantQuestion,
+            1
+        );
+        $nameAndAssistantQuestion = is_string($nameAndAssistantQuestion)
+            ? trim($nameAndAssistantQuestion)
+            : '';
+        if ($nameAndAssistantQuestion !== ''
+            && studio_whatsapp_ai_name_candidate_is_plausible($nameAndAssistantQuestion, true)) {
+            return mb_convert_case($nameAndAssistantQuestion, MB_CASE_TITLE, 'UTF-8');
+        }
+    }
+
     $nameWords = '[\p{L}][\p{L}\'\-]{1,30}(?:\s+[\p{L}][\p{L}\'\-]{1,30}){0,3}?';
     $patterns = [
         '/\b(?:meu\s+nome\s+(?:[eé])|me\s+chamo|aqui\s+(?:[eé]))\s+(' . $nameWords . ')(?=\s*(?:[,.;!?]|\b(?:e\s+)?(?:quero|gostaria|preciso|tenho|vou|para|pra|mas|ja|já|entao|então)\b|$))/iu',
@@ -7508,6 +7542,29 @@ function studio_whatsapp_ai_extract_customer_name(string $text): string
     }
 
     return '';
+}
+
+function studio_whatsapp_ai_customer_asked_assistant_name(string $text): bool
+{
+    $plain = studio_calendar_remove_accents(mb_strtolower(trim($text), 'UTF-8'));
+    if ($plain === '') {
+        return false;
+    }
+    $plain = str_replace(['^', '~', '`', '´'], '', $plain);
+
+    return (bool)preg_match(
+        '/(?:\be\s+(?:o\s+)?seu(?:\s+nome)?\b|\be\s+a\s+sua(?:\s+atendente)?\b|\be\s+voce\b|\bqual\s+(?:e|é)\s+(?:o\s+)?seu(?:\s+nome)?\b|\bqual\s+o\s+seu\s+nome\b|\bqual\s+seu\s+nome\b|\bcomo\s+voce\s+se\s+chama\b|\bcomo\s+se\s+chama\b)/u',
+        $plain
+    );
+}
+
+function studio_whatsapp_ai_prepend_assistant_name_reply(string $reply, bool $askedAssistantName): string
+{
+    $reply = trim($reply);
+    if (!$askedAssistantName || $reply === '' || preg_match('/\bhellen\b/iu', $reply)) {
+        return $reply;
+    }
+    return 'Eu sou a Hellen. ' . $reply;
 }
 
 function studio_whatsapp_ai_message_without_name_intro(string $text, string $customerName): string
@@ -17701,6 +17758,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $customerMessageCount
     );
     $directCustomerName = studio_whatsapp_ai_extract_customer_name($body);
+    $customerAskedAssistantName = studio_whatsapp_ai_customer_asked_assistant_name($body);
     if ($directCustomerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($directCustomerName, true)) {
         if (trim((string)($state['customer_name'] ?? '')) === ''
             || studio_whatsapp_ai_name_has_full_name($directCustomerName)) {
@@ -17807,7 +17865,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $studio,
             $conversation,
             $incomingMessageId,
-            'Oi! Tudo certo? Como podemos te ajudar?',
+            $customerAskedAssistantName
+                ? 'Oi! Eu sou a Hellen. Tudo certo? Como podemos te ajudar?'
+                : 'Oi! Tudo certo? Como podemos te ajudar?',
             $state,
             false
         );
@@ -18160,6 +18220,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'agenda_disponibilidade_real' => $realAvailabilityNotes ?: ['sem vagas livres no período consultado'],
         'regra_agenda' => 'Nunca cite nem aceite data/horário fora da lista agenda_disponibilidade_real. Manhã é antes de 12h; tarde é de 12h a 17h59; noite é a partir de 18h.',
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
+        'pergunta_lateral_do_cliente' => $customerAskedAssistantName
+            ? 'O cliente informou o próprio nome e também perguntou o nome da atendente no mesmo turno. Responda aos dois atos: diga naturalmente que você é a Hellen e depois retome apenas o próximo dado faltante.'
+            : '',
     ]);
     if (empty($answer['ok'])) {
         // A malformed model response must not leave the client waiting or
@@ -18187,7 +18250,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $studio,
             $conversation,
             $incomingMessageId,
-            $fallbackReply,
+            studio_whatsapp_ai_prepend_assistant_name_reply($fallbackReply, $customerAskedAssistantName),
             $state,
             false
         );
@@ -18404,6 +18467,10 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             default => 'Me passa só a próxima informação para eu continuar.',
         };
     }
+    $answer['reply_text'] = studio_whatsapp_ai_prepend_assistant_name_reply(
+        (string)($answer['reply_text'] ?? ''),
+        $customerAskedAssistantName
+    );
     $state['active'] = true;
     $state['stage'] = 'briefing';
     $state['pending'] = (string)($answer['missing_fields'][0] ?? '');
@@ -18626,7 +18693,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $referenceLabel = count((array)($state['references'] ?? [])) > 0
         ? count((array)$state['references']) . ' referência(s) recebida(s)'
         : 'não informada';
-    $final = "*Agendamento criado!*\n\n"
+    $final = ($customerAskedAssistantName ? "Eu sou a Hellen.\n\n" : '')
+        . "*Agendamento criado!*\n\n"
         . '*Cliente:* ' . $customerName . "\n"
         . '*Dia:* ' . studio_whatsapp_schedule_date_label($date) . "\n"
         . '*Horário:* ' . studio_whatsapp_schedule_time_label($time) . "\n"
@@ -20755,6 +20823,7 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
 
     $naturalIntakeUsed = false;
     $naturalIntakeComplete = false;
+    $naturalAskedAssistantName = false;
     if (is_array($registeredAppointment)
         && empty($paymentProof['present'])
         && !$selectedImageUploadAction
@@ -20798,6 +20867,18 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
         // O modo natural usa o mesmo coletor da página de teste. As decisões
         // críticas (agenda real, Pix, comprovante e criação do agendamento)
         // continuam nos ramos determinísticos abaixo.
+        $naturalCustomerName = studio_whatsapp_ai_extract_customer_name($messageText);
+        $naturalAskedAssistantName = studio_whatsapp_ai_customer_asked_assistant_name($messageText);
+        if ($naturalCustomerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($naturalCustomerName, true)) {
+            if (trim((string)($bookingFlowState['customer_name'] ?? '')) === ''
+                || studio_whatsapp_ai_name_has_full_name($naturalCustomerName)) {
+                $bookingFlowState['customer_name'] = $naturalCustomerName;
+            }
+            $bookingFlowState['customer_name_confirmed'] = true;
+            if (studio_whatsapp_ai_name_has_full_name($naturalCustomerName)) {
+                $bookingFlowState['customer_name_full_confirmed'] = true;
+            }
+        }
         $naturalHistory = [];
         foreach (array_slice($history, -40) as $historyItem) {
             if (!is_array($historyItem)) {
@@ -20843,6 +20924,9 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             'regras_oficiais_do_estudio' => $effectiveStudioRules,
             'tabela_oficial_de_orcamento' => $pricingPageContext,
             'modo_de_atendimento' => 'coleta natural dos dados para agendamento; sem executar ações nesta etapa',
+            'pergunta_lateral_do_cliente' => $naturalAskedAssistantName
+                ? 'O cliente informou o próprio nome e também perguntou o nome da atendente no mesmo turno. Responda aos dois atos: diga naturalmente que você é a Hellen e depois retome apenas o próximo dado faltante.'
+                : '',
         ]);
         if (!empty($naturalResult['ok'])) {
             studio_whatsapp_ai_apply_natural_intake_summary(
@@ -20864,7 +20948,10 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $bookingFlowState['stage'] = empty($bookingChecklist['ready']) ? 'briefing' : 'schedule';
             $result = [
                 'ok' => true,
-                'reply_text' => (string)$naturalResult['reply_text'],
+                'reply_text' => studio_whatsapp_ai_prepend_assistant_name_reply(
+                    (string)$naturalResult['reply_text'],
+                    $naturalAskedAssistantName
+                ),
                 'needs_human' => false,
                 'lead_score_delta' => !empty($naturalResult['complete']) ? 2 : 1,
                 'summary' => !empty($naturalResult['complete'])
@@ -21917,6 +22004,12 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
             $replyText = mb_substr($replyText, 0, 517, 'UTF-8') . '...';
         }
     }
+    // Responda a uma pergunta lateral do mesmo turno mesmo que alguma regra
+    // deterministica tenha reformulado a mensagem principal depois da IA.
+    $replyText = studio_whatsapp_ai_prepend_assistant_name_reply(
+        $replyText,
+        $naturalAskedAssistantName
+    );
 
     try {
         $sendData = [
@@ -23268,6 +23361,7 @@ Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use soment
 
     Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal.
     Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro apenas o nome. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
+    Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
