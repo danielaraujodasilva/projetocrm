@@ -17562,6 +17562,10 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
 
     $state = studio_whatsapp_booking_state($conversation);
+    // O atendimento simples usa a IA como interlocutora natural. O estado,
+    // a tabela de preços e a agenda continuam sendo validados pelo servidor,
+    // mas nao devem substituir a resposta contextual do modelo.
+    $naturalConversationMode = true;
     if ((int)($state['appointment_id'] ?? 0) > 0) {
         return studio_whatsapp_ai_simple_booking_followup_reply($studio, $conversation, $newMessage, $state);
     }
@@ -17785,7 +17789,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $isBodyAreaCorrection = (bool)preg_match('/\b(?:na\s+verdade|corrig(?:e|indo)|troca(?:r)?|muda(?:r)?|em\s+vez\s+de|queria)\b/u', $bodyPlain);
     $ambiguousBodyArea = count($detectedBodyAreas) >= 2
         && (bool)preg_match('/\b(?:talvez|quer\s+dizer|ou|nao\s+sei|não\s+sei)\b/u', $bodyPlain);
-    if ($ambiguousBodyArea) {
+    if (!$naturalConversationMode && $ambiguousBodyArea) {
         $state['body_area'] = '';
         $state['body_details'] = '';
         $state['body_position'] = '';
@@ -17855,7 +17859,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     // dados que ele já tiver enviado ficam preservados no estado para a
     // próxima mensagem, sem começar a entrevista de forma mecânica.
     $rawBookingState = trim((string)($conversation['ai_booking_state'] ?? ''));
-    if ($rawBookingState === '' && empty($state['greeting_sent'])) {
+    if (!$naturalConversationMode && $rawBookingState === '' && empty($state['greeting_sent'])) {
         $state['greeting_sent'] = true;
         $state['active'] = true;
         $state['stage'] = 'briefing';
@@ -17941,7 +17945,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
         'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
     ];
-    if (!empty($currentSchedulePreference['active'])
+    if (!$naturalConversationMode && !empty($currentSchedulePreference['active'])
         && isset($intakePendingLabels[$intakePendingBeforeSchedule])) {
         $state['schedule_preference'] = trim((string)($currentSchedulePreference['natural'] ?? $body));
         $state['schedule_period'] = trim((string)($currentSchedulePreference['period'] ?? ''));
@@ -17960,7 +17964,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             false
         );
     }
-    if (!empty($currentSchedulePreference['ambiguous_weekend'])) {
+    if (!$naturalConversationMode && !empty($currentSchedulePreference['ambiguous_weekend'])) {
         $state['schedule_preference'] = trim((string)($currentSchedulePreference['natural'] ?? $body));
         $state['schedule_period'] = trim((string)($currentSchedulePreference['period'] ?? ''));
         $state['preferred_time'] = trim((string)($currentSchedulePreference['time'] ?? ''));
@@ -17979,7 +17983,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         );
     }
     $ambiguousTimes = array_values(array_filter(array_map('strval', (array)($currentSchedulePreference['ambiguous_times'] ?? []))));
-    if (count($ambiguousTimes) > 1) {
+    if (!$naturalConversationMode && count($ambiguousTimes) > 1) {
         $state['schedule_preference'] = trim((string)($currentSchedulePreference['natural'] ?? $body));
         $state['schedule_ambiguous_times'] = $ambiguousTimes;
         $state['pending'] = 'horário desejado';
@@ -18051,7 +18055,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $hasDateOrPeriod = !empty($currentSchedulePreference['date'])
         || (int)($currentSchedulePreference['weekday'] ?? 0) > 0
         || trim((string)($currentSchedulePreference['period'] ?? '')) !== '';
-    if (!empty($currentSchedulePreference['active']) && $hasDateOrPeriod) {
+    if (!$naturalConversationMode && !empty($currentSchedulePreference['active']) && $hasDateOrPeriod) {
         $currentOptions = studio_whatsapp_ai_simple_schedule_options($studio, $currentSchedulePreference, 60);
         $interactive = [];
         if (trim((string)($currentSchedulePreference['time'] ?? '')) === '') {
@@ -18163,9 +18167,30 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             return $scheduleReply($state, $reply, $preferenceLabel, $interactive);
         }
     }
+    $scheduleModelContext = [];
+    if ($naturalConversationMode && !empty($currentSchedulePreference['active']) && $hasDateOrPeriod) {
+        $naturalScheduleOptions = studio_whatsapp_ai_simple_schedule_options($studio, $currentSchedulePreference, 60);
+        $currentTime = trim((string)($currentSchedulePreference['time'] ?? ''));
+        if ($currentTime !== '' && count((array)($naturalScheduleOptions['matching'] ?? [])) === 1) {
+            $forcedSchedule = $naturalScheduleOptions['matching'][0];
+        }
+        $scheduleModelContext = [
+            'pedido_do_cliente' => trim((string)($currentSchedulePreference['natural'] ?? $body)),
+            'resultado_da_agenda' => $naturalScheduleOptions['matching_label'] !== ''
+                ? 'Há vaga real para este pedido: ' . (string)$naturalScheduleOptions['matching_label']
+                : 'Não há vaga real exatamente para este pedido.',
+            'horarios_proximos_reais' => array_values(array_map(
+                'strval',
+                (array)($naturalScheduleOptions['nearby_label'] !== ''
+                    ? [$naturalScheduleOptions['nearby_label']]
+                    : [])
+            )),
+            'instrucao' => 'Responda naturalmente sobre a disponibilidade. Nunca invente horário; se não houver, sugira somente as opções reais fornecidas e pergunte o que o cliente prefere.',
+        ];
+    }
     $isPortfolioRequest = (bool)preg_match('/\b(portfolio|portifolio|trabalhos?|instagram|site|modelos?)\b/iu', $body)
         || (bool)preg_match('/\bfotos?.{0,35}\b(anime|trabalho|ele)\b/iu', $body);
-    if (studio_whatsapp_is_artist_info_request($body) || $isPortfolioRequest) {
+    if (!$naturalConversationMode && (studio_whatsapp_is_artist_info_request($body) || $isPortfolioRequest)) {
         $studioName = studio_calendar_remove_accents(mb_strtolower(trim((string)($studio['name'] ?? '')), 'UTF-8'));
         $artistNames = [];
         foreach (studio_list_artists($studio) as $artist) {
@@ -18220,6 +18245,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'agenda_disponibilidade_real' => $realAvailabilityNotes ?: ['sem vagas livres no período consultado'],
         'regra_agenda' => 'Nunca cite nem aceite data/horário fora da lista agenda_disponibilidade_real. Manhã é antes de 12h; tarde é de 12h a 17h59; noite é a partir de 18h.',
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
+        'pedido_de_agenda_atual' => $scheduleModelContext,
         'pergunta_lateral_do_cliente' => $customerAskedAssistantName
             ? 'O cliente informou o próprio nome e também perguntou o nome da atendente no mesmo turno. Responda aos dois atos: diga naturalmente que você é a Hellen e depois retome apenas o próximo dado faltante.'
             : '',
@@ -18258,7 +18284,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
 
     $answerReply = trim((string)($answer['reply_text'] ?? ''));
     $answerAsksBudget = (bool)preg_match('/\b(or[cç]amento|pre[cç]o|valor)\b.{0,90}\?/iu', $answerReply);
-    if ($answerAsksBudget && empty($answer['complete'])) {
+    if (!$naturalConversationMode && $answerAsksBudget && empty($answer['complete'])) {
         $nonBudgetMissing = array_values(array_filter(
             array_map('strval', (array)($answer['missing_fields'] ?? [])),
             static fn(string $field): bool => !preg_match('/\b(or[cç]amento|pre[cç]o|valor)\b/iu', $field)
@@ -18339,7 +18365,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
     $replyIsUnhelpful = (bool)preg_match('/\b(?:me\s+passa\s+s[oó]|me\s+conta\s+o\s+que\s+voc[eê]\s+quer\s+tatuar|me\s+confirma\s+seu\s+nome)\b/iu', $answerReply)
         || (!str_contains($answerReply, '?') && empty($answer['complete']));
-    if ($actualMissingField !== '' && ((bool)($answer['complete'] ?? false) || $knownFieldAsked || $replyIsUnhelpful)) {
+    if (!$naturalConversationMode
+        && $actualMissingField !== ''
+        && ((bool)($answer['complete'] ?? false) || $knownFieldAsked || $replyIsUnhelpful)) {
         $answer['complete'] = false;
         $answer['missing_fields'] = [$actualMissingField];
         $answer['reply_text'] = match ($actualMissingField) {
@@ -18381,7 +18409,8 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $repeatMissingField = $actualMissingField !== ''
         ? $actualMissingField
         : trim((string)($repeatMissingFields[0] ?? ''));
-    if ($currentComparable !== '' && $previousComparable !== ''
+    if (!$naturalConversationMode
+        && $currentComparable !== '' && $previousComparable !== ''
         && ($currentComparable === $previousComparable || $similarity >= 88.0)
         && $repeatMissingField !== '') {
         $nextMissing = $repeatMissingField;
@@ -18442,7 +18471,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
 
     $priorCustomerMessages = count(array_filter($history, static fn(array $item): bool => ($item['role'] ?? '') === 'user'));
-    if ($priorCustomerMessages <= 1 && empty($answer['complete'])) {
+    if (!$naturalConversationMode && $priorCustomerMessages <= 1 && empty($answer['complete'])) {
         $firstReply = trim((string)$answer['reply_text']);
         if ($firstReply !== '' && !preg_match('/^(oi|olá|ola|bom dia|boa tarde|boa noite)\b/iu', $firstReply)) {
             $answer['reply_text'] = 'Oi! Tudo certo? ' . lcfirst($firstReply);
@@ -18454,7 +18483,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     if ($finalMissingField !== '') {
         $answer['complete'] = false;
         $answer['missing_fields'] = [$finalMissingField];
-        $answer['reply_text'] = match ($finalMissingField) {
+        $naturalFallbackReply = match ($finalMissingField) {
             'nome' => 'Qual é seu nome?',
             'nome completo' => 'Para finalizar, me passa seu nome completo? Preciso dele para registrar o agendamento.',
             'ideia da tatuagem' => 'Me conta o que você quer tatuar.',
@@ -18466,6 +18495,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             'horário desejado' => 'Qual horário fica melhor?',
             default => 'Me passa só a próxima informação para eu continuar.',
         };
+        if (trim((string)($answer['reply_text'] ?? '')) === '') {
+            $answer['reply_text'] = $naturalFallbackReply;
+        }
     }
     $answer['reply_text'] = studio_whatsapp_ai_prepend_assistant_name_reply(
         (string)($answer['reply_text'] ?? ''),
@@ -23360,7 +23392,7 @@ Seu único objetivo nesta conversa é reunir, de forma natural, os dados necess�
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
     Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal.
-    Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro apenas o nome. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
+    Use a ficha e os campos somente como memória interna, nunca como um roteiro visível ou uma ordem fixa. Leia o histórico inteiro e responda primeiro ao que o cliente realmente disse, mesmo que ele mude de assunto, junte várias informações ou escreva de forma informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e retome o agendamento de forma natural, sem parecer um robô. Se a conversa estiver começando sem nenhum dado, cumprimente e pergunte como pode ajudar; só peça o nome quando isso fizer sentido no contexto. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
     Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
@@ -23374,7 +23406,7 @@ Nome completo, ideia, referência (ou “não tenho referência”), parte do co
 
 “Fechamento” significa cobrir a área completa indicada, não uma tatuagem pequena. “Fechamento de costas” significa todas as partes de costas previstas na tabela e deve usar a promoção de fechamento de costas; o mesmo raciocínio vale para fechamento de braço ou perna. Se a pessoa disser apenas “fechamento”, pergunte de qual região do corpo. Para braço e perna, confirme interno ou externo quando essa distinção existir na tabela oficial.
 
-Adjetivos e descrições também valem como dados: “dragão realista” preenche a ideia; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, responda naturalmente e faça somente a próxima pergunta necessária. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Dia, Horário e Orçamento.
+    Adjetivos e descrições também valem como dados: “dragão realista” preenche a ideia; “15 cm”, “pequena” ou “fechamento” preenche a dimensão/área ocupada. “Não tenho referência” preenche a referência como ausência confirmada. Se o cliente disser que quer exatamente como na imagem, registre isso como dimensão/área ocupada e só peça confirmação se a imagem realmente não permitir entender. Não pergunte novamente algo que possa ser inferido com segurança desse jeito. Enquanto faltar algo, converse naturalmente e peça apenas o dado que realmente destrava o próximo passo, sem dizer o nome do campo nem seguir uma sequência artificial. Quando tudo estiver preenchido, não faça outra pergunta: diga claramente que conseguiu reunir as informações e mostre um resumo organizado com os rótulos Nome, Ideia, Referência, Parte do corpo, Lado/posição, Dimensão/área ocupada, Dia, Horário e Orçamento.
 
 Retorne somente JSON válido neste formato: {"reply_text":"texto para o cliente","complete":false,"missing_fields":["campo"],"booking":{"customer_name":"","tattoo_idea":"","reference":"","body_area":"","body_details":"","size_coverage":"","preferred_date":"","preferred_time":"","quote":""}}.
 A configuração efetiva desta página é {$effectiveRuntime}.
