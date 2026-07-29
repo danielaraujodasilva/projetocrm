@@ -4660,14 +4660,14 @@ function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
     $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
     $plain = trim((string)(preg_replace(
-        '/^(?:(?:oi|ola|opa|e\s*(?:ai|ae)|eai|ei|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '/^(?:(?:oi|ola|olá|opa|e\s*(?:ai|ae)|eai|ei|hey|hello|hi|hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|buen[oa]s?|good\s+(?:morning|afternoon|evening)|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
         '',
         $plain
     ) ?? $plain));
     if ($plain === '') {
         return true;
     }
-    if (preg_match('/^(?:e\s*(?:ai|ae)|eai|ei|hey|tudo\s+bem|tudo\s+certo|como\s+vai|como\s+voc[eê]s?\s+est[aã]o|beleza|blz)(?:\s+(?:tudo\s+bem|tudo\s+certo))?\s*[.!?]*$/iu', $plain)) {
+    if (preg_match('/^(?:e\s*(?:ai|ae)|eai|ei|hey|hello|hi|hola|buen[oa]s?|tudo\s+bem|tudo\s+certo|todo\s+bien|como\s+vai|como\s+voc[eê]s?\s+est[aã]o|beleza|blz|good\s+(?:morning|afternoon|evening))(?:\s+(?:tudo\s+bem|tudo\s+certo|todo\s+bien|dias?|tardes?|noites?))?\s*[.!?]*$/iu', $plain)) {
         return true;
     }
 
@@ -4694,7 +4694,7 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
         return '';
     }
     $withoutGreeting = trim((string)(preg_replace(
-        '/^(?:(?:oi|ola|olá|opa|e\s*(?:ai|ae)|eai|ei|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '/^(?:(?:oi|ola|olá|opa|e\s*(?:ai|ae)|eai|ei|hey|hello|hi|hola|buenos\s+dias|buenas\s+tardes|buenas\s+noches|buen[oa]s?|good\s+(?:morning|afternoon|evening)|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
         '',
         $text
     ) ?? $text));
