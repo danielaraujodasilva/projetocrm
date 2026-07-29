@@ -7414,7 +7414,10 @@ function studio_whatsapp_ai_message_without_name_intro(string $text, string $cus
 function studio_whatsapp_ai_bare_name_after_prompt(string $text, array $recentBotReplies): string
 {
     $lastBotReply = studio_calendar_remove_accents(mb_strtolower(trim((string)end($recentBotReplies)), 'UTF-8'));
-    if (!preg_match('/\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+nome|me\s+confirma\s+(?:o\s+)?seu\s+nome|nome\s+completo|como\s+voce\s+se\s+chama)\b/u', $lastBotReply)) {
+    // A acentuacao pode chegar corrompida em mensagens antigas (por exemplo,
+    // "Qual e seu nome" com bytes trocados). A palavra "nome" continua sendo
+    // uma evidencia segura de que a resposta curta seguinte pode ser o nome.
+    if (!preg_match('/\bnome\b/u', $lastBotReply)) {
         return '';
     }
 
@@ -7461,7 +7464,7 @@ function studio_whatsapp_ai_name_candidate_is_plausible(string $candidate, bool 
     $plain = studio_calendar_remove_accents(mb_strtolower($candidate, 'UTF-8'));
     $plain = trim((string)preg_replace('/\s+/u', ' ', $plain));
     $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
-    if (preg_match('/\b(que|djabo|diabo|viu|voce|você|nome|quer|quero|gostaria|preciso|tenho|vou|agendar|orcamento|orçamento|tatuagem|tattoo|pix|novo|de\s+novo|isso|aquilo|falei|expliquei|mandei|enviei|nao|não|opcao|selecionada|por\s+que|porque|como|qual|onde|quando|oi|ola|olá|bom|boa|sim|ok)\b/u', $plain)) {
+    if (preg_match('/\b(que|djabo|diabo|viu|voce|você|nome|quer|quero|gostaria|preciso|tenho|vou|agendar|orcamento|orçamento|tatuagem|tattoo|pix|novo|de\s+novo|isso|esse|essa|aquilo|aquele|aquela|falei|expliquei|mandei|enviei|nao|não|opcao|selecionada|por\s+que|porque|como|qual|onde|quando|oi|ola|olá|bom|boa|sim|ok)\b/u', $plain)) {
         return false;
     }
     $additionalWords = $allowSingleWord ? '{0,4}' : '{1,4}';
