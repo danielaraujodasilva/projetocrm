@@ -4471,7 +4471,7 @@ function studio_whatsapp_booking_state(array $conversation): array
         || studio_whatsapp_ai_name_has_full_name((string)($state['customer_name'] ?? ''));
     $state['greeting_sent'] = !empty($state['greeting_sent']);
     if (trim((string)($state['customer_name'] ?? '')) !== ''
-        && !studio_whatsapp_ai_name_candidate_is_plausible((string)$state['customer_name'])) {
+        && !studio_whatsapp_ai_name_candidate_is_plausible((string)$state['customer_name'], true)) {
         $state['customer_name'] = '';
         $state['customer_name_confirmed'] = false;
         $state['customer_name_full_confirmed'] = false;
@@ -4511,6 +4511,29 @@ function studio_whatsapp_booking_state(array $conversation): array
     }, (array)$state['references']), static fn(array $reference): bool => $reference !== []));
     if (studio_whatsapp_ai_is_body_area_only((string)($state['tattoo_idea'] ?? ''))) {
         $state['tattoo_idea'] = '';
+    }
+    $storedIdea = trim((string)($state['tattoo_idea'] ?? ''));
+    if ($storedIdea !== '' && studio_whatsapp_ai_is_non_idea_intake_text($storedIdea)) {
+        // Saudacoes e frases de abertura nunca podem ocupar o campo do
+        // desenho; isso fazia o fluxo pular a pergunta da ideia.
+        $state['tattoo_idea'] = '';
+    }
+    $customerNamePlain = studio_calendar_remove_accents(mb_strtolower(trim((string)($state['customer_name'] ?? '')), 'UTF-8'));
+    $customerNamePlain = str_replace(['^', '~', '`', '´', "'"], '', $customerNamePlain);
+    $ideaPlain = studio_calendar_remove_accents(mb_strtolower(trim((string)($state['tattoo_idea'] ?? '')), 'UTF-8'));
+    $ideaPlain = str_replace(['^', '~', '`', '´', "'"], '', $ideaPlain);
+    if ($customerNamePlain !== '' && $ideaPlain !== '' && $customerNamePlain === $ideaPlain) {
+        // O nome respondido ao bot nao e a ideia nem uma referencia visual.
+        $state['tattoo_idea'] = '';
+    }
+    $referencePlain = studio_calendar_remove_accents(mb_strtolower(trim((string)($state['reference_summary'] ?? '')), 'UTF-8'));
+    $referencePlain = str_replace(['^', '~', '`', '´', "'"], '', $referencePlain);
+    if ($customerNamePlain !== '' && $referencePlain !== '' && $customerNamePlain === $referencePlain
+        && empty($state['references'])) {
+        $state['reference_received'] = false;
+        $state['reference_analysis_ok'] = false;
+        $state['reference_summary'] = '';
+        $state['reference_declined'] = false;
     }
     return $state;
 }
@@ -4635,12 +4658,16 @@ function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
         return true;
     }
     $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
+    $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
     $plain = trim((string)(preg_replace(
-        '/^(?:(?:oi|ola|opa|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '/^(?:(?:oi|ola|opa|e\s*(?:ai|ae)|eai|ei|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
         '',
         $plain
     ) ?? $plain));
     if ($plain === '') {
+        return true;
+    }
+    if (preg_match('/^(?:e\s*(?:ai|ae)|eai|ei|hey|tudo\s+bem|tudo\s+certo|como\s+vai|como\s+voc[eê]s?\s+est[aã]o|beleza|blz)(?:\s+(?:tudo\s+bem|tudo\s+certo))?\s*[.!?]*$/iu', $plain)) {
         return true;
     }
 
@@ -4662,17 +4689,21 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
         return '';
     }
     $plain = studio_calendar_remove_accents(mb_strtolower($text, 'UTF-8'));
-    if (preg_match('/\b(?:nao|não)\s+sei\b|\b(?:sem|nenhuma)\b/u', $plain)) {
+    $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
+    if (preg_match('/\b(?:nao|não)\s+(?:sei|tenho|possuo|quero)\b|\b(?:sem|nenhuma)\s+(?:refer[eê]ncia|imagem|foto)?\b/u', $plain)) {
         return '';
     }
     $withoutGreeting = trim((string)(preg_replace(
-        '/^(?:(?:oi|ola|olá|opa|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
+        '/^(?:(?:oi|ola|olá|opa|e\s*(?:ai|ae)|eai|ei|hey|bom\s+dia|boa\s+tarde|boa\s+noite)\b[\s,!.;:-]*)+/iu',
         '',
         $text
     ) ?? $text));
     $withoutGreetingPlain = studio_calendar_remove_accents(mb_strtolower($withoutGreeting, 'UTF-8'));
     if ($withoutGreeting === ''
         || preg_match('/^(?:meu\s+nome|me\s+chamo|sou|aqui\s+[eé])\b/u', $withoutGreetingPlain)) {
+        return '';
+    }
+    if (preg_match('/^\s*(?:refer[eê]ncia|imagem|foto)(?:\s+(?:de|da|do))?\s*[.!?]*$/iu', $withoutGreeting)) {
         return '';
     }
     // "Quero fazer um orçamento" or "gostaria de agendar" expresses an
@@ -4706,6 +4737,9 @@ function studio_whatsapp_ai_extract_tattoo_idea_from_text(string $text): string
     }
     $candidate = $text;
     if (preg_match('/\b(?:quero|queria|vou\s+(?:fazer|tatuar)|fazer\s+(?:uma\s+)?tatuagem(?:\s+de)?|tatuar)\s+(.+)$/iu', $text, $match)) {
+        $candidate = trim((string)$match[1]);
+    }
+    if (preg_match('/\b(?:fechar|fechamento)\s+(?:a|o|as|os)?\s*.+?\s+(?:com|de)\s+(.+)$/iu', $text, $match)) {
         $candidate = trim((string)$match[1]);
     }
     $candidate = trim((string)(preg_replace('/^\s*(?:um|uma|o|a)\s+/iu', '', $candidate) ?? $candidate));
@@ -7540,9 +7574,11 @@ function studio_whatsapp_ai_reconcile_booking_state_from_history(array &$state, 
         }
         $type = strtolower(trim((string)($item['message_type'] ?? 'text')));
         $mime = strtolower(trim((string)($item['media_mime'] ?? '')));
+        $plain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+        $plain = str_replace(['^', '~', '`', '´', "'"], '', $plain);
         $inbound[] = [
             'body' => $body,
-            'plain' => studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8')),
+            'plain' => $plain,
             'type' => $type,
             'mime' => $mime,
         ];
@@ -7593,6 +7629,13 @@ function studio_whatsapp_ai_reconcile_booking_state_from_history(array &$state, 
     if (preg_match('/\b(?:nao\s+tenho|sem\s+refer|nenhuma\s+refer|nao\s+possuo)\b/u', $referenceSummaryPlain)) {
         $state['reference_declined'] = true;
         $state['reference_received'] = false;
+    }
+    foreach ($inbound as $item) {
+        if (preg_match('/\b(?:nao\s+tenho|sem\s+refer|nenhuma\s+refer|nao\s+possuo)\b/u', (string)$item['plain'])) {
+            $state['reference_declined'] = true;
+            $state['reference_received'] = false;
+            break;
+        }
     }
     $referenceSeen = false;
     foreach ($inbound as $item) {
