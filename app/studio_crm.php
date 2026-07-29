@@ -18162,7 +18162,35 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
     ]);
     if (empty($answer['ok'])) {
-        return $answer + ['ok' => false];
+        // A malformed model response must not leave the client waiting or
+        // expose an internal JSON error. Preserve the collected state and
+        // resume at the first genuinely missing item while the next turn can
+        // retry the semantic response normally.
+        $fallbackMissing = studio_whatsapp_ai_natural_missing_field($state);
+        $fallbackReply = match ($fallbackMissing) {
+            'nome' => 'Qual é seu nome?',
+            'nome completo' => 'Para finalizar, me passa seu nome completo?',
+            'ideia da tatuagem' => 'Me conta o que você quer tatuar.',
+            'referência ou confirmação de que não há referência' => 'Você tem uma imagem de referência ou prefere seguir sem referência?',
+            'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
+            'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
+            'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
+            'dia desejado' => 'Qual dia você prefere?',
+            'horário desejado' => 'Qual horário fica melhor?',
+            default => 'Recebi sua mensagem. Me passa só a próxima informação para eu continuar.',
+        };
+        $state['active'] = true;
+        $state['stage'] = 'briefing';
+        $state['pending'] = $fallbackMissing;
+        studio_whatsapp_booking_state_save($studio, $conversationId, $state);
+        return studio_whatsapp_ai_simple_booking_send(
+            $studio,
+            $conversation,
+            $incomingMessageId,
+            $fallbackReply,
+            $state,
+            false
+        );
     }
 
     $answerReply = trim((string)($answer['reply_text'] ?? ''));
@@ -23168,7 +23196,7 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     }
 
     $safeHistory = [];
-    foreach (array_slice($history, -40) as $item) {
+    foreach (array_slice($history, -80) as $item) {
         if (!is_array($item)) {
             continue;
         }
@@ -23225,19 +23253,6 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     if (!is_string($historyJson)) {
         $historyJson = '[]';
     }
-    $turnByTurn = [];
-    foreach ($safeHistory as $turnNumber => $historyItem) {
-        $turnByTurn[] = sprintf(
-            '%02d. %s: %s',
-            $turnNumber + 1,
-            ($historyItem['role'] ?? '') === 'assistant' ? 'ATENDENTE' : 'CLIENTE',
-            (string)($historyItem['content'] ?? '')
-        );
-    }
-    $turnByTurnJson = json_encode($turnByTurn, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (!is_string($turnByTurnJson)) {
-        $turnByTurnJson = '[]';
-    }
 
     $effectiveRuntime = 'provedor=' . (string)($config['provider'] ?? 'nao informado')
         . '; modelo=' . (string)($config['model'] ?? 'nao informado');
@@ -23279,10 +23294,7 @@ TXT;
         . $contextJson
         . "\n\nNOVA MENSAGEM DO CLIENTE:\n"
         . $message
-        . "\n\nCONTEXTO DE TURNOS, SOMENTE PARA LEITURA (não copie nem transforme em resposta):\n"
-        . $turnByTurnJson
-        . "\nFIM DO CONTEXTO DE TURNOS.\n"
-        . "Antes de escrever, faça silenciosamente esta sequência: 1) entenda a mensagem atual em relação à pergunta anterior; 2) consolide somente fatos do cliente; 3) aplique correções; 4) responda o pedido atual; 5) faça apenas a próxima pergunta realmente faltante. Não avance por ordem mecânica se a conversa já tiver respondido algo e não repita uma pergunta que o cliente já respondeu. Responda agora SOMENTE com o JSON solicitado, sem prefácio, lista de turnos ou explicação.";
+        . "\n\nO histórico acima já está em ordem cronológica e cada item identifica o papel de quem falou. Antes de escrever, faça silenciosamente esta sequência: 1) entenda a mensagem atual em relação à pergunta anterior; 2) consolide somente fatos do cliente; 3) aplique correções; 4) responda o pedido atual; 5) faça apenas a próxima pergunta realmente faltante. Não avance por ordem mecânica se a conversa já tiver respondido algo e não repita uma pergunta que o cliente já respondeu. Responda agora SOMENTE com o JSON solicitado, sem prefácio, lista de turnos ou explicação.";
 
     $bookingProperties = [];
     foreach ($fields as $field) {
