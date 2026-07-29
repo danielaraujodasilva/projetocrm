@@ -4670,6 +4670,30 @@ function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
     if (preg_match('/^(?:e\s*(?:ai|ae)|eai|ei|hey|hello|hi|hola|buen[oa]s?|tudo\s+bem|tudo\s+certo|todo\s+bien|como\s+vai|como\s+voc[eê]s?\s+est[aã]o|beleza|blz|good\s+(?:morning|afternoon|evening))(?:\s+(?:tudo\s+bem|tudo\s+certo|todo\s+bien|dias?|tardes?|noites?))?\s*[.!?]*$/iu', $plain)) {
         return true;
     }
+    if (preg_match('/^(?:meu\s+nome\s+(?:e|é|eh)|me\s+chamo|sou|aqui\s+(?:e|é|eh))\b/iu', $plain)) {
+        return true;
+    }
+
+    // Aberturas sociais ou frases de contato não descrevem um desenho. A
+    // lista é intencionalmente ampla, mas só entra quando não há nenhum
+    // sinal de tatuagem, orçamento, agenda ou referência no texto. Assim,
+    // "meu cachorro" continua podendo ser uma ideia, enquanto uma frase
+    // casual não contamina a ficha.
+    $hasDesignSignal = (bool)preg_match(
+        '/\b(?:tatuagem|tatuar|tattoo|desenho|ideia|refer[eê]ncia|foto|imagem|flor|rosa|le[aã]o|drag[aã]o|caveira|frase|nome|s[ií]mbolo|cora[cç][aã]o|cruz|p[aá]ssaro|animal|retrato)\b/iu',
+        $plain
+    );
+    $hasBusinessSignal = (bool)preg_match(
+        '/\b(?:or[cç]amento|agendamento|agendar|marcar|vaga|hor[aá]rio|pre[cç]o|valor|pix|sinal|atendente|humano|ajuda|conversar|falar|d[uú]vida|amanh[aã]|segunda|ter[cç]a|quarta|quinta|sexta|s[aá]bado|domingo)\b/iu',
+        $plain
+    );
+    $hasSocialSignal = (bool)preg_match(
+        '/\b(?:chefe|amigo|amiga|parceiro|parceira|mano|m[aã]o|pessoal|galera)\b/iu',
+        $plain
+    );
+    if (!$hasDesignSignal && !$hasBusinessSignal && $hasSocialSignal && mb_strlen($plain, 'UTF-8') <= 140) {
+        return true;
+    }
 
     return (bool)(
         preg_match('/^(?:gostaria|queria|quero|preciso|pretendo|vou)\b.*\b(?:orcamento|agendamento|agendar|marcar)\s*[.!?]*$/u', $plain)
@@ -6375,7 +6399,17 @@ function studio_whatsapp_service_flow_decide(
 
 function studio_whatsapp_ai_context_window(array $historyLines, int $maxItems = 500, int $maxChars = 100000): array
 {
-    $lines = array_values(array_filter(array_map(static fn($line): string => trim((string)$line), $historyLines)));
+    $lines = array_values(array_filter(array_map(static function ($line): string {
+        if (is_array($line)) {
+            $role = trim((string)($line['role'] ?? ''));
+            $content = trim((string)($line['content'] ?? ''));
+            if ($content === '') {
+                $content = trim((string)($line['body'] ?? ''));
+            }
+            return trim(($role !== '' ? $role . ': ' : '') . $content);
+        }
+        return trim((string)$line);
+    }, $historyLines)));
     if (count($lines) > $maxItems) {
         $headCount = min(12, max(4, (int)floor($maxItems * 0.1)));
         $tailCount = max(1, $maxItems - $headCount - 1);
@@ -6728,7 +6762,14 @@ function studio_whatsapp_ai_apply_semantic_understanding_to_booking_state(
     $normalizedName = studio_calendar_remove_accents(mb_strtolower((string)($state['customer_name'] ?? ''), 'UTF-8'));
     $ideaIsNameEcho = $idea !== '' && $normalizedName !== ''
         && preg_replace('/\s+/u', ' ', trim($normalizedIdea)) === preg_replace('/\s+/u', ' ', trim($normalizedName));
+    $semanticIntent = trim((string)($understanding['intent'] ?? 'general'));
+    $ideaAllowedByIntent = !in_array($semanticIntent, [
+        'general', 'acknowledgement', 'price', 'schedule', 'reservation',
+        'payment_terms', 'payment_proof_text', 'payment_proof_denial',
+        'booking_status', 'address', 'business_hours', 'artist', 'human_handoff',
+    ], true);
     if ($customerMessageCount > 1
+        && $ideaAllowedByIntent
         && $idea !== ''
         && !$ideaIsNameEcho
         && !studio_whatsapp_ai_is_non_idea_intake_text($idea)
@@ -17546,6 +17587,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
 {
     $conversationId = (int)($conversation['id'] ?? 0);
     $incomingMessageId = trim((string)($newMessage['message_id'] ?? $newMessage['messageId'] ?? $newMessage['wamid'] ?? ''));
+    $incomingLocalMessageId = (int)($newMessage['id'] ?? 0);
     $messageType = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     if ($messageType === 'sticker') {
         return ['ok' => true, 'skipped' => true, 'reply_text' => ''];
@@ -17710,13 +17752,20 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     // to the question that preceded them instead of treating each message as
     // an isolated field value.
     $historyStmt = studio_db($studio)->prepare(
-        'SELECT direction, body, transcricao, transcript, message_type, media_mime, media_url, media_file_path, context_preview, sent_at
+        'SELECT id, message_id, direction, body, transcricao, transcript, message_type, media_mime, media_url, media_file_path, context_preview, sent_at
          FROM whatsapp_messages WHERE conversation_id = ? ORDER BY id ASC'
     );
     $historyStmt->execute([$conversationId]);
     $history = [];
     $historyRows = array_slice($historyStmt->fetchAll() ?: [], -100);
     foreach ($historyRows as $item) {
+        // A mensagem atual já está persistida quando o worker roda. Ela vai
+        // no campo NOVA MENSAGEM abaixo e não deve aparecer duplicada no
+        // histórico, pois isso faz o modelo tratar o mesmo turno como dois.
+        if (($incomingMessageId !== '' && trim((string)($item['message_id'] ?? '')) === $incomingMessageId)
+            || ($incomingLocalMessageId > 0 && (int)($item['id'] ?? 0) === $incomingLocalMessageId)) {
+            continue;
+        }
         $content = trim((string)($item['body'] ?? ''));
         if ($content === '') {
             $content = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
@@ -18246,6 +18295,12 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'regra_agenda' => 'Nunca cite nem aceite data/horário fora da lista agenda_disponibilidade_real. Manhã é antes de 12h; tarde é de 12h a 17h59; noite é a partir de 18h.',
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
         'pedido_de_agenda_atual' => $scheduleModelContext,
+        'interpretacao_semantica_atual' => [
+            'intencao' => (string)($semanticUnderstanding['intent'] ?? 'general'),
+            'confianca' => (float)($semanticUnderstanding['confidence'] ?? 0),
+            'objetivo_do_cliente' => (string)($semanticUnderstanding['customer_goal'] ?? ''),
+            'instrucao' => 'Use esta leitura apenas para não inventar campos. Se a intenção for general, acknowledgement, price ou schedule, não transforme a mensagem em ideia de tatuagem. A resposta continua livre e deve conversar com o cliente.',
+        ],
         'pergunta_lateral_do_cliente' => $customerAskedAssistantName
             ? 'O cliente informou o próprio nome e também perguntou o nome da atendente no mesmo turno. Responda aos dois atos: diga naturalmente que você é a Hellen e depois retome apenas o próximo dado faltante.'
             : '',
@@ -23319,6 +23374,21 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     foreach ($fields as $field) {
         $state[$field] = mb_substr(trim((string)($bookingState[$field] ?? '')), 0, 600, 'UTF-8');
     }
+    if ($state['tattoo_idea'] !== '' && studio_whatsapp_ai_is_non_idea_intake_text($state['tattoo_idea'])) {
+        // Limpa fichas antigas contaminadas por saudações ou conversa social
+        // antes de apresentá-las ao modelo como memória confiável.
+        $state['tattoo_idea'] = '';
+    }
+
+    $semanticContext = is_array($additionalContext['interpretacao_semantica_atual'] ?? null)
+        ? $additionalContext['interpretacao_semantica_atual']
+        : [];
+    $semanticIntent = trim((string)($semanticContext['intencao'] ?? ''));
+    $semanticBlocksIdea = in_array($semanticIntent, [
+        'general', 'acknowledgement', 'price', 'schedule', 'reservation',
+        'payment_terms', 'payment_proof_text', 'payment_proof_denial',
+        'booking_status', 'address', 'business_hours', 'artist', 'human_handoff',
+    ], true);
 
     $safeHistory = [];
     foreach (array_slice($history, -80) as $item) {
@@ -23391,9 +23461,9 @@ Seu nome é Hellen. Se o cliente perguntar seu nome, diga que você é a Hellen,
 Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
-    Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal.
-    Use a ficha e os campos somente como memória interna, nunca como um roteiro visível ou uma ordem fixa. Leia o histórico inteiro e responda primeiro ao que o cliente realmente disse, mesmo que ele mude de assunto, junte várias informações ou escreva de forma informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e retome o agendamento de forma natural, sem parecer um robô. Se a conversa estiver começando sem nenhum dado, cumprimente e pergunte como pode ajudar; só peça o nome quando isso fizer sentido no contexto. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
-    Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária.
+    Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal. A NOVA MENSAGEM DO CLIENTE é o turno prioritário; responda a ela, não a uma saudação antiga.
+    Use a ficha e os campos somente como memória interna, nunca como um roteiro visível ou uma ordem fixa. Leia o histórico inteiro e responda primeiro ao que o cliente realmente disse, mesmo que ele mude de assunto, junte várias informações ou escreva de forma informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e retome o agendamento de forma natural, sem parecer um robô. Se a conversa estiver começando sem nenhum dado, cumprimente e pergunte como pode ajudar; só peça o nome quando isso fizer sentido no contexto. Se já existe uma resposta do ATENDENTE no histórico, nunca envie apenas uma nova saudação genérica: responda ao conteúdo atual e avance a conversa. Se a mensagem atual pedir orçamento, agendamento ou ajuda, reconheça esse pedido e peça o primeiro detalhe útil, em vez de repetir “Olá! Como posso ajudar?”. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
+    Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária. Se a interpretação semântica no contexto marcar a mensagem como general, acknowledgement, price ou schedule, não use esse texto como ideia da tatuagem; mantenha a ficha sem esse campo até o cliente realmente descrever o desenho.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
@@ -23467,6 +23537,9 @@ TXT;
     $raw = is_array($response['raw_json'] ?? null) ? $response['raw_json'] : [];
     $newBooking = is_array($raw['booking'] ?? null) ? $raw['booking'] : [];
     foreach ($fields as $field) {
+        if ($field === 'tattoo_idea' && $semanticBlocksIdea) {
+            continue;
+        }
         $candidate = trim((string)($newBooking[$field] ?? ''));
         if ($candidate !== '') {
             $state[$field] = mb_substr($candidate, 0, 600, 'UTF-8');
@@ -23575,34 +23648,25 @@ TXT;
     // resumo final quando todos os campos já foram preenchidos.
     $complete = $missing === [];
     $reply = trim((string)$response['reply_text']);
-    if (!empty($state['reference_body_area_confirmation_required'])) {
-        $areas = [];
-        foreach ((array)($state['references'] ?? []) as $reference) {
-            $label = trim((string)($reference['body_area'] ?? ''));
-            if ($label !== '') {
-                $areas[] = $label;
-            }
+    $hasPreviousAssistantTurn = (bool)array_filter(
+        $safeHistory,
+        static fn(array $historyItem): bool => ($historyItem['role'] ?? '') === 'assistant'
+    );
+    $isGenericGreeting = (bool)preg_match(
+        '/^(?:ol[aá]|oi|opa|boa(?:\s+(?:tarde|noite|dia))?|ol[aá],?\s+como\s+posso\s+ajudar)(?:[!.]?\s*(?:como\s+posso\s+ajudar(?:\s+voc[eê])?|em\s+que\s+posso\s+ajudar(?:\s+voc[eê])?)(?:\s+hoje)?[!?]?)?[.!?]*$/iu',
+        trim($reply)
+    );
+    if ($hasPreviousAssistantTurn && $isGenericGreeting) {
+        // Circuit breaker para o único tipo de resposta que não pode se
+        // repetir: a conversa já começou, então a IA precisa reagir ao turno
+        // atual. O texto é um fallback de segurança; a resposta normal segue
+        // sendo a do modelo, sem substituir o diálogo por um roteiro fixo.
+        $messagePlain = studio_calendar_remove_accents(mb_strtolower($message, 'UTF-8'));
+        if (preg_match('/\b(or[cç]amento|pre[cç]o|valor|agendar|agendamento|tatuagem|tatuar)\b/u', $messagePlain)) {
+            $reply = 'Claro, te ajudo com isso. O que você quer tatuar? Se preferir, pode mandar uma referência.';
+        } else {
+            $reply = 'Pode falar, estou te acompanhando. Como posso te ajudar com a tatuagem?';
         }
-        $areas = array_values(array_unique($areas));
-        $reply = count($areas) >= 2
-            ? 'Recebi referências de áreas diferentes (' . implode(' e ', array_slice($areas, 0, 2)) . '). Você quer fazer em qual parte do corpo?'
-            : 'Recebi mais de uma referência. Para eu calcular corretamente, qual parte do corpo devo considerar?';
-    }
-    if ($ambiguousWeekend) {
-        $reply = 'Você prefere sábado ou domingo?';
-    }
-    if ($complete) {
-        $reply = "Perfeito, consegui reunir todas as informações para preparar o agendamento:\n\n"
-            . 'Nome: ' . $state['customer_name'] . "\n"
-            . 'Ideia: ' . $state['tattoo_idea'] . "\n"
-            . 'Referência: ' . $state['reference'] . "\n"
-            . 'Parte do corpo: ' . $state['body_area'] . "\n"
-            . 'Lado/posição: ' . $state['body_details'] . "\n"
-            . 'Dimensão/área ocupada: ' . $state['size_coverage'] . "\n"
-            . 'Estilo/cor: ' . $state['style_preference'] . "\n"
-            . 'Dia: ' . $state['preferred_date'] . "\n"
-            . 'Horário: ' . $state['preferred_time'] . "\n"
-            . 'Orçamento: ' . $state['quote'];
     }
 
     return [
