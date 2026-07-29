@@ -7602,7 +7602,16 @@ function studio_whatsapp_ai_reconcile_booking_state_from_history(array &$state, 
         }
     }
 
-    if ($isEmpty($state['tattoo_idea'] ?? '')) {
+    $hasConversationBeyondOpeningMessage = count($inbound) > 1;
+    if (!$hasConversationBeyondOpeningMessage
+        && trim((string)($state['tattoo_idea'] ?? '')) !== ''
+        && empty($state['references'])
+        && (string)($state['tattoo_idea_source'] ?? '') !== 'reference_analysis') {
+        // A primeira mensagem abre o atendimento; ela nao decide sozinha o
+        // desenho. Isso evita que uma saudacao ou o nome ocupe a ideia.
+        $state['tattoo_idea'] = '';
+    }
+    if ($isEmpty($state['tattoo_idea'] ?? '') && $hasConversationBeyondOpeningMessage) {
         $ideas = [];
         $knownNamePlain = studio_calendar_remove_accents(mb_strtolower(trim((string)($state['customer_name'] ?? '')), 'UTF-8'));
         foreach ($inbound as $item) {
