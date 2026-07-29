@@ -4869,7 +4869,8 @@ function studio_whatsapp_booking_state_summary(array $state): string
     if (!empty($state['slot_confirmed'])) {
         $parts[] = 'vaga confirmada pelo cliente';
     }
-    if (!empty($state['proof_received']) || $state['deposit_status'] === 'proof_received' || $state['deposit_status'] === 'confirmed') {
+    $depositStatus = (string)($state['deposit_status'] ?? '');
+    if (!empty($state['proof_received']) || $depositStatus === 'proof_received' || $depositStatus === 'confirmed') {
         $parts[] = 'comprovante do sinal recebido; aguardando conferência/agendamento';
     } elseif (!empty($state['deposit_requested'])) {
         $parts[] = 'sinal solicitado; aguardando comprovante';
@@ -18237,6 +18238,13 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             'instrucao' => 'Responda naturalmente sobre a disponibilidade. Nunca invente horário; se não houver, sugira somente as opções reais fornecidas e pergunte o que o cliente prefere.',
         ];
     }
+    $semanticIntent = (string)($semanticUnderstanding['intent'] ?? 'general');
+    $semanticPriorityInstruction = match ($semanticIntent) {
+        'tattoo_idea', 'image_reference' => 'A mensagem atual trata da ideia ou referência da tatuagem. Responda esse pedido primeiro; não mude para agenda só porque já existe uma preferência de horário na ficha.',
+        'multi_request' => 'A mensagem atual contém mais de um pedido. Responda cada parte que ainda estiver sem resposta e só depois retome o próximo dado do agendamento.',
+        'acknowledgement' => 'A mensagem atual é uma confirmação curta. Use a última pergunta da atendente e a próxima pendência real; não reabra uma data ou horário já registrados.',
+        default => 'Responda primeiro ao sentido da mensagem atual e só retome a coleta depois que esse sentido estiver atendido.',
+    };
     $isPortfolioRequest = (bool)preg_match('/\b(portfolio|portifolio|trabalhos?|instagram|site|modelos?)\b/iu', $body)
         || (bool)preg_match('/\bfotos?.{0,35}\b(anime|trabalho|ele)\b/iu', $body);
     if (!$naturalConversationMode && (studio_whatsapp_is_artist_info_request($body) || $isPortfolioRequest)) {
@@ -18296,11 +18304,14 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         'modo_de_atendimento' => 'coletar os dados e criar o agendamento assim que a ficha estiver completa; não oferecer outras funções',
         'pedido_de_agenda_atual' => $scheduleModelContext,
         'interpretacao_semantica_atual' => [
-            'intencao' => (string)($semanticUnderstanding['intent'] ?? 'general'),
+            'intencao' => $semanticIntent,
             'confianca' => (float)($semanticUnderstanding['confidence'] ?? 0),
             'objetivo_do_cliente' => (string)($semanticUnderstanding['customer_goal'] ?? ''),
-            'instrucao' => 'Use esta leitura apenas para não inventar campos. Se a intenção for general, acknowledgement, price ou schedule, não transforme a mensagem em ideia de tatuagem. A resposta continua livre e deve conversar com o cliente.',
+            'perguntas_ainda_sem_resposta' => array_values(array_map('strval', (array)($semanticUnderstanding['unanswered_customer_questions'] ?? []))),
+            'instrucao' => 'Use esta leitura apenas para não inventar campos. ' . $semanticPriorityInstruction . ' Se a intenção for general, acknowledgement, price ou schedule, não transforme a mensagem em ideia de tatuagem. A resposta continua livre e deve conversar com o cliente.',
         ],
+        'ultima_resposta_da_atendente' => $lastAssistantMessage,
+        'proxima_informacao_realmente_faltante' => studio_whatsapp_ai_natural_missing_field($state),
         'pergunta_lateral_do_cliente' => $customerAskedAssistantName
             ? 'O cliente informou o próprio nome e também perguntou o nome da atendente no mesmo turno. Responda aos dois atos: diga naturalmente que você é a Hellen e depois retome apenas o próximo dado faltante.'
             : '',
@@ -18389,6 +18400,17 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             break;
         }
     }
+    if ($actualMissingField === 'nome completo' && preg_match('/\bnome\s+completo\b/iu', $answerReply)) {
+        // O nome curto já pode estar salvo, mas pedir o nome completo ainda
+        // é válido para fechar a ficha.
+        $knownFieldAsked = false;
+    }
+    if ($knownFieldAsked && !str_contains($answerReply, '?') && !preg_match(
+        '/\b(?:preciso\s+saber|me\s+passa|me\s+diga|qual\s+|em\s+qual|voc[eê]\s+(?:quer|prefere)|pode\s+me\s+informar)\b/iu',
+        $answerReply
+    )) {
+        $knownFieldAsked = false;
+    }
     if ($actualMissingField !== '') {
         $pendingOrder = [
             'nome' => 0,
@@ -18439,6 +18461,23 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             default => 'Me passa só a próxima informação para eu continuar.',
         };
     }
+    if ($naturalConversationMode && $actualMissingField !== '' && $knownFieldAsked) {
+        $answer['complete'] = false;
+        $answer['missing_fields'] = [$actualMissingField];
+        $nextNaturalQuestion = match ($actualMissingField) {
+            'nome' => 'Qual é seu nome?',
+            'nome completo' => 'Para finalizar, me passa seu nome completo?',
+            'ideia da tatuagem' => 'O que você gostaria de tatuar?',
+            'referência ou confirmação de que não há referência' => 'Você tem alguma referência ou prefere seguir sem uma?',
+            'parte do corpo' => 'Em qual parte do corpo você quer fazer?',
+            'lado ou posição na área' => 'Qual lado ou posição você prefere nessa área?',
+            'dimensão ou área ocupada' => 'Vai ocupar a área inteira ou só uma parte?',
+            'dia desejado' => 'Qual dia fica melhor para você?',
+            'horário desejado' => 'Qual horário fica melhor?',
+            default => 'Qual é a próxima informação que você consegue me passar?',
+        };
+        $answer['reply_text'] = 'Já anotei o que você me passou. ' . $nextNaturalQuestion;
+    }
 
     // Se o modelo repetir a resposta anterior, não envie o mesmo bloco de
     // texto novamente: avance para a próxima informação realmente pendente.
@@ -18464,9 +18503,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $repeatMissingField = $actualMissingField !== ''
         ? $actualMissingField
         : trim((string)($repeatMissingFields[0] ?? ''));
-    if (!$naturalConversationMode
-        && $currentComparable !== '' && $previousComparable !== ''
-        && ($currentComparable === $previousComparable || $similarity >= 88.0)
+    if ($currentComparable !== '' && $previousComparable !== ''
+        && (($naturalConversationMode && $currentComparable === $previousComparable)
+            || (!$naturalConversationMode && ($currentComparable === $previousComparable || $similarity >= 88.0)))
         && $repeatMissingField !== '') {
         $nextMissing = $repeatMissingField;
         $answer['complete'] = false;
@@ -23463,9 +23502,9 @@ Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use soment
 
     Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal. A NOVA MENSAGEM DO CLIENTE é o turno prioritário; responda a ela, não a uma saudação antiga.
     Use a ficha e os campos somente como memória interna, nunca como um roteiro visível ou uma ordem fixa. Leia o histórico inteiro e responda primeiro ao que o cliente realmente disse, mesmo que ele mude de assunto, junte várias informações ou escreva de forma informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e retome o agendamento de forma natural, sem parecer um robô. Se a conversa estiver começando sem nenhum dado, cumprimente e pergunte como pode ajudar; só peça o nome quando isso fizer sentido no contexto. Se já existe uma resposta do ATENDENTE no histórico, nunca envie apenas uma nova saudação genérica: responda ao conteúdo atual e avance a conversa. Se a mensagem atual pedir orçamento, agendamento ou ajuda, reconheça esse pedido e peça o primeiro detalhe útil, em vez de repetir “Olá! Como posso ajudar?”. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
-    Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária. Se a interpretação semântica no contexto marcar a mensagem como general, acknowledgement, price ou schedule, não use esse texto como ideia da tatuagem; mantenha a ficha sem esse campo até o cliente realmente descrever o desenho.
+    Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária. Se a interpretação semântica no contexto marcar a mensagem como general, acknowledgement, price ou schedule, não use esse texto como ideia da tatuagem; mantenha a ficha sem esse campo até o cliente realmente descrever o desenho. Se marcar tattoo_idea ou image_reference, responda primeiro ao pedido de desenho/referência; não troque esse assunto por agenda. Se marcar multi_request, atenda os pedidos na mesma resposta antes de retomar a coleta.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
-Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
+    Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira. Para respostas como "sim", "isso" ou "pode ser", consulte a última resposta da atendente e a próxima informação realmente faltante no contexto; nunca invente uma nova etapa nem reabra uma data já confirmada.
 
 Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição e dimensão, sem perguntar novamente estilo ou cor. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
@@ -23653,7 +23692,7 @@ TXT;
         static fn(array $historyItem): bool => ($historyItem['role'] ?? '') === 'assistant'
     );
     $isGenericGreeting = (bool)preg_match(
-        '/^(?:ol[aá]|oi|opa|boa(?:\s+(?:tarde|noite|dia))?|ol[aá],?\s+como\s+posso\s+ajudar)(?:[!.]?\s*(?:como\s+posso\s+ajudar(?:\s+voc[eê])?|em\s+que\s+posso\s+ajudar(?:\s+voc[eê])?)(?:\s+hoje)?[!?]?)?[.!?]*$/iu',
+        '/^(?:ol[aá]|oi|opa|boa(?:\s+(?:tarde|noite|dia))?)(?:[,!?. ]+(?:(?:como|em\s+que)\s+posso\s+ajudar|posso\s+(?:te\s+)?ajudar)(?:\s+(?:voc[eê]|hoje|com|sobre)\b[^!?]*)?)?[!?]*$/iu',
         trim($reply)
     );
     if ($hasPreviousAssistantTurn && $isGenericGreeting) {
