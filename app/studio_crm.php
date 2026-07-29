@@ -6687,6 +6687,79 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
     ];
 }
 
+/**
+ * Applies only the semantic facts that are safe for the natural booking path.
+ * The interpreter is the source of meaning; local parsers remain a fallback
+ * for dates, times and other values that the server must validate later.
+ */
+function studio_whatsapp_ai_apply_semantic_understanding_to_booking_state(
+    array &$state,
+    array $understanding,
+    int $customerMessageCount = 0
+): bool {
+    if (empty($understanding['ok']) || (float)($understanding['confidence'] ?? 0) < 0.65) {
+        return false;
+    }
+
+    $confirmed = is_array($understanding['confirmed'] ?? null) ? $understanding['confirmed'] : [];
+    $setText = static function (array &$target, string $field, string $value, int $limit = 500): void {
+        $value = trim($value);
+        if ($value !== '') {
+            $target[$field] = mb_substr($value, 0, $limit, 'UTF-8');
+        }
+    };
+
+    $customerName = trim((string)($confirmed['customer_name'] ?? ''));
+    if ($customerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($customerName, true)) {
+        if (trim((string)($state['customer_name'] ?? '')) === ''
+            || studio_whatsapp_ai_name_has_full_name($customerName)) {
+            $setText($state, 'customer_name', $customerName, 160);
+            $state['customer_name_confirmed'] = true;
+            if (studio_whatsapp_ai_name_has_full_name($customerName)) {
+                $state['customer_name_full_confirmed'] = true;
+            }
+        }
+    }
+
+    // A greeting, a name, or a single opening turn is not a tattoo idea.
+    $idea = trim((string)($confirmed['tattoo_idea'] ?? ''));
+    $normalizedIdea = studio_calendar_remove_accents(mb_strtolower($idea, 'UTF-8'));
+    $normalizedName = studio_calendar_remove_accents(mb_strtolower((string)($state['customer_name'] ?? ''), 'UTF-8'));
+    $ideaIsNameEcho = $idea !== '' && $normalizedName !== ''
+        && preg_replace('/\s+/u', ' ', trim($normalizedIdea)) === preg_replace('/\s+/u', ' ', trim($normalizedName));
+    if ($customerMessageCount > 1
+        && $idea !== ''
+        && !$ideaIsNameEcho
+        && !studio_whatsapp_ai_is_non_idea_intake_text($idea)
+        && !studio_whatsapp_ai_is_body_area_only($idea)) {
+        $setText($state, 'tattoo_idea', $idea);
+    }
+
+    foreach (['body_area' => 180, 'body_position' => 180, 'body_side' => 100] as $field => $limit) {
+        $setText($state, $field, trim((string)($confirmed[$field] ?? '')), $limit);
+    }
+    $schedulePreference = trim((string)($confirmed['schedule_preference'] ?? ''));
+    $selectedDate = trim((string)($confirmed['selected_date'] ?? ''));
+    $selectedTime = trim((string)($confirmed['selected_time'] ?? ''));
+    if ($schedulePreference !== '') {
+        $setText($state, 'schedule_preference', $schedulePreference, 240);
+    } elseif ($selectedDate !== '' || $selectedTime !== '') {
+        $setText($state, 'schedule_preference', trim($selectedDate . ($selectedDate !== '' && $selectedTime !== '' ? ' ' : '') . $selectedTime), 240);
+    }
+
+    // A semantic interpreter may confirm absence of a reference, but it must
+    // never create a received reference without a real attachment or text.
+    if (array_key_exists('reference_received', $confirmed) && $confirmed['reference_received'] === false) {
+        $state['reference_declined'] = true;
+        $state['reference_received'] = false;
+        $state['reference_analysis_ok'] = false;
+        $state['reference_summary'] = '';
+        $state['references'] = [];
+    }
+
+    return true;
+}
+
 function studio_whatsapp_studio_address(array $studio): string
 {
     $settings = studio_settings($studio);
@@ -17570,6 +17643,63 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $body = 'Enviei uma mensagem sem texto. Me diga a informação que deseja acrescentar ao agendamento.';
     }
     $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+
+    // Read the conversation as ordered turns before any local parser decides
+    // what the customer meant. This keeps greetings, names and answers tied
+    // to the question that preceded them instead of treating each message as
+    // an isolated field value.
+    $historyStmt = studio_db($studio)->prepare(
+        'SELECT direction, body, transcricao, transcript, message_type, media_mime, media_url, media_file_path, context_preview, sent_at
+         FROM whatsapp_messages WHERE conversation_id = ? ORDER BY id ASC'
+    );
+    $historyStmt->execute([$conversationId]);
+    $history = [];
+    $historyRows = array_slice($historyStmt->fetchAll() ?: [], -100);
+    foreach ($historyRows as $item) {
+        $content = trim((string)($item['body'] ?? ''));
+        if ($content === '') {
+            $content = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
+        }
+        if ($content === '') {
+            $content = '[' . trim((string)($item['message_type'] ?? 'mensagem')) . ']';
+        }
+        $contextPreview = trim((string)($item['context_preview'] ?? ''));
+        if ($contextPreview !== '') {
+            $content = 'respondendo a "' . mb_substr($contextPreview, 0, 160, 'UTF-8') . '": ' . $content;
+        }
+        $history[] = [
+            'role' => strtolower((string)($item['direction'] ?? 'in')) === 'out' ? 'assistant' : 'user',
+            'content' => mb_substr($content, 0, 3500, 'UTF-8'),
+        ];
+    }
+    $semanticUnderstanding = ['ok' => false];
+    $semanticConfig = studio_openai_config($studio);
+    try {
+        $semanticUnderstanding = studio_whatsapp_ai_interpret_conversation(
+            $studio,
+            $semanticConfig,
+            $state,
+            $history,
+            $body,
+            [
+                'image_received' => $isImageReference,
+                'document_received' => $messageType === 'document',
+                'video_received' => $messageType === 'video',
+            ],
+            studio_whatsapp_booking_state_summary($state)
+        );
+    } catch (Throwable) {
+        $semanticUnderstanding = ['ok' => false];
+    }
+    $customerMessageCount = count(array_filter(
+        $history,
+        static fn(array $historyItem): bool => ($historyItem['role'] ?? '') === 'user'
+    ));
+    $semanticStateApplied = studio_whatsapp_ai_apply_semantic_understanding_to_booking_state(
+        $state,
+        $semanticUnderstanding,
+        $customerMessageCount
+    );
     $directCustomerName = studio_whatsapp_ai_extract_customer_name($body);
     if ($directCustomerName !== '' && studio_whatsapp_ai_name_candidate_is_plausible($directCustomerName, true)) {
         if (trim((string)($state['customer_name'] ?? '')) === ''
@@ -17656,34 +17786,12 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $state['size_coverage'] = 'igual à referência visual enviada';
     }
 
-    $historyStmt = studio_db($studio)->prepare(
-        'SELECT direction, body, transcricao, transcript, message_type, media_mime, media_url, media_file_path, context_preview, sent_at
-         FROM whatsapp_messages WHERE conversation_id = ? ORDER BY id ASC'
-    );
-    $historyStmt->execute([$conversationId]);
-    $history = [];
-    $historyRows = array_slice($historyStmt->fetchAll() ?: [], -100);
-    foreach ($historyRows as $item) {
-        $content = trim((string)($item['body'] ?? ''));
-        if ($content === '') {
-            $content = trim((string)($item['transcricao'] ?? $item['transcript'] ?? ''));
-        }
-        if ($content === '') {
-            $content = '[' . trim((string)($item['message_type'] ?? 'mensagem')) . ']';
-        }
-        $contextPreview = trim((string)($item['context_preview'] ?? ''));
-        if ($contextPreview !== '') {
-            $content = 'respondendo a "' . mb_substr($contextPreview, 0, 160, 'UTF-8') . '": ' . $content;
-        }
-        $history[] = [
-            'role' => strtolower((string)($item['direction'] ?? 'in')) === 'out' ? 'assistant' : 'user',
-            'content' => mb_substr($content, 0, 3500, 'UTF-8'),
-        ];
+    // Keep the deterministic history reconciliation only as a rescue path
+    // when the semantic reader is unavailable or below its confidence bar.
+    // It must not override a contextual interpretation from the model.
+    if (!$semanticStateApplied) {
+        studio_whatsapp_ai_reconcile_booking_state_from_history($state, $historyRows);
     }
-    // Rele a conversa inteira antes de decidir a proxima pergunta. Isso
-    // recupera dados enviados em mensagens separadas sem deixar a IA voltar a
-    // perguntar nome, area, referencia, tamanho ou horario ja informados.
-    studio_whatsapp_ai_reconcile_booking_state_from_history($state, $historyRows);
 
     // A primeira resposta abre espaço para o cliente explicar o pedido. Os
     // dados que ele já tiver enviado ficam preservados no estado para a
@@ -23117,6 +23225,16 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     if (!is_string($historyJson)) {
         $historyJson = '[]';
     }
+    $turnByTurn = [];
+    foreach ($safeHistory as $turnNumber => $historyItem) {
+        $turnByTurn[] = sprintf(
+            '%02d. %s: %s',
+            $turnNumber + 1,
+            ($historyItem['role'] ?? '') === 'assistant' ? 'ATENDENTE' : 'CLIENTE',
+            (string)($historyItem['content'] ?? '')
+        );
+    }
+    $turnByTurnText = implode("\n", $turnByTurn);
 
     $effectiveRuntime = 'provedor=' . (string)($config['provider'] ?? 'nao informado')
         . '; modelo=' . (string)($config['model'] ?? 'nao informado');
@@ -23130,7 +23248,8 @@ Seu nome é Hellen. Se o cliente perguntar seu nome, diga que você é a Hellen,
 Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
-    Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado, mesmo que esteja espalhada, abreviada, escrita com erros ou em linguagem informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro apenas o nome. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
+    Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal.
+    Faça uma pergunta por vez e aproveite qualquer informação que o cliente já tenha dado. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e depois retome o próximo dado faltante sem parecer um robô. Se a conversa estiver começando sem nenhum dado, peça primeiro apenas o nome. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
 Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira.
 
@@ -23157,7 +23276,9 @@ TXT;
         . $contextJson
         . "\n\nNOVA MENSAGEM DO CLIENTE:\n"
         . $message
-        . "\n\nReleia o histórico e a ficha antes de responder. Extraia dados da nova mensagem, mantenha os dados anteriores, faça apenas a próxima pergunta que falta ou entregue o resumo final.";
+        . "\n\nLEITURA OBRIGATÓRIA TURNO A TURNO:\n"
+        . $turnByTurnText
+        . "\n\nAntes de escrever, faça silenciosamente esta sequência: 1) entenda a mensagem atual em relação à pergunta anterior; 2) consolide somente fatos do cliente; 3) aplique correções; 4) responda o pedido atual; 5) faça apenas a próxima pergunta realmente faltante. Não avance por ordem mecânica se a conversa já tiver respondido algo e não repita uma pergunta que o cliente já respondeu.";
 
     $bookingProperties = [];
     foreach ($fields as $field) {
