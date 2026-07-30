@@ -18507,7 +18507,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             default => 'Me passa só a próxima informação para eu continuar.',
         };
     }
-    if ($naturalConversationMode && $actualMissingField !== '' && $knownFieldAsked) {
+    // Em modo natural, o modelo decide como continuar. Não substitua uma
+    // resposta contextual por uma pergunta montada a partir do nome do campo.
+    if (!$naturalConversationMode && $actualMissingField !== '' && $knownFieldAsked) {
         $answer['complete'] = false;
         $answer['missing_fields'] = [$actualMissingField];
         $nextNaturalQuestion = match ($actualMissingField) {
@@ -18549,9 +18551,9 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     $repeatMissingField = $actualMissingField !== ''
         ? $actualMissingField
         : trim((string)($repeatMissingFields[0] ?? ''));
-    if ($currentComparable !== '' && $previousComparable !== ''
-        && (($naturalConversationMode && $currentComparable === $previousComparable)
-            || (!$naturalConversationMode && ($currentComparable === $previousComparable || $similarity >= 88.0)))
+    if (!$naturalConversationMode
+        && $currentComparable !== '' && $previousComparable !== ''
+        && ($currentComparable === $previousComparable || $similarity >= 88.0)
         && $repeatMissingField !== '') {
         $nextMissing = $repeatMissingField;
         $answer['complete'] = false;
@@ -18979,16 +18981,17 @@ function studio_whatsapp_ai_reply(array $studio, array $conversation, array $new
     }
 
     $config = studio_openai_config($studio);
-    $freestyleMode = !empty($config['freestyle_mode']);
     if ($config['api_key'] === '') {
         return ['ok' => false, 'error' => 'Configure a chave da IA nas configuracoes do estudio.'];
     }
     if ($incomingMessageId !== '' && trim((string)($conversation['ai_last_message_id'] ?? '')) === $incomingMessageId) {
         return ['ok' => false, 'error' => 'IA ja processou esta mensagem.', 'ai_last_message_id' => $incomingMessageId];
     }
-    if ($freestyleMode) {
-        return studio_whatsapp_ai_simple_booking_reply($studio, $conversation, $newMessage);
-    }
+    // O atendimento ao cliente usa sempre o interlocutor natural. O modo
+    // antigo de respostas por intenção continua disponível no código legado,
+    // mas não pode mais substituir a conversa natural por uma seleção de
+    // palavras-chave ou blocos fixos.
+    return studio_whatsapp_ai_simple_booking_reply($studio, $conversation, $newMessage);
     $incomingTypeForAck = strtolower(trim((string)($newMessage['message_type'] ?? 'text')));
     $incomingMimeForAck = strtolower(trim((string)($newMessage['media_mime'] ?? '')));
     if ($incomingTypeForAck !== 'sticker' && ($incomingTypeForAck === 'image' || str_starts_with($incomingMimeForAck, 'image/'))) {
@@ -23543,7 +23546,7 @@ function studio_ai_free_chat_answer(array $studio, array $history, string $messa
     $systemPrompt = <<<TXT
 Você é uma atendente humana de um estúdio de tatuagem no Brasil.
 Seu nome é Hellen. Se o cliente perguntar seu nome, diga que você é a Hellen, sem se apresentar novamente em toda mensagem.
-Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp.
+Seu único objetivo nesta conversa é reunir, de forma natural, os dados necessários para preparar um agendamento. Não desvie para gestão do sistema, não execute ações e não diga que é uma IA. Seja cordial, direta, coloquial e breve, como uma boa atendente de WhatsApp. Você não está preenchendo um formulário em voz alta: converse normalmente, compreenda o que a pessoa quis dizer e extraia os dados discretamente. Não use uma lista de palavras-chave para decidir se uma resposta é válida; resolva o sentido pelo histórico e pela pergunta que veio antes.
 Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use somente os nomes e links presentes no contexto. Nunca invente biografia, experiência, fotos específicas, estilos ou “exemplos de anime”. Se houver link oficial, envie-o diretamente; se não houver um dado, diga que a equipe pode confirmar.
 
     Antes de responder, leia cada turno do histórico em ordem, um por um. Para cada mensagem, identifique quem falou, qual pergunta ou resposta ela atende, o que foi confirmado, o que foi corrigido e o que ficou sem resposta. Mensagens do ATENDENTE são contexto e perguntas, nunca fatos fornecidos pelo CLIENTE. Nunca copie mecanicamente a última pergunta: entenda se a resposta realmente a atende e aproveite informações espalhadas, abreviadas, escritas com erros ou em linguagem informal. A NOVA MENSAGEM DO CLIENTE é o turno prioritário; responda a ela, não a uma saudação antiga.
