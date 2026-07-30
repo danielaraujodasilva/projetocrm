@@ -4429,11 +4429,18 @@ function studio_whatsapp_booking_state(array $conversation): array
         'reference_body_area_confirmation_required' => false,
         'tattoo_idea' => '',
         'body_area' => '',
+        'body_details' => '',
+        'body_position' => '',
+        'body_side' => '',
+        'size_coverage' => '',
+        'style_preference' => '',
         'quote' => null,
         'customer_name' => '',
         'customer_name_confirmed' => false,
         'customer_name_full_confirmed' => false,
         'schedule_preference' => '',
+        'preferred_date' => '',
+        'preferred_time' => '',
         'selected_slot' => null,
         'slot_confirmed' => false,
         'deposit_requested' => false,
@@ -4649,6 +4656,43 @@ function studio_whatsapp_ai_find_body_areas(string $text): array
     }
     usort($areas, static fn(array $left, array $right): int => $left['position'] <=> $right['position']);
     return array_values(array_unique(array_map(static fn(array $area): string => $area['label'], $areas)));
+}
+
+function studio_whatsapp_ai_extract_body_detail(string $text): array
+{
+    $plain = studio_calendar_remove_accents(mb_strtolower(trim((string)$text), 'UTF-8'));
+    $plain = trim((string)(preg_replace('/\s+/u', ' ', $plain) ?? $plain));
+    $side = '';
+    $position = '';
+    foreach ([
+        'direito' => '/\b(?:lado\s+direito|direito|direita)\b/u',
+        'esquerdo' => '/\b(?:lado\s+esquerdo|esquerdo|esquerda)\b/u',
+        'ambos' => '/\b(?:ambos|ambas|dos\s+dois|dos\s+dois\s+lado)\b/u',
+    ] as $value => $pattern) {
+        if (preg_match($pattern, $plain)) {
+            $side = $value;
+            break;
+        }
+    }
+    foreach ([
+        'externo' => '/(?:\b(?:parte|lado)\s+de\s+fora\b|\bpor\s+fora\b|\bextern[oa]s?\b)/u',
+        'interno' => '/(?:\b(?:parte|lado)\s+de\s+dentro\b|\bpor\s+dentro\b|\bintern[oa]s?\b)/u',
+        'frontal' => '/\b(?:frente|frontal)\b/u',
+        'posterior' => '/\b(?:costas|posterior|traseir[oa])\b/u',
+        'lateral' => '/\blateral\b/u',
+        'superior' => '/\b(?:parte|lado)\s+de\s+cima\b|\bsuperior\b/u',
+        'inferior' => '/\b(?:parte|lado)\s+de\s+baixo\b|\binferior\b/u',
+    ] as $value => $pattern) {
+        if (preg_match($pattern, $plain)) {
+            $position = $value;
+            break;
+        }
+    }
+    return [
+        'side' => $side,
+        'position' => $position,
+        'label' => trim(implode(' / ', array_filter([$position, $side]))),
+    ];
 }
 
 function studio_whatsapp_ai_is_non_idea_intake_text(string $text): bool
@@ -5654,7 +5698,7 @@ function studio_whatsapp_service_flow_store_current_answer(array &$state, array 
         return false;
     }
     if ($fieldKey === 'slot_confirmed' || $answerType === 'yes_no') {
-        $isYes = preg_match('/^(sim|s|isso|pode|perfeito|confirmo|confirmado|quero|funciona|fechado|fechou|esse mesmo|ok|okay|blz|beleza|bora|manda ver|combinado|ta bom|tá bom|show|demoro)\b/u', $plain);
+        $isYes = preg_match('/^(?:eu\s+)?(sim|s|isso|pode|perfeito|confirmo|confirmado|quero|aceito|concordo|funciona|fechado|fechou|esse mesmo|ok|okay|blz|beleza|bora|manda ver|combinado|ta bom|tá bom|show|top|demoro)\b/u', $plain);
         $isNo = preg_match('/\b(nao|não|outro|trocar|mudar|troca|muda|nao funciona|não funciona|escolher outro|nao rola|não rola|nao da|não da|nao dá|não dá|prefiro outro|melhor outro|esse nao|esse não|negativo)\b/u', $plain);
         if ($fieldKey !== 'slot_confirmed') {
             if ($isYes || $isNo) {
@@ -6565,6 +6609,7 @@ function studio_whatsapp_ai_interpret_conversation(array $studio, array $config,
         . "Quando a mensagem atual corrigir algo antigo, a correção vence. Diferencie uma dúvida paralela do abandono do objetivo de agendar.\n"
         . "Se uma mensagem trouxer mais de um ato, como o nome do cliente e uma pergunta sobre o seu nome, registre o dado do cliente e responda a pergunta lateral; nunca descarte um deles por tratar o turno como resposta de um campo só.\n"
         . "Qualquer parte, região ou localização anatômica mencionada deve ir em body_area/body_position/body_side, nunca em tattoo_idea. tattoo_idea descreve somente o desenho, tema, texto ou conceito que será tatuado. Isso vale mesmo para áreas raras que não apareçam em exemplos.\n"
+        . "Interprete equivalências de linguagem, não apenas palavras exatas: 'parte de fora', 'por fora', 'lado externo' e 'externa' significam posição externa; 'parte de dentro', 'por dentro', 'lado interno' e 'interna' significam posição interna. Preserve essa interpretação em body_position/body_side. Do mesmo modo, 'sim', 's', 'quero', 'quero sim', 'ok', 'okay', 'aceito', 'pode ser', 'fechado', 'isso', 'perfeito', 'bora' e variações naturais são confirmações ou concordâncias quando respondem à última pergunta; nunca trate isso como uma nova pergunta ou como falta de entendimento.\n"
         . "Faça uma revisão interna antes de devolver o JSON: consolide fatos, aplique correções recentes, detecte contradições e só depois interprete a mensagem atual. confirmed representa a verdade consolidada da conversa depois da mensagem atual: preserve dados antigos que continuam válidos e substitua os corrigidos. Resolva expressões como 'isso', 'ela inteira' e 'o mesmo horário' usando o histórico.\n"
         . "Somente reference_received e payment_proof_claimed podem ser booleanos. Todos os demais valores de confirmed devem ser texto literal, nunca true ou false.\n"
         . "Use null quando um dado não foi informado. Não invente nome, área, data, horário, pagamento ou conteúdo de imagem.\n"
@@ -17869,17 +17914,18 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
         $state['body_area_source'] = 'customer_context';
         $state['reference_body_area_confirmation_required'] = false;
     }
-    if ($currentBodyArea !== '' && ($pendingBodyArea || preg_match('/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/u', (string)($state['pending'] ?? '')))) {
-        $bodyDetails = '';
-        if (preg_match('/\b(direit[oa]|esquerd[oa]|ambos|ambas)\b/u', $bodyPlain, $detailsMatch)) {
-            $bodyDetails = $detailsMatch[1];
-            $state['body_side'] = $bodyDetails;
-        } elseif (preg_match('/\b(intern[oa]|extern[oa]|frontal|posterior|traseir[oa]|lateral|superior|inferior)\b/u', $bodyPlain, $detailsMatch)) {
-            $bodyDetails = $detailsMatch[1];
-            $state['body_position'] = $bodyDetails;
+    $bodyDetail = studio_whatsapp_ai_extract_body_detail($body);
+    if ($currentBodyArea !== '' && ($pendingBodyArea
+        || $bodyDetail['label'] !== ''
+        || preg_match('/\b(?:lado|posi[cç][aã]o|intern[oa]|extern[oa])\b/u', (string)($state['pending'] ?? '')))) {
+        if ($bodyDetail['side'] !== '') {
+            $state['body_side'] = $bodyDetail['side'];
         }
-        if ($bodyDetails !== '') {
-            $state['body_details'] = $bodyDetails;
+        if ($bodyDetail['position'] !== '') {
+            $state['body_position'] = $bodyDetail['position'];
+        }
+        if ($bodyDetail['label'] !== '') {
+            $state['body_details'] = $bodyDetail['label'];
         }
     }
     if (preg_match('/\b(?:diferente|alterar|mudar|modificar|sem\s+ser\s+igual|parecid[oa]\s+mas)\b/u', $bodyPlain)) {
@@ -23504,7 +23550,7 @@ Quando perguntarem sobre o tatuador, equipe, portfólio ou trabalhos, use soment
     Use a ficha e os campos somente como memória interna, nunca como um roteiro visível ou uma ordem fixa. Leia o histórico inteiro e responda primeiro ao que o cliente realmente disse, mesmo que ele mude de assunto, junte várias informações ou escreva de forma informal. Nunca pergunte novamente algo que já esteja claro no histórico ou na ficha. Se a pessoa fizer uma pergunta paralela, responda de modo curto apenas quando houver informação segura e retome o agendamento de forma natural, sem parecer um robô. Se a conversa estiver começando sem nenhum dado, cumprimente e pergunte como pode ajudar; só peça o nome quando isso fizer sentido no contexto. Se já existe uma resposta do ATENDENTE no histórico, nunca envie apenas uma nova saudação genérica: responda ao conteúdo atual e avance a conversa. Se a mensagem atual pedir orçamento, agendamento ou ajuda, reconheça esse pedido e peça o primeiro detalhe útil, em vez de repetir “Olá! Como posso ajudar?”. Deixe o nome completo para o fim, explicando que ele é necessário para registrar o agendamento. Se o cliente já informou vários dados na mesma mensagem, extraia todos antes de decidir o que falta.
     Uma mesma mensagem pode responder à pergunta anterior e fazer outra pergunta (por exemplo, "Daniel e o seu?"). Nesse caso, responda às duas partes: reconheça o nome informado, diga naturalmente que você é a Hellen e só então faça a próxima pergunta necessária. Se a interpretação semântica no contexto marcar a mensagem como general, acknowledgement, price ou schedule, não use esse texto como ideia da tatuagem; mantenha a ficha sem esse campo até o cliente realmente descrever o desenho. Se marcar tattoo_idea ou image_reference, responda primeiro ao pedido de desenho/referência; não troque esse assunto por agenda. Se marcar multi_request, atenda os pedidos na mesma resposta antes de retomar a coleta.
     Não inicie todas as mensagens com “Entendi, [nome]” e não repita a descrição completa do pedido em cada turno. Recapitule somente para corrigir uma contradição ou no resumo final. Se o cliente disser “igual essa” ou “quero como na foto”, considere a referência e a dimensão já confirmadas quando o histórico permitir; não faça a mesma pergunta novamente.
-    Considere erros de digitação e respostas curtas pelo contexto da pergunta atual. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira. Para respostas como "sim", "isso" ou "pode ser", consulte a última resposta da atendente e a próxima informação realmente faltante no contexto; nunca invente uma nova etapa nem reabra uma data já confirmada.
+    Considere erros de digitação, abreviações, gírias e respostas curtas pelo contexto da pergunta atual. Interprete equivalências de intenção, não palavras-chave isoladas: “sim”, “s”, “quero”, “quero sim”, “ok”, “okay”, “aceito”, “pode ser”, “fechado”, “isso”, “perfeito” e “bora” significam concordância quando respondem à proposta imediatamente anterior; “não”, “prefiro outro”, “troca” e equivalentes significam recusa ou correção. Se houver uma interpretação claramente provável, aproveite-a; se ainda houver dúvida real, faça uma única pergunta curta de confirmação em vez de repetir a pergunta anterior inteira. Para respostas de confirmação, consulte a última resposta da atendente e a próxima informação realmente faltante no contexto; nunca invente uma nova etapa, trate a confirmação como texto desconhecido ou reabra uma data já confirmada. Antes do JSON, confira que cada pergunta da sua resposta pede apenas um dado que ainda está ausente.
 
 Interprete linguagem natural: “amanhã cedo”, “sábado à tarde”, “quinta”, “dia 14”, “meio-dia”, “13h”, “1 da tarde”, “15:00” e variações equivalentes. “Fim de semana” ou “final de semana” é ambíguo: não escolha sábado por conta própria; pergunte se a pessoa quer sábado ou domingo. Só normalize uma data relativa se a data atual ou a referência temporal estiverem disponíveis; caso fique ambígua, peça uma confirmação objetiva. Partes do corpo são localização anatômica, não o desenho. Se o cliente enviar uma imagem sem pedir alteração, assuma que ele quer a tatuagem igual à referência: use a análise visual para preencher área, posição e dimensão, sem perguntar novamente estilo ou cor. Só confirme o que a imagem não revelar ou o que o cliente disser que quer mudar. Se houver mais de uma referência, registre todas e confirme a parte do corpo quando necessário.
 
