@@ -2233,7 +2233,13 @@ function studio_calendar_appointments(array $studio, string $startDate, string $
     $stmt = studio_db($studio)->prepare(
         "SELECT a.*, c.name AS customer_name, l.name AS lead_name, ta.name AS artist_name, ta.color AS artist_color,
                 c.allergies AS customer_allergies, c.medications AS customer_medications, c.health_conditions AS customer_health_conditions, c.skin_conditions AS customer_skin_conditions,
-                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding
+                c.keloid_history AS customer_keloid_history, c.anticoagulants AS customer_anticoagulants, c.diabetes AS customer_diabetes, c.healing_issues AS customer_healing_issues, c.pregnant_or_breastfeeding AS customer_pregnant_or_breastfeeding,
+                (SELECT wc.id
+                 FROM whatsapp_conversations wc
+                 WHERE ((a.customer_id IS NOT NULL AND wc.customer_id = a.customer_id)
+                    OR (a.lead_id IS NOT NULL AND wc.lead_id = a.lead_id))
+                 ORDER BY COALESCE(wc.last_message_at, wc.updated_at) DESC, wc.id DESC
+                 LIMIT 1) AS whatsapp_conversation_id
          FROM appointments a
          LEFT JOIN customers c ON c.id = a.customer_id
          LEFT JOIN leads l ON l.id = a.lead_id
@@ -17629,6 +17635,55 @@ function studio_whatsapp_ai_simple_schedule_options(array $studio, array $prefer
     ];
 }
 
+function studio_whatsapp_ai_authoritative_customer_name(array $studio, array $conversation): string
+{
+    $customerId = (int)($conversation['customer_id'] ?? 0);
+    if ($customerId > 0) {
+        $customer = studio_find_customer($studio, $customerId);
+        $name = trim((string)($customer['name'] ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+    }
+
+    $leadId = (int)($conversation['lead_id'] ?? 0);
+    if ($leadId > 0) {
+        $stmt = studio_db($studio)->prepare('SELECT name FROM leads WHERE id = ? LIMIT 1');
+        $stmt->execute([$leadId]);
+        $name = trim((string)($stmt->fetchColumn() ?: ''));
+        if ($name !== '') {
+            return $name;
+        }
+    }
+
+    return '';
+}
+
+function studio_whatsapp_ai_restore_authoritative_customer_name(array &$state, array $studio, array $conversation, string $body = ''): void
+{
+    $authoritativeName = studio_whatsapp_ai_authoritative_customer_name($studio, $conversation);
+    $currentName = trim((string)($state['customer_name'] ?? ''));
+    if ($authoritativeName === '' || $currentName === '') {
+        return;
+    }
+
+    // Só permita trocar o cadastro quando o cliente disser explicitamente que
+    // está corrigindo o próprio nome. Respostas curtas a uma pergunta da IA,
+    // como "João" depois de "e o seu?", não podem trocar a identidade do lead.
+    $bodyPlain = studio_calendar_remove_accents(mb_strtolower($body, 'UTF-8'));
+    $explicitCorrection = (bool)preg_match(
+        '/\b(?:meu\s+nome\s+(?:e|é)|me\s+chamo|sou\s+(?:o|a)|na\s+verdade.{0,35}\bnome\b|corrig(?:indo|ir).{0,25}\bnome\b)\b/iu',
+        $bodyPlain
+    );
+    if ($explicitCorrection) {
+        return;
+    }
+
+    $state['customer_name'] = mb_substr($authoritativeName, 0, 160, 'UTF-8');
+    $state['customer_name_confirmed'] = true;
+    $state['customer_name_full_confirmed'] = studio_whatsapp_ai_name_has_full_name($authoritativeName);
+}
+
 function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversation, array $newMessage): array
 {
     $conversationId = (int)($conversation['id'] ?? 0);
@@ -17868,6 +17923,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
             $state['customer_name_full_confirmed'] = true;
         }
     }
+    studio_whatsapp_ai_restore_authoritative_customer_name($state, $studio, $conversation, $body);
     $pendingReference = (bool)preg_match('/\b(?:refer[eê]ncia|imagem|foto)\b/iu', (string)($state['pending'] ?? ''));
     $referenceDeclined = (bool)preg_match('/\b(?:nao|não)\s+(?:tenho|possuo|quero)\b|\bsem\s+(?:refer[eê]ncia|imagem|foto)\b|\b(?:ja|já)\s+(?:disse|falei|respondi)\s+que\s+(?:nao|não)\b|^\s*(?:sem|nenhuma|nao|não)\s*[.!?]*$/iu', $body);
     if ($referenceDeclined && ($pendingReference || preg_match('/\b(?:refer[eê]ncia|imagem|foto)\b/iu', $body))) {
@@ -18621,8 +18677,15 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
     }
 
     studio_whatsapp_ai_apply_natural_intake_summary($state, (array)($answer['booking_summary'] ?? []));
+    studio_whatsapp_ai_restore_authoritative_customer_name($state, $studio, $conversation, $body);
     $finalMissingField = studio_whatsapp_ai_natural_missing_field($state);
-    if ($finalMissingField !== '') {
+    if ($finalMissingField === '') {
+        // O modelo pode devolver complete=false ou uma pendência antiga,
+        // mesmo quando o estado reconciliado já está completo. A decisão de
+        // criar a reserva pertence ao estado validado pelo servidor.
+        $answer['complete'] = true;
+        $answer['missing_fields'] = [];
+    } else {
         $answer['complete'] = false;
         $answer['missing_fields'] = [$finalMissingField];
         $naturalFallbackReply = match ($finalMissingField) {
@@ -18742,7 +18805,7 @@ function studio_whatsapp_ai_simple_booking_reply(array $studio, array $conversat
 
     $leadId = (int)($conversation['lead_id'] ?? 0);
     $customerId = (int)($conversation['customer_id'] ?? 0);
-    $customerName = trim((string)($summary['customer_name'] ?? $state['customer_name'] ?? 'Cliente WhatsApp'));
+    $customerName = trim((string)($state['customer_name'] ?? $summary['customer_name'] ?? 'Cliente WhatsApp'));
     if ($leadId <= 0 && $customerId <= 0) {
         try {
             $profile = studio_update_whatsapp_profile($studio, [
