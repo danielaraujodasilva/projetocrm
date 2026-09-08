@@ -765,7 +765,8 @@ function wa_bridge_call_agent(string $text, string $history = '', string $ownerU
     $ch = curl_init('http://' . $g['host'] . ':' . $g['port'] . '/v1/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 60,
+        CURLOPT_TIMEOUT => 180,   // analises longas (Meta Ads, etc.) podem passar de 60s
+        CURLOPT_CONNECTTIMEOUT => 15,
         CURLOPT_POST => true,
         CURLOPT_HTTPHEADER => [
             'Authorization: Bearer ' . $g['token'],
@@ -878,7 +879,15 @@ function wa_bridge_reply_text(array $studio, string $from, string $text): array
     $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
     $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from));
     if (empty($agent['ok'])) {
-        return ['ok' => false, 'agent' => $agent];
+        // Nunca deixar o dono sem resposta: se o agente falhou/expirou, avisa de forma curta
+        // e sugere reenviar — em vez de silencio total.
+        $err = (string)($agent['error'] ?? '');
+        $notice = 'Opa, demorei demais pra montar isso aqui e a conexão caiu no caminho 😅 Tenta me mandar de novo que eu já consigo responder.';
+        if ($err !== '') {
+            $notice .= ' (detalhe técnico: ' . mb_substr($err, 0, 120) . ')';
+        }
+        $fallbackSend = studio_whatsapp_official_send_text($studio, $from, $notice);
+        return ['ok' => false, 'agent' => $agent, 'fallback_sent' => !empty($fallbackSend['ok']), 'send' => $fallbackSend];
     }
     $reply = (string)$agent['reply'];
     if ($reply === '') {
@@ -949,7 +958,15 @@ function wa_bridge_reply_voice(array $studio, string $from, string $text): array
     $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
     $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from));
     if (empty($agent['ok'])) {
-        return ['ok' => false, 'agent' => $agent];
+        // Nunca deixar o dono sem resposta: se o agente falhou/expirou, avisa de forma curta
+        // e sugere reenviar — em vez de silencio total.
+        $err = (string)($agent['error'] ?? '');
+        $notice = 'Opa, demorei demais pra montar isso aqui e a conexão caiu no caminho 😅 Tenta me mandar de novo que eu já consigo responder.';
+        if ($err !== '') {
+            $notice .= ' (detalhe técnico: ' . mb_substr($err, 0, 120) . ')';
+        }
+        $fallbackSend = studio_whatsapp_official_send_text($studio, $from, $notice);
+        return ['ok' => false, 'agent' => $agent, 'fallback_sent' => !empty($fallbackSend['ok']), 'send' => $fallbackSend];
     }
     $reply = (string)$agent['reply'];
     if ($reply === '') {
