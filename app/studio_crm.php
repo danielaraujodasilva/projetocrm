@@ -15177,6 +15177,7 @@ function studio_whatsapp_ai_wait_image_result(array $studio, array $job, int $ti
     }
 
     $started = time();
+    $retried = false;
     do {
         sleep(3);
         $poll = studio_general_image_poll($studio, $job);
@@ -15185,11 +15186,120 @@ function studio_whatsapp_ai_wait_image_result(array $studio, array $job, int $ti
             return $poll['result'];
         }
         if ($status === 'failed') {
+            // Se foi o motor LOCAL que caiu no meio (o poll ja reiniciou o servico),
+            // tenta UMA vez resubmeter a MESMA geracao em vez de abortar e deixar o
+            // dono sem a imagem de edicao que pediu. So tenta se tivermos os dados
+            // originais p/ refazer o job (prompt/estilo/etc).
+            $motorCaiu = (bool)str_contains((string)($poll['error'] ?? ''), 'caiu durante a geracao');
+            if ($motorCaiu && !$retried && is_array($job['data'] ?? null) && !empty($job['data']['prompt'])) {
+                $retried = true;
+                // Espera o servico reiniciado voltar a aceitar requisicao antes de reenviar.
+                $waited = 0;
+                do {
+                    usleep(2000000);
+                    $waited += 2;
+                    $health = studio_local_image_ai_request('GET', '/v1/models', null, 3);
+                } while (empty($health['ok']) && $waited < 90);
+                if (!empty($health['ok'])) {
+                    // Pequena folga p/ o motor estabilizar apos o restart.
+                    sleep(5);
+                    try {
+                        $job = studio_general_image_start($studio, $job['data']);
+                        whatsapp_webhook_log(['type' => 'wa_bridge_image_retry', 'ok' => (trim((string)($job['id'] ?? '')) !== '' ? 'SIM' : 'NAO')]);
+                        continue;
+                    } catch (Throwable $re) {
+                        whatsapp_webhook_log(['type' => 'wa_bridge_image_retry_error', 'error' => $re->getMessage()]);
+                    }
+                }
+            }
             throw new RuntimeException((string)($poll['error'] ?? 'A IA de imagem nao conseguiu concluir.'));
         }
     } while ((time() - $started) < $timeoutSeconds);
 
     throw new RuntimeException('A imagem ainda esta gerando e passou do tempo limite do atendimento automatico.');
+}
+
+/**
+ * Gera uma imagem para o DONO (bridge wa) usando SOMENTE o motor LOCAL de imagens
+ * (stable-diffusion.cpp / sdcpp em :7861) + traducao local (ollama llama) — SEM depender
+ * de chave OpenAI/NVIDIA de nuvem (que esta fora do ar). Devolve result igual ao das
+ * geracoes padrao (com image_path/file_name) OU lanca RuntimeException em falha.
+ */
+function wa_bridge_owner_generate_image(array $studio, string $rawRequest, string $mode = 'final'): array
+{
+    $rawRequest = trim($rawRequest);
+    if ($rawRequest === '') {
+        throw new RuntimeException('Diga o que voce quer ver na imagem.');
+    }
+    // Garante que os helpers do pipeline de imagem estao carregados.
+    if (!function_exists('studio_general_image_local_body')) {
+        throw new RuntimeException('Pipeline local de imagem indisponivel.');
+    }
+    // 1) Confirma que o motor local esta no ar.
+    $health = studio_local_image_ai_request('GET', '/v1/models', null, 4);
+    if (empty($health['ok'])) {
+        throw new RuntimeException('O gerador local de imagens esta iniciando. Tente de novo daqui a pouco.');
+    }
+    $mode = in_array($mode, ['fast', 'final'], true) ? $mode : 'final';
+    // 2) Monta dados locais (sem tocar em OpenAI). Traducao/enriquecimento local ja acontece
+    //    dentro de local_body (studio_general_image_translate_for_local -> ollama llama).
+    $style = 'realistic';
+    if (preg_match('/\b(negro|preto|blackwork|black\s*and\s*grey|preto\s*e\s*cinza|stencil|esbo)[cç]o\b|\bblackwork\b|\bstencil\b/i', $rawRequest)) {
+        $style = 'realistic';
+    }
+    $format = 'square';
+    if (preg_match('/\b(vertical|em\s*pe|retrato|tatuagem\s*de\s*(bra[cç]o|perna|costas))\b/i', $rawRequest)) {
+        $format = 'vertical';
+    } elseif (preg_match('/\b(horizontal|largura|capa|banner)\b/i', $rawRequest)) {
+        $format = 'wide';
+    }
+    $data = [
+        'prompt' => mb_substr($rawRequest, 0, 1600, 'UTF-8'),
+        'mode' => $mode,
+        'style' => $style,
+        'format' => $format,
+        'reference_notes' => '',
+        'negative_prompt' => 'low quality, blurry, unreadable text, watermark, logo, deformed anatomy, unrelated subject',
+        'source_image_path' => '',
+    ];
+    $body = studio_general_image_local_body($data, $mode);
+    // 3) Submete o job no motor local.
+    $response = studio_local_image_ai_request('POST', '/sdcpp/v1/img_gen', $body, 120);
+    if (empty($response['ok'])) {
+        throw new RuntimeException((string)($response['error'] ?? 'Falha ao iniciar a geracao local.'));
+    }
+    $jobId = trim((string)($response['json']['id'] ?? ''));
+    if ($jobId === '' || !preg_match('/^[a-zA-Z0-9_-]{8,100}$/', $jobId)) {
+        throw new RuntimeException('O motor local nao devolveu um identificador valido.');
+    }
+    $job = [
+        'status' => 'queued',
+        'id' => $jobId,
+        'data' => $data,
+        'mode' => $mode,
+        'started_at' => date('Y-m-d H:i:s'),
+        'expected_seconds' => $mode === 'final' ? 180 : 120,
+        'model' => 'SD local',
+    ];
+    // 4) Aguarda conclusao (poll).
+    $started = time();
+    $lastErr = '';
+    do {
+        usleep(2000000);
+        $poll = studio_general_image_poll($studio, $job);
+        $status = (string)($poll['status'] ?? 'waiting');
+        if ($status === 'completed' && is_array($poll['result'] ?? null)) {
+            return $poll['result'];
+        }
+        if ($status === 'failed') {
+            $lastErr = (string)($poll['error'] ?? 'A geracao local falhou.');
+            if (!empty($poll['error'])) break;
+        }
+    } while ((time() - $started) < 300);
+    if ($lastErr !== '') {
+        throw new RuntimeException($lastErr);
+    }
+    throw new RuntimeException('A geracao local passou do tempo limite. Tente de novo.');
 }
 
 function studio_whatsapp_ai_generated_image_upload(array $result): array
