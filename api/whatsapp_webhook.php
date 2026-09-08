@@ -655,17 +655,79 @@ function wa_bridge_gateway(): array
     return $gateway;
 }
 
-function wa_bridge_call_agent(string $text): array
+function wa_bridge_history_pdo(array $studio): ?PDO
+{
+    try {
+        $db = studio_db($studio);
+        return $db instanceof PDO ? $db : null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * Transcricao recente da conversa do dono com o numero da API (salva no projetocrm
+ * em whatsapp_messages), usada como contexto p/ o agente nao perder a conversa.
+ */
+function wa_bridge_recent_history(array $studio, string $ownerNumber, int $limit = 18): string
+{
+    try {
+        $db = wa_bridge_history_pdo($studio);
+        if (!$db) {
+            return '';
+        }
+        $owner = preg_replace('/\D+/', '', (string)$ownerNumber) ?: '';
+        if ($owner === '') {
+            return '';
+        }
+        $stmt = $db->prepare(
+            'SELECT direction, sender_type, body, transcricao FROM whatsapp_messages WHERE remote_jid = ? ORDER BY id DESC LIMIT ' . max(1, (int)$limit)
+        );
+        $stmt->execute([$owner]);
+        $rows = array_reverse((array)$stmt->fetchAll(PDO::FETCH_ASSOC));
+        if (!$rows) {
+            return '';
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $linha = trim((string)($r['transcricao'] ?? ''));
+            if ($linha === '') {
+                $linha = trim((string)($r['body'] ?? ''));
+            }
+            if ($linha === '') {
+                continue;
+            }
+            if (preg_match('/^Recebi sua mensagem/i', $linha)) {
+                continue;
+            }
+            $quem = ((string)($r['direction'] ?? '') === 'out' || (string)($r['sender_type'] ?? '') === 'bot')
+                ? 'Voce (assistente)'
+                : 'Daniel (dono)';
+            $out[] = $quem . ': ' . mb_substr($linha, 0, 500);
+        }
+        if (!$out) {
+            return '';
+        }
+        return implode("\n", $out);
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+function wa_bridge_call_agent(string $text, string $history = ''): array
 {
     $g = wa_bridge_gateway();
     if ($g['token'] === '') {
         return ['ok' => false, 'error' => 'OPENCLAW_GATEWAY_TOKEN nao configurado no ambiente PHP.'];
     }
+    $sysMsg = 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.';
+    if (trim($history) !== '') {
+        $sysMsg .= "\n\nCONTEXTO DA CONVERSA (transcricao salva no projetocrm; historico recente do dono):\n" . trim($history);
+    }
     $payload = json_encode([
         'model' => $g['model'],
         'messages' => [
-            ['role' => 'system', 'content' => 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.']
-            ,
+            ['role' => 'system', 'content' => $sysMsg],
             ['role' => 'user', 'content' => $text],
         ],
     ]);
@@ -695,7 +757,6 @@ function wa_bridge_call_agent(string $text): array
     }
     return ['ok' => true, 'reply' => $reply, 'status' => $status, 'raw' => $raw];
 }
-
 function wa_bridge_should_handle(array $studio, string $from, string $messageType): bool
 {
     if (!wa_bridge_enabled()) {
@@ -715,7 +776,7 @@ function wa_bridge_should_handle(array $studio, string $from, string $messageTyp
 
 function wa_bridge_reply_text(array $studio, string $from, string $text): array
 {
-    $agent = wa_bridge_call_agent($text);
+    $agent = wa_bridge_call_agent($text, wa_bridge_recent_history($studio, $from));
     if (empty($agent['ok'])) {
         return ['ok' => false, 'agent' => $agent];
     }
@@ -782,7 +843,7 @@ function wa_bridge_shell_run(string $command, ?array &$output = null, ?int &$exi
 
 function wa_bridge_reply_voice(array $studio, string $from, string $text): array
 {
-    $agent = wa_bridge_call_agent($text);
+    $agent = wa_bridge_call_agent($text, wa_bridge_recent_history($studio, $from));
     if (empty($agent['ok'])) {
         return ['ok' => false, 'agent' => $agent];
     }
