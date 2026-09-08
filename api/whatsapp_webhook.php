@@ -739,7 +739,7 @@ function wa_bridge_recent_history(array $studio, string $ownerNumber, int $limit
     }
 }
 
-function wa_bridge_call_agent(string $text, string $history = '', string $ownerUserKey = ''): array
+function wa_bridge_call_agent(string $text, string $history = '', string $ownerUserKey = '', string $adsContext = ''): array
 {
     $g = wa_bridge_gateway();
     if ($g['token'] === '') {
@@ -748,6 +748,9 @@ function wa_bridge_call_agent(string $text, string $history = '', string $ownerU
     $sysMsg = 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nLEITURA EMOCIONAL (conversa com o Daniel): preste atencao no TOM dele e espelhe o momento. Se ele estiver nervoso/chateado, fique ao lado dele — mais seco e direto, sem enrolar, e mostre que entende o motivo. Se estiver triste ou abatido, acolha: diminua o ritmo, seja mais calmo e cuidadoso. Se estiver alegre/animado, entre junto na empolgaçao e brinque na medida. Se estiver calmo/focado e profissional, seja objetivo como ele. NUNCA mude um dado ou resposta por causa do humor — o espelhamento e so no tom e na energia, nunca em informacao. Reconhecer o sentimento e agir conforme deixa a conversa natural, sem parecer robotico ou exagerar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.';
     if (trim($history) !== '') {
         $sysMsg .= "\n\nCONTEXTO DA CONVERSA (transcricao salva no projetocrm; historico recente do dono):\n" . trim($history);
+    }
+    if (trim($adsContext) !== '') {
+        $sysMsg .= "\n\nDADOS REAIS DO META ADS (numeros verdadeiros trazidos agora da conta do Daniel — use EXATAMENTE estes para responder a pergunta dele; jamais invente outro numero):\n" . trim($adsContext);
     }
     $payloadArr = [
         'model' => $g['model'],
@@ -880,6 +883,69 @@ function wa_bridge_record_reply(array $studio, string $to, string $reply): void
  * consulta a Meta com o token real. Se nao for / nao conseguir, devolve '' e o
  * fluxo normal (agente wa) segue.
  */
+/**
+ * Busca uma vez os dados REAIS do Meta Ads (via motor do CRM) e devolve um bloco
+ * factual conciso, para injetar no contexto do agente e ele RACIOCINAR sobre a
+ * pergunta. Retorna '' se a pergunta nao for de Meta Ads ou se a consulta falhar.
+ */
+function wa_bridge_meta_ads_context_text(array $studio, string $question): string
+{
+    try {
+        if (!function_exists('studio_data_assistant_meta_ads_answer') || !function_exists('studio_data_assistant_is_meta_ads_question')) {
+            return '';
+        }
+        $plain = studio_data_assistant_plain_text($question);
+        if (!studio_data_assistant_is_meta_ads_question($question)) {
+            return '';
+        }
+        // Idioma: responder em PT-BR, bullets com -, nomes reais das campanhas.
+        $ads = studio_data_assistant_meta_ads_answer($studio, $question);
+        $meta = (array)($ads['meta_ads'] ?? []);
+        $summary = (array)($meta['summary'] ?? []);
+        $period = (array)($meta['period'] ?? []);
+        if (empty($ads['ok']) || empty($summary)) {
+            return '';
+        }
+        $label = (string)($period['label'] ?? ('últimos ' . ((string)($period['days'] ?? 30)) . ' dias'));
+        $out = [];
+        $out[] = '- Período dos dados: ' . $label . '.';
+        $out[] = '- Conta (geral): gasto ' . format_money((float)($summary['spend'] ?? 0))
+            . ', impressões ' . number_format((int)($summary['impressions'] ?? 0), 0, ',', '.')
+            . ', cliques ' . number_format((int)($summary['clicks'] ?? 0), 0, ',', '.')
+            . ', alcance ' . number_format((int)($summary['reach'] ?? 0), 0, ',', '.')
+            . ', CTR ' . number_format((float)($summary['ctr'] ?? 0), 2, ',', '.') . '%'
+            . (' — ' . (int)($summary['activeCampaigns'] ?? 0) . ' campanha(s) ativa(s) de um total carregado').'.';
+        $lines = [];
+        foreach ((array)($meta['campaigns'] ?? []) as $cm) {
+            if (!is_array($cm)) { continue; }
+            $name = (string)($cm['name'] ?? '');
+            if ($name === '') { continue; }
+            $cur = (string)($cm['effective_status'] ?? $cm['status'] ?? '');
+            $st = in_array($cur, ['ACTIVE', 'IN_PROCESS'], true) ? 'ATIVA' : (($cur === 'PAUSED') ? 'INATIVA/pausada' : 'status ' . $cur);
+            $sp = format_money((float)($cm['spend'] ?? 0));
+            $aux = [];
+            if ((int)($cm['clicks'] ?? 0) > 0) { $aux[] = 'cliques ' . number_format((int)$cm['clicks'], 0, ',', '.'); }
+            if ((int)($cm['impressions'] ?? 0) > 0) { $aux[] = 'impressões ' . number_format((int)$cm['impressions'], 0, ',', '.'); }
+            if ((int)($cm['leads'] ?? 0) > 0) { $aux[] = 'leads ' . number_format((int)$cm['leads'], 0, ',', '.'); }
+            if ((int)($cm['messages'] ?? 0) > 0) { $aux[] = 'mensagens ' . number_format((int)$cm['messages'], 0, ',', '.'); }
+            $ctr = (float)($cm['ctr'] ?? 0);
+            if ($ctr > 0) { $aux[] = 'CTR ' . number_format($ctr, 2, ',', '.') . '%'; }
+            $lines[] = '    - ' . $name . ' → ' . $st . ', gasto ' . $sp . (($aux) ? (', ' . implode(', ', $aux)) : '');
+        }
+        if ($lines) {
+            $out[] = 'Campanhas/anúncios:';
+            foreach ($lines as $ln) { $out[] = $ln; }
+        }
+        $blk = implode('\n', $out);
+        whatsapp_webhook_log(['type' => 'wa_bridge_meta_context', 'length' => mb_strlen($blk), 'campaigns' => count($lines)]);
+        return $blk;
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'wa_bridge_meta_context_error', 'error' => $e->getMessage()]);
+        return '';
+    }
+}
+
+
 function wa_bridge_meta_ads_text(array $studio, string $text): string
 {
     try {
@@ -902,10 +968,10 @@ function wa_bridge_meta_ads_text(array $studio, string $text): string
 }
 
 
-function wa_bridge_reply_text(array $studio, string $from, string $text): array
+function wa_bridge_reply_text(array $studio, string $from, string $text, string $adsContext = ''): array
 {
     $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
-    $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from));
+    $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from), $adsContext);
     if (empty($agent['ok'])) {
         // Nunca deixar o dono sem resposta: se o agente falhou/expirou, avisa de forma curta
         // e sugere reenviar — em vez de silencio total.
@@ -1297,16 +1363,11 @@ foreach ($entries as $entry) {
                     }
                     if (trim((string)$bridgeText) !== '') {
                         // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
-                        // Perguntas de dados reais (Meta Ads) sao respondidas pelo motor factual do CRM,
-                        // que busca os numeros verdadeiros na Meta; o agente generico nao tem esse acesso e travaria.
-                        $metaAdsText = wa_bridge_meta_ads_text($studio, (string)$bridgeText);
-                        if ($metaAdsText !== '') {
-                            $rSend = studio_whatsapp_official_send_text($studio, $bridgeFrom, $metaAdsText);
-                            if (!empty($rSend['ok'])) { wa_bridge_record_reply($studio, $bridgeFrom, $metaAdsText); }
-                            $bridge = ['ok' => !empty($rSend['ok']), 'reply' => $metaAdsText, 'via' => 'meta_ads_crm', 'send' => $rSend];
-                        } else {
-                            $bridge = wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
-                        }
+                        // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
+                        // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
+                        // especifica (comparar, concluir, explicar) em vez de repetir bloco pronto.
+                        $adsCtx = wa_bridge_meta_ads_context_text($studio, (string)$bridgeText);
+                        $bridge = wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText, (string)$adsCtx);
                         $bridgeMode = 'text';
                         whatsapp_webhook_log([
                             'type' => 'wa_bridge',
