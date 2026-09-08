@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../app/bootstrap.php';
 
+// O webhook PODE demorar: quando o dono pergunta algo que exige dados reais (Meta Ads) viaja a Meta,
+// e a resposta e montada pelo agente (raciocinio) — isso pode passar de 30s. Sem isso, o PHP do
+// Apache/XAMPP mata o request por 'max_execution_time' no meio do processamento e o agente fica mudo.
+set_time_limit(0);
+ignore_user_abort(true);
+
 function webhook_text(string $text, int $status = 200): never
 {
     http_response_code($status);
