@@ -669,7 +669,7 @@ function wa_bridge_history_pdo(array $studio): ?PDO
  * Transcricao recente da conversa do dono com o numero da API (salva no projetocrm
  * em whatsapp_messages), usada como contexto p/ o agente nao perder a conversa.
  */
-function wa_bridge_recent_history(array $studio, string $ownerNumber, int $limit = 18): string
+function wa_bridge_recent_history(array $studio, string $ownerNumber, int $limit = 50): string
 {
     try {
         $db = wa_bridge_history_pdo($studio);
@@ -714,7 +714,7 @@ function wa_bridge_recent_history(array $studio, string $ownerNumber, int $limit
     }
 }
 
-function wa_bridge_call_agent(string $text, string $history = ''): array
+function wa_bridge_call_agent(string $text, string $history = '', string $ownerUserKey = ''): array
 {
     $g = wa_bridge_gateway();
     if ($g['token'] === '') {
@@ -724,13 +724,19 @@ function wa_bridge_call_agent(string $text, string $history = ''): array
     if (trim($history) !== '') {
         $sysMsg .= "\n\nCONTEXTO DA CONVERSA (transcricao salva no projetocrm; historico recente do dono):\n" . trim($history);
     }
-    $payload = json_encode([
+    $payloadArr = [
         'model' => $g['model'],
         'messages' => [
             ['role' => 'system', 'content' => $sysMsg],
             ['role' => 'user', 'content' => $text],
         ],
-    ]);
+    ];
+    if (trim($ownerUserKey) !== '') {
+        // user fixo => o Gateway deriva uma sessao estavel do agente para essa conversa,
+        // entao as mensagens compartilham memoria (em vez de sessao nova a cada chamada).
+        $payloadArr['user'] = $ownerUserKey;
+    }
+    $payload = json_encode($payloadArr);
     $ch = curl_init('http://' . $g['host'] . ':' . $g['port'] . '/v1/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -774,9 +780,78 @@ function wa_bridge_should_handle(array $studio, string $from, string $messageTyp
     return in_array($messageType, ['text', 'interactive', 'button', 'audio'], true);
 }
 
+function wa_bridge_owner_session_key(string $from): string
+{
+    $digits = preg_replace('/\D+/', '', (string)$from) ?: 'unknown';
+    // user fixo: mantem a MESMA sessao do agente entre mensagens deste contato.
+    return 'wa-dono-' . $digits;
+}
+
+/**
+ * Decide se devemos aquecer o agente com o historico salvo no projetocrm.
+ * Com a sessao estavel, no meio da conversa o agente lembra sozinho; so injetamos
+ * historia quando a conversa nao teve atividade recente (primeira msg, novo dia,
+ * apos reinicio) — evitando puxar o historico toda hora.
+ */
+function wa_bridge_needs_cold_warm(array $studio, string $ownerNumber): bool
+{
+    try {
+        $db = wa_bridge_history_pdo($studio);
+        if (!$db) {
+            return false;
+        }
+        $owner = preg_replace('/\D+/', '', (string)$ownerNumber) ?: '';
+        if ($owner === '') {
+            return false;
+        }
+        $st = $db->prepare('SELECT MAX(created_at) AS m FROM whatsapp_messages WHERE remote_jid = ?');
+        $st->execute([$owner]);
+        $last = (string)($st->fetchColumn() ?: '');
+        if ($last === '') {
+            return true; // nenhuma mensagem ainda -> veio de fora, sem sessao quente
+        }
+        // quente se teve atividade nos ultimos 25 min; senao, aquece com o historico
+        try {
+            $dt = new DateTime($last, new DateTimeZone('UTC'));
+            $ageMin = (time() - $dt->getTimestamp()) / 60;
+            return $ageMin > 25;
+        } catch (Throwable $e) {
+            return false;
+        }
+    } catch (Throwable $e) {
+        return true;
+    }
+}
+
+/**
+ * Registra no projetocrm a resposta enviada pelo agente (lado do numero da API).
+ * Assim a conversa fica completa nos dois sentidos e vira fonte de retomada.
+ */
+function wa_bridge_record_reply(array $studio, string $to, string $reply): void
+{
+    if (trim($reply) === '') {
+        return;
+    }
+    try {
+        studio_record_whatsapp_message($studio, [
+            'numero' => $to,
+            'mensagem' => mb_substr($reply, 0, 6000),
+            'fromMe' => true,
+            'senderType' => 'human',
+            'messageId' => '',
+            'remoteJid' => $to,
+            'timestamp' => time(),
+            'tipoMensagem' => 'texto',
+        ]);
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'wa_bridge_record_reply_error', 'error' => $e->getMessage(), 'to' => $to]);
+    }
+}
+
 function wa_bridge_reply_text(array $studio, string $from, string $text): array
 {
-    $agent = wa_bridge_call_agent($text, wa_bridge_recent_history($studio, $from));
+    $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
+    $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from));
     if (empty($agent['ok'])) {
         return ['ok' => false, 'agent' => $agent];
     }
@@ -786,6 +861,9 @@ function wa_bridge_reply_text(array $studio, string $from, string $text): array
     }
     // Envia a resposta de volta pelo numero da API (Cloud API) usando a funcao nativa do CRM.
     $send = studio_whatsapp_official_send_text($studio, $from, $reply);
+    if (!empty($send['ok'])) {
+        wa_bridge_record_reply($studio, $from, $reply);
+    }
     return ['ok' => !empty($send['ok']), 'reply' => $reply, 'send' => $send];
 }
 
@@ -843,7 +921,8 @@ function wa_bridge_shell_run(string $command, ?array &$output = null, ?int &$exi
 
 function wa_bridge_reply_voice(array $studio, string $from, string $text): array
 {
-    $agent = wa_bridge_call_agent($text, wa_bridge_recent_history($studio, $from));
+    $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
+    $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from));
     if (empty($agent['ok'])) {
         return ['ok' => false, 'agent' => $agent];
     }
@@ -858,6 +937,9 @@ function wa_bridge_reply_voice(array $studio, string $from, string $text): array
     if (empty($synth['ok'])) {
         // Se nao der pra falar, volta em texto para nunca deixar o dono sem resposta.
         $send = studio_whatsapp_official_send_text($studio, $from, $reply);
+        if (!empty($send['ok'])) {
+            wa_bridge_record_reply($studio, $from, $reply);
+        }
         return ['ok' => !empty($send['ok']), 'reply' => $reply, 'voice_fallback_text' => true, 'error' => $synth['error'] ?? 'erro de voz', 'send' => $send];
     }
     $wavPath = (string)($synth['path'] ?: $synth['wav']);
@@ -869,6 +951,9 @@ function wa_bridge_reply_voice(array $studio, string $from, string $text): array
     ]);
     // limpa o temporario
     @unlink($wavPath);
+    if (!empty($send['ok'])) {
+        wa_bridge_record_reply($studio, $from, $reply);
+    }
     return ['ok' => !empty($send['ok']), 'reply' => $reply, 'voice' => true, 'send' => $send];
 }
 
