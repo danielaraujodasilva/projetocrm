@@ -122,7 +122,11 @@ if (!$script) {
 
 $stdout = tempnam(sys_get_temp_dir(), 'wa_transcribe_out_');
 $stderr = tempnam(sys_get_temp_dir(), 'wa_transcribe_err_');
-$command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+$transPython = studio_whisper_python_binary();
+if ($transPython === '') {
+    api_whatsapp_transcribe_json(['ok' => false, 'error' => 'Nenhum interpretador Python com whisper encontrado para transcrição.'], 500);
+}
+$command = escapeshellarg($transPython) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
 $run = api_whatsapp_transcribe_exec($command);
 $output = is_file($stdout) ? trim((string)file_get_contents($stdout)) : '';
 $error = is_file($stderr) ? trim((string)file_get_contents($stderr)) : '';

@@ -10146,7 +10146,11 @@ function studio_whatsapp_learning_transcribe_audio(string $path): array
     if (!$script || !is_file($path)) {
         return ['ok' => false, 'error' => 'Transcritor local não encontrado.'];
     }
-    $command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($path) . ' small auto';
+    $python = studio_whisper_python_binary();
+    if ($python === '') {
+        return ['ok' => false, 'error' => 'Nenhum interpretador Python com whisper encontrado para transcrição.'];
+    }
+    $command = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($path) . ' small auto';
     $run = studio_run_command_with_timeout($command, 240);
     $decoded = json_decode(trim((string)($run['output'] ?? '')), true);
     $text = is_array($decoded) ? trim((string)($decoded['text'] ?? '')) : '';
@@ -10195,7 +10199,14 @@ function studio_whatsapp_learning_transcribe_audio_batch(array $audioFiles, ?cal
     ], $audioFiles);
     file_put_contents($manifestPath, json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     // Unbuffered output is required so the UI receives progress while Whisper is running.
-    $command = studio_whisper_python_binary() . ' -u ' . escapeshellarg($script) . ' ' . escapeshellarg($manifestPath) . ' small auto ' . escapeshellarg($progressPath);
+    $batchPython = studio_whisper_python_binary();
+    if ($batchPython === '') {
+        @unlink($manifestPath);
+        @unlink($stdoutPath);
+        @unlink($stderrPath);
+        return ['ok' => false, 'error' => 'Nenhum interpretador Python com whisper encontrado para transcrição.', 'results' => []];
+    }
+    $command = escapeshellarg($batchPython) . ' -u ' . escapeshellarg($script) . ' ' . escapeshellarg($manifestPath) . ' small auto ' . escapeshellarg($progressPath);
     $descriptor = [1 => ['file', $stdoutPath, 'a'], 2 => ['file', $stderrPath, 'a']];
     $process = @proc_open($command, $descriptor, $pipes, APP_BASE_PATH);
     if (!is_resource($process)) {
@@ -14075,18 +14086,19 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
     return $result;
 }
 
-/** Resolve um interpretador Python que tenha O pacote whisper instalado. */
+/** Resolve um interpretador Python que tenha o pacote whisper instalado (caminho absoluto, sem espaco resolvido no caller via escapeshellarg). Retorna '' se nenhum for encontrado. */
 function studio_whisper_python_binary(): string
 {
-    // 1) Override explicito via env.
+    // 1) Override explicito via env (caminho absoluto de um python.exe).
     $env = trim((string)(getenv('WHISPER_PYTHON') ?: ''));
     if ($env !== '' && is_file($env)) {
         return $env;
     }
-    // 2) Interpretadores conhecidos que possuem whisper (checagem barata e rapida).
+    // 2) Interpretadores conhecidos que possuem whisper instalado (nesta maquina: Python 3.10).
     $candidates = [
         'C:\\Program Files\\Python310\\python.exe',
         'C:\\Python310\\python.exe',
+        'C:\\Program Files\\Python3\\python.exe',
         'C:\\Python311\\python.exe',
         'C:\\Python312\\python.exe',
         'C:\\Python313\\python.exe',
@@ -14096,8 +14108,8 @@ function studio_whisper_python_binary(): string
             return $cand;
         }
     }
-    // 3) Fallback: launcher padrao (pode resolver para um Python sem whisper).
-    return 'py -3';
+    // 3) Sem interpretador confirmado: retorna vazio (caller ignora a transcricao desse audio).
+    return '';
 }
 
 function studio_attempt_whatsapp_audio_transcription(array $studio, string $messageId, string $mediaPath): void
@@ -14119,7 +14131,17 @@ function studio_attempt_whatsapp_audio_transcription(array $studio, string $mess
         return;
     }
 
-    $command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($absolutePath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+    $autoPython = studio_whisper_python_binary();
+    if ($autoPython === '') {
+        studio_update_whatsapp_message_transcription($studio, [
+            'messageId' => $messageId,
+            'mediaUrl' => $mediaPath,
+            'error' => 'Nenhum interpretador Python com whisper encontrado para transcrição.',
+        ]);
+        return;
+    }
+
+    $command = escapeshellarg($autoPython) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($absolutePath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
     $output = [];
     $exitCode = null;
     exec($command, $output, $exitCode);
