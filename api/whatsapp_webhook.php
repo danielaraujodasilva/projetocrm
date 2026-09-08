@@ -615,6 +615,202 @@ function whatsapp_official_record_message(array $studio, array $message, array $
     }
 }
 
+/* ===== OPENCLAW WA BRIDGE (adicional, nao interfere no CRM) =====
+ * Quando o DONO (remetente permitido) manda msg no numero da API oficial,
+ * a msg e repassada ao agente leve OpenClaw (openclaw/wa) via gateway local
+ * e a resposta e devolvida ao remetente pelo mesmo numero (Cloud API).
+ * Ativar/desativar mudando ENABLED abaixo. Remetentes comuns NAO passam aqui.
+ */
+function wa_bridge_enabled(): bool
+{
+    return getenv('WA_BRIDGE_ENABLED') === false ? true : (getenv('WA_BRIDGE_ENABLED') === '1');
+}
+
+function wa_bridge_owner_number(): string
+{
+    return '5511947573311'; // numero do dono (Daniel) que recebe as respostas
+}
+
+function wa_bridge_gateway(): array
+{
+    // Sempre loopback: gateway OpenClaw e esta mesma maquina (XAMPP).
+    $gateway = [
+        'host' => '127.0.0.1',
+        'port' => 18789,
+        'model' => 'openclaw/wa',
+        'token' => trim((string)getenv('OPENCLAW_GATEWAY_TOKEN')),
+    ];
+    // Override via arquivo local gitignored: projetocrm/storage/openclaw_gateway.local.json
+    if ($gateway['token'] === '') {
+        $local = APP_BASE_PATH . '/storage/openclaw_gateway.local.json';
+        if (is_file($local)) {
+            $raw = file_get_contents($local);
+            $decoded = is_string($raw) ? json_decode($raw, true) : null;
+            $gateway['token'] = trim((string)($decoded['token'] ?? ''));
+            $gateway['host'] = trim((string)($decoded['host'] ?? $gateway['host']));
+            $gateway['port'] = (int)($decoded['port'] ?? $gateway['port']);
+            $gateway['model'] = trim((string)($decoded['model'] ?? $gateway['model']));
+        }
+    }
+    return $gateway;
+}
+
+function wa_bridge_call_agent(string $text): array
+{
+    $g = wa_bridge_gateway();
+    if ($g['token'] === '') {
+        return ['ok' => false, 'error' => 'OPENCLAW_GATEWAY_TOKEN nao configurado no ambiente PHP.'];
+    }
+    $payload = json_encode([
+        'model' => $g['model'],
+        'messages' => [
+            ['role' => 'system', 'content' => 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.']
+            ,
+            ['role' => 'user', 'content' => $text],
+        ],
+    ]);
+    $ch = curl_init('http://' . $g['host'] . ':' . $g['port'] . '/v1/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 60,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $g['token'],
+            'Content-Type: application/json',
+        ],
+        CURLOPT_POSTFIELDS => $payload,
+    ]);
+    $raw = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    if ($errno || $raw === false) {
+        return ['ok' => false, 'error' => $error ?: 'Falha ao chamar o agente OpenClaw.', 'status' => $status];
+    }
+    $json = json_decode((string)$raw, true);
+    $reply = trim((string)($json['choices'][0]['message']['content'] ?? ''));
+    if ($status >= 400 || $reply === '') {
+        return ['ok' => false, 'error' => $json['error']['message'] ?? ('HTTP ' . $status), 'status' => $status, 'raw' => $raw];
+    }
+    return ['ok' => true, 'reply' => $reply, 'status' => $status, 'raw' => $raw];
+}
+
+function wa_bridge_should_handle(array $studio, string $from, string $messageType): bool
+{
+    if (!wa_bridge_enabled()) {
+        return false;
+    }
+    $owner = wa_bridge_owner_number();
+    // Soh responde quando for o DONO e for texto de entrada (nao eco/status).
+    if ($owner === '' || $from !== $owner) {
+        return false;
+    }
+    if (studio_whatsapp_provider($studio) !== 'official') {
+        return false;
+    }
+    // Aceita texto puro, interativo E audio do dono (audio vira resposta em voz).
+    return in_array($messageType, ['text', 'interactive', 'button', 'audio'], true);
+}
+
+function wa_bridge_reply_text(array $studio, string $from, string $text): array
+{
+    $agent = wa_bridge_call_agent($text);
+    if (empty($agent['ok'])) {
+        return ['ok' => false, 'agent' => $agent];
+    }
+    $reply = (string)$agent['reply'];
+    if ($reply === '') {
+        return ['ok' => false, 'error' => 'Agente nao retornou resposta.', 'agent' => $agent];
+    }
+    // Envia a resposta de volta pelo numero da API (Cloud API) usando a funcao nativa do CRM.
+    $send = studio_whatsapp_official_send_text($studio, $from, $reply);
+    return ['ok' => !empty($send['ok']), 'reply' => $reply, 'send' => $send];
+}
+
+function wa_bridge_espeak_binary(): ?string
+{
+    foreach ([getenv('ESPEAK_PATH'), 'C:\\Program Files\\eSpeak NG\\espeak-ng.exe', 'C:\\Program Files (x86)\\eSpeak NG\\espeak-ng.exe'] as $c) {
+        if ($c && is_file($c)) {
+            return $c;
+        }
+    }
+    return null;
+}
+
+function wa_bridge_synthesize_wav(string $text): array
+{
+    // Sanitiza o texto p/ virar parte de nome de arquivo (cuida de barras/aspas).
+    $safe = mb_substr(preg_replace('/[^\p{L}\p{N}]+/u', '_', $text), 0, 40);
+    $wav = sys_get_temp_dir() . '\\openclaw_wa_' . time() . '_' . md5($safe . uniqid('', true)) . '.wav';
+    $binary = wa_bridge_espeak_binary();
+    if (!$binary) {
+        return ['ok' => false, 'error' => 'eSpeak nao encontrado neste servidor.'];
+    }
+    // tenta voz brasileira, depois pt generico; qual produziu arquivo valido vence
+    foreach (['pt-br', 'pt'] as $voice) {
+        $cmd = '"' . $binary . '" -v ' . $voice . ' -s 155 -w "' . $wav . '" "' . addslashes($text) . '"';
+        $output = [];
+        $exit = null;
+        wa_bridge_shell_run($cmd, $output, $exit);
+        if (is_file($wav) && filesize($wav) >= 800) {
+            return ['ok' => true, 'path' => realpath($wav) ?: $wav, 'voice' => $voice];
+        }
+        // limpa tentativa que falhou antes de tentar a proxima
+        @unlink($wav);
+    }
+    return ['ok' => false, 'error' => 'Falha ao sintetizar a voz com eSpeak.'];
+}
+
+function wa_bridge_shell_run(string $command, ?array &$output = null, ?int &$exitCode = null): string
+{
+    $output = [];
+    $exitCode = null;
+    if (function_exists('exec')) {
+        exec($command, $output, $exitCode);
+        return '';
+    }
+    $proc = popen($command . ' 2>&1', 'r');
+    $buf = '';
+    if (is_resource($proc)) {
+        $buf = (string)stream_get_contents($proc);
+        $exitCode = pclose($proc);
+        $output = array_filter(explode("\n", $buf));
+    }
+    return $buf;
+}
+
+function wa_bridge_reply_voice(array $studio, string $from, string $text): array
+{
+    $agent = wa_bridge_call_agent($text);
+    if (empty($agent['ok'])) {
+        return ['ok' => false, 'agent' => $agent];
+    }
+    $reply = (string)$agent['reply'];
+    if ($reply === '') {
+        return ['ok' => false, 'error' => 'Agente nao retornou resposta.', 'agent' => $agent];
+    }
+    if (mb_strlen($reply) > 3000) {
+        $reply = mb_substr($reply, 0, 3000);
+    }
+    $synth = wa_bridge_synthesize_wav($reply);
+    if (empty($synth['ok'])) {
+        // Se nao der pra falar, volta em texto para nunca deixar o dono sem resposta.
+        $send = studio_whatsapp_official_send_text($studio, $from, $reply);
+        return ['ok' => !empty($send['ok']), 'reply' => $reply, 'voice_fallback_text' => true, 'error' => $synth['error'] ?? 'erro de voz', 'send' => $send];
+    }
+    $wavPath = (string)($synth['path'] ?: $synth['wav']);
+    $send = studio_whatsapp_official_send_media($studio, $from, [
+        'path' => $wavPath,
+        'mime' => 'audio/wav',
+        'fileName' => 'resposta_ao_vivo_' . time() . '.wav',
+        'kind' => 'audio',
+    ]);
+    // limpa o temporario
+    @unlink($wavPath);
+    return ['ok' => !empty($send['ok']), 'reply' => $reply, 'voice' => true, 'send' => $send];
+}
+
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 
 if ($method === 'GET') {
@@ -841,6 +1037,53 @@ foreach ($entries as $entry) {
                         'message_type' => $messageType,
                         'studio_id' => (int)$studio['id'],
                     ]);
+                }
+                // OPENCLAW WA BRIDGE: repassa a mensagem do DONO ao agente leve local e devolve a resposta.
+                $bridgeFrom = (string)($message['from'] ?? '');
+                if ($bridgeFrom !== '' && wa_bridge_should_handle($studio, $bridgeFrom, $messageType)) {
+                    $bridgeText = $textBody;
+                    if ($messageType === 'interactive' && is_array($message['interactive'] ?? null)) {
+                        $it = $message['interactive'];
+                        $itype = (string)($it['type'] ?? '');
+                        if ($itype === 'button_reply') {
+                            $bridgeText = trim((string)($it['button_reply']['title'] ?? $it['button_reply']['id'] ?? ''));
+                        } elseif ($itype === 'list_reply') {
+                            $bridgeText = trim((string)($it['list_reply']['title'] ?? $it['list_reply']['id'] ?? ''));
+                        }
+                    }
+                    $bridgeMode = 'text';
+                    if (($messageType === 'audio' || $messageType === 'voice') && trim((string)$bridgeText) === '') {
+                        // Busca a transcricao ja gravada pelo CRM (whisper roda ao salvar o audio).
+                        $lookupText = '';
+                        try {
+                            $rowStmt = studio_db($studio)->prepare('SELECT transcricao, transcript, body FROM whatsapp_messages WHERE message_id = ? LIMIT 1');
+                            $rowStmt->execute([(string)($message['id'] ?? '')]);
+                            $row = $rowStmt->fetch();
+                            $lookupText = trim((string)($row['transcricao'] ?? $row['transcript'] ?? ''));
+                            if ($lookupText === '') {
+                                $lookupText = trim((string)($row['body'] ?? ''));
+                            }
+                        } catch (Throwable $e) {
+                            whatsapp_webhook_log(['type' => 'wa_bridge_lookup_error', 'error' => $e->getMessage()]);
+                            $lookupText = '';
+                        }
+                        $bridgeText = $lookupText;
+                        $bridgeMode = 'voice'; // audio do dono -> resposta em voz
+                    }
+                    if (trim((string)$bridgeText) !== '') {
+                        $bridge = $bridgeMode === 'voice'
+                            ? wa_bridge_reply_voice($studio, $bridgeFrom, (string)$bridgeText)
+                            : wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
+                        whatsapp_webhook_log([
+                            'type' => 'wa_bridge',
+                            'mode' => $bridgeMode,
+                            'from' => $bridgeFrom,
+                            'message_id' => (string)($message['id'] ?? ''),
+                            'ok' => !empty($bridge['ok']) ? 'SIM' : 'NAO',
+                            'reply_length' => strlen((string)($bridge['reply'] ?? '')),
+                            'error' => (string)($bridge['error'] ?? ($bridge['agent']['error'] ?? '')),
+                        ]);
+                    }
                 }
             }
         }
