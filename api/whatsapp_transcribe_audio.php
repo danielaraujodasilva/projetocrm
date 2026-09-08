@@ -122,7 +122,7 @@ if (!$script) {
 
 $stdout = tempnam(sys_get_temp_dir(), 'wa_transcribe_out_');
 $stderr = tempnam(sys_get_temp_dir(), 'wa_transcribe_err_');
-$command = 'py -3 ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+$command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
 $run = api_whatsapp_transcribe_exec($command);
 $output = is_file($stdout) ? trim((string)file_get_contents($stdout)) : '';
 $error = is_file($stderr) ? trim((string)file_get_contents($stderr)) : '';

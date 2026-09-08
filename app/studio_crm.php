@@ -10146,7 +10146,7 @@ function studio_whatsapp_learning_transcribe_audio(string $path): array
     if (!$script || !is_file($path)) {
         return ['ok' => false, 'error' => 'Transcritor local não encontrado.'];
     }
-    $command = 'py -3 ' . escapeshellarg($script) . ' ' . escapeshellarg($path) . ' small auto';
+    $command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($path) . ' small auto';
     $run = studio_run_command_with_timeout($command, 240);
     $decoded = json_decode(trim((string)($run['output'] ?? '')), true);
     $text = is_array($decoded) ? trim((string)($decoded['text'] ?? '')) : '';
@@ -10195,7 +10195,7 @@ function studio_whatsapp_learning_transcribe_audio_batch(array $audioFiles, ?cal
     ], $audioFiles);
     file_put_contents($manifestPath, json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     // Unbuffered output is required so the UI receives progress while Whisper is running.
-    $command = 'py -3 -u ' . escapeshellarg($script) . ' ' . escapeshellarg($manifestPath) . ' small auto ' . escapeshellarg($progressPath);
+    $command = studio_whisper_python_binary() . ' -u ' . escapeshellarg($script) . ' ' . escapeshellarg($manifestPath) . ' small auto ' . escapeshellarg($progressPath);
     $descriptor = [1 => ['file', $stdoutPath, 'a'], 2 => ['file', $stderrPath, 'a']];
     $process = @proc_open($command, $descriptor, $pipes, APP_BASE_PATH);
     if (!is_resource($process)) {
@@ -14075,6 +14075,31 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
     return $result;
 }
 
+/** Resolve um interpretador Python que tenha O pacote whisper instalado. */
+function studio_whisper_python_binary(): string
+{
+    // 1) Override explicito via env.
+    $env = trim((string)(getenv('WHISPER_PYTHON') ?: ''));
+    if ($env !== '' && is_file($env)) {
+        return $env;
+    }
+    // 2) Interpretadores conhecidos que possuem whisper (checagem barata e rapida).
+    $candidates = [
+        'C:\\Program Files\\Python310\\python.exe',
+        'C:\\Python310\\python.exe',
+        'C:\\Python311\\python.exe',
+        'C:\\Python312\\python.exe',
+        'C:\\Python313\\python.exe',
+    ];
+    foreach ($candidates as $cand) {
+        if (is_file($cand)) {
+            return $cand;
+        }
+    }
+    // 3) Fallback: launcher padrao (pode resolver para um Python sem whisper).
+    return 'py -3';
+}
+
 function studio_attempt_whatsapp_audio_transcription(array $studio, string $messageId, string $mediaPath): void
 {
     $messageId = trim($messageId);
@@ -14094,7 +14119,7 @@ function studio_attempt_whatsapp_audio_transcription(array $studio, string $mess
         return;
     }
 
-    $command = 'py -3 ' . escapeshellarg($script) . ' ' . escapeshellarg($absolutePath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+    $command = studio_whisper_python_binary() . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($absolutePath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
     $output = [];
     $exitCode = null;
     exec($command, $output, $exitCode);
