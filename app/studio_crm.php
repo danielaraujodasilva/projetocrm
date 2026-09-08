@@ -14174,6 +14174,69 @@ function studio_attempt_whatsapp_audio_transcription(array $studio, string $mess
     }
 }
 
+/**
+ * Resolve um interpretador Python que tenha o pacote rapidocr_onnxruntime instalado
+ * (para OCR de imagem, 100% local). Retorna '' se nenhum.
+ */
+function studio_ocr_python_binary(): string
+{
+    $env = trim((string)(getenv('OCR_PYTHON') ?: ''));
+    if ($env !== '' && is_file($env)) {
+        return $env;
+    }
+    $candidates = [
+        'C:\\Python314\\python.exe',
+        'C:\\Python313\\python.exe',
+        'C:\\Python312\\python.exe',
+        'C:\\Program Files\\Python310\\python.exe',
+        'C:\\Python310\\python.exe',
+    ];
+    foreach ($candidates as $cand) {
+        if (is_file($cand)) {
+            return $cand;
+        }
+    }
+    return '';
+}
+
+/**
+ * OCR de uma imagem (WhatsApp attachment) usando rapidocr local, retornando o texto
+ * reconhecido em UTF-8. Devolve '' se nao conseguiu ler nada ou nao ha OCR disponivel.
+ * Usado quando o dono manda foto (ex.: orcamento) p/ o agente conseguir ler o conteudo.
+ */
+function studio_whatsapp_image_ocr_text(string $mediaPath): string
+{
+    $absolute = studio_whatsapp_media_absolute_path($mediaPath);
+    if ($mediaPath === '' || !$absolute || !is_file($absolute)) {
+        return '';
+    }
+    $script = realpath(__DIR__ . '/../tools/ocr/ocr_image.py');
+    $python = studio_ocr_python_binary();
+    if (!$script || $python === '') {
+        return '';
+    }
+    $stdout = tempnam(sys_get_temp_dir(), 'wa_ocr_out_');
+    $stderr = tempnam(sys_get_temp_dir(), 'wa_ocr_err_');
+    if ($stdout === false || $stderr === false) {
+        return '';
+    }
+    $command = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($absolute) . ' > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+    $arrOut = [];
+    $exit = null;
+    exec($command, $arrOut, $exit);
+    $text = is_file($stdout) ? trim((string)file_get_contents($stdout)) : '';
+    if (is_file($stdout)) { @unlink($stdout); }
+    if (is_file($stderr)) { @unlink($stderr); }
+    if ($text !== '' && !mb_check_encoding($text, 'UTF-8')) {
+        $text = mb_convert_encoding($text, 'UTF-8', 'Windows-1252');
+    }
+    $text = trim((string)$text);
+    if ($text === '' || str_starts_with($text, 'OCR_ERROR') || str_starts_with($text, 'Traceback')) {
+        return '';
+    }
+    return $text;
+}
+
 function studio_whatsapp_ai_voice_config(array $studio, array $overrides = []): array
 {
     $settings = studio_settings($studio);

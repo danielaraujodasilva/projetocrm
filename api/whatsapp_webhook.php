@@ -1367,8 +1367,32 @@ foreach ($entries as $entry) {
                         // AUDIO do dono: transcreve e responde em TEXTO (sem gerar voz).
                         $bridgeMode = 'text';
                     }
+                    if ($messageType === 'image' && function_exists('studio_whatsapp_image_ocr_text')) {
+                        // Foto do dono: faz OCR LOCAL (rapidocr) p/ o agente conseguir LER o conteudo
+                        // (ex.: orcamento/recibo) e embute o texto junto com a legenda na pergunta.
+                        try {
+                            $imgStmt = studio_db($studio)->prepare('SELECT media_file_path FROM whatsapp_messages WHERE message_id = ? LIMIT 1');
+                            $imgStmt->execute([(string)($message['id'] ?? '')]);
+                            $imgRow = $imgStmt->fetch();
+                            $imgRel = trim((string)($imgRow['media_file_path'] ?? ''));
+                            if ($imgRel !== '') {
+                                $ocrText = studio_whatsapp_image_ocr_text($imgRel);
+                                if ($ocrText !== '') {
+                                    $cap = trim((string)$bridgeText);
+                                    $bridgeText = ($cap !== '' ? $cap . "\n\n" : '') . "[Texto lido da imagem via OCR local — se algum valor parecer incompleto/errado, avise o Daniel que a leitura pode ter errado parte]\n" . $ocrText;
+                                    whatsapp_webhook_log(['type' => 'wa_bridge_ocr', 'chars' => mb_strlen($ocrText), 'with_caption' => ($cap !== '' ? 'SIM' : 'NAO')]);
+                                    $bridgeMode = 'text';
+                                }
+                            }
+                        } catch (Throwable $e) {
+                            whatsapp_webhook_log(['type' => 'wa_bridge_ocr_error', 'error' => $e->getMessage()]);
+                        }
+                    }
                     if (trim((string)$bridgeText) !== '') {
                         // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
+                        // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
+                        // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
+                        // especifica (comparar, concluir, explicar) em vez de repetir bloco pronto.
                         // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
                         // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
                         // especifica (comparar, concluir, explicar) em vez de repetir bloco pronto.
