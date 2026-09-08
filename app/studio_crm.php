@@ -15205,10 +15205,14 @@ function studio_whatsapp_ai_wait_image_result(array $studio, array $job, int $ti
                     sleep(5);
                     try {
                         $job = studio_general_image_start($studio, $job['data']);
-                        whatsapp_webhook_log(['type' => 'wa_bridge_image_retry', 'ok' => (trim((string)($job['id'] ?? '')) !== '' ? 'SIM' : 'NAO')]);
+                        if (function_exists('whatsapp_webhook_log')) {
+                            whatsapp_webhook_log(['type' => 'wa_bridge_image_retry', 'ok' => (trim((string)($job['id'] ?? '')) !== '' ? 'SIM' : 'NAO')]);
+                        }
                         continue;
                     } catch (Throwable $re) {
-                        whatsapp_webhook_log(['type' => 'wa_bridge_image_retry_error', 'error' => $re->getMessage()]);
+                        if (function_exists('whatsapp_webhook_log')) {
+                            whatsapp_webhook_log(['type' => 'wa_bridge_image_retry_error', 'error' => $re->getMessage()]);
+                        }
                     }
                 }
             }
