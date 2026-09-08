@@ -1400,19 +1400,95 @@ foreach ($entries as $entry) {
                             $ownerConvQuery->execute([wa_bridge_owner_number()]);
                             $ownerConv = $ownerConvQuery->fetch();
                             if (is_array($ownerConv) && !empty($ownerConv['id'])) {
+                                // Historico REAL recente + detecta se ha imagem (referencia do dono OU imagem
+                                // que o proprio agente cacou de gerar) — essencial pros follow-ups de edicao,
+                                // tipo "queria ele mais agressivo" ou "cadê o que você refez?".
+                                $ownerHisStmt = studio_db($studio)->prepare('SELECT direction, body FROM whatsapp_messages WHERE conversation_id = ? AND (message_type = "text" OR body <> "") ORDER BY id DESC LIMIT 24');
+                                $ownerHisStmt->execute([(int)$ownerConv['id']]);
+                                $ownerHisRaw = $ownerHisStmt->fetchAll();
+                                $ownerHistoryLines = [];
+                                foreach (array_reverse((array)$ownerHisRaw) as $row) {
+                                    $b = trim((string)($row['body'] ?? ''));
+                                    if ($b === '') { continue; }
+                                    $prefix = ((string)($row['direction'] ?? 'in') === 'out') ? 'Bot:' : 'Dono:';
+                                    $ownerHistoryLines[] = $prefix . ' ' . $b;
+                                }
+                                $ownerHasVisualRef = false;
+                                if (function_exists('studio_whatsapp_ai_latest_image_reference')) {
+                                    $ownerVisualRef = studio_whatsapp_ai_latest_image_reference($studio, (int)$ownerConv['id'], $bridgeText);
+                                    $ownerHasVisualRef = is_array($ownerVisualRef) && !empty($ownerVisualRef['absolute_path']) && is_file((string)$ownerVisualRef['absolute_path']);
+                                }
                                 $ownerImgResult = studio_whatsapp_ai_handle_image_generation_request($studio, $ownerConv, [
                                     'body' => $bridgeText,
                                     'message_id' => $bridgeMsgId,
                                     'message_type' => 'text',
                                 ], [
                                     'message_text' => $bridgeText,
-                                    'history_lines' => [],
-                                    'has_visual_reference' => false,
+                                    'history_lines' => $ownerHistoryLines,
+                                    'has_visual_reference' => $ownerHasVisualRef,
                                     'config' => studio_openai_config($studio),
                                 ]);
                                 if (!empty($ownerImgResult['handled'])) {
                                     $imgHandled = true;
-                                    whatsapp_webhook_log(['type' => 'wa_bridge_image', 'ok' => (!empty($ownerImgResult['ok']) ? 'SIM' : 'NAO'), 'kind' => (string)($ownerImgResult['kind'] ?? '')]);
+                                    whatsapp_webhook_log(['type' => 'wa_bridge_image', 'ok' => (!empty($ownerImgResult['ok']) ? 'SIM' : 'NAO'), 'kind' => (string)($ownerImgResult['kind'] ?? ''), 'visual_ref' => ($ownerHasVisualRef ? 'SIM' : 'NAO')]);
+                                }
+                            }
+                            // Follow-up curto de REFINAMENTO (ex.: "queria ele mais agressivo e frontal",
+                            // "cadê o dragão que você refez"): o detector padrao so pega verbo explicito de
+                            // geracao. Se nao disparou, mas ha uma imagem QUE O BOT acabou de gerar e o dono
+                            // esta pedindo mudanca/reenvio, refaz por img2img na mesma imagem.
+                            if (!$imgHandled && is_array($ownerConv) && !empty($ownerConv['id'])
+                                && function_exists('studio_whatsapp_ai_latest_image_reference')
+                                && function_exists('studio_general_image_start')
+                                && function_exists('studio_whatsapp_ai_wait_image_result')
+                                && function_exists('studio_whatsapp_ai_compile_image_prompt')) {
+                                $ownerImgNorm = studio_calendar_remove_accents(mb_strtolower($bridgeText, 'UTF-8'));
+                                $isOwnerRefine = (bool)preg_match('/\b(cad[eê]|cadê|cade|refez|refaz|refa[cç]a|mais|menos|outra|de\s+novo|tenta|novamente|eh\s+isso|assim|desse\s+jeito|frontal|agressiv|atras|de\s+lado|tamanho|maior|menor|colorid|preto|cinza|azul|vermelho|manda|mandar|envia|enviar|mostra|essa|esse|aquele|aquela|drag[ãa]o|leo|gostei|queria|variac|mudanc[ai]|diferente)\b/u', $ownerImgNorm)
+                                    && mb_strlen($bridgeText, 'UTF-8') <= 160;
+                                if ($isOwnerRefine) {
+                                    $ownerVisualRef = studio_whatsapp_ai_latest_image_reference($studio, (int)$ownerConv['id'], $bridgeText);
+                                    $isRecentBotImage = is_array($ownerVisualRef)
+                                        && !empty($ownerVisualRef['absolute_path'])
+                                        && is_file((string)$ownerVisualRef['absolute_path'])
+                                        && ((string)($ownerVisualRef['direction'] ?? '') === 'out')
+                                        && ($ownerVisualRef['sent_at'] ?? '') !== ''
+                                        && (time() - (int)strtotime((string)$ownerVisualRef['sent_at'])) < 1800;
+                                    if ($isRecentBotImage) {
+                                        try {
+                                            $ownerHisStmt2 = studio_db($studio)->prepare('SELECT direction, body FROM whatsapp_messages WHERE conversation_id = ? AND body <> "" ORDER BY id DESC LIMIT 24');
+                                            $ownerHisStmt2->execute([(int)$ownerConv['id']]);
+                                            $ownerHis2 = [];
+                                            foreach (array_reverse((array)$ownerHisStmt2->fetchAll()) as $row) {
+                                                $ownerHis2[] = trim((string)($row['body'] ?? ''));
+                                            }
+                                            $ownerEditCompiled = studio_whatsapp_ai_compile_image_prompt($studio, studio_openai_config($studio), [
+                                                'message_text' => $bridgeText,
+                                                'history_lines' => $ownerHis2,
+                                                'image_context' => 'O bot gerou uma arte recentemente; o dono quer uma variacao/mudanca dela conforme a mensagem atual.',
+                                                'kind' => 'edit',
+                                            ]);
+                                            $ownerEditCfg = studio_openai_config($studio);
+                                            $ownerEditPrompt = trim((string)($ownerEditCompiled['prompt'] ?? ''));
+                                            if ($ownerEditPrompt === '') { $ownerEditPrompt = $bridgeText; }
+                                            $ownerEditGen = studio_general_image_start($studio, [
+                                                'prompt' => $ownerEditPrompt,
+                                                'mode' => 'final',
+                                                'style' => 'realistic',
+                                                'format' => 'vertical',
+                                                'reference_notes' => 'Use a imagem anexada como base e aplique a mudanca pedida pelo dono.',
+                                                'negative_prompt' => 'low quality, blurry, unreadable text, watermark, logo, distorted anatomy, unrelated subject',
+                                                'source_image_path' => (string)$ownerVisualRef['relative_path'],
+                                            ]);
+                                            $ownerEditRes = studio_whatsapp_ai_wait_image_result($studio, $ownerEditGen, 280);
+                                            studio_whatsapp_ai_send_generated_image($studio, $ownerConv, $ownerEditRes, 'Fiz essa variação pra você conferir. Quer que eu ajuste mais algum detalhe?', $bridgeMsgId);
+                                            $imgHandled = true;
+                                            whatsapp_webhook_log(['type' => 'wa_bridge_image', 'ok' => 'SIM', 'kind' => 'edit-followup']);
+                                        } catch (Throwable $e2) {
+                                            whatsapp_webhook_log(['type' => 'wa_bridge_image_error', 'error' => $e2->getMessage()]);
+                                            try { studio_whatsapp_official_send_text($studio, $bridgeFrom, 'Quase! Não consegui gerar essa variação agora. Tenta de novo daqui a pouco ou reformula o pedido.'); } catch (Throwable $ignore2) {}
+                                            $imgHandled = true;
+                                        }
+                                    }
                                 }
                             }
                         } catch (Throwable $e) {
