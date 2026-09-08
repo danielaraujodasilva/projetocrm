@@ -21,6 +21,17 @@ function studio_general_image_openai_config(array $studio): array
 
 function studio_general_image_provider(array $studio): array
 {
+    // Motor LOCAL primeiro (gratis e privado). So cai no OpenAI se o local nao estiver no ar.
+    $local = studio_local_image_ai_request('GET', '/v1/models', null, 4);
+    if (!empty($local['ok'])) {
+        return [
+            'ok' => true,
+            'type' => 'local',
+            'model' => 'Stable Diffusion 3.5 Medium Turbo local',
+            'label' => 'SD 3.5 Medium Turbo',
+        ];
+    }
+
     $openAi = studio_general_image_openai_config($studio);
     if (!empty($openAi['enabled'])) {
         return [
@@ -32,13 +43,12 @@ function studio_general_image_provider(array $studio): array
         ];
     }
 
-    $local = studio_local_image_ai_request('GET', '/v1/models', null, 4);
     return [
-        'ok' => !empty($local['ok']),
+        'ok' => false,
         'type' => 'local',
         'model' => 'Stable Diffusion 3.5 Medium Turbo local',
         'label' => 'SD 3.5 Medium Turbo',
-        'error' => (string)($local['error'] ?? ''),
+        'error' => (string)($local['error'] ?? 'Motor local de imagens indisponivel e sem fallback OpenAI configurado.'),
     ];
 }
 

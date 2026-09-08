@@ -1389,7 +1389,39 @@ foreach ($entries as $entry) {
                             whatsapp_webhook_log(['type' => 'wa_bridge_ocr_error', 'error' => $e->getMessage()]);
                         }
                     }
-                    if (trim((string)$bridgeText) !== '') {
+                    // ==== GERACAO DE IMAGEM (dono pede arte) ====
+                    // Se a msg for TEXTO e for pedido claro de imagem, dispara o GERADOR LOCAL
+                    // do estúdio (RealVisXL em :7861) e envia a imagem; senao, segue pro agente de texto.
+                    $imgHandled = false;
+                    if ($messageType === 'text' && function_exists('studio_whatsapp_ai_handle_image_generation_request')) {
+                        try {
+                            $bridgeMsgId = (string)($message['id'] ?? '');
+                            $ownerConvQuery = studio_db($studio)->prepare('SELECT * FROM whatsapp_conversations WHERE phone = ? ORDER BY id ASC LIMIT 1');
+                            $ownerConvQuery->execute([wa_bridge_owner_number()]);
+                            $ownerConv = $ownerConvQuery->fetch();
+                            if (is_array($ownerConv) && !empty($ownerConv['id'])) {
+                                $ownerImgResult = studio_whatsapp_ai_handle_image_generation_request($studio, $ownerConv, [
+                                    'body' => $bridgeText,
+                                    'message_id' => $bridgeMsgId,
+                                    'message_type' => 'text',
+                                ], [
+                                    'message_text' => $bridgeText,
+                                    'history_lines' => [],
+                                    'has_visual_reference' => false,
+                                    'config' => studio_openai_config($studio),
+                                ]);
+                                if (!empty($ownerImgResult['handled'])) {
+                                    $imgHandled = true;
+                                    whatsapp_webhook_log(['type' => 'wa_bridge_image', 'ok' => (!empty($ownerImgResult['ok']) ? 'SIM' : 'NAO'), 'kind' => (string)($ownerImgResult['kind'] ?? '')]);
+                                }
+                            }
+                        } catch (Throwable $e) {
+                            whatsapp_webhook_log(['type' => 'wa_bridge_image_error', 'error' => $e->getMessage()]);
+                            try { studio_whatsapp_official_send_text($studio, $bridgeFrom, 'Quase! O gerador local travou pra criar essa imagem agora. Tenta de novo daqui a pouco.'); } catch (Throwable $ignore) {}
+                            $imgHandled = true;
+                        }
+                    }
+                    if (!$imgHandled && trim((string)$bridgeText) !== '') {
                         // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
                         // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
                         // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
