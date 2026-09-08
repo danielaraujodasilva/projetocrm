@@ -811,8 +811,9 @@ function wa_bridge_should_handle(array $studio, string $from, string $messageTyp
     if (studio_whatsapp_provider($studio) !== 'official') {
         return false;
     }
-    // Aceita texto puro, interativo E audio do dono (audio vira resposta em voz).
-    return in_array($messageType, ['text', 'interactive', 'button', 'audio'], true);
+    // Aceita texto puro, interativo, audio E IMAGEM do dono (imagem e lida via OCR local
+    // pra o agente conseguir ver o conteudo — ex.: foto de orcamento/recibo).
+    return in_array($messageType, ['text', 'interactive', 'button', 'audio', 'image'], true);
 }
 
 function wa_bridge_owner_session_key(string $from): string
@@ -1390,9 +1391,6 @@ foreach ($entries as $entry) {
                     }
                     if (trim((string)$bridgeText) !== '') {
                         // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
-                        // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
-                        // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
-                        // especifica (comparar, concluir, explicar) em vez de repetir bloco pronto.
                         // Pergunta de dados reais (Meta Ads): buscamos os numeros verdadeiros e os
                         // entregamos ao agente como CONTEXTO, para ele RACIOCINAR sobre a pergunta
                         // especifica (comparar, concluir, explicar) em vez de repetir bloco pronto.
