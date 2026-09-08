@@ -24524,6 +24524,42 @@ function studio_data_assistant_meta_ads_answer(array $studio, string $question):
         $answerParts[] = 'Destaque por ' . studio_data_assistant_meta_metric_label($metric) . ': ' . $topCampaign['name'] . ' (' . studio_data_assistant_meta_metric_value_text($metric, (float)($topCampaign[$metric] ?? 0)) . ').';
     }
 
+    // --- Detalhamento por campanha/anuncio (nome + status + metricas) ---
+    // Cobre perguntas de LISTAGEM (quais, nomes das campanhas, inativas/ativas) e de
+    // COMPARACAO (qual melhor/pior, compara as duas, diferenca de desempenho) usando os
+    // nomes reais das campanhas, em vez de repetir so o resumo geral da conta.
+    $listIntent = mb_strtolower($plain);
+    $wantsListing = str_contains($listIntent, 'quais')
+        || str_contains($listIntent, 'list')
+        || str_contains($listIntent, 'nomes')
+        || str_contains($listIntent, 'inativ')
+        || str_contains($listIntent, 'ativ')
+        || str_contains($listIntent, 'enumera')
+        || str_contains($listIntent, 'campanh')
+        || str_contains($listIntent, 'anunci')
+        || str_contains($listIntent, 'compar')
+        || str_contains($listIntent, 'melhor')
+        || str_contains($listIntent, 'pior')
+        || str_contains($listIntent, 'diferenc');
+    if ($wantsListing && !empty($campaignMetrics) && isset($campaignMetrics[0]['name']) && $campaignMetrics[0]['name'] !== '') {
+        $statusLabel = static function (string $st): string {
+            if (in_array($st, ['ACTIVE', 'IN_PROCESS'], true)) { return 'ATIVA'; }
+            if ($st === 'PAUSED') { return 'INATIVA (pausada)'; }
+            return $st === '' ? 'DESCONHECIDO' : strtoupper(str_replace('_', ' ', $st));
+        };
+        $lines = [];
+        foreach (array_slice($campaignMetrics, 0, 10) as $cm) {
+            if (!is_array($cm) || !isset($cm['name']) || (string)$cm['name'] === '') { continue; }
+            $stSel = (string)($cm['effective_status'] ?? $cm['status'] ?? '');
+            $sp = (float)($cm['spend'] ?? 0);
+            $metricTxt = ($metric === 'spend') ? ('') : (' | ' . studio_data_assistant_meta_metric_label($metric) . ' ' . studio_data_assistant_meta_metric_value_text($metric, (float)($cm[$metric] ?? 0)));
+            $lines[] = '- ' . $cm['name'] . '  [' . $statusLabel($stSel) . ']  gasto ' . format_money($sp) . $metricTxt;
+        }
+        if ($lines) {
+            $answerParts[] = "\nCampanhas/anuncios (ordenados por " . studio_data_assistant_meta_metric_label($metric) . "):\n" . implode("\n", $lines);
+        }
+    }
+
     return [
         'ok' => true,
         'question' => $question,
