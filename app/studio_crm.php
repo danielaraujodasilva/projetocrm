@@ -1249,8 +1249,31 @@ function studio_whatsapp_ai_timeout(array $studio): int
     return $provider === 'ollama' ? 90 : 75;
 }
 
+function studio_whatsapp_ai_blocked_owner(array $conversation): bool
+{
+    // Numeros pessoais do dono que NUNCA devem receber resposta automatica da IA do CRM.
+    // O atendimento do dono e feito pela ponte dedicada (agente OpenClaw) no webhook.
+    $ownerNumbers = ['5511947573311'];
+    $candidate = '';
+    foreach (['phone', 'remote_jid', 'numero', 'jid'] as $key) {
+        $val = trim((string)($conversation[$key] ?? ''));
+        if ($val !== '') {
+            $candidate .= '|' . $val;
+        }
+    }
+    foreach ($ownerNumbers as $ownerNumber) {
+        if ($candidate !== '' && phones_match($candidate, $ownerNumber)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function studio_queue_whatsapp_ai_reply(array $studio, array $conversation, array $newMessage): array
 {
+    if (!empty($newMessage['from_me']) || studio_whatsapp_ai_blocked_owner($conversation)) {
+        return ['ok' => false, 'error' => 'IA bloqueada para este remetente (dono).'];
+    }
     if (empty(studio_settings($studio)['ai_enabled'])) {
         try {
             studio_update_whatsapp_conversation($studio, [
