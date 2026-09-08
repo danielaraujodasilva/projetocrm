@@ -1247,12 +1247,13 @@ foreach ($entries as $entry) {
                             $lookupText = '';
                         }
                         $bridgeText = $lookupText;
-                        $bridgeMode = 'voice'; // audio do dono -> resposta em voz
+                        // AUDIO do dono: transcreve e responde em TEXTO (sem gerar voz).
+                        $bridgeMode = 'text';
                     }
                     if (trim((string)$bridgeText) !== '') {
-                        $bridge = $bridgeMode === 'voice'
-                            ? wa_bridge_reply_voice($studio, $bridgeFrom, (string)$bridgeText)
-                            : wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
+                        // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
+                        $bridge = wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
+                        $bridgeMode = 'text';
                         whatsapp_webhook_log([
                             'type' => 'wa_bridge',
                             'mode' => $bridgeMode,
