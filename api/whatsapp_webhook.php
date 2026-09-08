@@ -631,6 +631,31 @@ function wa_bridge_owner_number(): string
     return '5511947573311'; // numero do dono (Daniel) que recebe as respostas
 }
 
+/**
+ * True se este message_id (wamid) JA existe no whatsapp_messages do CRM.
+ * Reentrega do Meta tem o MESMO wamid; usamos isso p/ nao reprocessar (e nao
+ * chamar o agente 2x com o mesmo texto). Chamado ANTES do gravador p/ refletir
+ * apenas entregas anteriores.
+ */
+function wa_bridge_message_already_recorded(array $studio, string $messageId): bool
+{
+    if (trim($messageId) === '') {
+        return false;
+    }
+    try {
+        $db = wa_bridge_history_pdo($studio);
+        if (!$db) {
+            return false;
+        }
+        $st = $db->prepare('SELECT COUNT(1) FROM whatsapp_messages WHERE message_id = ?');
+        $st->execute([$messageId]);
+        return (int)$st->fetchColumn() > 0;
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'wa_bridge_dedup_check_error', 'error' => $e->getMessage(), 'message_id' => $messageId]);
+        return false; // se falhar, segue (melhor responder que responder 0x)
+    }
+}
+
 function wa_bridge_gateway(): array
 {
     // Sempre loopback: gateway OpenClaw e esta mesma maquina (XAMPP).
@@ -1170,6 +1195,9 @@ foreach ($entries as $entry) {
                 'studio_found' => $studio ? 'SIM' : 'NAO',
             ]);
             if ($studio) {
+                // Detecta REENTREGA do Meta ANTES de gravar: mesmo message_id ja existe no banco.
+                // (O Meta reenvia a mesma mensagem quando nao recebe ack a tempo.)
+                $msgIsRedelivery = wa_bridge_message_already_recorded($studio, (string)($message['id'] ?? ''));
                 try {
                     whatsapp_official_record_message($studio, $message, $contacts);
                 } catch (Throwable $e) {
@@ -1186,6 +1214,11 @@ foreach ($entries as $entry) {
                 }
                 // OPENCLAW WA BRIDGE: repassa a mensagem do DONO ao agente leve local e devolve a resposta.
                 $bridgeFrom = (string)($message['from'] ?? '');
+                // NUNCA reprocessa entrega duplicada: se o Meta reentregou o MESMO message_id,
+                // a 1a entrega ja chamou o agente; chamar de novo faria ele ver o texto 2x na sessao.
+                if ($msgIsRedelivery) {
+                    whatsapp_webhook_log(['type' => 'wa_bridge_skip_duplicate', 'from' => $bridgeFrom, 'message_id' => (string)($message['id'] ?? '')]);
+                } else
                 if ($bridgeFrom !== '' && wa_bridge_should_handle($studio, $bridgeFrom, $messageType)) {
                     $bridgeText = $textBody;
                     if ($messageType === 'interactive' && is_array($message['interactive'] ?? null)) {
