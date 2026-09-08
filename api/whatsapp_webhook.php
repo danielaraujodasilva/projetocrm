@@ -874,6 +874,34 @@ function wa_bridge_record_reply(array $studio, string $to, string $reply): void
     }
 }
 
+/**
+ * Se a pergunta do dono for sobre dados do Meta Ads (anuncios, campanhas, CTR,
+ * gasto, leads etc.), devolve a resposta FACTUAL gerada pelo motor do CRM, que
+ * consulta a Meta com o token real. Se nao for / nao conseguir, devolve '' e o
+ * fluxo normal (agente wa) segue.
+ */
+function wa_bridge_meta_ads_text(array $studio, string $text): string
+{
+    try {
+        if (!function_exists('studio_data_assistant_is_meta_ads_question')) {
+            return '';
+        }
+        if (!studio_data_assistant_is_meta_ads_question($text)) {
+            return '';
+        }
+        $r = studio_data_assistant_meta_ads_answer($studio, $text);
+        if (!empty($r['answer'])) {
+            whatsapp_webhook_log(['type' => 'wa_bridge_meta_ads', 'source' => (string)($r['source'] ?? 'meta_ads'), 'answer_length' => mb_strlen((string)$r['answer'])]);
+            return (string)$r['answer'];
+        }
+        return '';
+    } catch (Throwable $e) {
+        whatsapp_webhook_log(['type' => 'wa_bridge_meta_ads_error', 'error' => $e->getMessage()]);
+        return '';
+    }
+}
+
+
 function wa_bridge_reply_text(array $studio, string $from, string $text): array
 {
     $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
@@ -1269,7 +1297,16 @@ foreach ($entries as $entry) {
                     }
                     if (trim((string)$bridgeText) !== '') {
                         // Resposta SEMPRE em texto (voz desligada por ora, a pedido do dono).
-                        $bridge = wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
+                        // Perguntas de dados reais (Meta Ads) sao respondidas pelo motor factual do CRM,
+                        // que busca os numeros verdadeiros na Meta; o agente generico nao tem esse acesso e travaria.
+                        $metaAdsText = wa_bridge_meta_ads_text($studio, (string)$bridgeText);
+                        if ($metaAdsText !== '') {
+                            $rSend = studio_whatsapp_official_send_text($studio, $bridgeFrom, $metaAdsText);
+                            if (!empty($rSend['ok'])) { wa_bridge_record_reply($studio, $bridgeFrom, $metaAdsText); }
+                            $bridge = ['ok' => !empty($rSend['ok']), 'reply' => $metaAdsText, 'via' => 'meta_ads_crm', 'send' => $rSend];
+                        } else {
+                            $bridge = wa_bridge_reply_text($studio, $bridgeFrom, (string)$bridgeText);
+                        }
                         $bridgeMode = 'text';
                         whatsapp_webhook_log([
                             'type' => 'wa_bridge',
