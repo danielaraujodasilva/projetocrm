@@ -14935,7 +14935,22 @@ function studio_whatsapp_ai_recently_promised_image(array $historyLines): bool
         return false;
     }
 
-    return (bool)preg_match('/\b(vou\s+(te\s+)?(mostrar|mandar|enviar)|aqui\s+vai|segue|enviei|mandei|tentar\s+novamente|tentei\s+gerar|gerador\s+nao\s+concluiu|motor\s+local)\b.{0,180}\b(imagem|arte|referencia|previa|modelo|gerador)|\b(imagem|arte|gerador)\b.{0,120}\b(falhou|nao\s+concluiu|caiu|indisponivel)\b|\[(imagem|envie uma imagem)[^\]]*\]/su', $recent);
+    // Detecta que o BOT prometeu/dependente gerar uma imagem recentemente mas ela ainda nao
+    // chegou (ex.: "vou tentar gerar de novo... cota liberou"), OU que houve falha de geracao.
+    // Isso permite a um follow-up curto do dono ("tenta ai") virar regeracao/edicao real.
+    $verboGeracao = '(?:vou\s+(?:te\s+)?(?:tentar|regenerar|gerar|fazer|criar|montar|mandar|enviar|mostrar)\b'.
+        '|\btentar\s+(?:gerar|de\s+novo|novamente|mais|regenerar|de\s+uma\s+vez)\b'.
+        '|\b(?:gerar|regenerar|refazer|fazer)\s+de\s+novo\b'.
+        '|\bgerar\b'.
+        '|\b(preciso|sem\s+cota|cota\s+liber|liberou|caiu|nao\s+consegui|falhou)\b)';  // fim do grupo (explicito abaixo)
+    $arte = '\b(imagem|arte|desenho|referencia|previa|visual|modelo|dragao|dragon|leao|flor|rosa|caveira|borboleta|tatuagem)\b';
+    $falhou = '\b(nao\s+concluiu|nao\s+consegui|caiu|quebrou|atrasou|indisponivel|deu\s+erro|falhou|nao\s+saiu|cota\s+nao|motor\s+local)\b';
+
+    if (preg_match('/'.$verboGeracao.'(?:|.{0,400})'.$arte.'|'.$arte.'.{0,200}'.$falhou.'|'.str_replace('(?:|', '(?:', $verboGeracao).'/su', $recent)) {
+        return true;
+    }
+    // legado: marcador de imagem a enviar ja usado por outros helpers
+    return (bool)preg_match('/\[(imagem|envie uma imagem)[^\]]*\]/s', $recent);
 }
 
 function studio_whatsapp_ai_vague_image_followup(string $text): bool
@@ -14951,7 +14966,8 @@ function studio_whatsapp_ai_vague_image_followup(string $text): bool
         return false;
     }
 
-    return (bool)preg_match('/\b(cade|nao veio|e a imagem|manda entao|quero ver|mostra ai|mostra|tenta\s+de\s+novo|tente\s+de\s+novo|tenta\s+novamente|tente\s+novamente|pode\s+tentar\s+de\s+novo|vamos\s+tentar\s+de\s+novo|ve\s+se\s+agora\s+vai)\b/u', $norm);
+    return (bool)preg_match('/\b(cade|nao veio|e a imagem|manda entao|quero ver|mostra ai|mostra|tenta\s+de\s+novo|tente\s+de\s+novo|tenta\s+novamente|tente\s+novamente|pode\s+tentar\s+de\s+novo|vamos\s+tentar\s+de\s+novo|ve\s+se\s+agora\s+vai)\b/u', $norm)
+        || (bool)preg_match('/^\s*(?:(?:e\s+|entao\s+|ta\s+bom\s+|ok\s+|beleza\s+|vamos\s+|bora\s+)*)(?:tenta(?:\s+[a-z0-9]{1,12}){0,3}|manda(?:\s+ver)?|pode\s+tentar|vai\s+la|bora)\b[.!?]*\s*$/u', $norm);
 }
 
 function studio_whatsapp_ai_is_tattoo_briefing_followup(string $text, array $historyLines): bool

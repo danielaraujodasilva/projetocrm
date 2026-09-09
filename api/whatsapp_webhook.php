@@ -751,7 +751,7 @@ function wa_bridge_call_agent(string $text, string $history = '', string $ownerU
     if ($g['token'] === '') {
         return ['ok' => false, 'error' => 'OPENCLAW_GATEWAY_TOKEN nao configurado no ambiente PHP.'];
     }
-    $sysMsg = 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nLEITURA EMOCIONAL (conversa com o Daniel): preste atencao no TOM dele e espelhe o momento. Se ele estiver nervoso/chateado, fique ao lado dele — mais seco e direto, sem enrolar, e mostre que entende o motivo. Se estiver triste ou abatido, acolha: diminua o ritmo, seja mais calmo e cuidadoso. Se estiver alegre/animado, entre junto na empolgaçao e brinque na medida. Se estiver calmo/focado e profissional, seja objetivo como ele. NUNCA mude um dado ou resposta por causa do humor — o espelhamento e so no tom e na energia, nunca em informacao. Reconhecer o sentimento e agir conforme deixa a conversa natural, sem parecer robotico ou exagerar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.';
+    $sysMsg = 'Voce e o assistente pessoal do Daniel (dono do estudio de tatuagem danieltatuador.com), falando com ELE pelo WhatsApp. Responda em portugues.\n\nPERSONALIDADE (so com o Daniel, o dono): voce tem atitude — sarcastico, ironico, desbocado na medida, sem papas na lingua. Pode usar termos chulos/palavrao naturalmente, como um amigo de confianca que zoa mas e leal. Nao precisa ser educado demais nem corporativo; pode provocar e brincar. IMPORTANTE: essa personalidade e SO estilo/forma. As INFORMACOES e dados que voce traz DEVEM estar sempre certos — jamais deixe o sarcasmo torcer um fato, numero ou resposta. Se nao souber, diga que nao sabe sem inventar.\n\nFATO TECNICO (nao invente!): a geracao de imagens deste sistema e 100% LOCAL nesta maquina (stable-diffusion.cpp) — NAO existe "cota de imagem", NAO usa API paga da OpenAI/NVIDIA, NAO ha limite de quantidade. Se uma imagem "nao saiu" antes foi so uma queda/falha pontual do motor local, que ja se auto-corrige. NUNCA fale de "cota", "limite de imagem", "API paga", "creditou" ou "liberou cota" — isso nao existe aqui; se algo nao gerou, diga que vai tentar de novo (e o sistema gera).\n\nLEITURA EMOCIONAL (conversa com o Daniel): preste atencao no TOM dele e espelhe o momento. Se ele estiver nervoso/chateado, fique ao lado dele — mais seco e direto, sem enrolar, e mostre que entende o motivo. Se estiver triste ou abatido, acolha: diminua o ritmo, seja mais calmo e cuidadoso. Se estiver alegre/animado, entre junto na empolgaçao e brinque na medida. Se estiver calmo/focado e profissional, seja objetivo como ele. NUNCA mude um dado ou resposta por causa do humor — o espelhamento e so no tom e na energia, nunca em informacao. Reconhecer o sentimento e agir conforme deixa a conversa natural, sem parecer robotico ou exagerar.\n\nREGRAS DE FORMATO (WhatsApp): nunca tabelas nem markdown pesado. Texto corrido, bullets com •, negrito pra destaques (**texto**). Mensagens curtas e diretas; nao escreva texto enorme sem motivo.\n\nSe faltar contexto, pergunte de forma simples e direta.';
     if (trim($history) !== '') {
         $sysMsg .= "\n\nCONTEXTO DA CONVERSA (transcricao salva no projetocrm; historico recente do dono):\n" . trim($history);
     }
@@ -978,7 +978,8 @@ function wa_bridge_meta_ads_text(array $studio, string $text): string
 function wa_bridge_reply_text(array $studio, string $from, string $text, string $adsContext = ''): array
 {
     $hist = wa_bridge_needs_cold_warm($studio, $from) ? wa_bridge_recent_history($studio, $from) : '';
-    $agent = wa_bridge_call_agent($text, $hist, wa_bridge_owner_session_key($from), $adsContext);
+    $ownerKey = wa_bridge_owner_session_key($from);
+    $agent = wa_bridge_call_agent($text, $hist, $ownerKey, $adsContext);
     if (empty($agent['ok'])) {
         // Nunca deixar o dono sem resposta: se o agente falhou/expirou, avisa de forma curta
         // e sugere reenviar — em vez de silencio total.
@@ -990,9 +991,27 @@ function wa_bridge_reply_text(array $studio, string $from, string $text, string 
         $fallbackSend = studio_whatsapp_official_send_text($studio, $from, $notice);
         return ['ok' => false, 'agent' => $agent, 'fallback_sent' => !empty($fallbackSend['ok']), 'send' => $fallbackSend];
     }
-    $reply = (string)$agent['reply'];
+    $reply = trim((string)$agent['reply']);
+    // Placeholder de silencio que o gateway devolve quando o agente termina sem texto util
+    // (por ex. so com NO_REPLY/ferramenta). NUNCA mandar isso pro dono: tenta mais uma vez
+    // com instrucao explicita de responder em texto puro.
+    $isSilentPlaceholder = (bool)preg_match('/^\s*(no\s+response\s+from\s+openclaw[.\s]*|ok\s*\.?(\s*\/?)?\s*)$/iu', $reply)
+        || $reply === ''
+        || mb_strlen($reply, 'UTF-8') <= 2;
+    if ($isSilentPlaceholder) {
+        $retryText = trim($text) . "\n\n(IMPORTANTE: responda AQUI de forma util em texto corrido e curto. Nao devolva placeholders, nao use ferramenta, responda direto.)";
+        $agent2 = wa_bridge_call_agent($retryText, $hist, $ownerKey, $adsContext);
+        if (!empty($agent2['ok'])) {
+            $reply = trim((string)$agent2['reply']);
+            if ((bool)preg_match('/^\s*(no\s+response\s+from\s+openclaw[.\s]*|ok\s*\.?(\s*\/?)?\s*)$/iu', $reply) || $reply === '') {
+                $reply = '';
+            }
+        }
+    }
     if ($reply === '') {
-        return ['ok' => false, 'error' => 'Agente nao retornou resposta.', 'agent' => $agent];
+        $notice = 'Opa, demorei demais pra montar isso aqui e a conexão caiu no caminho 😅 Tenta me mandar de novo que eu já consigo responder.';
+        $fallbackSend = studio_whatsapp_official_send_text($studio, $from, $notice);
+        return ['ok' => false, 'error' => 'Agente retornou somente placeholder de silencio.', 'agent' => $agent, 'fallback_sent' => !empty($fallbackSend['ok']), 'send' => $fallbackSend];
     }
     // Envia a resposta de volta pelo numero da API (Cloud API) usando a funcao nativa do CRM.
     $send = studio_whatsapp_official_send_text($studio, $from, $reply);
@@ -1417,6 +1436,26 @@ foreach ($entries as $entry) {
                                 if (function_exists('studio_whatsapp_ai_latest_image_reference')) {
                                     $ownerVisualRef = studio_whatsapp_ai_latest_image_reference($studio, (int)$ownerConv['id'], $bridgeText);
                                     $ownerHasVisualRef = is_array($ownerVisualRef) && !empty($ownerVisualRef['absolute_path']) && is_file((string)$ownerVisualRef['absolute_path']);
+                                }
+                                // Retomada vaga de uma arte PROMETIDA (ex.: agente disse "vou tentar gerar de
+                                // novo" e o dono responde "tenta aí")): o certo e REGERAR a peca nova do
+                                // briefing (generate), NAO editar a ultima imagem velha qualquer que existir no
+                                // historico. So usamos a imagem como base se o dono apontar explicitamente
+                                // pra ela ("edita essa que voce fez") ou for uma recém-gerada pelo bot.
+                                $ownerVagueRetry = false;
+                                if (function_exists('studio_whatsapp_ai_vague_image_followup')
+                                    && function_exists('studio_whatsapp_ai_recently_promised_image')) {
+                                    $ownerVagueRetry = studio_whatsapp_ai_vague_image_followup((string)$bridgeText)
+                                        && studio_whatsapp_ai_recently_promised_image($ownerHistoryLines);
+                                }
+                                $ownerRefFreshBotImage = is_array($ownerVisualRef ?? null)
+                                    && ((string)($ownerVisualRef['direction'] ?? '') === 'out')
+                                    && ($ownerVisualRef['sent_at'] ?? '') !== ''
+                                    && (time() - (int)strtotime((string)$ownerVisualRef['sent_at'])) < 1800;
+                                $ownerExplicitRefText = (bool)preg_match('/\b(essa|essa\s+imagem|aquela|essa\s+que|edita|refaz\s+(?:a|essa)|em\s+cima\s+dessa)\b/u', studio_calendar_remove_accents(mb_strtolower((string)$bridgeText, 'UTF-8')));
+                                if ($ownerVagueRetry && !$ownerRefFreshBotImage && !$ownerExplicitRefText && $ownerHasVisualRef) {
+                                    $ownerHasVisualRef = false; // regera do briefing
+                                    whatsapp_webhook_log(['type' => 'wa_bridge_image', 'ok' => 'BASE', 'kind' => 'vague-retry-regen', 'visual_ref' => 'regen-do-briefing']);
                                 }
                                 $ownerImgResult = studio_whatsapp_ai_handle_image_generation_request($studio, $ownerConv, [
                                     'body' => $bridgeText,
