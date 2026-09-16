@@ -2664,6 +2664,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
             ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
         ],
         'Marketing' => [
+            ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
             ['meta_ads', 'fa-chart-line', 'Meta Ads', 'studio_meta_ads'],
             ['tattoo_images', 'fa-wand-magic-sparkles', 'Criar imagens', 'studio_tattoo_images'],
         ],
@@ -3192,13 +3193,13 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
 }
 
-$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads'];
+$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi'];
 if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
     flash_set('error', 'Apenas administradores podem acessar esta área.');
     redirect_to('studio_home');
@@ -8542,6 +8543,262 @@ HTML;
         echo '<script>(function(){ const activeTab = ' . json_encode($activeTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '; const tabs = document.querySelectorAll("[data-settings-tab]"); const hiddenTab = document.querySelector("#studioSettingsForm [name=settings_tab]"); const targetMap = { studio: "settings-studio", agenda: "settings-agenda", whatsapp: "settings-whatsapp", ia: "settings-ia", meta_ads: "settings-meta-ads", alerts: "settings-alerts", quick_replies: "settings-quick-replies", rules: "settings-rules" }; tabs.forEach(btn => { const selected = btn.dataset.settingsTab === activeTab; btn.classList.toggle("active", selected); btn.setAttribute("aria-selected", selected ? "true" : "false"); const key = btn.dataset.settingsTab || "studio"; const target = targetMap[key] || "settings-studio"; btn.setAttribute("href", "index.php?page=studio_settings&tab=" + encodeURIComponent(key) + "#" + target); }); if (hiddenTab) hiddenTab.value = activeTab; if (window.location.hash) { const target = document.querySelector(window.location.hash); if (target) { setTimeout(() => target.scrollIntoView({ behavior: "smooth", block: "start" }), 80); } } })();</script>';
     }, $flash);
     exit;
+}
+
+if ($page === 'studio_ads_roi') {
+    $studio = require_studio();
+    $adsRoiPdo = studio_db($studio);
+    studio_ads_daily_ensure_schema($adsRoiPdo);
+    $adsRoiNotice = null;
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $action = (string)($_POST['ads_roi_action'] ?? '');
+        if ($action === 'save_spend') {
+            $date = trim((string)($_POST['campaign_date'] ?? ''));
+            $channel = strtolower(trim((string)($_POST['channel'] ?? 'meta')));
+            $spend = (float)str_replace(',', '.', (string)($_POST['spend'] ?? '0'));
+            $leads = (int)($_POST['leads_direct'] ?? 0);
+            $campaignName = trim((string)($_POST['campaign_name'] ?? ''));
+            $notes = trim((string)($_POST['notes'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 && in_array($channel, ['meta', 'google', 'outro'], true)) {
+                $stmt = $adsRoiPdo->prepare('INSERT INTO ads_daily (campaign_date, channel, campaign_name, spend, leads_direct, notes)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE spend = VALUES(spend), leads_direct = VALUES(leads_direct), notes = VALUES(notes)');
+                $stmt->execute([$date, $channel, $campaignName !== '' ? $campaignName : null, $spend, $leads, $notes !== '' ? $notes : null]);
+                $adsRoiNotice = 'Lançamento salvo: ' . $date . ' · ' . strtoupper($channel) . ' · R$ ' . number_format($spend, 2, ',', '.');
+            } else {
+                $adsRoiNotice = 'Dados inválidos. Confira a data e o canal.';
+            }
+        } elseif ($action === 'save_budget') {
+            foreach (['meta', 'google'] as $ch) {
+                if (isset($_POST['budget_' . $ch])) {
+                    $val = (float)str_replace(',', '.', (string)$_POST['budget_' . $ch]);
+                    $stmt = $adsRoiPdo->prepare('INSERT INTO ads_channel_config (channel, daily_budget) VALUES (?, ?)
+                        ON DUPLICATE KEY UPDATE daily_budget = VALUES(daily_budget)');
+                    $stmt->execute([$ch, $val]);
+                }
+            }
+            $adsRoiNotice = 'Orçamentos diários atualizados.';
+        } elseif ($action === 'sync_meta') {
+            $syncDays = (int)($_POST['sync_days'] ?? 0);
+            if ($syncDays < 1) { $syncDays = 30; }
+            $syncRes = ads_roi_sync_meta($studio, $syncDays);
+            if (!empty($syncRes['ok'])) {
+                $adsRoiNotice = 'Sincronizado com Meta Ads: ' . (int)$syncRes['imported'] . ' dias de gasto real importados (' . (int)$syncRes['days'] . ' dias).';
+            } else {
+                $adsRoiNotice = 'Falha ao sincronizar Meta Ads: ' . h((string)($syncRes['error'] ?? 'erro desconhecido'));
+            }
+        }
+    }
+
+    $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
+    $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
+    // Período personalizado (De/Até) tem prioridade sobre os presets de N dias.
+    $adsRoiFrom = trim((string)($_GET['roi_from'] ?? ''));
+    $adsRoiTo = trim((string)($_GET['roi_to'] ?? ''));
+    $adsRoiDateOk = static function (string $v): bool {
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) === 1
+            && DateTime::createFromFormat('Y-m-d', $v) instanceof DateTime;
+    };
+    $adsRoiCustom = $adsRoiDateOk($adsRoiFrom) && $adsRoiDateOk($adsRoiTo);
+    if ($adsRoiCustom) {
+        if ($adsRoiFrom > $adsRoiTo) {
+            [$adsRoiFrom, $adsRoiTo] = [$adsRoiTo, $adsRoiFrom];
+        }
+        $adsRoiStart = $adsRoiFrom;
+        $adsRoiEnd = $adsRoiTo;
+        $adsRoiPeriod = (int)((strtotime($adsRoiEnd) - strtotime($adsRoiStart)) / 86400) + 1;
+        $adsRoiPreset = null;
+    } else {
+        $adsRoiCustom = false;
+        if (!in_array($adsRoiPeriod, [7, 15, 30, 60, 90], true)) {
+            $adsRoiPeriod = 30;
+        }
+        $adsRoiStart = date('Y-m-d', strtotime('-' . ($adsRoiPeriod - 1) . ' days'));
+        $adsRoiEnd = date('Y-m-d');
+        $adsRoiPreset = $adsRoiPeriod;
+    }
+    $adsRoiSummary = ads_roi_summary($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    $adsRoiProjection = ads_roi_monthly_projection($adsRoiPdo);
+    $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
+    $adsRoiBudgets = [];
+    foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
+        $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
+    }
+
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiNotice, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
+        $s = $adsRoiSummary;
+        $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
+        echo '<style>
+            .roi-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+            .roi-card{background:#fff;border:1px solid #e6e8ee;border-radius:16px;padding:16px 18px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
+            .roi-card .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#667085;font-weight:600}
+            .roi-card .val{font-size:24px;font-weight:800;color:#101828;margin-top:6px}
+            .roi-card .sub{font-size:12px;color:#98a2b3;margin-top:4px}
+            .roi-good{color:#079455}.roi-bad{color:#d92d20}
+            .roi-table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;font-size:13px}
+            .roi-table th{background:#f9fafb;text-align:left;padding:10px 12px;color:#475467;font-weight:700;border-bottom:1px solid #eaecf0}
+            .roi-table td{padding:9px 12px;border-bottom:1px solid #f2f4f7;color:#344054}
+            .roi-table tr:hover td{background:#fcfcfd}
+            .roi-pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+            .roi-pill.meta{background:#eef2ff;color:#3538cd}.roi-pill.google{background:#ecfdf3;color:#027a48}.roi-pill.outro{background:#f2f4f7;color:#475467}
+            .roi-period-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+            .roi-period-bar .roi-custom{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:6px 10px}
+            .roi-period-bar .roi-custom label{display:flex;gap:6px;align-items:center;font-size:12px;color:#475467;font-weight:600;margin:0}
+            .roi-period-bar .roi-custom input[type=date]{border:1px solid #d0d5dd;border-radius:8px;padding:4px 8px;font-size:13px}
+            .roi-period-active{display:inline-block;background:#eef4ff;color:#3538cd;border-radius:999px;padding:3px 12px;font-size:12px;font-weight:700;margin-bottom:14px}
+            .roi-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#eaecf0;color:#475467;font-size:11px;font-weight:800;cursor:pointer;border:0;margin-left:6px;vertical-align:middle;line-height:1}
+            .roi-help:hover{background:#d0d5dd}
+            .roi-help-panel{display:none;position:fixed;z-index:1050;width:min(420px,calc(100vw - 24px));background:#fff;border:1px solid #d0d5dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:16px 18px;font-size:13px;color:#344054;line-height:1.5}
+            .roi-help-panel.is-open{display:block}
+            .roi-help-panel h4{margin:0 0 8px;font-size:14px;color:#101828}
+            .roi-help-panel code{background:#f2f4f7;border-radius:6px;padding:1px 6px;font-size:12px;color:#3538cd}
+            .roi-help-panel ul{margin:8px 0 0;padding-left:18px}
+            .roi-help-panel li{margin-bottom:6px}
+            .roi-help-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:18px;line-height:1;color:#98a2b3;cursor:pointer}
+        </style>';
+        if ($adsRoiNotice) {
+            echo '<div class="alert alert-success">' . h($adsRoiNotice) . '</div>';
+        }
+        echo '<div class="roi-period-bar">';
+        foreach ([7, 15, 30, 60, 90] as $p) {
+            $act = ($adsRoiPreset === $p) ? 'btn-dark' : 'btn-outline-secondary';
+            echo '<a class="btn btn-sm ' . $act . '" href="' . h(app_url('studio_ads_roi')) . '&roi_days=' . $p . '">' . $p . ' dias</a>';
+        }
+        echo '<form method="get" class="roi-custom">';
+        echo '<input type="hidden" name="page" value="studio_ads_roi">';
+        echo '<label>De <input type="date" name="roi_from" value="' . h($adsRoiStart) . '" max="' . h(date('Y-m-d')) . '"></label>';
+        echo '<label>Até <input type="date" name="roi_to" value="' . h($adsRoiEnd) . '" max="' . h(date('Y-m-d')) . '"></label>';
+        echo '<button class="btn btn-sm btn-dark" type="submit">Aplicar período</button>';
+        echo '</form>';
+        echo '</div>';
+        echo '<div class="roi-period-active">Período analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' · ' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ' (personalizado)' : '') . '</div>';
+
+        // Explicações de cálculo exibidas nos tooltips clicáveis (chave => [título, corpo HTML]).
+        $help = [
+            'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
+            'agendamentos' => ['Agendamentos reais', 'Conta linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no período. É a agenda de verdade, não os leads do anúncio.<br><br>O subtítulo mostra quantos desses estão com status <code>cancelado</code>.'],
+            'cpa' => ['Custo por agendamento', 'Quanto custou, em média, cada agendamento do período:<br><br><code>gasto total ÷ nº de agendamentos</code><br><br>Se não houve agendamento no período, aparece <b>—</b> (divisão por zero).'],
+            'roas' => ['Retorno (ROAS)', 'Retorno sobre o gasto de anúncio:<br><br><code>valor agendado ÷ gasto total</code><br><br>Ex.: <b>2,69x</b> significa que cada R$ 1 gasto voltou como R$ 2,69 em tatuagem agendada.<br><br>Fica <span style="color:#d92d20">vermelho</span> abaixo de 1x (ainda não pagou o anúncio) e <span style="color:#079455">verde</span> a partir de 1x.<br><br><b>Atenção:</b> é o valor <i>agendado</i>, não o efetivamente recebido — parte dos agendamentos pode fechar depois.'],
+            'valor_agendado' => ['Valor agendado', 'Soma do campo <code>value</code> dos agendamentos do período, considerando só os que têm valor maior que zero (ignora compromissos sem valor).<br><br>É o numerador do ROAS.'],
+            'projecao' => ['Projeção mensal', 'Estimativa pelo orçamento diário configurado abaixo (soma dos canais ativos em <code>ads_channel_config</code>):<br><br><code>orçamento/dia × 30</code><br><br>Não usa o gasto real — serve para planejar o mês.'],
+            'custo_canal' => ['Meta x Google — rateio', 'Compara o gasto de cada canal no período. A coluna <b>% do gasto</b> é <code>gasto do canal ÷ gasto total</code>.<br><br>Já o <b>Custo por agendamento*</b> é um <i>rateio</i>: como a agenda não registra de qual anúncio veio cada cliente, dividimos o gasto do canal pelo total de agendamentos do período (o mesmo denominador para os dois canais). Por isso os dois valores somam o CPA geral, não um CPA real por canal.<br><br>Para separar com precisão, lance os leads por canal na seção abaixo.'],
+            'dia_a_dia' => ['Dia a dia', 'Detalhe diário do período. Cada linha cruza, para aquela data:<br><br>• <b>Gasto</b>: soma Meta + Google do dia (com a regra anti-duplicidade do SYNC).<br>• <b>Agend.</b>: agendamentos da agenda nesse dia.<br>• <b>Custo/agend.</b>: <code>gasto do dia ÷ agendamentos do dia</code>.<br>• <b>Valor</b>: soma dos valores agendados no dia.<br>• <b>ROAS</b>: <code>valor do dia ÷ gasto do dia</code>.<br><br>Dias sem gasto aparecem com <b>—</b> no lugar do ROAS (sem divisão por zero).'],
+        ];
+        $helpBtn = static function (string $key) use ($help): string {
+            if (!isset($help[$key])) {
+                return '';
+            }
+            return '<button type="button" class="roi-help" data-roi-help="' . h($key) . '" aria-label="Como calculamos">?</button>';
+        };
+
+        echo '<div class="roi-cards">';
+        echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Agendamentos reais' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)$s['cancelados'] . ' cancelados</div></div>';
+        $cpa = $s['custo_por_agendamento'];
+        echo '<div class="roi-card"><div class="lbl">Custo por agendamento' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">quanto custa trazer 1 cliente</div></div>';
+        $roas = $s['roas'];
+        $roasClass = (is_null($roas) || $roas < 1) ? 'roi-bad' : 'roi-good';
+        echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format($roas, 2, ',', '.') . 'x') . '</div><div class="sub">valor agendado / gasto</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Valor agendado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma das tatuagens agendadas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
+        echo '</div>';
+
+        // Painel único de tooltip + dados das explicações em JSON (aberto por clique no "?").
+        echo '<div class="roi-help-panel" id="roiHelpPanel" role="dialog" aria-modal="false"><button type="button" class="roi-help-close" aria-label="Fechar">&times;</button><div id="roiHelpBody"></div></div>';
+        echo '<script>(function(){
+            var HELP = ' . json_encode(array_map(static function ($v) { return ['title' => $v[0], 'body' => $v[1]]; }, $help), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';
+            var panel = document.getElementById("roiHelpPanel");
+            var body = document.getElementById("roiHelpBody");
+            if (!panel || !body) { return; }
+            function closePanel(){ panel.classList.remove("is-open"); }
+            function openPanel(btn){
+                var key = btn.getAttribute("data-roi-help");
+                var item = HELP[key];
+                if (!item) { return; }
+                body.innerHTML = "<h4>" + item.title + "</h4><div>" + item.body + "</div>";
+                panel.classList.add("is-open");
+                var r = btn.getBoundingClientRect();
+                var pw = panel.offsetWidth, ph = panel.offsetHeight;
+                var left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+                var top = r.bottom + 8;
+                if (top + ph > window.innerHeight - 8) { top = Math.max(8, r.top - ph - 8); }
+                panel.style.left = left + "px";
+                panel.style.top = top + "px";
+            }
+            document.addEventListener("click", function(ev){
+                var btn = ev.target.closest ? ev.target.closest("[data-roi-help]") : null;
+                if (btn) { ev.preventDefault(); openPanel(btn); return; }
+                if (!panel.contains(ev.target)) { closePanel(); }
+            });
+            panel.querySelector(".roi-help-close").addEventListener("click", closePanel);
+            document.addEventListener("keydown", function(ev){ if (ev.key === "Escape") { closePanel(); } });
+            window.addEventListener("resize", closePanel);
+        })();</script>';
+
+        $verdict = 'Sem dados suficientes no período. Lance o gasto dos anúncios abaixo para o painel mostrar o retorno.';
+        if (!is_null($roas) && $roas >= 1) {
+            $verdict = '✅ Está compensando: cada R$ 1 de anúncio voltou como ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada no período.';
+        } elseif (!is_null($roas)) {
+            $verdict = '⚠️ Ainda não compensou no período (ROAS ' . number_format($roas, 2, ',', '.') . 'x). Atenção: parte dos agendamentos pode ser de mês anterior, e fechamento costuma vir depois do agendamento.';
+        }
+        echo '<div class="alert alert-info">' . h($verdict) . '</div>';
+
+        echo '<h3 class="h5 mt-4 mb-2">Meta x Google (período)' . $helpBtn('custo_canal') . '</h3>';
+        echo '<table class="roi-table mb-4"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th><th>Custo por agendamento*</th></tr></thead><tbody>';
+        $totSpend = max(0.01, (float)$s['spend_total']);
+        $chMeta = (float)$s['spend_meta']; $chGoogle = (float)$s['spend_google'];
+        echo '<tr><td><span class="roi-pill meta">META</span></td><td>' . $fmt($chMeta) . '</td><td>' . number_format($chMeta / $totSpend * 100, 1, ',', '.') . '%</td><td>' . $fmt($s['agendamentos'] > 0 ? $chMeta / max(1, $s['agendamentos']) : null) . '</td></tr>';
+        echo '<tr><td><span class="roi-pill google">GOOGLE</span></td><td>' . $fmt($chGoogle) . '</td><td>' . number_format($chGoogle / $totSpend * 100, 1, ',', '.') . '%</td><td>' . $fmt($s['agendamentos'] > 0 ? $chGoogle / max(1, $s['agendamentos']) : null) . '</td></tr>';
+        echo '</tbody></table>';
+        echo '<p class="muted" style="font-size:12px">* rateio por canal — a agenda não separa a origem do agendamento. Lance os leads por canal abaixo para separar com precisão.</p>';
+
+        echo '<h3 class="h5 mt-4 mb-2">Dia a dia' . $helpBtn('dia_a_dia') . '</h3>';
+        echo '<div style="max-height:420px;overflow:auto;border:1px solid #eaecf0;border-radius:14px">';
+        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Agend.</th><th>Custo/agend.</th><th>Valor</th><th>ROAS</th></tr></thead><tbody>';
+        foreach (array_reverse($s['series']) as $d) {
+            $roasD = $d['roas'];
+            $cls = (is_null($roasD) || $roasD < 1) ? 'roi-bad' : 'roi-good';
+            echo '<tr><td>' . h(date('d/m', strtotime((string)$d['date']))) . '</td>';
+            echo '<td>' . ($d['meta_spend'] > 0 ? $fmt($d['meta_spend']) : '—') . '</td>';
+            echo '<td>' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '—') . '</td>';
+            echo '<td>' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '—') . '</td>';
+            echo '<td>' . (int)$d['agendamentos'] . '</td>';
+            echo '<td>' . $fmt($d['custo_por_agendamento']) . '</td>';
+            echo '<td>' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '—') . '</td>';
+            echo '<td class="' . $cls . '">' . (is_null($roasD) ? '—' : number_format($roasD, 2, ',', '.') . 'x') . '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+
+        echo '<h3 class="h5 mt-4 mb-2">Lançar gasto do dia</h3>';
+        echo '<form method="post" class="row g-2 align-items-end mb-3">';
+        echo '<input type="hidden" name="ads_roi_action" value="save_spend">';
+        echo '<div class="col-md-3"><label class="form-label">Data</label><input type="date" class="form-control" name="campaign_date" value="' . h(date('Y-m-d')) . '" required></div>';
+        echo '<div class="col-md-3"><label class="form-label">Canal</label><select class="form-select" name="channel"><option value="meta">Meta</option><option value="google">Google</option><option value="outro">Outro</option></select></div>';
+        echo '<div class="col-md-3"><label class="form-label">Gasto (R$)</label><input type="text" class="form-control" name="spend" placeholder="35,00" required></div>';
+        echo '<div class="col-md-3"><label class="form-label">Leads diretos (opcional)</label><input type="number" class="form-control" name="leads_direct" min="0" value="0"></div>';
+        echo '<div class="col-md-6"><label class="form-label">Campanha (opcional)</label><input type="text" class="form-control" name="campaign_name" placeholder="ex: [28/01] LEADS WPP"></div>';
+        echo '<div class="col-md-6"><label class="form-label">Observação</label><input type="text" class="form-control" name="notes"></div>';
+        echo '<div class="col-12"><button class="btn btn-dark">Salvar lançamento</button></div>';
+        echo '</form>';
+
+        echo '<h3 class="h5 mt-4 mb-2">Orçamento diário por canal</h3>';
+        echo '<form method="post" class="row g-2 align-items-end">';
+        echo '<input type="hidden" name="ads_roi_action" value="save_budget">';
+        echo '<div class="col-md-3"><label class="form-label">Meta (R$/dia)</label><input type="text" class="form-control" name="budget_meta" value="' . h(number_format((float)($adsRoiBudgets['meta'] ?? 35), 2, ',', '.')) . '"></div>';
+        echo '<div class="col-md-3"><label class="form-label">Google (R$/dia)</label><input type="text" class="form-control" name="budget_google" value="' . h(number_format((float)($adsRoiBudgets['google'] ?? 50), 2, ',', '.')) . '"></div>';
+        echo '<div class="col-md-3"><button class="btn btn-outline-dark">Salvar orçamento</button></div>';
+        echo '</form>';
+
+        echo '<h3 class="h5 mt-4 mb-2">Importar gasto real das APIs</h3>';
+        echo '<p class="muted" style="font-size:12px">Puxa o gasto diário real das suas contas de anúncio direto da API e lança no painel automaticamente (marcado como "[SYNC META]"). Não apaga lançamentos manuais.</p>';
+        echo '<form method="post" class="row g-2 align-items-end">';
+        echo '<input type="hidden" name="ads_roi_action" value="sync_meta">';
+        echo '<div class="col-md-3"><label class="form-label">Últimos dias</label><select class="form-select" name="sync_days"><option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option></select></div>';
+        echo '<div class="col-md-6"><span class="d-inline-block mt-4"><button class="btn btn-dark">Sincronizar Meta Ads</button></span></div>';
+        echo '</form>';
+        echo '<p class="muted mt-2" style="font-size:12px">Google Ads: precisa conectar a conta (credenciais OAuth/API). Assim que configurar, o botão aparece aqui.</p>';
+    }, null);
 }
 
 if ($page === 'studio_meta_ads') {
