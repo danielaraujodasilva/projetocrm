@@ -35,6 +35,9 @@ function ads_roi_spend_matrix(PDO $pdo, string $start, string $end): array
         $ch = strtolower((string)$row['channel']);
         $name = strtoupper(trim((string)($row['campaign_name'] ?? '')));
         $isSync = str_starts_with($name, '[SYNC');
+        // "sync_seen" marca que a API já cobriu aquele dia, mesmo quando o gasto é 0,00.
+        // Sem isso, um dia com gasto 0 na API cai no lançamento manual antigo e infla o total.
+        $raw[$d][$ch]['sync_seen'] = ($raw[$d][$ch]['sync_seen'] ?? false) || $isSync;
         $raw[$d][$ch]['sync_spend'] = ($raw[$d][$ch]['sync_spend'] ?? 0.0) + ($isSync ? (float)$row['spend'] : 0.0);
         $raw[$d][$ch]['manual_spend'] = ($raw[$d][$ch]['manual_spend'] ?? 0.0) + ($isSync ? 0.0 : (float)$row['spend']);
         $raw[$d][$ch]['leads'] = ($raw[$d][$ch]['leads'] ?? 0) + (int)$row['leads_direct'];
@@ -43,9 +46,10 @@ function ads_roi_spend_matrix(PDO $pdo, string $start, string $end): array
     $out = [];
     foreach ($raw as $d => $channels) {
         foreach ($channels as $ch => $agg) {
-            $hasSync = ($agg['sync_spend'] ?? 0.0) > 0;
+            // Basta EXISTIR linha de SYNC para o dia/canal: a API é a verdade, mesmo
+            // quando ela devolve 0,00. Só cai no manual quando não houve sync nenhum.
+            $hasSync = (bool)($agg['sync_seen'] ?? false);
             $out[$d][$ch] = [
-                // SYNC ganha quando existe; senão cai no manual.
                 'spend' => $hasSync ? (float)$agg['sync_spend'] : (float)$agg['manual_spend'],
                 'leads' => (int)($agg['leads'] ?? 0),
                 'source' => $hasSync ? 'sync' : 'manual',
@@ -225,13 +229,22 @@ function ads_roi_sync_meta(array $studio, int $days = 30): array
          ON DUPLICATE KEY UPDATE spend = VALUES(spend)'
     );
     $imported = 0;
+    $spendPorDia = [];
     foreach (($response['json']['data'] ?? []) as $row) {
         $date = (string)($row['date_start'] ?? '');
         $spend = (float)($row['spend'] ?? 0);
-        if ($date === '' || $spend <= 0) { continue; }
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) { continue; }
-        $stmt->execute([$date, $spend]);
+        if ($date === '' || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) { continue; }
+        $spendPorDia[$date] = $spend;
+    }
+    // Grava TODO o intervalo, inclusive dias sem gasto (0,00), para a API ser a
+    // fonte da verdade do período e o lançamento manual antigo não voltar a contar.
+    $cursor = new DateTime($since);
+    $limite = new DateTime($until);
+    while ($cursor <= $limite) {
+        $date = $cursor->format('Y-m-d');
+        $stmt->execute([$date, round((float)($spendPorDia[$date] ?? 0.0), 2)]);
         $imported++;
+        $cursor->modify('+1 day');
     }
     return ['ok' => true, 'imported' => $imported, 'days' => $days];
 }
@@ -498,10 +511,17 @@ function ads_roi_sync_google(array $studio, int $days = 30): array
          VALUES (?, "google", "[SYNC GOOGLE]", ?, NULL)
          ON DUPLICATE KEY UPDATE spend = VALUES(spend)'
     );
+    // Grava TODO o intervalo sincronizado, inclusive os dias sem gasto (0,00).
+    // Assim a API vira a fonte da verdade para esses dias e o lançamento manual
+    // antigo não volta a inflar o painel quando o gasto real do dia é zero.
     $imported = 0;
-    foreach ($porDia as $data => $valor) {
-        $stmt->execute([$data, round((float)$valor, 2)]);
+    $cursor = new DateTime($de);
+    $limite = new DateTime($ate);
+    while ($cursor <= $limite) {
+        $data = $cursor->format('Y-m-d');
+        $stmt->execute([$data, round((float)($porDia[$data] ?? 0.0), 2)]);
         $imported++;
+        $cursor->modify('+1 day');
     }
     return ['ok' => true, 'imported' => $imported, 'days' => $days, 'from' => $de, 'to' => $ate];
 }
