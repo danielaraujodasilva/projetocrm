@@ -8677,13 +8677,17 @@ if ($page === 'studio_ads_roi') {
     // Saldo/credito das contas de anuncio (monitoramento do dono).
     $adsSaldoMeta = studio_meta_ads_balance_status($studio);
     $adsSaldoGoogle = ads_roi_google_balance_status($studio);
+    // Vendas fechadas nas conversas (analise pela IA local).
+    require_once APP_BASE_PATH . '/app/venda_ia.php';
+    $vendaResumo = venda_resumo_por_origem($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    $vendaIaOnline = venda_ia_online($studio);
     $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
     $adsRoiBudgets = [];
     foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8883,6 +8887,51 @@ if ($page === 'studio_ads_roi') {
                 . 'Google: limite aprovado no período menos o já gasto (a API do Google Ads não tem campo de saldo pronto). '
                 . 'Saldo <b>baixo</b> = Meta abaixo de R$ 30 ou Google abaixo de R$ 50.</div>';
         }
+
+        echo '<h3 class="h5 mt-4 mb-2">Conversa x Venda (análise da IA local)</h3>';
+        $vTot = $vendaResumo['totais'] ?? ['conversas' => 0, 'vendas' => 0, 'valor' => 0.0];
+        $vConversas = (int)($vTot['conversas'] ?? 0);
+        $vVendas = (int)($vTot['vendas'] ?? 0);
+        $vValor = (float)($vTot['valor'] ?? 0);
+        $vTaxa = $vConversas > 0 ? round($vVendas / $vConversas * 100, 1) : null;
+        $vTicket = $vVendas > 0 ? $vValor / $vVendas : null;
+        $vCustoVenda = ($vVendas > 0 && (float)$s['spend_total'] > 0) ? ((float)$s['spend_total'] / $vVendas) : null;
+
+        echo '<div class="roi-cards">';
+        echo '<div class="roi-card"><div class="lbl">Conversa iniciada</div><div class="val">' . $vConversas . '</div><div class="sub">conversas analisadas no período</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Venda concretizada</div><div class="val " style="color:#079455">' . $vVendas . '</div><div class="sub">a IA identificou fechamento</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Taxa de fechamento</div><div class="val">' . (is_null($vTaxa) ? '—' : number_format($vTaxa, 1, ',', '.') . '%') . '</div><div class="sub">vendas ÷ conversas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Valor vendido</div><div class="val">' . $fmt($vValor) . '</div><div class="sub">soma das vendas identificadas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Ticket médio</div><div class="val">' . $fmt($vTicket) . '</div><div class="sub">valor ÷ vendas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Custo por venda</div><div class="val">' . $fmt($vCustoVenda) . '</div><div class="sub">gasto ÷ vendas</div></div>';
+        echo '</div>';
+
+        // Detalhe por origem: o que cada campanha trouxe e o que fechou.
+        $vOrigens = $vendaResumo['por_origem'] ?? [];
+        if ($vOrigens) {
+            echo '<table class="roi-table mb-3"><thead><tr><th>Canal de origem</th><th>Conversas</th><th>Vendas</th><th>Taxa</th><th>Valor</th></tr></thead><tbody>';
+            foreach ($vOrigens as $origemNome => $dados) {
+                $c = (int)$dados['conversas'];
+                $vd = (int)$dados['vendas'];
+                $tx = $c > 0 ? number_format($vd / $c * 100, 1, ',', '.') . '%' : '—';
+                echo '<tr><td>' . h(ads_origem_rotulo((string)$origemNome)) . '</td>'
+                    . '<td>' . $c . '</td>'
+                    . '<td>' . $vd . '</td>'
+                    . '<td>' . $tx . '</td>'
+                    . '<td>' . $fmt((float)$dados['valor']) . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+
+        if (!$vendaIaOnline) {
+            echo '<div class="alert alert-warning" style="font-size:12px">A IA local (Ollama) está <b>fora do ar</b>: nenhuma conversa nova está sendo analisada agora. A tarefa <code>ProjetoCRM Ollama IA Local</code> sobe o serviço automaticamente.</div>';
+        }
+        $vIgnoradas = (int)($vendaResumo['ignoradas'] ?? 0);
+        echo '<div class="alert alert-secondary" style="font-size:12px">'
+            . '<b>Como funciona.</b> A IA local lê as conversas e decide se o cliente fechou a venda. '
+            . 'Roda de 2 em 2 horas pela tarefa <code>ProjetoCRM Analise Vendas IA</code>. '
+            . ($vIgnoradas > 0 ? 'Conversas ignoradas de propósito (ex.: seu próprio número): <b>' . $vIgnoradas . '</b>. ' : '')
+            . 'Confiança baixa ou motivo genérico ficam registrados para você conferir na análise.</div>';
 
         echo '<div class="roi-cards">';
         echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
