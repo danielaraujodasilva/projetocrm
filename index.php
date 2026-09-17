@@ -440,7 +440,7 @@ if ($action === 'studio_login') {
             if (login_studio_user((string)$_POST['email'], (string)$_POST['password'])) {
                 flash_set('success', 'Login do estudio realizado.');
                 unset($_SESSION['studio_return_to']);
-                if ($returnTo !== '' && str_contains($returnTo, 'page=studio_whatsapp_mobile')) {
+                if ($returnTo !== '') {
                     redirect_to_url($returnTo);
                 }
                 redirect_to('studio_home');
