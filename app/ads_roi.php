@@ -243,24 +243,27 @@ function ads_roi_sync_meta(array $studio, int $days = 30): array
 function ads_roi_google_oauth_config(array $studio): array
 {
     $settings = studio_settings($studio);
-    $clientId = trim((string)($settings['google_ads_client_id'] ?? ''));
-    $clientSecret = trim((string)($settings['google_ads_client_secret'] ?? ''));
-    // Reaproveita as credenciais do Google Calendar quando o Ads nao tiver as proprias.
-    if ($clientId === '' || $clientSecret === '') {
-        $calendarCfg = (array)(app_config('google_calendar') ?? []);
-        if ($clientId === '') {
-            $clientId = trim((string)($calendarCfg['client_id'] ?? ''));
+    // Credenciais locais (fora do versionamento), no mesmo padrao do Google Calendar.
+    $caminho = dirname(__DIR__) . '/config/google_ads.local.json';
+    $cred = [];
+    if (is_file($caminho)) {
+        $dec = json_decode((string)file_get_contents($caminho), true);
+        if (is_array($dec)) {
+            $cred = is_array($dec['web'] ?? null) ? $dec['web'] : ($dec['installed'] ?? []);
         }
-        if ($clientSecret === '') {
-            $clientSecret = trim((string)($calendarCfg['client_secret'] ?? ''));
-        }
+    }
+    $clientId = trim((string)($cred['client_id'] ?? $settings['google_ads_client_id'] ?? ''));
+    // O segredo tambem pode vir do cofre, injetado como variavel de ambiente.
+    $clientSecret = trim((string)($cred['client_secret'] ?? ''));
+    if ($clientSecret === '') {
+        $clientSecret = trim((string)(getenv('GOOGLE_ADS_CLIENT_SECRET') ?: ''));
     }
     return [
         'client_id' => $clientId,
         'client_secret' => $clientSecret,
-        'redirect_uri' => 'https://danieltatuador.com/projetocrm/google_ads_oauth_callback.php',
-        'auth_uri' => 'https://accounts.google.com/o/oauth2/v2/auth',
-        'token_uri' => 'https://oauth2.googleapis.com/token',
+        'redirect_uri' => trim((string)(($cred['redirect_uris'][0] ?? null) ?: 'https://danieltatuador.com/projetocrm/google_ads_oauth_callback.php')),
+        'auth_uri' => trim((string)($cred['auth_uri'] ?? 'https://accounts.google.com/o/oauth2/v2/auth')),
+        'token_uri' => trim((string)($cred['token_uri'] ?? 'https://oauth2.googleapis.com/token')),
         // Escopo do Google Ads. Ver docs: o escopo adwords cobre leitura de relatorios.
         'scopes' => ['https://www.googleapis.com/auth/adwords'],
     ];

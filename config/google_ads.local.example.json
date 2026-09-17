@@ -1,0 +1,11 @@
+{
+  "web": {
+    "client_id": "845448328086-sf3eff2dkd9auabmi2shf7fmq9kkbssn.apps.googleusercontent.com",
+    "client_secret": "__SECRET__",
+    "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "redirect_uris": [
+      "https://danieltatuador.com/projetocrm/google_ads_oauth_callback.php"
+    ]
+  }
+}
