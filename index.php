@@ -8550,21 +8550,6 @@ if ($page === 'studio_ads_roi') {
     $adsRoiPdo = studio_db($studio);
     studio_ads_daily_ensure_schema($adsRoiPdo);
 
-    // Salva o Customer ID do Google Ads (conta de anuncios) informado no painel.
-    if (isset($_GET['google_ads_customer_id'])) {
-        $cid = preg_replace('/\D/', '', (string)$_GET['google_ads_customer_id']);
-        try {
-            $stmt = $adsRoiPdo->prepare('INSERT INTO studio_settings (id, google_ads_customer_id) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_customer_id = VALUES(google_ads_customer_id)');
-            $stmt->execute([$cid]);
-        } catch (Throwable $e) {
-            $adsRoiPdo->exec('ALTER TABLE studio_settings ADD COLUMN google_ads_customer_id VARCHAR(40) NULL');
-            $stmt = $adsRoiPdo->prepare('INSERT INTO studio_settings (id, google_ads_customer_id) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_customer_id = VALUES(google_ads_customer_id)');
-            $stmt->execute([$cid]);
-        }
-    }
-
-
-    $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
     $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
     // Período personalizado (De/Até) tem prioridade sobre os presets de N dias.
     $adsRoiFrom = trim((string)($_GET['roi_from'] ?? ''));
@@ -8668,20 +8653,10 @@ if ($page === 'studio_ads_roi') {
             // Coluna ainda nao existe: nunca conectou.
             $adsGoogleConectado = false;
         }
-        $adsGoogleSettings = studio_settings($studio);
-        $adsGoogleCustomer = preg_replace('/\D/', '', (string)($adsGoogleSettings['google_ads_customer_id'] ?? ''));
 
         echo '<div class="roi-period-bar" style="margin-bottom:14px">';
         if ($adsGoogleConectado) {
             echo '<span class="roi-pill google" style="padding:6px 12px">Google Ads conectado</span>';
-            if ($adsGoogleCustomer === '') {
-                echo '<span class="muted" style="font-size:12px">Falta informar o Customer ID da conta de anuncios para o gasto aparecer.</span>';
-            }
-            echo '<form method="get" class="roi-custom" style="gap:6px">';
-            echo '<input type="hidden" name="page" value="studio_ads_roi">';
-            echo '<label>Customer ID <input type="text" name="google_ads_customer_id" placeholder="836-860-6975" value="' . h($adsGoogleCustomer) . '" style="border:1px solid #d0d5dd;border-radius:8px;padding:4px 8px;font-size:13px"></label>';
-            echo '<button class="btn btn-sm btn-dark" type="submit">Salvar</button>';
-            echo '</form>';
         } else {
             echo '<span class="roi-pill outro" style="padding:6px 12px">Google Ads nao conectado - o painel mostra apenas o gasto do Meta</span>';
             echo '<a class="btn btn-sm btn-dark" href="' . h(app_asset_url('google_ads_oauth_start.php')) . '">Conectar Google Ads</a>';
