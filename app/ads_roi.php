@@ -237,28 +237,143 @@ function ads_roi_sync_meta(array $studio, int $days = 30): array
 }
 
 /**
- * Sincroniza o gasto diário REAL do Google Ads na tabela ads_daily.
- * Requer credencial Google Ads configurada (OAuth/API key). Enquanto não houver
- * credencial, retorna erro claro. Preencher o fetch real quando a conta for conectada.
+ * Troca o refresh token por um access token do Google (OAuth 2.0).
+ * Retorna ['ok'=>bool,'token'=>string,'error'=>?string].
+ */
+function ads_roi_google_access_token(array $cfg): array
+{
+    if (($cfg['client_id'] ?? '') === '' || ($cfg['client_secret'] ?? '') === '' || ($cfg['refresh_token'] ?? '') === '') {
+        return ['ok' => false, 'token' => '', 'error' => 'OAuth do Google incompleto (client id, secret ou refresh token).'];
+    }
+    $res = ads_roi_http_request('POST', 'https://oauth2.googleapis.com/token', [], [
+        'client_id' => $cfg['client_id'],
+        'client_secret' => $cfg['client_secret'],
+        'refresh_token' => $cfg['refresh_token'],
+        'grant_type' => 'refresh_token',
+    ], 'form');
+    if (!$res['ok']) {
+        return ['ok' => false, 'token' => '', 'error' => 'Falha ao renovar o token do Google: ' . (string)($res['error'] ?? 'erro desconhecido')];
+    }
+    $token = (string)($res['json']['access_token'] ?? '');
+    if ($token === '') {
+        return ['ok' => false, 'token' => '', 'error' => 'O Google nao devolveu access_token.'];
+    }
+    return ['ok' => true, 'token' => $token, 'error' => null];
+}
+
+/**
+ * Cliente HTTP simples (curl) usado pelo sync do Google.
+ * Suporta corpo JSON e application/x-www-form-urlencoded.
+ */
+function ads_roi_http_request(string $metodo, string $url, array $headers, array $dados, string $formato = 'json', int $timeout = 60): array
+{
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'error' => 'Extensao curl do PHP indisponivel.'];
+    }
+    $ch = curl_init($url);
+    $headers[] = 'Accept: application/json';
+    $corpo = '';
+    if ($metodo !== 'GET' && $dados) {
+        if ($formato === 'form') {
+            $corpo = http_build_query($dados);
+            $headers[] = 'Content-Type: application/x-www-form-urlencoded';
+        } else {
+            $corpo = json_encode($dados, JSON_UNESCAPED_SLASHES);
+            $headers[] = 'Content-Type: application/json';
+        }
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $metodo,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_CONNECTTIMEOUT => 15,
+    ]);
+    if ($corpo !== '') {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $corpo);
+    }
+    $resposta = curl_exec($ch);
+    $codigo = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $erroCurl = curl_error($ch);
+    curl_close($ch);
+
+    if ($resposta === false) {
+        return ['ok' => false, 'error' => 'Falha de conexao: ' . $erroCurl, 'status' => $codigo];
+    }
+    $json = json_decode((string)$resposta, true);
+    if ($codigo < 200 || $codigo >= 300) {
+        $msg = (string)($json['error']['message'] ?? $json['error_description'] ?? substr((string)$resposta, 0, 300));
+        return ['ok' => false, 'error' => 'HTTP ' . $codigo . ': ' . $msg, 'status' => $codigo, 'json' => $json];
+    }
+    return ['ok' => true, 'json' => is_array($json) ? $json : [], 'status' => $codigo, 'error' => null];
+}
+
+/**
+ * Sincroniza o gasto diario REAL do Google Ads na tabela ads_daily.
+ * Usa a Google Ads API (REST) com OAuth 2.0: renova o access token pelo refresh token
+ * e consulta a metrica metrics.cost_micros por dia (segmented by segments.date).
  * Grava com campaign_name = '[SYNC GOOGLE]'. Contrato igual ao sync Meta.
+ *
+ * Observacao: enquanto a chave de desenvolvedor estiver em nivel de teste, a API
+ * aceita consultas apenas em contas de teste; com Explorer/Basic Access funciona
+ * na conta de producao.
  */
 function ads_roi_sync_google(array $studio, int $days = 30): array
 {
     $settings = studio_settings($studio);
     $googleCfg = [
         'developer_token' => trim((string)($settings['google_ads_developer_token'] ?? '')),
-        'customer_id' => trim((string)($settings['google_ads_customer_id'] ?? '')),
+        'customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_customer_id'] ?? '')),
         'client_id' => trim((string)($settings['google_ads_client_id'] ?? '')),
         'client_secret' => trim((string)($settings['google_ads_client_secret'] ?? '')),
         'refresh_token' => trim((string)($settings['google_ads_refresh_token'] ?? '')),
+        'login_customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_login_customer_id'] ?? '')),
+        'api_version' => trim((string)($settings['google_ads_api_version'] ?? 'v18')) ?: 'v18',
     ];
     if (in_array('', $googleCfg, true)) {
-        return ['ok' => false, 'error' => 'Google Ads ainda não configurado: conecte a conta (developer token, customer id e OAuth) para importar o gasto automaticamente.', 'imported' => 0, 'days' => $days, 'needs_google_credentials' => true];
+        return ['ok' => false, 'error' => 'Google Ads ainda nao configurado: conecte a conta (developer token, customer id e OAuth) para importar o gasto automaticamente.', 'imported' => 0, 'days' => $days, 'needs_google_credentials' => true];
     }
 
-    // TODO(google-ads): implementar o fetch real via Google Ads API quando a conta for conectada.
-    // O contrato: para cada dia do período, doar [datetime => spend] e gravar como abaixo.
+    $tokenRes = ads_roi_google_access_token($googleCfg);
+    if (!$tokenRes['ok']) {
+        return ['ok' => false, 'error' => (string)$tokenRes['error'], 'imported' => 0, 'days' => $days];
+    }
+
     $days = max(1, min(365, $days));
+    $ate = date('Y-m-d');
+    $de = date('Y-m-d', strtotime('-' . ($days - 1) . ' days'));
+
+    $consulta = 'SELECT segments.date, metrics.cost_micros FROM customer '
+        . 'WHERE segments.date BETWEEN "' . $de . '" AND "' . $ate . '" '
+        . 'AND metrics.cost_micros > 0';
+
+    $headers = [
+        'Authorization: Bearer ' . (string)$tokenRes['token'],
+        'developer-token: ' . $googleCfg['developer_token'],
+    ];
+    if ($googleCfg['login_customer_id'] !== '') {
+        $headers[] = 'login-customer-id: ' . $googleCfg['login_customer_id'];
+    }
+
+    $url = 'https://googleads.googleapis.com/' . rawurlencode($googleCfg['api_version'])
+        . '/customers/' . rawurlencode($googleCfg['customer_id']) . '/googleAds:search';
+
+    $res = ads_roi_http_request('POST', $url, $headers, ['query' => $consulta]);
+    if (!$res['ok']) {
+        return ['ok' => false, 'error' => 'Google Ads API: ' . (string)($res['error'] ?? 'erro desconhecido'), 'imported' => 0, 'days' => $days];
+    }
+
+    // Soma cost_micros (1 unidade = 1/1.000.000 da moeda) por dia.
+    $porDia = [];
+    foreach ((array)($res['json']['results'] ?? []) as $linha) {
+        $data = (string)($linha['segments']['date'] ?? '');
+        $micros = (float)($linha['metrics']['costMicros'] ?? 0);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $data) !== 1 || $micros <= 0) {
+            continue;
+        }
+        $porDia[$data] = ($porDia[$data] ?? 0.0) + ($micros / 1000000);
+    }
+
     $pdo = studio_db($studio);
     studio_ads_daily_ensure_schema($pdo);
     $stmt = $pdo->prepare(
@@ -266,6 +381,10 @@ function ads_roi_sync_google(array $studio, int $days = 30): array
          VALUES (?, "google", "[SYNC GOOGLE]", ?, NULL)
          ON DUPLICATE KEY UPDATE spend = VALUES(spend)'
     );
-    // Exemplo: $stmt->execute([$date, $spend]);
-    return ['ok' => true, 'imported' => 0, 'days' => $days, 'stub' => true];
+    $imported = 0;
+    foreach ($porDia as $data => $valor) {
+        $stmt->execute([$data, round((float)$valor, 2)]);
+        $imported++;
+    }
+    return ['ok' => true, 'imported' => $imported, 'days' => $days, 'from' => $de, 'to' => $ate];
 }
