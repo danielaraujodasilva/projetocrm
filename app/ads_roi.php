@@ -324,19 +324,23 @@ function ads_roi_google_exchange_code(string $code, string $state = ''): array
 
 /**
  * Guarda o refresh token do Google Ads nas configuracoes do estudio.
+ * Garante a coluna ANTES de escrever (nao confia em capturar o erro do INSERT:
+ * dependendo do driver, a coluna inexistente nao cai no catch de forma confiavel).
  */
 function ads_roi_google_store_refresh_token(array $studio, string $refreshToken): void
 {
     $pdo = studio_db($studio);
     studio_ads_daily_ensure_schema($pdo);
-    $stmt = $pdo->prepare('INSERT INTO studio_settings (id, google_ads_refresh_token) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_refresh_token = VALUES(google_ads_refresh_token)');
-    try {
-        $stmt->execute([$refreshToken]);
-    } catch (Throwable $e) {
-        // Coluna pode nao existir ainda: cria e tenta de novo.
+
+    // 1) Garante a coluna.
+    $col = $pdo->query("SHOW COLUMNS FROM studio_settings LIKE 'google_ads_refresh_token'")->fetch(PDO::FETCH_ASSOC);
+    if (!$col) {
         $pdo->exec('ALTER TABLE studio_settings ADD COLUMN google_ads_refresh_token TEXT NULL');
-        $stmt->execute([$refreshToken]);
     }
+
+    // 2) Grava.
+    $stmt = $pdo->prepare('INSERT INTO studio_settings (id, google_ads_refresh_token) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_refresh_token = VALUES(google_ads_refresh_token)');
+    $stmt->execute([$refreshToken]);
 }
 
 /**
@@ -424,17 +428,25 @@ function ads_roi_http_request(string $metodo, string $url, array $headers, array
 function ads_roi_sync_google(array $studio, int $days = 30): array
 {
     $settings = studio_settings($studio);
+    $oauth = ads_roi_google_oauth_config($studio);
     $googleCfg = [
-        'developer_token' => trim((string)($settings['google_ads_developer_token'] ?? '')),
+        // O developer token foi descontinuado em 09/09/2026 e passou a ser ignorado
+        // pela API; o acesso agora vem do projeto do Google Cloud dono do OAuth.
         'customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_customer_id'] ?? '')),
-        'client_id' => trim((string)($settings['google_ads_client_id'] ?? '')),
-        'client_secret' => trim((string)($settings['google_ads_client_secret'] ?? '')),
+        'client_id' => $oauth['client_id'],
+        'client_secret' => $oauth['client_secret'],
         'refresh_token' => trim((string)($settings['google_ads_refresh_token'] ?? '')),
         'login_customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_login_customer_id'] ?? '')),
-        'api_version' => trim((string)($settings['google_ads_api_version'] ?? 'v18')) ?: 'v18',
+        'api_version' => trim((string)($settings['google_ads_api_version'] ?? 'v25')) ?: 'v25',
     ];
-    if (in_array('', $googleCfg, true)) {
-        return ['ok' => false, 'error' => 'Google Ads ainda nao configurado: conecte a conta (developer token, customer id e OAuth) para importar o gasto automaticamente.', 'imported' => 0, 'days' => $days, 'needs_google_credentials' => true];
+    $faltando = [];
+    foreach (['customer_id', 'client_id', 'client_secret', 'refresh_token'] as $campo) {
+        if ((string)$googleCfg[$campo] === '') {
+            $faltando[] = $campo;
+        }
+    }
+    if ($faltando) {
+        return ['ok' => false, 'error' => 'Google Ads ainda nao configurado: falta ' . implode(', ', $faltando) . '. Use "Conectar Google Ads" no painel.', 'imported' => 0, 'days' => $days, 'needs_google_credentials' => true];
     }
 
     $tokenRes = ads_roi_google_access_token($googleCfg);
@@ -452,7 +464,6 @@ function ads_roi_sync_google(array $studio, int $days = 30): array
 
     $headers = [
         'Authorization: Bearer ' . (string)$tokenRes['token'],
-        'developer-token: ' . $googleCfg['developer_token'],
     ];
     if ($googleCfg['login_customer_id'] !== '') {
         $headers[] = 'login-customer-id: ' . $googleCfg['login_customer_id'];
