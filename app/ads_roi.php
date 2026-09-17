@@ -237,6 +237,102 @@ function ads_roi_sync_meta(array $studio, int $days = 30): array
 }
 
 /**
+ * Credenciais OAuth do Google Ads, lidas das configuracoes do estudio.
+ * O CRM guarda client id/secret em studio_settings (mesma origem do Calendar quando vazio).
+ */
+function ads_roi_google_oauth_config(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $clientId = trim((string)($settings['google_ads_client_id'] ?? ''));
+    $clientSecret = trim((string)($settings['google_ads_client_secret'] ?? ''));
+    // Reaproveita as credenciais do Google Calendar quando o Ads nao tiver as proprias.
+    if ($clientId === '' || $clientSecret === '') {
+        $calendarCfg = (array)(app_config('google_calendar') ?? []);
+        if ($clientId === '') {
+            $clientId = trim((string)($calendarCfg['client_id'] ?? ''));
+        }
+        if ($clientSecret === '') {
+            $clientSecret = trim((string)($calendarCfg['client_secret'] ?? ''));
+        }
+    }
+    return [
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'redirect_uri' => 'https://danieltatuador.com/projetocrm/google_ads_oauth_callback.php',
+        'auth_uri' => 'https://accounts.google.com/o/oauth2/v2/auth',
+        'token_uri' => 'https://oauth2.googleapis.com/token',
+        // Escopo do Google Ads. Ver docs: o escopo adwords cobre leitura de relatorios.
+        'scopes' => ['https://www.googleapis.com/auth/adwords'],
+    ];
+}
+
+/**
+ * URL da tela de consentimento do Google para conectar o Google Ads.
+ * Guarda o state na sessao (mesmo padrao do Calendar) e forca prompt=consent
+ * para o Google sempre devolver o refresh_token.
+ */
+function ads_roi_google_authorization_url(array $studio): string
+{
+    $config = ads_roi_google_oauth_config($studio);
+    if ($config['client_id'] === '' || $config['client_secret'] === '') {
+        throw new RuntimeException('As credenciais OAuth do Google ainda nao estao configuradas (client id e secret).');
+    }
+    $state = bin2hex(random_bytes(24));
+    $_SESSION['google_ads_oauth'] ??= [];
+    $_SESSION['google_ads_oauth'][$state] = [
+        'studio_id' => (int)$studio['id'],
+        'expires_at' => time() + 900,
+    ];
+    return $config['auth_uri'] . '?' . http_build_query([
+        'client_id' => $config['client_id'],
+        'redirect_uri' => $config['redirect_uri'],
+        'response_type' => 'code',
+        'scope' => implode(' ', array_map('strval', $config['scopes'])),
+        'access_type' => 'offline',
+        'prompt' => 'consent',
+        'include_granted_scopes' => 'false',
+        'state' => $state,
+    ], '', '&', PHP_QUERY_RFC3986);
+}
+
+/**
+ * Troca o code por tokens (authorization_code) no OAuth do Google.
+ */
+function ads_roi_google_exchange_code(string $code): array
+{
+    $studio = current_studio() ?: [];
+    $config = ads_roi_google_oauth_config(is_array($studio) ? $studio : []);
+    $res = ads_roi_http_request('POST', $config['token_uri'], [], [
+        'code' => $code,
+        'client_id' => $config['client_id'],
+        'client_secret' => $config['client_secret'],
+        'redirect_uri' => $config['redirect_uri'],
+        'grant_type' => 'authorization_code',
+    ], 'form');
+    if (!$res['ok']) {
+        throw new RuntimeException('Falha ao trocar o codigo pelo token: ' . (string)($res['error'] ?? 'erro desconhecido'));
+    }
+    return (array)$res['json'];
+}
+
+/**
+ * Guarda o refresh token do Google Ads nas configuracoes do estudio.
+ */
+function ads_roi_google_store_refresh_token(array $studio, string $refreshToken): void
+{
+    $pdo = studio_db($studio);
+    studio_ads_daily_ensure_schema($pdo);
+    $stmt = $pdo->prepare('INSERT INTO studio_settings (id, google_ads_refresh_token) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_refresh_token = VALUES(google_ads_refresh_token)');
+    try {
+        $stmt->execute([$refreshToken]);
+    } catch (Throwable $e) {
+        // Coluna pode nao existir ainda: cria e tenta de novo.
+        $pdo->exec('ALTER TABLE studio_settings ADD COLUMN google_ads_refresh_token TEXT NULL');
+        $stmt->execute([$refreshToken]);
+    }
+}
+
+/**
  * Troca o refresh token por um access token do Google (OAuth 2.0).
  * Retorna ['ok'=>bool,'token'=>string,'error'=>?string].
  */
