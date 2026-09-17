@@ -37,11 +37,14 @@ try {
     unset($_SESSION['google_ads_oauth'][$state]);
 
     // Troca o code pelo token SEM depender da sessao do CRM (pode vir de outro aparelho).
+    @file_put_contents($diagLog, date('Y-m-d H:i:s') . ' etapa: trocando code por token' . PHP_EOL, FILE_APPEND);
     $tokens = ads_roi_google_exchange_code($code, $state);
+    @file_put_contents($diagLog, date('Y-m-d H:i:s') . ' etapa: token recebido (chaves: ' . implode(',', array_keys((array)$tokens)) . ')' . PHP_EOL, FILE_APPEND);
     $refreshToken = trim((string)($tokens['refresh_token'] ?? ''));
     if ($refreshToken === '') {
         throw new RuntimeException('O Google nao devolveu o refresh token. Revogue o acesso do app na sua Conta Google (Seguranca > Apps com acesso) e tente de novo.');
     }
+    @file_put_contents($diagLog, date('Y-m-d H:i:s') . ' etapa: refresh_token OK, tentando gravar' . PHP_EOL, FILE_APPEND);
 
     // Guarda numa pendencia em disco (curta), para recolher com sessao ou sem ela.
     $pendPath = __DIR__ . '/storage/google_ads_oauth_pending.json';
@@ -56,6 +59,7 @@ try {
     if (is_array($studio) && (int)$studio['id'] > 0) {
         ads_roi_google_store_refresh_token($studio, $refreshToken);
         @unlink($pendPath);
+        @file_put_contents($diagLog, date('Y-m-d H:i:s') . ' etapa: GRAVADO na sessao do estudio' . PHP_EOL, FILE_APPEND);
         flash_set('success', 'Google Ads conectado. O gasto passa a ser importado na sincronizacao diaria.');
         redirect_to('studio_ads_roi');
     }
