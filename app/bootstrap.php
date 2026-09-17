@@ -49,6 +49,7 @@ require APP_BASE_PATH . '/app/functions.php';
 require APP_BASE_PATH . '/app/studio_crm.php';
 require APP_BASE_PATH . '/app/google_calendar.php';
 require_once APP_BASE_PATH . '/app/ads_roi.php';
+require_once APP_BASE_PATH . '/app/ads_origem_catalogo.php';
 require_once APP_BASE_PATH . '/app/ads_origin.php';
 require_once APP_BASE_PATH . '/app/general_image_pipeline.php';
 require_once APP_BASE_PATH . '/app/general_image_studio.php';

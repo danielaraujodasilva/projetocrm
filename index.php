@@ -583,6 +583,10 @@ if ($action === 'studio_login') {
             if (trim((string)($_POST['name'] ?? '')) === '' && trim((string)($_POST['phone'] ?? '')) === '') {
                 throw new RuntimeException('Informe pelo menos nome ou telefone do lead.');
             }
+            // Normaliza a origem para o codigo do catalogo (evita "Meta Ads" vs "meta").
+            if (isset($_POST['source'])) {
+                $_POST['source'] = ads_origem_normalizar((string)$_POST['source']);
+            }
             $wasUpdate = (int)($_POST['id'] ?? 0) > 0;
             $leadId = studio_save_lead($studio, $_POST);
             studio_event((int)$studio['id'], $wasUpdate ? 'lead_updated' : 'lead_created', ($wasUpdate ? 'Lead atualizado: ' : 'Lead criado: ') . (trim((string)($_POST['name'] ?? '')) ?: trim((string)($_POST['phone'] ?? 'Lead'))), [
@@ -4375,8 +4379,22 @@ if ($page === 'studio_leads') {
         }
         echo '</select></div>';
         echo '<div class="col"><select name="source"><option value="">Todas as origens</option>';
+        foreach (ads_origem_opcoes_agrupadas() as $grupo) {
+            echo '<optgroup label="' . h((string)$grupo['label']) . '">';
+            foreach ($grupo['itens'] as $codigo => $rotulo) {
+                // Marca selecionado tanto pelo codigo quanto pelo valor cru (leads antigos).
+                $sel = ((string)$filters['source'] === (string)$codigo) ? ' selected' : '';
+                echo '<option value="' . h((string)$codigo) . '"' . $sel . '>' . h((string)$rotulo) . '</option>';
+            }
+            echo '</optgroup>';
+        }
+        // Valores antigos que existem no banco mas nao estao no catalogo.
         foreach ($sources as $source) {
-            echo '<option value="' . h($source) . '" ' . ($filters['source'] === $source ? 'selected' : '') . '>' . h($source) . '</option>';
+            $source = (string)$source;
+            if ($source === '' || ads_origem_normalizar($source) !== 'outro' || in_array(strtolower($source), ['outro'], true)) {
+                continue;
+            }
+            echo '<option value="' . h($source) . '"' . ((string)$filters['source'] === $source ? ' selected' : '') . '>' . h($source) . ' (antigo)</option>';
         }
         echo '</select></div>';
         echo '<div class="col"><select name="min_score">';
@@ -4626,7 +4644,7 @@ if ($page === 'studio_lead') {
             echo '<option value="' . h($stage['name']) . '" ' . ((string)$stage['name'] === (string)$lead['pipeline_stage'] ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></div><div class="field"><label>Nota 0-10</label><input type="number" name="lead_score" min="0" max="10" value="' . h((string)($lead['lead_score'] ?? 0)) . '"></div></div>';
-        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($lead['estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem</label><input name="source" value="' . h($lead['source'] ?? '') . '"></div></div>';
+        echo '<div class="grid cols-2"><div class="field"><label>Valor estimado</label><input name="estimated_value" value="' . h((string)($lead['estimated_value'] ?? '0')) . '"></div><div class="field"><label>Origem (de onde o cliente veio)</label>' . ads_origem_render_select('source', (string)($lead['source'] ?? ''), true, 'lead-source-select') . '<small class="muted">Usado para medir qual canal traz mais cliente. Rastreio automático preenche quando vem de anúncio.</small></div></div>';
         echo '<button class="btn" type="submit">Salvar alteracoes</button>';
         echo '</form>';
 
@@ -8582,13 +8600,15 @@ if ($page === 'studio_ads_roi') {
     // Origem do cliente: rastreada pela ponte do WhatsApp (ctwaContext + carimbo).
     $adsLeadsByOrigin = ads_leads_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     $adsHitsByOrigin = ads_hits_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // Diagnostico da ponte de origem: detectou mas nao gravou? (divergencia invisivel)
+    $adsBridgeHealth = ads_bridge_health();
     $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
     $adsRoiBudgets = [];
     foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8704,30 +8724,56 @@ if ($page === 'studio_ads_roi') {
             return '<button type="button" class="roi-help" data-roi-help="' . h($key) . '" aria-label="Como calculamos">?</button>';
         };
 
+        // ---- Alerta de divergencia da ponte (detectou mas nao gravou) ----
+        if (!empty($adsBridgeHealth) && empty($adsBridgeHealth['ok']) && $adsBridgeHealth['alerta'] !== '') {
+            $tom = ((int)$adsBridgeHealth['push_erros'] > 0) ? 'alert-warning' : 'alert-secondary';
+            echo '<div class="' . $tom . '" style="font-size:13px"><b>Atenção no rastreio de origem.</b> '
+                . h((string)$adsBridgeHealth['alerta'])
+                . ' <span class="muted">(detectadas hoje: ' . (int)$adsBridgeHealth['detectadas_hoje']
+                . ' · gravadas: ' . (int)$adsBridgeHealth['pushed_ok'] . ')</span>'
+                . ($adsBridgeHealth['ultimo_erro'] !== '' ? '<br><code>' . h((string)$adsBridgeHealth['ultimo_erro']) . '</code>' : '')
+                . '</div>';
+        } elseif (!empty($adsBridgeHealth) && (int)$adsBridgeHealth['detectadas_hoje'] > 0 && (int)$adsBridgeHealth['pushed_ok'] === 0) {
+            echo '<div class="alert alert-warning" style="font-size:13px"><b>Rastreio detectou origem hoje mas nada foi gravado.</b> Confira se a ponte está no ar e se o token está correto.</div>';
+        }
+
         echo '<div class="roi-cards">';
         echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
 
         // ---- Contagem de LEADS por origem (dado rastreado pela ponte do WhatsApp) ----
-        $orcLead = ['meta' => 0, 'instagram' => 0, 'google' => 0, 'indicacao' => 0, 'porta' => 0, 'reincidente' => 0, 'outro' => 0, 'sem_origem' => 0];
+        // Usa o catalogo para agrupar valores antigos (ex.: "Meta Ads" e "meta" contam juntos).
+        $orcLead = [];
+        foreach (array_keys(ads_origem_catalogo()) as $cod) {
+            $orcLead[$cod] = 0;
+        }
+        $orcLead['sem_origem'] = 0;
         foreach ($adsLeadsByOrigin as $k => $v) {
             if ($k === '__total') { continue; }
             $k = strtolower(trim((string)$k));
-            if (!isset($orcLead[$k])) {
-                // Origem livre (ex.: WhatsApp, Google Agenda): cai em outro.
-                if (in_array($k, ['meta ads', 'facebook', 'fb', 'messenger'], true)) { $k = 'meta'; }
-                elseif (in_array($k, ['insta', 'ig', 'ctwa_instagram'], true)) { $k = 'instagram'; }
-                elseif (str_contains($k, 'google')) { $k = 'google'; }
-                elseif (str_contains($k, 'indicac')) { $k = 'indicacao'; }
-                else { $k = 'outro'; }
+            if ($k === '' || $k === 'sem_origem') {
+                $orcLead['sem_origem'] += (int)$v;
+                continue;
             }
-            $orcLead[$k] += (int)$v;
+            $cod = ads_origem_normalizar($k);
+            $orcLead[$cod] = ($orcLead[$cod] ?? 0) + (int)$v;
         }
-        $leadsAnuncio = $orcLead['meta'] + $orcLead['instagram'];
-        $leadsRastreados = $leadsAnuncio + $orcLead['google'] + $orcLead['indicacao'] + $orcLead['porta'] + $orcLead['reincidente'] + $orcLead['outro'];
+        // Leads de anuncio = origens do grupo "anuncio" do catalogo.
+        $leadsAnuncio = 0;
+        foreach ($orcLead as $cod => $n) {
+            if (ads_origem_e_anuncio((string)$cod)) {
+                $leadsAnuncio += (int)$n;
+            }
+        }
+        $leadsRastreados = 0;
+        foreach ($orcLead as $cod => $n) {
+            if ($cod !== 'sem_origem') {
+                $leadsRastreados += (int)$n;
+            }
+        }
         $leadsSemOrigem = $orcLead['sem_origem'];
         $leadsTotal = (int)($adsLeadsByOrigin['__total'] ?? 0);
 
-        echo '<div class="roi-card"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . $orcLead['meta'] . ' + Instagram ' . $orcLead['instagram'] . ' no período</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . (int)($orcLead['meta'] ?? 0) . ' + Instagram ' . (int)($orcLead['instagram'] ?? 0) . ' + Google ' . (int)($orcLead['google'] ?? 0) . '</div></div>';
         echo '<div class="roi-card"><div class="lbl">Leads por origem' . $helpBtn('leads_origem') . '</div><div class="val">' . $leadsRastreados . '</div><div class="sub">' . $leadsSemOrigem . ' sem origem · ' . $leadsTotal . ' leads no total</div></div>';
 
         echo '<div class="roi-card"><div class="lbl">Agendamentos com valor' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</div></div>';

@@ -87,6 +87,80 @@ function ads_apply_origin_to_conversation(array $studio, int $conversationId, st
 }
 
 /**
+ * Diagnostico da ponte de origem.
+ *
+ * POR QUE EXISTE: a pagina de Historico le o ARQUIVO da ponte, e o painel de ROI le o
+ * BANCO do CRM. Se a ponte deteta origem mas o envio falha (token, URL, servidor), os
+ * dois divergem sem nenhum erro visivel - foi o que aconteceu em 17/09/2026 (HTTP 405
+ * por redirect de localhost->https). Esta funcao faz essa divergencia aparecer.
+ *
+ * SOMENTE LEITURA: nao escreve nada.
+ */
+function ads_bridge_health(): array
+{
+    $base = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados';
+    $eventosPath = $base . '\\eventos.jsonl';
+    $statePath = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\state.json';
+
+    $out = [
+        'ok' => true,
+        'alerta' => '',
+        'ponte_online' => false,
+        'detectadas_hoje' => 0,
+        'pushed_ok' => 0,
+        'push_erros' => 0,
+        'ultimo_erro' => '',
+    ];
+
+    // Ponte no ar? (porta do painel local)
+    $fp = @fsockopen('127.0.0.1', 3210, $e1, $e2, 0.6);
+    if (is_resource($fp)) {
+        fclose($fp);
+        $out['ponte_online'] = true;
+    }
+
+    $hoje = date('Y-m-d');
+
+    if (is_file($eventosPath)) {
+        $fh = @fopen($eventosPath, 'r');
+        if ($fh) {
+            while (($linha = fgets($fh)) !== false) {
+                $ev = json_decode(trim($linha), true);
+                if (!is_array($ev)) {
+                    continue;
+                }
+                $quando = substr((string)($ev['at'] ?? ''), 0, 10);
+                $tipo = (string)($ev['event'] ?? '');
+                if ($quando !== $hoje) {
+                    continue;
+                }
+                if ($tipo === 'origem_detectada') {
+                    $out['detectadas_hoje']++;
+                } elseif ($tipo === 'origin_pushed') {
+                    $out['pushed_ok']++;
+                } elseif ($tipo === 'push_error') {
+                    $out['push_erros']++;
+                    $out['ultimo_erro'] = trim((string)($ev['response'] ?? $ev['error'] ?? ''));
+                }
+            }
+            fclose($fh);
+        }
+    }
+
+    // Detectou origem mas nada foi gravado? Sinal de falha silenciosa.
+    if ($out['push_erros'] > 0) {
+        $out['ok'] = false;
+        $out['alerta'] = 'A ponte detectou origem de anúncio mas houve ' . $out['push_erros']
+            . ' falha(s) ao gravar no CRM hoje. Os leads abaixo podem estar incompletos.';
+    } elseif (!$out['ponte_online']) {
+        $out['ok'] = false;
+        $out['alerta'] = 'A ponte do WhatsApp está parada: nenhuma origem nova está sendo rastreada agora.';
+    }
+
+    return $out;
+}
+
+/**
  * Conta LEADS por origem no periodo (data de criacao do lead).
  *
  * Diferente de ads_roi_by_origin(): aqui conta o lead em si, nao o agendamento.

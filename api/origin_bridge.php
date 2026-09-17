@@ -106,10 +106,14 @@ if ($phone === '' || $origin === '') {
     origin_bridge_respond(422, ['ok' => false, 'error' => 'Informe phone e origin.']);
 }
 
-$allowed = ['meta', 'instagram', 'google', 'indicacao', 'porta', 'reincidente', 'outro'];
-if (!in_array($origin, $allowed, true)) {
+$allowed = array_keys(ads_origem_catalogo());
+$origin = ads_origem_normalizar($origin);
+if ($origin === '') {
     $origin = 'outro';
 }
+// Aviso quando o telefone nao pôde ser resolvido (veio LID puro).
+$lidNaoResolvido = !empty($payload['lidNaoResolvido']);
+$jidOriginal = trim((string)($payload['jidOriginal'] ?? ''));
 
 $studio = null;
 try {
@@ -227,6 +231,14 @@ try {
             $messageId !== '' ? mb_substr($messageId, 0, 160) : null,
         ]);
     $result['hit_id'] = (int)$pdo->lastInsertId();
+    $result['lid_nao_resolvido'] = $lidNaoResolvido;
+    $result['jid_original'] = $jidOriginal;
+
+    // Alerta quando o telefone nao foi resolvido: a origem foi gravada, mas o lead
+    // pode nao casar com o cadastro real do cliente.
+    if ($lidNaoResolvido && $result['action'] === 'sem_lead_ainda') {
+        $result['aviso'] = 'Telefone veio como identificador interno (LID) e nao casou com lead existente. A origem foi registrada, mas confira o cadastro manualmente.';
+    }
 } catch (Throwable $e) {
     origin_bridge_log(['type' => 'processing_error', 'phone' => $phone, 'error' => $e->getMessage()]);
     origin_bridge_respond(500, ['ok' => false, 'error' => 'Falha ao gravar origem.']);
