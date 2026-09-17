@@ -9050,6 +9050,7 @@ if ($page === 'studio_historico') {
     $studio = require_studio();
     // A pagina vive em app/pagina_historico.php (somente leitura do arquivo da ponte).
     require_once APP_BASE_PATH . '/app/historico_conversas.php';
+    require_once APP_BASE_PATH . '/app/historico_leads_map.php';
     require APP_BASE_PATH . '/app/pagina_historico.php';
     exit;
 }

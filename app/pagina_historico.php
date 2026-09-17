@@ -80,6 +80,9 @@ echo '<style>
  .hist-bar a{padding:6px 13px;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;background:#eef2f6;color:#344054}
  .hist-bar a.on{background:#101828;color:#fff}
  .hist-help{font-size:12px;color:#667085;margin:-6px 0 14px}
+ .hist-source-inline{font-size:11px;font-weight:700;border:1px solid #d0d5dd;border-radius:999px;padding:2px 7px;background:#fff;color:#344054;max-width:160px;cursor:pointer}
+ .hist-source-inline:disabled{opacity:.55}
+ .hist-hint{font-size:10px;color:#98a2b3;margin-top:3px}
 </style>';
 
 render_studio_shell(
@@ -89,6 +92,11 @@ render_studio_shell(
     function () use ($histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase) {
 
         $escreve = static fn($v) => is_string($v) ? htmlspecialchars($v, ENT_QUOTES, 'UTF-8') : (string)$v;
+
+        // Token CSRF para as acoes AJAX desta pagina (o seletor de origem).
+        if (function_exists('csrf_token')) {
+            echo '<input type="hidden" name="csrf_token" value="' . $escreve(csrf_token()) . '">';
+        }
 
         // ---- Aviso de estado da ponte -----------------------------------
         echo '<div class="hist-cards">';
@@ -196,28 +204,68 @@ render_studio_shell(
         // ---- Lista ------------------------------------------------------
         if ($histModo === 'conversas') {
             $res = historico_conversas_agrupadas($hf, $histLimite);
-            echo '<p class="hist-help">' . (int)$res['total_conversas'] . ' conversa(s)' . ($hf ? ' com os filtros aplicados' : '') . '. Clique para ver o histórico completo.</p>';
-            echo '<table class="hist-table"><thead><tr><th>Última</th><th>Telefone</th><th>Nome</th><th>Msgs</th><th>Origem</th><th>Última mensagem</th></tr></thead><tbody>';
+            // Liga cada conversa ao lead do CRM (para poder editar a origem daqui).
+            $leadsMapa = [];
+            try {
+                $pdoHist = studio_db($studio);
+                $leadsMapa = historico_mapa_leads($pdoHist, array_column($res['conversas'], 'phone'));
+            } catch (Throwable $e) {
+                $leadsMapa = [];
+            }
+            echo '<p class="hist-help">' . (int)$res['total_conversas'] . ' conversa(s)' . ($hf ? ' com os filtros aplicados' : '') . '. Clique no telefone para ver o histórico completo. A coluna <b>Origem</b> é editável quando a conversa tem lead no CRM.</p>';
+            echo '<table class="hist-table"><thead><tr><th>Última</th><th>Telefone</th><th>Nome</th><th>Msgs</th><th>Origem (editável)</th><th>Última mensagem</th></tr></thead><tbody>';
             if (!$res['conversas']) {
                 echo '<tr><td colspan="6" class="hist-empty" style="border:0">Nenhuma conversa encontrada.</td></tr>';
             }
             foreach ($res['conversas'] as $c) {
                 $quando = (string)$c['ultima_em'];
                 $ts = $quando !== '' ? date('d/m H:i', strtotime($quando)) : '';
-                $origem = $c['origem']
-                    ? '<span class="pill ad">' . $escreve((string)($c['origem']['platform'] ?? 'anúncio')) . '</span>'
-                    : '<span class="pill plain">—</span>';
-                $link = '?' . $histQueryBase(['h_fone' => (string)$c['phone']]);
+                $fone = (string)$c['phone'];
+                $leadDoFone = $leadsMapa[$fone] ?? null;
+
+                if ($leadDoFone) {
+                    // Tem lead: mostra seletor que salva no CRM.
+                    $origemAtual = ads_origem_normalizar((string)$leadDoFone['source']);
+                    $detectada = !empty($c['origem']) ? (string)($c['origem']['platform'] ?? '') : '';
+                    $cel = '<select class="hist-source-inline" data-lead-source="' . (int)$leadDoFone['id'] . '" title="Origem do lead #' . (int)$leadDoFone['id'] . '">';
+                    if ($origemAtual === '') {
+                        $cel .= '<option value="">— sem origem —</option>';
+                    }
+                    foreach (ads_origem_opcoes_agrupadas() as $grupo) {
+                        $cel .= '<optgroup label="' . $escreve((string)$grupo['label']) . '">';
+                        foreach ($grupo['itens'] as $codigo => $rotulo) {
+                            $sel = ((string)$codigo === $origemAtual) ? ' selected' : '';
+                            $cel .= '<option value="' . $escreve((string)$codigo) . '"' . $sel . '>' . $escreve((string)$rotulo) . '</option>';
+                        }
+                        $cel .= '</optgroup>';
+                    }
+                    $cel .= '</select>';
+                    if ($detectada !== '') {
+                        $cel .= '<div class="hist-hint">rastreado: ' . $escreve($detectada) . '</div>';
+                    }
+                } else {
+                    // Sem lead: so mostra o que a ponte detectou (nao da para editar).
+                    $cel = $c['origem']
+                        ? '<span class="pill ad">' . $escreve((string)($c['origem']['platform'] ?? 'anúncio')) . '</span>'
+                        : '<span class="pill plain">—</span>';
+                    $cel .= '<div class="hist-hint">sem lead no CRM</div>';
+                }
+
+                $link = '?' . $histQueryBase(['h_fone' => $fone]);
                 echo '<tr>';
                 echo '<td style="white-space:nowrap">' . $escreve($ts) . '</td>';
-                echo '<td><a href="' . $escreve($link) . '"><code>' . $escreve((string)$c['phone']) . '</code></a></td>';
+                echo '<td><a href="' . $escreve($link) . '"><code>' . $escreve($fone) . '</code></a>';
+                if ($leadDoFone) {
+                    echo '<div class="hist-hint"><a href="' . $escreve(app_url('studio_lead', ['id' => (int)$leadDoFone['id']])) . '">lead #' . (int)$leadDoFone['id'] . '</a></div>';
+                }
+                echo '</td>';
                 echo '<td>' . $escreve((string)($c['name'] !== '' ? $c['name'] : '—')) . '</td>';
                 echo '<td>' . (int)$c['total'];
                 if ((int)$c['audios'] > 0) {
                     echo ' <span class="pill audio">' . (int)$c['audios'] . ' áudio' . ((int)$c['transcritos'] > 0 ? '/' . (int)$c['transcritos'] . ' ok' : '') . '</span>';
                 }
                 echo '</td>';
-                echo '<td>' . $origem . '</td>';
+                echo '<td>' . $cel . '</td>';
                 echo '<td class="muted">' . $escreve(mb_substr((string)$c['preview'], 0, 90)) . '</td>';
                 echo '</tr>';
             }
@@ -265,3 +313,58 @@ render_studio_shell(
     },
     null
 );
+
+// JavaScript do seletor de origem. Fica FORA do shell para nao conflitar com o
+// HTML gerado e poder usar o csrf_token da pagina.
+?>
+<script>
+(function () {
+  var selects = document.querySelectorAll('.hist-source-inline');
+  if (!selects.length) return;
+
+  function csrf() {
+    var el = document.querySelector('input[name="csrf_token"]');
+    return el ? el.value : '';
+  }
+
+  selects.forEach(function (sel) {
+    var anterior = sel.value;
+    sel.addEventListener('change', function () {
+      var leadId = sel.getAttribute('data-lead-source') || '';
+      if (!leadId) return;
+      sel.disabled = true;
+      sel.style.borderColor = '#f5c542';
+
+      var body = new URLSearchParams();
+      body.set('action', 'set_lead_source');
+      body.set('lead_id', leadId);
+      body.set('source', sel.value);
+      body.set('inline', '1');
+      body.set('csrf_token', csrf());
+
+      fetch(window.location.pathname + window.location.search, {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: body.toString()
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (json) {
+          if (!json.ok) throw new Error(json.error || 'Falha ao salvar');
+          sel.style.borderColor = '#079455';
+          setTimeout(function () { sel.style.borderColor = ''; }, 1600);
+        })
+        .catch(function (err) {
+          sel.value = anterior;
+          sel.style.borderColor = '#d92d20';
+          alert(err.message || 'Nao foi possivel salvar a origem');
+        })
+        .finally(function () {
+          sel.disabled = false;
+        });
+    });
+  });
+})();
+</script>
