@@ -8640,7 +8640,8 @@ if ($page === 'studio_ads_roi') {
     $adsRoiPdo = studio_db($studio);
     studio_ads_daily_ensure_schema($adsRoiPdo);
 
-    $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
+    // "Hoje" (1 dia) e o padrao ao abrir a pagina, alem dos presets de N dias.
+    $adsRoiPeriod = (int)($_GET['roi_days'] ?? 1);
     // Período personalizado (De/Até) tem prioridade sobre os presets de N dias.
     $adsRoiFrom = trim((string)($_GET['roi_from'] ?? ''));
     $adsRoiTo = trim((string)($_GET['roi_to'] ?? ''));
@@ -8659,8 +8660,8 @@ if ($page === 'studio_ads_roi') {
         $adsRoiPreset = null;
     } else {
         $adsRoiCustom = false;
-        if (!in_array($adsRoiPeriod, [7, 15, 30, 60, 90], true)) {
-            $adsRoiPeriod = 30;
+        if (!in_array($adsRoiPeriod, [1, 7, 15, 30, 60, 90], true)) {
+            $adsRoiPeriod = 1;
         }
         $adsRoiStart = date('Y-m-d', strtotime('-' . ($adsRoiPeriod - 1) . ' days'));
         $adsRoiEnd = date('Y-m-d');
@@ -8720,9 +8721,10 @@ if ($page === 'studio_ads_roi') {
             .roi-help-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:18px;line-height:1;color:#98a2b3;cursor:pointer}
         </style>';
         echo '<div class="roi-period-bar">';
-        foreach ([7, 15, 30, 60, 90] as $p) {
+        // Presets de periodo. "Hoje" e o padrao.
+        foreach ([1 => 'Hoje', 7 => '7 dias', 15 => '15 dias', 30 => '30 dias', 60 => '60 dias', 90 => '90 dias'] as $p => $rotulo) {
             $act = ($adsRoiPreset === $p) ? 'btn-dark' : 'btn-outline-secondary';
-            echo '<a class="btn btn-sm ' . $act . '" href="' . h(app_url('studio_ads_roi')) . '&roi_days=' . $p . '">' . $p . ' dias</a>';
+            echo '<a class="btn btn-sm ' . $act . '" href="' . h(app_url('studio_ads_roi')) . '&roi_days=' . $p . '">' . h($rotulo) . '</a>';
         }
         echo '<form method="get" class="roi-custom">';
         echo '<input type="hidden" name="page" value="studio_ads_roi">';
