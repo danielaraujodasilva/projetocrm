@@ -8549,47 +8549,7 @@ if ($page === 'studio_ads_roi') {
     $studio = require_studio();
     $adsRoiPdo = studio_db($studio);
     studio_ads_daily_ensure_schema($adsRoiPdo);
-    $adsRoiNotice = null;
 
-    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $action = (string)($_POST['ads_roi_action'] ?? '');
-        if ($action === 'save_spend') {
-            $date = trim((string)($_POST['campaign_date'] ?? ''));
-            $channel = strtolower(trim((string)($_POST['channel'] ?? 'meta')));
-            $spend = (float)str_replace(',', '.', (string)($_POST['spend'] ?? '0'));
-            $leads = (int)($_POST['leads_direct'] ?? 0);
-            $campaignName = trim((string)($_POST['campaign_name'] ?? ''));
-            $notes = trim((string)($_POST['notes'] ?? ''));
-            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 && in_array($channel, ['meta', 'google', 'outro'], true)) {
-                $stmt = $adsRoiPdo->prepare('INSERT INTO ads_daily (campaign_date, channel, campaign_name, spend, leads_direct, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE spend = VALUES(spend), leads_direct = VALUES(leads_direct), notes = VALUES(notes)');
-                $stmt->execute([$date, $channel, $campaignName !== '' ? $campaignName : null, $spend, $leads, $notes !== '' ? $notes : null]);
-                $adsRoiNotice = 'Lançamento salvo: ' . $date . ' · ' . strtoupper($channel) . ' · R$ ' . number_format($spend, 2, ',', '.');
-            } else {
-                $adsRoiNotice = 'Dados inválidos. Confira a data e o canal.';
-            }
-        } elseif ($action === 'save_budget') {
-            foreach (['meta', 'google'] as $ch) {
-                if (isset($_POST['budget_' . $ch])) {
-                    $val = (float)str_replace(',', '.', (string)$_POST['budget_' . $ch]);
-                    $stmt = $adsRoiPdo->prepare('INSERT INTO ads_channel_config (channel, daily_budget) VALUES (?, ?)
-                        ON DUPLICATE KEY UPDATE daily_budget = VALUES(daily_budget)');
-                    $stmt->execute([$ch, $val]);
-                }
-            }
-            $adsRoiNotice = 'Orçamentos diários atualizados.';
-        } elseif ($action === 'sync_meta') {
-            $syncDays = (int)($_POST['sync_days'] ?? 0);
-            if ($syncDays < 1) { $syncDays = 30; }
-            $syncRes = ads_roi_sync_meta($studio, $syncDays);
-            if (!empty($syncRes['ok'])) {
-                $adsRoiNotice = 'Sincronizado com Meta Ads: ' . (int)$syncRes['imported'] . ' dias de gasto real importados (' . (int)$syncRes['days'] . ' dias).';
-            } else {
-                $adsRoiNotice = 'Falha ao sincronizar Meta Ads: ' . h((string)($syncRes['error'] ?? 'erro desconhecido'));
-            }
-        }
-    }
 
     $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
     $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
@@ -8626,7 +8586,7 @@ if ($page === 'studio_ads_roi') {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiNotice, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8657,9 +8617,6 @@ if ($page === 'studio_ads_roi') {
             .roi-help-panel li{margin-bottom:6px}
             .roi-help-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:18px;line-height:1;color:#98a2b3;cursor:pointer}
         </style>';
-        if ($adsRoiNotice) {
-            echo '<div class="alert alert-success">' . h($adsRoiNotice) . '</div>';
-        }
         echo '<div class="roi-period-bar">';
         foreach ([7, 15, 30, 60, 90] as $p) {
             $act = ($adsRoiPreset === $p) ? 'btn-dark' : 'btn-outline-secondary';
@@ -8671,6 +8628,7 @@ if ($page === 'studio_ads_roi') {
         echo '<label>Até <input type="date" name="roi_to" value="' . h($adsRoiEnd) . '" max="' . h(date('Y-m-d')) . '"></label>';
         echo '<button class="btn btn-sm btn-dark" type="submit">Aplicar período</button>';
         echo '</form>';
+        echo '<button type="button" id="roiPdfBtn" class="btn btn-sm btn-outline-dark" title="Salva o resumo e as tabelas em PDF A4, pronto para imprimir">Salvar PDF</button>';
         echo '</div>';
         echo '<div class="roi-period-active">Período analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' · ' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ' (personalizado)' : '') . '</div>';
 
@@ -8703,498 +8661,6 @@ if ($page === 'studio_ads_roi') {
         echo '<div class="roi-card"><div class="lbl">Valor cadastrado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma dos agendamentos com valor</div></div>';
         echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
         echo '</div>';
-
-        echo <<<'ROICSS'
-        <style>
-            .roi-view-switch{display:flex;gap:6px;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:4px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
-            .roi-view-switch button{border:0;background:transparent;border-radius:9px;padding:7px 14px;font-size:13px;font-weight:700;color:#475467;cursor:pointer}
-            .roi-view-switch button.is-on{background:#101828;color:#fff}
-            .roi-view-switch .roi-switch-label{font-size:12px;color:#98a2b3;font-weight:600;padding-left:6px}
-            .roi-view-switch .roi-pdf-export{margin-left:auto;border:1px solid #101828;background:#fff;color:#101828;border-radius:9px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
-            .roi-view-switch .roi-pdf-export:hover{background:#101828;color:#fff}
-            .roi-visual-simple{display:grid;gap:14px}
-            .roi-big{border-radius:18px;padding:20px 22px;border:1px solid #e6e8ee;background:#fff}
-            .roi-big .k{font-size:13px;font-weight:700;color:#667085;text-transform:uppercase;letter-spacing:.04em}
-            .roi-big .answer{font-size:30px;font-weight:800;line-height:1.15;margin-top:8px}
-            .roi-big .answer.good{color:#079455}.roi-big .answer.bad{color:#d92d20}
-            .roi-big .why{font-size:13px;color:#475467;margin-top:6px;line-height:1.5}
-            .roi-money{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-            .roi-money .m{background:#f9fafb;border:1px solid #eaecf0;border-radius:14px;padding:12px 14px}
-            .roi-money .m span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#667085;font-weight:700}
-            .roi-money .m strong{display:block;font-size:19px;color:#101828;margin-top:4px}
-            .roi-money .m em{font-style:normal;font-size:11px;color:#98a2b3}
-            .roi-bar{width:100%;display:block}
-            .roi-chart-wrap{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-            .roi-chart-card{background:#fff;border:1px solid #e6e8ee;border-radius:16px;padding:14px 16px 8px;min-width:0}
-            .roi-chart-card.full{grid-column:1/-1}
-            .roi-chart-card h4{margin:0 0 2px;font-size:14px;color:#101828;font-weight:800}
-            .roi-chart-card p{margin:0 0 10px;font-size:12px;color:#98a2b3}
-            .roi-chart-box{position:relative;height:260px}
-            .roi-chart-box.tall{height:320px}
-            .roi-donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
-            .roi-donut .roi-chart-box{flex:1 1 240px;height:230px}
-            .roi-donut .roi-legend{flex:0 1 180px;display:grid;gap:10px}
-            .roi-donut .roi-legend div{font-size:13px;color:#344054}
-            .roi-donut .roi-legend b{display:block;font-size:17px;color:#101828}
-            .roi-donut .roi-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;font-style:normal}
-            .roi-pdf-sheet{background:#fff;padding:4px 2px}
-            .roi-pdf-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:2px solid #101828;padding-bottom:10px;margin-bottom:16px}
-            .roi-pdf-head .brand{font-size:12px;font-weight:700;color:#667085;text-transform:uppercase;letter-spacing:.05em}
-            .roi-pdf-head .who{text-align:right;font-size:12px;color:#667085}
-            .roi-pdf-title{font-size:21px;font-weight:800;color:#101828}
-            .roi-pdf-sub{font-size:12px;color:#667085;margin-top:3px}
-            .roi-pdf-foot{margin-top:16px;padding-top:10px;border-top:1px solid #eaecf0;font-size:11px;color:#98a2b3;line-height:1.5}
-            .roi-pdf-loading{position:fixed;inset:0;z-index:1200;background:rgba(16,24,40,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700}
-            @media (max-width:560px){.roi-view-switch .roi-pdf-export{margin-left:0;width:100%}.roi-big .answer{font-size:24px}}
-        </style>
-ROICSS;
-        echo '<div class="roi-view-switch" role="group" aria-label="Modo de visualização">';
-        echo '<button type="button" id="roiViewSimple" class="is-on">Visual simples</button>';
-        echo '<button type="button" id="roiViewFull">Detalhado</button>';
-        echo '<span class="roi-switch-label">os números e as tabelas continuam iguais, logo abaixo</span>';
-        echo '<button type="button" id="roiPdfExport" class="roi-pdf-export" title="Salva em PDF exatamente o que está na tela">Salvar PDF</button>';
-        echo '</div>';
-
-        // ---- Dados do modo visual (não altera nenhum cálculo existente) ----
-        $vTot = max(0.01, (float)$s['spend_total']);
-        $vMetaPct = round((float)$s['spend_meta'] / $vTot * 100, 1);
-        $vGooglePct = round((float)$s['spend_google'] / $vTot * 100, 1);
-        $vPeriodo = date('d/m/Y', strtotime($adsRoiStart)) . ' a ' . date('d/m/Y', strtotime($adsRoiEnd));
-        $vDataBr = date('d/m/Y', strtotime($adsRoiEnd));
-        $vTemDados = ((float)$s['spend_total'] > 0 || (int)$s['agendamentos'] > 0 || (float)$s['valor_agendado'] > 0);
-
-        // Série diária (mesma de $s['series']) pronta para o JSON.
-        $vSeries = [];
-        foreach ($s['series'] as $d) {
-            $vSeries[] = [
-                'label' => date('d/m', strtotime((string)$d['date'])),
-                'meta' => round((float)$d['meta_spend'], 2),
-                'google' => round((float)$d['google_spend'], 2),
-                'gasto' => round((float)$d['spend_total'], 2),
-                'agend' => (int)$d['agendamentos'],
-                'valor' => round((float)$d['valor_agendado'], 2),
-            ];
-        }
-
-        $vPayback = null;
-        if (!is_null($roas) && $roas > 0) {
-            $vPayback = (int)ceil($adsRoiPeriod / (float)$roas);
-        }
-        $vFrase = '';
-        if (!$vTemDados) {
-            $vFrase = 'Ainda não há dados no período. Lance o gasto dos anúncios abaixo para o gráfico aparecer.';
-        } elseif (!is_null($roas) && $roas >= 1) {
-            $vFrase = 'O anúncio está se pagando: cada R$ 1 investido no período virou R$ ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada.';
-        } elseif (!is_null($roas)) {
-            $vFrase = 'Ainda não se pagou: cada R$ 1 investido virou R$ ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada. Falta ' . number_format((float)$roas * 100, 0, ',', '.') . '% para chegar ao empate.';
-        } else {
-            $vFrase = 'Houve gasto no período mas nenhum agendamento caiu nesses dias — sem retorno registrado ainda.';
-        }
-        $vPaybackTxt = is_null($vPayback)
-            ? 'Sem retorno no período'
-            : '~' . $vPayback . ' dia' . ($vPayback === 1 ? '' : 's') . ' para o anúncio se pagar';
-
-        $vDados = [
-            'periodo' => $vPeriodo,
-            'dias' => (int)$adsRoiPeriod,
-            'custom' => (bool)$adsRoiCustom,
-            'gasto' => round((float)$s['spend_total'], 2),
-            'gastoMeta' => round((float)$s['spend_meta'], 2),
-            'gastoGoogle' => round((float)$s['spend_google'], 2),
-            'metaPct' => $vMetaPct,
-            'googlePct' => $vGooglePct,
-            'valor' => round((float)$s['valor_agendado'], 2),
-            'agendamentos' => (int)$s['agendamentos'],
-            'cancelados' => (int)$s['cancelados'],
-            'cpa' => is_null($cpa) ? null : round((float)$cpa, 2),
-            'roas' => is_null($roas) ? null : round((float)$roas, 2),
-            'series' => $vSeries,
-        ];
-        echo '<script type="application/json" id="roiVisualData">' . json_encode($vDados, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
-
-        echo '<div id="roiVisualOuter" class="roi-visual-simple">';
-        echo '<div id="roiVisualSimple">';
-        echo '<div class="roi-big"><div class="k">O anúncio valeu a pena?' . $helpBtn('roas') . '</div><div class="answer ' . (($roas >= 1) ? 'good' : 'bad') . '">' . $vFrase . '</div><div class="why">' . h($vPaybackTxt) . ' · período de ' . h($vPeriodo) . '</div></div>';
-        echo '<div class="roi-big"><div class="k">O caminho do dinheiro no período</div>';
-        echo '<div class="roi-money">';
-        echo '<div class="m"><span>Entrou (gasto)</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta + Google</em></div>';
-        echo '<div class="m"><span>virou</span><strong>' . (int)$s['agendamentos'] . ' agendamento' . ((int)$s['agendamentos'] === 1 ? '' : 's') . ' com valor</strong><em>' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelado' . ((int)($s['cancelados_total'] ?? $s['cancelados']) === 1 ? '' : 's') . ' na agenda</em></div>';
-        echo '<div class="m"><span>valor cadastrado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>no valor dos agendamentos</em></div>';
-        echo '<div class="m"><span>Custo de cada</span><strong>' . $fmt($cpa) . '</strong><em>por agendamento</em></div>';
-        echo '</div>';
-        echo '<p class="why" style="margin-top:12px">Cada <b>R$ 1</b> de anúncio virou <b>R$ ' . (is_null($roas) ? '0,00' : number_format($roas, 2, ',', '.')) . '</b> em tatuagem agendada. É por isso que o sinal está ' . (($roas >= 1) ? 'verde' : 'vermelho') . '.</p>';
-        echo '</div>';
-        echo '<div class="roi-chart-wrap">';
-        echo '<div class="roi-chart-card"><h4>Anúncio x Retorno, dia a dia</h4><p>' . ($vMetaPct > 0 || $vGooglePct > 0 ? 'barra escura = gasto do dia · barra verde = valor cadastrado no dia' : 'sem gasto lançado no período') . '</p><div class="roi-chart-box tall"><canvas id="roiChartDaily" width="640" height="320" role="img" aria-label="Gráfico de gasto e retorno por dia"></canvas></div></div>';
-        echo '<div class="roi-chart-card"><h4>Onde o dinheiro foi investido</h4><p>divisão do gasto entre Meta e Google</p><div class="roi-donut"><div class="roi-chart-box"><canvas id="roiChartSplit" width="300" height="230" role="img" aria-label="Gráfico de divisão do gasto por canal"></canvas></div><div class="roi-legend">';
-        echo '<div><i style="background:#3538cd"></i>Meta<b>' . $fmt($s['spend_meta']) . '</b>' . number_format($vMetaPct, 1, ',', '.') . '% do gasto</div>';
-        echo '<div><i style="background:#12b76a"></i>Google<b>' . $fmt($s['spend_google']) . '</b>' . number_format($vGooglePct, 1, ',', '.') . '% do gasto</div>';
-        echo '</div></div></div>';
-        echo '<div class="roi-chart-card"><h4>Agendamentos por dia</h4><p>clientes que marcaram tatuagem em cada dia</p><div class="roi-chart-box"><canvas id="roiChartAppt" width="640" height="260" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
-        echo '</div>';
-        echo '</div>';
-        echo '<div id="roiChartFull" class="roi-chart-wrap" hidden style="display:none"><div id="roiVisualFull" style="display:contents">';
-        echo '<div class="roi-chart-card"><h4>Gasto mês a mês do período</h4><p>quanto o anúncio consumiu em cada mês</p><div class="roi-chart-box"><canvas id="roiChartMonth" width="640" height="260" role="img" aria-label="Gráfico de gasto por mês"></canvas></div></div>';
-        echo '<div class="roi-chart-card"><h4>Retorno por real investido</h4><p>a linha vermelha é o ponto de equilíbrio (1,00x = empate)</p><div class="roi-chart-box"><canvas id="roiChartRoas" width="640" height="260" role="img" aria-label="Gráfico de ROAS por dia"></canvas></div></div>';
-        echo '<div class="roi-chart-card full"><h4>Agendamentos dia a dia</h4><p>volume de clientes que marcaram em cada dia do período</p><div class="roi-chart-box tall"><canvas id="roiChartApptFull" width="960" height="320" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
-
-        echo '</div>';
-        echo '</div>';
-        echo '<div id="roiPdfSheet" class="roi-pdf-sheet" hidden style="display:none">';
-        echo '<div class="roi-pdf-head"><div><div class="brand">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div class="roi-pdf-title">Retorno dos Anúncios</div><div class="roi-pdf-sub">Período analisado: ' . h($vPeriodo) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ')</div></div><div class="who">' . h((string)($studio['name'] ?? '')) . '<br>Relatório gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
-        echo '<div class="roi-money" style="margin-bottom:14px">';
-        echo '<div class="m"><span>Gasto no período</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</em></div>';
-        echo '<div class="m"><span>Agendamentos com valor</span><strong>' . (int)$s['agendamentos'] . '</strong><em>' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</em></div>';
-        echo '<div class="m"><span>Custo por agendamento</span><strong>' . $fmt($cpa) . '</strong><em>média do período</em></div>';
-        echo '<div class="m"><span>ROAS</span><strong>' . (is_null($roas) ? '-' : number_format($roas, 2, ',', '.') . 'x') . '</strong><em>valor cadastrado / gasto</em></div>';
-        echo '<div class="m"><span>Valor cadastrado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>dos agendamentos com valor</em></div>';
-        echo '</div>';
-        echo '<div class="roi-big" style="margin-bottom:14px"><div class="k">Leitura do período</div><div class="answer ' . (($roas >= 1) ? 'good' : 'bad') . '" style="font-size:19px">' . h($vFrase) . '</div><div class="why">' . h($vPaybackTxt) . '</div></div>';
-        echo '<div class="roi-chart-wrap">';
-        echo '<div class="roi-chart-card full"><h4>Anúncio x Retorno, dia a dia</h4><p>barra escura = gasto do dia · barra verde = valor cadastrado no dia</p><div class="roi-chart-box tall"><canvas id="roiPdfDaily" width="960" height="320" role="img" aria-label="Gráfico de gasto e retorno por dia"></canvas></div></div>';
-        echo '<div class="roi-chart-card"><h4>Divisão do gasto</h4><p>Meta ' . $fmt($s['spend_meta']) . ' · Google ' . $fmt($s['spend_google']) . '</p><div class="roi-chart-box"><canvas id="roiPdfSplit" width="420" height="260" role="img" aria-label="Gráfico de divisão do gasto"></canvas></div></div>';
-        echo '<div class="roi-chart-card"><h4>Gasto mês a mês</h4><p>consumo do anúncio por mês</p><div class="roi-chart-box"><canvas id="roiPdfMonth" width="420" height="260" role="img" aria-label="Gráfico de gasto por mês"></canvas></div></div>';
-        echo '<div class="roi-chart-card full"><h4>Agendamentos por dia</h4><p>clientes que marcaram tatuagem em cada dia</p><div class="roi-chart-box"><canvas id="roiPdfAppt" width="960" height="260" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
-        echo '</div>';
-        echo '<div class="roi-pdf-foot">Documento gerado automaticamente pelo painel Retorno dos Anúncios. Gasto vem dos lançamentos do período (com a regra anti-duplicidade da importação da API); agendamentos e valores vêm da agenda real do estúdio. ROAS é calculado sobre o valor <b>agendado</b>, não sobre o efetivamente recebido.</div>';
-        echo '</div>';
-        echo '</div>';
-        echo '<script src="' . h(app_asset_url('assets/vendor/chartjs/chart.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
-        echo '<script src="' . h(app_asset_url('assets/vendor/html2canvas-pro/html2canvas-pro.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
-        echo '<script src="' . h(app_asset_url('assets/vendor/jspdf/jspdf.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
-        echo <<<'ROIJS'
-        <script>
-        (function () {
-            var node = document.getElementById("roiVisualData");
-            if (!node) { return; }
-            var data;
-            try { data = JSON.parse(node.textContent || "{}"); } catch (e) { return; }
-
-            var fmtBRL = function (v) {
-                return "R$ " + (Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            };
-            var charts = [];
-            var COLORS = { spend: "#101828", meta: "#3538cd", google: "#12b76a", valor: "#12b76a", appt: "#7a5af8", roas: "#3538cd", zero: "#d92d20", grid: "#eaecf0", tick: "#667085" };
-
-            function baseOptions(extra) {
-                var o = {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    resizeDelay: 80,
-                    interaction: { mode: "index", intersect: false },
-                    plugins: {
-                        legend: { labels: { boxWidth: 12, boxHeight: 12, usePointStyle: true, color: "#344054", font: { size: 12 } } },
-                        tooltip: { backgroundColor: "#101828", padding: 10, titleFont: { size: 12 }, bodyFont: { size: 12 } }
-                    },
-                    scales: {
-                        x: { grid: { display: false }, ticks: { color: COLORS.tick, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 } },
-                        y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 } } }
-                    }
-                };
-                if (extra) {
-                    Object.keys(extra).forEach(function (k) {
-                        if (k === "plugins" || k === "scales") {
-                            Object.keys(extra[k]).forEach(function (kk) { o[k][kk] = extra[k][kk]; });
-                        } else { o[k] = extra[k]; }
-                    });
-                }
-                return o;
-            }
-
-            function make(canvasId, config) {
-                var el = document.getElementById(canvasId);
-                if (!el || !window.Chart) { return null; }
-                try {
-                    var c = new Chart(el.getContext("2d"), config);
-                    charts.push(c);
-                    return c;
-                } catch (e) { return null; }
-            }
-
-            var labels = data.series.map(function (d) { return d.label; });
-            var gasto = data.series.map(function (d) { return d.gasto; });
-            var valor = data.series.map(function (d) { return d.valor; });
-            var appt = data.series.map(function (d) { return d.agend; });
-
-            // 1) Anúncio x Retorno por dia (barras agrupadas + linha de retorno).
-            function dailyConfig(tall) {
-                return {
-                    type: "bar",
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            { label: "Gasto do dia", data: gasto, backgroundColor: COLORS.spend, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
-                            { label: "Valor cadastrado", data: valor, backgroundColor: COLORS.valor, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
-                            { label: "Agendamentos", data: appt, type: "line", borderColor: COLORS.appt, backgroundColor: COLORS.appt, borderWidth: 2, pointRadius: 3, tension: .25, yAxisID: "y2", order: 1 }
-                        ]
-                    },
-                    options: baseOptions({
-                        scales: {
-                            y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return "R$ " + v; } } },
-                            y2: { beginAtZero: true, position: "right", grid: { display: false }, ticks: { color: COLORS.appt, font: { size: 11 }, precision: 0 }, title: { display: true, text: "Agendamentos", color: COLORS.appt, font: { size: 11 } } }
-                        },
-                        plugins: {
-                            tooltip: {
-                                backgroundColor: "#101828", padding: 10,
-                                callbacks: {
-                                    label: function (ctx) {
-                                        if (ctx.dataset.yAxisID === "y2") { return "Agendamentos: " + ctx.parsed.y; }
-                                        return ctx.dataset.label + ": " + fmtBRL(ctx.parsed.y);
-                                    }
-                                }
-                            }
-                        }
-                    })
-                };
-            }
-            make("roiChartDaily", dailyConfig(true));
-            make("roiPdfDaily", dailyConfig(true));
-
-            // 2) Divisão do gasto (rosca).
-            function splitConfig() {
-                var semGasto = (Number(data.gasto) || 0) <= 0;
-                return {
-                    type: "doughnut",
-                    data: {
-                        labels: ["Meta", "Google"],
-                        datasets: [{
-                            data: semGasto ? [1] : [data.gastoMeta, data.gastoGoogle],
-                            backgroundColor: semGasto ? ["#eaecf0"] : [COLORS.meta, COLORS.google],
-                            borderWidth: 0
-                        }]
-                    },
-                    options: baseOptions({
-                        cutout: "62%",
-                        scales: {},
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: "#101828", padding: 10,
-                                callbacks: {
-                                    label: function (ctx) {
-                                        if (semGasto) { return "Sem gasto no período"; }
-                                        return ctx.label + ": " + fmtBRL(ctx.parsed) + " (" + (ctx.label === "Meta" ? data.metaPct : data.googlePct) + "%)";
-                                    }
-                                }
-                            }
-                        }
-                    })
-                };
-            }
-            make("roiChartSplit", splitConfig());
-            make("roiPdfSplit", splitConfig());
-
-            // 3) Gasto por mês.
-            function monthAgg() {
-                var map = {};
-                data.series.forEach(function (d) {
-                    var parts = String(d.label).split("/");
-                    if (parts.length !== 2) { return; }
-                    var key = parts[1] + "-" + parts[0];
-                    map[key] = (map[key] || 0) + (Number(d.gasto) || 0);
-                });
-                var keys = Object.keys(map).sort();
-                var names = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
-                return {
-                    labels: keys.map(function (k) {
-                        var p = k.split("-");
-                        return names[(Number(p[1]) - 1)] + "/" + p[0].slice(2);
-                    }),
-                    values: keys.map(function (k) { return Math.round(map[k] * 100) / 100; })
-                };
-            }
-            var month = monthAgg();
-            function monthConfig() {
-                return {
-                    type: "bar",
-                    data: { labels: month.labels, datasets: [{ label: "Gasto no mês", data: month.values, backgroundColor: COLORS.spend, borderRadius: 6, maxBarThickness: 46 }] },
-                    options: baseOptions({
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: { backgroundColor: "#101828", padding: 10, callbacks: { label: function (ctx) { return "Gasto: " + fmtBRL(ctx.parsed.y); } } }
-                        },
-                        scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return "R$ " + v; } } } }
-                    })
-                };
-            }
-            make("roiPdfMonth", monthConfig());
-
-            // 4) Agendamentos por dia (barras + linha de média).
-            function apptConfig(tall) {
-                var media = appt.length ? (appt.reduce(function (a, b) { return a + b; }, 0) / appt.length) : 0;
-                return {
-                    type: "bar",
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            { label: "Agendamentos", data: appt, backgroundColor: COLORS.appt, borderRadius: 4, maxBarThickness: tall ? 26 : 18 },
-                            { label: "Média do período", data: labels.map(function () { return Math.round(media * 100) / 100; }), type: "line", borderColor: "#f79009", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0 }
-                        ]
-                    },
-                    options: baseOptions({
-                        plugins: {
-                            tooltip: {
-                                backgroundColor: "#101828", padding: 10,
-                                callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + (Math.round(ctx.parsed.y * 100) / 100); } }
-                            }
-                        },
-                        scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, precision: 0 } } }
-                    })
-                };
-            }
-            make("roiChartAppt", apptConfig(false));
-            make("roiPdfAppt", apptConfig(false));
-
-            // 5) ROAS por dia com linha de equilíbrio em 1x.
-            (function () {
-                var roasValues = data.series.map(function (d) { return (Number(d.gasto) > 0) ? Math.round((Number(d.valor) / Number(d.gasto)) * 100) / 100 : null; });
-                function roasConfig() {
-                    return {
-                        type: "line",
-                        data: {
-                            labels: labels,
-                            datasets: [
-                                { label: "ROAS do dia", data: roasValues, borderColor: COLORS.roas, backgroundColor: "rgba(53,56,205,.08)", fill: true, tension: .25, pointRadius: 3, spanGaps: true },
-                                { label: "Empate (1,00x)", data: labels.map(function () { return 1; }), borderColor: COLORS.zero, borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }
-                            ]
-                        },
-                        options: baseOptions({
-                            scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return (Math.round(v * 100) / 100) + "x"; } } } },
-                            plugins: {
-                                tooltip: {
-                                    backgroundColor: "#101828", padding: 10,
-                                    callbacks: { label: function (ctx) { return ctx.datasetIndex === 0 ? ("ROAS: " + (ctx.parsed.y === null ? "-" : (Math.round(ctx.parsed.y * 100) / 100) + "x")) : "Empate: 1,00x"; } }
-                                }
-                            }
-                        })
-                    };
-                }
-                make("roiChartRoas", roasConfig());
-            })();
-
-            // ---- Alternância Visual simples / Detalhado (não esconde nada que já existia) ----
-            var simple = document.getElementById("roiVisualSimple");
-            var full = document.getElementById("roiChartFull");
-            var bSimple = document.getElementById("roiViewSimple");
-            var bFull = document.getElementById("roiViewFull");
-            // Os graficos do modo "Detalhado" sao criados so quando o container tem tamanho:
-            // Chart.js mede o canvas na criacao e um canvas dentro de [hidden] mede 0.
-            var fullChartsBuilt = false;
-            function buildFullCharts() {
-                if (fullChartsBuilt) { return; }
-                fullChartsBuilt = true;
-                make("roiChartMonth", monthConfig());
-                make("roiChartApptFull", apptConfig(true));
-            }
-            function showSimple(on) {
-                if (simple) { simple.hidden = !on; simple.style.display = on ? "" : "none"; }
-                if (full) { full.hidden = on; full.style.display = on ? "none" : ""; }
-                if (bSimple) { bSimple.classList.toggle("is-on", on); }
-                if (bFull) { bFull.classList.toggle("is-on", !on); }
-                if (!on) { buildFullCharts(); }
-                // Redimensiona agora e de novo depois que o layout assentar.
-                function fit() { charts.forEach(function (c) { try { c.resize(); } catch (e) {} }); }
-                fit();
-                setTimeout(fit, 130);
-            }
-            if (bSimple) { bSimple.addEventListener("click", function () { showSimple(true); }); }
-            if (bFull) { bFull.addEventListener("click", function () { showSimple(false); }); }
-
-            // ---- Salvar PDF da visualização atual ----
-            var btnPdf = document.getElementById("roiPdfExport");
-            if (btnPdf) {
-                btnPdf.addEventListener("click", function () {
-                    if (!window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
-                        alert("Não foi possível carregar o gerador de PDF. Recarregue a página e tente de novo.");
-                        return;
-                    }
-                    var sheet = document.getElementById("roiPdfSheet");
-                    if (!sheet) { return; }
-                    var original = btnPdf.textContent;
-                    btnPdf.disabled = true;
-                    btnPdf.textContent = "Gerando PDF...";
-                    var overlay = document.createElement("div");
-                    overlay.className = "roi-pdf-loading";
-                    overlay.textContent = "Montando o PDF...";
-                    document.body.appendChild(overlay);
-
-                    // Resolve candidatos de CDN/roteiro de fontes (evita html2canvas achar que a página "sujou").
-                    var restore = [];
-                    var origin = window.location.origin;
-                    Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"], link[rel="preload"]')).forEach(function (link) {
-                        var href = link.getAttribute("href") || "";
-                        if (!href) { return; }
-                        var abs = link.href;
-                        var internal = abs.indexOf(origin) === 0;
-                        var isFont = /font-awesome|fonts\.googleapis|fonts\.gstatic/i.test(href);
-                        if (internal || isFont) { restore.push([link, link.getAttribute("href")]); link.removeAttribute("href"); }
-                    });
-
-                    sheet.hidden = false;
-                    sheet.style.display = "";
-
-                    var done = false;
-                    var finish = function () {
-                        if (done) { return; }
-                        done = true;
-                        restore.forEach(function (pair) { pair[0].setAttribute("href", pair[1]); });
-                        sheet.hidden = true;
-                        sheet.style.display = "none";
-                        overlay.remove();
-                        btnPdf.disabled = false;
-                        btnPdf.textContent = original;
-                    };
-
-                    var waitCharts = new Promise(function (resolve) {
-                        requestAnimationFrame(function () { charts.forEach(function (c) { try { c.resize(); } catch (e) {} }); requestAnimationFrame(resolve); });
-                    });
-
-                    waitCharts.then(function () {
-                        return window.html2canvas(sheet, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false, windowWidth: Math.max(1024, sheet.scrollWidth) });
-                    }).then(function (canvas) {
-                        var doc = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-                        var pw = doc.internal.pageSize.getWidth();
-                        var ph = doc.internal.pageSize.getHeight();
-                        var margin = 8;
-                        var headerH = 12;
-                        var availW = pw - margin * 2;
-                        var availH = ph - margin * 2 - headerH;
-                        var imgW = availW;
-                        var imgH = canvas.height * (imgW / canvas.width);
-                        var pages = Math.max(1, Math.ceil(imgH / availH));
-                        var sliceRatio = (availH / imgH);
-                        var sliceSrcH = canvas.height * sliceRatio;
-                        var title = "Retorno dos Anúncios — " + (data.periodo || "");
-                        for (var p = 0; p < pages; p++) {
-                            var srcY = Math.round(p * sliceSrcH);
-                            var srcH = Math.round(Math.min(sliceSrcH, canvas.height - srcY));
-                            if (srcH <= 0) { break; }
-                            var part = document.createElement("canvas");
-                            part.width = canvas.width;
-                            part.height = srcH;
-                            part.getContext("2d").drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-                            if (p > 0) { doc.addPage("a4", "landscape"); }
-                            doc.setFontSize(10);
-                            doc.setTextColor(102, 112, 133);
-                            doc.text(title, margin, margin + 4);
-                            doc.setTextColor(152, 162, 179);
-                            doc.text("página " + (p + 1) + " de " + pages, pw - margin, margin + 4, { align: "right" });
-                            var thisH = srcH * (imgW / canvas.width);
-                            doc.addImage(part.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin + headerH, imgW, thisH);
-                        }
-                        var file = "retorno-anuncios-" + (data.periodo || "").replace(/[^\d]+/g, "-").replace(/^-|-$/g, "") + ".pdf";
-                        doc.save(file);
-                        finish();
-                    }).catch(function () {
-                        finish();
-                        alert("Não foi possível montar o PDF agora. Tente novamente.");
-                    });
-                });
-            }
-        })();
-        </script>
-ROIJS;
 
         // Painel único de tooltip + dados das explicações em JSON (aberto por clique no "?").
         echo '<div class="roi-help-panel" id="roiHelpPanel" role="dialog" aria-modal="false"><button type="button" class="roi-help-close" aria-label="Fechar">&times;</button><div id="roiHelpBody"></div></div>';
@@ -9262,34 +8728,124 @@ ROIJS;
         }
         echo '</tbody></table></div>';
 
-        echo '<h3 class="h5 mt-4 mb-2">Lançar gasto do dia</h3>';
-        echo '<form method="post" class="row g-2 align-items-end mb-3">';
-        echo '<input type="hidden" name="ads_roi_action" value="save_spend">';
-        echo '<div class="col-md-3"><label class="form-label">Data</label><input type="date" class="form-control" name="campaign_date" value="' . h(date('Y-m-d')) . '" required></div>';
-        echo '<div class="col-md-3"><label class="form-label">Canal</label><select class="form-select" name="channel"><option value="meta">Meta</option><option value="google">Google</option><option value="outro">Outro</option></select></div>';
-        echo '<div class="col-md-3"><label class="form-label">Gasto (R$)</label><input type="text" class="form-control" name="spend" placeholder="35,00" required></div>';
-        echo '<div class="col-md-3"><label class="form-label">Leads diretos (opcional)</label><input type="number" class="form-control" name="leads_direct" min="0" value="0"></div>';
-        echo '<div class="col-md-6"><label class="form-label">Campanha (opcional)</label><input type="text" class="form-control" name="campaign_name" placeholder="ex: [28/01] LEADS WPP"></div>';
-        echo '<div class="col-md-6"><label class="form-label">Observação</label><input type="text" class="form-control" name="notes"></div>';
-        echo '<div class="col-12"><button class="btn btn-dark">Salvar lançamento</button></div>';
-        echo '</form>';
+        // ---- PDF enxuto (tabelas) ----
+        $vTot = max(0.01, (float)$s['spend_total']);
+        echo '<div id="roiPdfDoc" style="display:none;background:#fff;color:#101828;font-family:Helvetica,Arial,sans-serif;width:760px;padding:0">';
+        echo '<div style="border-bottom:2px solid #101828;padding-bottom:8px;margin-bottom:14px"><div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#667085;font-weight:700">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div style="font-size:20px;font-weight:800;color:#101828;margin-top:2px">Retorno dos An�ncios</div><div style="font-size:11px;color:#667085;margin-top:3px">Per�odo analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ') - gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
+        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><tbody>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700;width:38%">Gasto no per�odo</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_total']) . ' <span style="color:#98a2b3">(Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ')</span></td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Agendamentos com valor</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . (int)$s['agendamentos'] . ' <span style="color:#98a2b3">(' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda)</span></td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Custo por agendamento</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($cpa) . '</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Retorno (ROAS)</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . (is_null($roas) ? '-' : number_format($roas, 2, ',', '.') . 'x') . '</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Valor cadastrado</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['valor_agendado']) . '</td></tr>';
+        echo '</tbody></table>';
+        echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Meta x Google (per�odo)</div>';
+        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><thead><tr>';
+        foreach (['Canal', 'Gasto', '% do gasto', 'Custo por agendamento*'] as $th) { echo '<th style="text-align:left;padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        echo '</tr></thead><tbody>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">META</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_meta']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_meta'] / $vTot * 100, 1, ',', '.') . '%</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['agendamentos'] > 0 ? (float)$s['spend_meta'] / max(1, (int)$s['agendamentos']) : null) . '</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">GOOGLE</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_google']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_google'] / $vTot * 100, 1, ',', '.') . '%</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['agendamentos'] > 0 ? (float)$s['spend_google'] / max(1, (int)$s['agendamentos']) : null) . '</td></tr>';
+        echo '</tbody></table>';
+        echo '<div style="font-size:10px;color:#98a2b3;margin:-12px 0 14px">* rateio por canal - a agenda n�o separa a origem do agendamento.</div>';
+        echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Dia a dia</div>';
+        echo '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>';
+        foreach (['Data', 'Meta', 'Google', 'Gasto total', 'Agend.', 'Custo/agend.', 'Valor', 'ROAS'] as $th) { echo '<th style="text-align:left;padding:5px 7px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        echo '</tr></thead><tbody>';
+        foreach ($s['series'] as $d) {
+            echo '<tr>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . h(date('d/m', strtotime((string)$d['date']))) . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['meta_spend'] > 0 ? $fmt($d['meta_spend']) : '-') . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '-') . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '-') . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (int)$d['agendamentos'] . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . $fmt($d['custo_por_agendamento']) . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '-') . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (is_null($d['roas']) ? '-' : number_format((float)$d['roas'], 2, ',', '.') . 'x') . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody></table>';
+        echo '<div style="margin-top:14px;padding-top:8px;border-top:1px solid #eaecf0;font-size:10px;color:#98a2b3;line-height:1.5">Documento gerado pelo painel Retorno dos An�ncios. O gasto vem da sincroniza��o di�ria com a Meta Ads API; agendamentos e valores v�m da agenda real do est�dio. Agendamento sem valor cadastrado n�o entra na conta. ROAS � calculado sobre o valor <b>agendado</b>, n�o o efetivamente recebido.</div>';
+        echo '</div>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/html2canvas-pro/html2canvas-pro.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/jspdf/jspdf.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo <<<'ROIPDFJS'
+        <script>
+        (function () {
+            var btn = document.getElementById("roiPdfBtn");
+            var doc = document.getElementById("roiPdfDoc");
+            var periodo = document.querySelector(".roi-period-active");
+            if (!btn || !doc) { return; }
+            btn.addEventListener("click", function () {
+                if (!window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
+                    alert("N\u00e3o foi poss\u00edvel carregar o gerador de PDF. Recarregue a p\u00e1gina e tente de novo.");
+                    return;
+                }
+                var textoOriginal = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = "Gerando PDF...";
+                doc.style.display = "";
 
-        echo '<h3 class="h5 mt-4 mb-2">Orçamento diário por canal</h3>';
-        echo '<form method="post" class="row g-2 align-items-end">';
-        echo '<input type="hidden" name="ads_roi_action" value="save_budget">';
-        echo '<div class="col-md-3"><label class="form-label">Meta (R$/dia)</label><input type="text" class="form-control" name="budget_meta" value="' . h(number_format((float)($adsRoiBudgets['meta'] ?? 35), 2, ',', '.')) . '"></div>';
-        echo '<div class="col-md-3"><label class="form-label">Google (R$/dia)</label><input type="text" class="form-control" name="budget_google" value="' . h(number_format((float)($adsRoiBudgets['google'] ?? 50), 2, ',', '.')) . '"></div>';
-        echo '<div class="col-md-3"><button class="btn btn-outline-dark">Salvar orçamento</button></div>';
-        echo '</form>';
+                // Bloqueia fontes externas que fazem o html2canvas recusar o render.
+                var restaurar = [];
+                var origem = window.location.origin;
+                Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"], link[rel="preload"]')).forEach(function (link) {
+                    var href = link.getAttribute("href") || "";
+                    if (!href) { return; }
+                    var absoluto = link.href;
+                    if (absoluto.indexOf(origem) === 0 || /font-awesome|fonts\.googleapis|fonts\.gstatic/i.test(href)) {
+                        restaurar.push([link, link.getAttribute("href")]);
+                        link.removeAttribute("href");
+                    }
+                });
+                var finalizar = function () {
+                    restaurar.forEach(function (par) { par[0].setAttribute("href", par[1]); });
+                    doc.style.display = "none";
+                    btn.disabled = false;
+                    btn.textContent = textoOriginal;
+                };
+                var periodoLimpo = (periodo ? periodo.textContent : "").replace(/[^\d]+/g, "-").replace(/^-|-$/g, "");
 
-        echo '<h3 class="h5 mt-4 mb-2">Importar gasto real das APIs</h3>';
-        echo '<p class="muted" style="font-size:12px">Puxa o gasto diário real das suas contas de anúncio direto da API e lança no painel automaticamente (marcado como "[SYNC META]"). Não apaga lançamentos manuais.</p>';
-        echo '<form method="post" class="row g-2 align-items-end">';
-        echo '<input type="hidden" name="ads_roi_action" value="sync_meta">';
-        echo '<div class="col-md-3"><label class="form-label">Últimos dias</label><select class="form-select" name="sync_days"><option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option></select></div>';
-        echo '<div class="col-md-6"><span class="d-inline-block mt-4"><button class="btn btn-dark">Sincronizar Meta Ads</button></span></div>';
-        echo '</form>';
-        echo '<p class="muted mt-2" style="font-size:12px">Google Ads: precisa conectar a conta (credenciais OAuth/API). Assim que configurar, o botão aparece aqui.</p>';
+                window.html2canvas(doc, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false })
+                    .then(function (canvas) {
+                        // A4 em PÉ (retrato), que é o formato bom para imprimir.
+                        var pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+                        var larguraPagina = pdf.internal.pageSize.getWidth();
+                        var alturaPagina = pdf.internal.pageSize.getHeight();
+                        var margem = 10;
+                        var larguraUtil = larguraPagina - margem * 2;
+                        var alturaUtil = alturaPagina - margem * 2;
+                        var alturaImagem = canvas.height * (larguraUtil / canvas.width);
+                        var paginas = Math.max(1, Math.ceil(alturaImagem / alturaUtil));
+                        var fatiaAltura = canvas.height / paginas;
+                        for (var p = 0; p < paginas; p++) {
+                            var origemY = Math.round(p * fatiaAltura);
+                            var alturaFatia = Math.round(Math.min(fatiaAltura, canvas.height - origemY));
+                            if (alturaFatia <= 0) { break; }
+                            var parte = document.createElement("canvas");
+                            parte.width = canvas.width;
+                            parte.height = alturaFatia;
+                            parte.getContext("2d").drawImage(canvas, 0, origemY, canvas.width, alturaFatia, 0, 0, canvas.width, alturaFatia);
+                            if (p > 0) { pdf.addPage("a4", "portrait"); }
+                            var alturaDesenhada = alturaFatia * (larguraUtil / canvas.width);
+                            pdf.addImage(parte.toDataURL("image/jpeg", 0.92), "JPEG", margem, margem, larguraUtil, alturaDesenhada);
+                            if (paginas > 1) {
+                                pdf.setFontSize(8);
+                                pdf.setTextColor(152, 162, 179);
+                                pdf.text("p\u00e1gina " + (p + 1) + " de " + paginas, larguraPagina - margem, alturaPagina - 4, { align: "right" });
+                            }
+                        }
+                        pdf.save("retorno-anuncios-" + periodoLimpo + ".pdf");
+                        finalizar();
+                    })
+                    .catch(function () {
+                        finalizar();
+                        alert("N\u00e3o foi poss\u00edvel montar o PDF agora. Tente novamente.");
+                    });
+            });
+        })();
+        </script>
+ROIPDFJS;
+
     }, null);
 }
 
