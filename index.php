@@ -8850,6 +8850,7 @@ if ($page === 'studio_ads_roi') {
 ROIPDFJS;
 
     }, null);
+    exit;
 }
 
 if ($page === 'studio_meta_ads') {
