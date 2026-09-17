@@ -8599,7 +8599,7 @@ if ($page === 'studio_ads_roi') {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8660,9 +8660,16 @@ if ($page === 'studio_ads_roi') {
         }
 
         $adsGoogleCfg = ads_roi_google_oauth_config($studio);
-        $adsGoogleRow = $adsRoiPdo->query("SELECT google_ads_refresh_token FROM studio_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
-        $adsGoogleConectado = trim((string)($adsGoogleRow['google_ads_refresh_token'] ?? '')) !== '';
-        $adsGoogleCustomer = preg_replace('/\D/', '', (string)(studio_settings($studio)['google_ads_customer_id'] ?? ''));
+        $adsGoogleConectado = false;
+        try {
+            $adsGoogleRow = $adsRoiPdo->query("SELECT google_ads_refresh_token FROM studio_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+            $adsGoogleConectado = trim((string)($adsGoogleRow['google_ads_refresh_token'] ?? '')) !== '';
+        } catch (Throwable $e) {
+            // Coluna ainda nao existe: nunca conectou.
+            $adsGoogleConectado = false;
+        }
+        $adsGoogleSettings = studio_settings($studio);
+        $adsGoogleCustomer = preg_replace('/\D/', '', (string)($adsGoogleSettings['google_ads_customer_id'] ?? ''));
 
         echo '<div class="roi-period-bar" style="margin-bottom:14px">';
         if ($adsGoogleConectado) {
