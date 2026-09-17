@@ -8673,13 +8673,16 @@ if ($page === 'studio_ads_roi') {
     $adsHitsByOrigin = ads_hits_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     // Diagnostico da ponte de origem: detectou mas nao gravou? (divergencia invisivel)
     $adsBridgeHealth = ads_bridge_health();
+    // Saldo/credito das contas de anuncio (monitoramento do dono).
+    $adsSaldoMeta = studio_meta_ads_balance_status($studio);
+    $adsSaldoGoogle = ads_roi_google_balance_status($studio);
     $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
     $adsRoiBudgets = [];
     foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8806,6 +8809,69 @@ if ($page === 'studio_ads_roi') {
                 . '</div>';
         } elseif (!empty($adsBridgeHealth) && (int)$adsBridgeHealth['detectadas_hoje'] > 0 && (int)$adsBridgeHealth['pushed_ok'] === 0) {
             echo '<div class="alert alert-warning" style="font-size:13px"><b>Rastreio detectou origem hoje mas nada foi gravado.</b> Confira se a ponte está no ar e se o token está correto.</div>';
+        }
+
+        // ---- SALDO das contas de anuncio (monitoramento) ----
+        $saldoTot = 0.0;
+        $temSaldo = false;
+        if (!empty($adsSaldoMeta['ok']) && isset($adsSaldoMeta['balance'])) {
+            $saldoTot += (float)$adsSaldoMeta['balance'];
+            $temSaldo = true;
+        }
+        if (!empty($adsSaldoGoogle['ok']) && isset($adsSaldoGoogle['balance']) && $adsSaldoGoogle['balance'] !== null) {
+            $saldoTot += (float)$adsSaldoGoogle['balance'];
+            $temSaldo = true;
+        }
+
+        echo '<h3 class="h5 mt-4 mb-2">Saldo das contas de anúncio</h3>';
+        if (!$temSaldo) {
+            echo '<div class="alert alert-warning" style="font-size:13px">Não foi possível ler o saldo das contas agora. '
+                . (!empty($adsSaldoMeta['error']) ? 'Meta: ' . h((string)$adsSaldoMeta['error']) . '. ' : '')
+                . (!empty($adsSaldoGoogle['error']) ? 'Google: ' . h((string)$adsSaldoGoogle['error']) . '.' : '')
+                . '</div>';
+        } else {
+            echo '<div class="roi-cards">';
+
+            // Meta
+            if (!empty($adsSaldoMeta['ok']) && isset($adsSaldoMeta['balance'])) {
+                $metaBal = (float)$adsSaldoMeta['balance'];
+                $metaBaixo = $metaBal <= 30;
+                echo '<div class="roi-card"><div class="lbl">Saldo Meta</div>'
+                    . '<div class="val ' . ($metaBaixo ? 'roi-bad' : 'roi-good') . '">' . $fmt($metaBal) . '</div>'
+                    . '<div class="sub">' . h((string)($adsSaldoMeta['account_name'] ?? 'Meta Ads'))
+                    . ($metaBaixo ? ' · <b>BAIXO</b>' : '') . '</div></div>';
+            } else {
+                echo '<div class="roi-card"><div class="lbl">Saldo Meta</div><div class="val">—</div>'
+                    . '<div class="sub">' . h((string)($adsSaldoMeta['error'] ?? 'indisponível')) . '</div></div>';
+            }
+
+            // Google
+            if (!empty($adsSaldoGoogle['ok']) && isset($adsSaldoGoogle['balance']) && $adsSaldoGoogle['balance'] !== null) {
+                $gooBal = (float)$adsSaldoGoogle['balance'];
+                $gooBaixo = $gooBal <= 50;
+                echo '<div class="roi-card"><div class="lbl">Saldo Google Ads</div>'
+                    . '<div class="val ' . ($gooBaixo ? 'roi-bad' : 'roi-good') . '">' . $fmt($gooBal) . '</div>'
+                    . '<div class="sub">limite ' . $fmt((float)($adsSaldoGoogle['aprovado'] ?? 0))
+                    . ' − gasto ' . $fmt((float)($adsSaldoGoogle['servido'] ?? 0))
+                    . ($gooBaixo ? ' · <b>BAIXO</b>' : '') . '</div></div>';
+            } elseif (!empty($adsSaldoGoogle['ok'])) {
+                echo '<div class="roi-card"><div class="lbl">Saldo Google Ads</div><div class="val">—</div>'
+                    . '<div class="sub">conta sem orçamento de período (pós-paga)</div></div>';
+            } else {
+                echo '<div class="roi-card"><div class="lbl">Saldo Google Ads</div><div class="val">—</div>'
+                    . '<div class="sub">' . h((string)($adsSaldoGoogle['error'] ?? 'indisponível')) . '</div></div>';
+            }
+
+            echo '<div class="roi-card"><div class="lbl">Total disponível</div>'
+                . '<div class="val">' . $fmt($saldoTot) . '</div>'
+                . '<div class="sub">Meta + Google somados</div></div>';
+            echo '</div>';
+
+            echo '<div class="alert alert-secondary" style="font-size:12px">'
+                . '<b>Como o saldo é calculado.</b> '
+                . 'Meta: campo <code>balance</code> da conta. '
+                . 'Google: limite aprovado no período menos o já gasto (a API do Google Ads não tem campo de saldo pronto). '
+                . 'Saldo <b>baixo</b> = Meta abaixo de R$ 30 ou Google abaixo de R$ 50.</div>';
         }
 
         echo '<div class="roi-cards">';

@@ -363,6 +363,117 @@ function ads_roi_google_store_refresh_token(array $studio, string $refreshToken)
  * Troca o refresh token por um access token do Google (OAuth 2.0).
  * Retorna ['ok'=>bool,'token'=>string,'error'=>?string].
  */
+/**
+ * Saldo / credito da conta do Google Ads.
+ *
+ * A API nao tem um campo unico de "saldo disponivel" como a Meta tem `balance`.
+ * O que da para ler de forma confiavel:
+ *   - account_budget: quanto foi aprovado no periodo (approved_spending_limit_micros)
+ *   - account_budget: quanto ja foi gasto ate agora (amount_served_micros)
+ *   - account_budget: quanto ainda cabe no periodo (pending + approved - served)
+ * A API_REMAINING = approved - served, que e o que o dono chama de "saldo".
+ *
+ * Forma de faturamento (billing_setup) tambem e lida: conta pos-paga nao tem
+ * "saldo" no sentido de credito, e o painel precisa dizer isso em vez de mostrar 0.
+ *
+ * Retorna sempre um array (nunca lanca), com 'ok' => bool.
+ */
+function ads_roi_google_balance_status(array $studio): array
+{
+    $settings = studio_settings($studio);
+    $oauth = ads_roi_google_oauth_config($studio);
+
+    $cfg = [
+        'customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_customer_id'] ?? '')),
+        'client_id' => $oauth['client_id'],
+        'client_secret' => $oauth['client_secret'],
+        'refresh_token' => trim((string)($settings['google_ads_refresh_token'] ?? '')),
+        'login_customer_id' => preg_replace('/\D/', '', (string)($settings['google_ads_login_customer_id'] ?? '')),
+        'api_version' => trim((string)($settings['google_ads_api_version'] ?? 'v25')) ?: 'v25',
+    ];
+
+    $faltando = [];
+    foreach (['customer_id', 'client_id', 'client_secret', 'refresh_token'] as $campo) {
+        if (($cfg[$campo] ?? '') === '') {
+            $faltando[] = $campo;
+        }
+    }
+    if ($faltando) {
+        return ['ok' => false, 'configured' => false, 'error' => 'Google Ads nao conectado.'];
+    }
+
+    $tokenRes = ads_roi_google_access_token($cfg);
+    if (!$tokenRes['ok']) {
+        return ['ok' => false, 'configured' => true, 'error' => (string)($tokenRes['error'] ?? 'Falha ao renovar o token do Google.')];
+    }
+
+    $headers = ['Authorization: Bearer ' . (string)$tokenRes['token']];
+    if ($cfg['login_customer_id'] !== '') {
+        $headers[] = 'login-customer-id: ' . $cfg['login_customer_id'];
+    }
+
+    $url = 'https://googleads.googleapis.com/' . rawurlencode($cfg['api_version'])
+        . '/customers/' . rawurlencode($cfg['customer_id']) . '/googleAds:search';
+
+    // Orcamento da conta: aprovado no periodo x ja servido.
+    $consultaBudget = 'SELECT customer.id, customer.descriptive_name, customer.currency_code, '
+        . 'customer.status, account_budget.approved_spending_limit_micros, '
+        . 'account_budget.amount_served_micros, account_budget.status, '
+        . 'account_budget.approved_start_date_time, account_budget.approved_end_date_time '
+        . 'FROM account_budget LIMIT 1';
+
+    $res = ads_roi_http_request('POST', $url, $headers, ['query' => $consultaBudget], 'json', 45);
+    if (empty($res['ok'])) {
+        // Pode ser conta sem account_budget (pos-paga). Tenta so a moeda/status.
+        $consultaConta = 'SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.status '
+            . 'FROM customer LIMIT 1';
+        $resConta = ads_roi_http_request('POST', $url, $headers, ['query' => $consultaConta], 'json', 45);
+        if (empty($resConta['ok'])) {
+            return ['ok' => false, 'configured' => true, 'error' => (string)($res['error'] ?? 'Falha ao consultar o Google Ads.')];
+        }
+        $linha = $resConta['json']['results'][0]['customer'] ?? [];
+        return [
+            'ok' => true,
+            'configured' => true,
+            'tem_creidto' => false,
+            'balance' => null,
+            'currency' => (string)($linha['currencyCode'] ?? 'BRL'),
+            'account_name' => (string)($linha['descriptiveName'] ?? 'Conta Google Ads'),
+            'account_status' => (string)($linha['status'] ?? ''),
+            'observacao' => 'Conta sem orçamento de período (pós-paga): não há saldo pré-pago para exibir.',
+        ];
+    }
+
+    $linhas = $res['json']['results'] ?? [];
+    $linha = $linhas[0] ?? [];
+    $conta = $linha['customer'] ?? [];
+    $budget = $linha['accountBudget'] ?? [];
+
+    $microAprovado = isset($budget['approvedSpendingLimitMicros']) ? (float)$budget['approvedSpendingLimitMicros'] : null;
+    $microServido = isset($budget['amountServedMicros']) ? (float)$budget['amountServedMicros'] : null;
+
+    $aprovado = $microAprovado !== null ? $microAprovado / 1000000 : null;
+    $servido = $microServido !== null ? $microServido / 1000000 : null;
+    $restante = ($aprovado !== null && $servido !== null) ? max(0.0, $aprovado - $servido) : null;
+
+    return [
+        'ok' => true,
+        'configured' => true,
+        'tem_creidto' => $restante !== null,
+        'balance' => $restante,
+        'aprovado' => $aprovado,
+        'servido' => $servido,
+        'currency' => (string)($conta['currencyCode'] ?? 'BRL'),
+        'account_name' => (string)($conta['descriptiveName'] ?? 'Conta Google Ads'),
+        'account_status' => (string)($conta['status'] ?? ''),
+        'budget_status' => (string)($budget['status'] ?? ''),
+        'budget_fim' => (string)($budget['approvedEndDateTime'] ?? ''),
+        'observacao' => $restante !== null
+            ? 'Limite aprovado (' . number_format((float)$aprovado, 2, ',', '.') . ') menos o já gasto (' . number_format((float)$servido, 2, ',', '.') . ').'
+            : 'A conta nao informou limite de periodo; confira o saldo no painel do Google Ads.',
+    ];
+}
+
 function ads_roi_google_access_token(array $cfg): array
 {
     if (($cfg['client_id'] ?? '') === '' || ($cfg['client_secret'] ?? '') === '' || ($cfg['refresh_token'] ?? '') === '') {
