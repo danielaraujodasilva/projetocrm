@@ -18,9 +18,17 @@ $state = trim((string)($_GET['state'] ?? ''));
 $code = trim((string)($_GET['code'] ?? ''));
 $oauthError = trim((string)($_GET['error'] ?? ''));
 
+// Diagnostico: registra QUAIS parametros voltaram (sem os valores sensiveis).
+$diagLog = __DIR__ . '/storage/logs/google_ads_oauth.log';
+@mkdir(dirname($diagLog), 0775, true);
+@file_put_contents($diagLog, date('Y-m-d H:i:s') . ' retorno: params=[' . implode(',', array_keys($_GET))
+    . '] error=' . ($oauthError !== '' ? $oauthError : '-')
+    . ' tem_code=' . ($code !== '' ? 'sim' : 'nao')
+    . ' tem_state=' . ($state !== '' ? 'sim' : 'nao') . PHP_EOL, FILE_APPEND);
+
 try {
     if ($oauthError !== '') {
-        throw new RuntimeException('Autorizacao do Google cancelada ou recusada pelo usuario.');
+        throw new RuntimeException('Autorizacao do Google cancelada ou recusada pelo usuario (' . $oauthError . ').');
     }
     if ($state === '' || $code === '') {
         throw new RuntimeException('O Google nao devolveu o codigo de autorizacao.');
