@@ -8692,6 +8692,12 @@ if ($page === 'studio_ads_roi') {
             .roi-card .val{font-size:24px;font-weight:800;color:#101828;margin-top:6px}
             .roi-card .sub{font-size:12px;color:#98a2b3;margin-top:4px}
             .roi-good{color:#079455}.roi-bad{color:#d92d20}
+            /* Precisa de .roi-card na frente: .roi-card .val tem mais peso que .roi-bad sozinho. */
+            .roi-card .val.roi-good{color:#079455}
+            .roi-card .val.roi-bad{color:#d92d20}
+            .roi-card.saldo-baixo{background:#fffbfa;border:2px solid #d92d20}
+            .roi-card.saldo-baixo .lbl{color:#b42318}
+            .roi-selo-baixo{display:inline-block;background:#d92d20;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;margin-left:6px;letter-spacing:.03em}
             .roi-table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;font-size:13px}
             .roi-table th{background:#f9fafb;text-align:left;padding:10px 12px;color:#475467;font-weight:700;border-bottom:1px solid #eaecf0}
             .roi-table td{padding:9px 12px;border-bottom:1px solid #f2f4f7;color:#344054}
@@ -8836,10 +8842,11 @@ if ($page === 'studio_ads_roi') {
             if (!empty($adsSaldoMeta['ok']) && isset($adsSaldoMeta['balance'])) {
                 $metaBal = (float)$adsSaldoMeta['balance'];
                 $metaBaixo = $metaBal <= 30;
-                echo '<div class="roi-card"><div class="lbl">Saldo Meta</div>'
+                echo '<div class="roi-card' . ($metaBaixo ? ' saldo-baixo' : '') . '"><div class="lbl">Saldo Meta'
+                    . ($metaBaixo ? '<span class="roi-selo-baixo">BAIXO</span>' : '') . '</div>'
                     . '<div class="val ' . ($metaBaixo ? 'roi-bad' : 'roi-good') . '">' . $fmt($metaBal) . '</div>'
                     . '<div class="sub">' . h((string)($adsSaldoMeta['account_name'] ?? 'Meta Ads'))
-                    . ($metaBaixo ? ' · <b>BAIXO</b>' : '') . '</div></div>';
+                    . ($metaBaixo ? ' · recarregue para não parar a campanha' : '') . '</div></div>';
             } else {
                 echo '<div class="roi-card"><div class="lbl">Saldo Meta</div><div class="val">—</div>'
                     . '<div class="sub">' . h((string)($adsSaldoMeta['error'] ?? 'indisponível')) . '</div></div>';
@@ -8849,11 +8856,12 @@ if ($page === 'studio_ads_roi') {
             if (!empty($adsSaldoGoogle['ok']) && isset($adsSaldoGoogle['balance']) && $adsSaldoGoogle['balance'] !== null) {
                 $gooBal = (float)$adsSaldoGoogle['balance'];
                 $gooBaixo = $gooBal <= 50;
-                echo '<div class="roi-card"><div class="lbl">Saldo Google Ads</div>'
+                echo '<div class="roi-card' . ($gooBaixo ? ' saldo-baixo' : '') . '"><div class="lbl">Saldo Google Ads'
+                    . ($gooBaixo ? '<span class="roi-selo-baixo">BAIXO</span>' : '') . '</div>'
                     . '<div class="val ' . ($gooBaixo ? 'roi-bad' : 'roi-good') . '">' . $fmt($gooBal) . '</div>'
                     . '<div class="sub">limite ' . $fmt((float)($adsSaldoGoogle['aprovado'] ?? 0))
                     . ' − gasto ' . $fmt((float)($adsSaldoGoogle['servido'] ?? 0))
-                    . ($gooBaixo ? ' · <b>BAIXO</b>' : '') . '</div></div>';
+                    . ($gooBaixo ? ' · recarregue para não parar a campanha' : '') . '</div></div>';
             } elseif (!empty($adsSaldoGoogle['ok'])) {
                 echo '<div class="roi-card"><div class="lbl">Saldo Google Ads</div><div class="val">—</div>'
                     . '<div class="sub">conta sem orçamento de período (pós-paga)</div></div>';
