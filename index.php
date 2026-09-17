@@ -8550,6 +8550,19 @@ if ($page === 'studio_ads_roi') {
     $adsRoiPdo = studio_db($studio);
     studio_ads_daily_ensure_schema($adsRoiPdo);
 
+    // Salva o Customer ID do Google Ads (conta de anuncios) informado no painel.
+    if (isset($_GET['google_ads_customer_id'])) {
+        $cid = preg_replace('/\D/', '', (string)$_GET['google_ads_customer_id']);
+        try {
+            $stmt = $adsRoiPdo->prepare('INSERT INTO studio_settings (id, google_ads_customer_id) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_customer_id = VALUES(google_ads_customer_id)');
+            $stmt->execute([$cid]);
+        } catch (Throwable $e) {
+            $adsRoiPdo->exec('ALTER TABLE studio_settings ADD COLUMN google_ads_customer_id VARCHAR(40) NULL');
+            $stmt = $adsRoiPdo->prepare('INSERT INTO studio_settings (id, google_ads_customer_id) VALUES (1, ?) ON DUPLICATE KEY UPDATE google_ads_customer_id = VALUES(google_ads_customer_id)');
+            $stmt->execute([$cid]);
+        }
+    }
+
 
     $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
     $adsRoiPeriod = (int)($_GET['roi_days'] ?? 30);
@@ -8628,6 +8641,46 @@ if ($page === 'studio_ads_roi') {
         echo '<label>Até <input type="date" name="roi_to" value="' . h($adsRoiEnd) . '" max="' . h(date('Y-m-d')) . '"></label>';
         echo '<button class="btn btn-sm btn-dark" type="submit">Aplicar período</button>';
         echo '</form>';
+
+        // ---- Conexao do Google Ads (a API nao tem developer token desde 09/09/2026;
+        // o acesso e do projeto Google Cloud dono do OAuth) ----
+        // Se houver uma autorizacao feita em outro aparelho (celular), recolhe aqui:
+        // a tela de callback nao tem sessao, entao guarda o refresh token em disco.
+        $adsPendPath = __DIR__ . '/storage/google_ads_oauth_pending.json';
+        if (is_file($adsPendPath)) {
+            $pend = json_decode((string)@file_get_contents($adsPendPath), true);
+            $pendToken = is_array($pend) ? trim((string)($pend['refresh_token'] ?? '')) : '';
+            if ($pendToken !== '') {
+                ads_roi_google_store_refresh_token($studio, $pendToken);
+                @unlink($adsPendPath);
+                echo '<div class="alert alert-success">Google Ads conectado. O gasto passa a ser importado na sincronizacao diaria.</div>';
+            } else {
+                @unlink($adsPendPath);
+            }
+        }
+
+        $adsGoogleCfg = ads_roi_google_oauth_config($studio);
+        $adsGoogleRow = $adsRoiPdo->query("SELECT google_ads_refresh_token FROM studio_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+        $adsGoogleConectado = trim((string)($adsGoogleRow['google_ads_refresh_token'] ?? '')) !== '';
+        $adsGoogleCustomer = preg_replace('/\D/', '', (string)(studio_settings($studio)['google_ads_customer_id'] ?? ''));
+
+        echo '<div class="roi-period-bar" style="margin-bottom:14px">';
+        if ($adsGoogleConectado) {
+            echo '<span class="roi-pill google" style="padding:6px 12px">Google Ads conectado</span>';
+            if ($adsGoogleCustomer === '') {
+                echo '<span class="muted" style="font-size:12px">Falta informar o Customer ID da conta de anuncios para o gasto aparecer.</span>';
+            }
+            echo '<form method="get" class="roi-custom" style="gap:6px">';
+            echo '<input type="hidden" name="page" value="studio_ads_roi">';
+            echo '<label>Customer ID <input type="text" name="google_ads_customer_id" placeholder="836-860-6975" value="' . h($adsGoogleCustomer) . '" style="border:1px solid #d0d5dd;border-radius:8px;padding:4px 8px;font-size:13px"></label>';
+            echo '<button class="btn btn-sm btn-dark" type="submit">Salvar</button>';
+            echo '</form>';
+        } else {
+            echo '<span class="roi-pill outro" style="padding:6px 12px">Google Ads nao conectado - o painel mostra apenas o gasto do Meta</span>';
+            echo '<a class="btn btn-sm btn-dark" href="' . h(app_asset_url('google_ads_oauth_start.php')) . '">Conectar Google Ads</a>';
+        }
+        echo '</div>';
+
         echo '<button type="button" id="roiPdfBtn" class="btn btn-sm btn-outline-dark" title="Salva o resumo e as tabelas em PDF A4, pronto para imprimir">Salvar PDF</button>';
         echo '</div>';
         echo '<div class="roi-period-active">Período analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' · ' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ' (personalizado)' : '') . '</div>';

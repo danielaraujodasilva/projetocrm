@@ -297,10 +297,17 @@ function ads_roi_google_authorization_url(array $studio): string
 
 /**
  * Troca o code por tokens (authorization_code) no OAuth do Google.
+ * Aceita o state para funcionar tambem quando a autorizacao veio de outro aparelho
+ * (sem sessao ativa no navegador que abriu o callback).
  */
-function ads_roi_google_exchange_code(string $code): array
+function ads_roi_google_exchange_code(string $code, string $state = ''): array
 {
-    $studio = current_studio() ?: [];
+    // Sem sessao (autorizacao feita em outro dispositivo), usa o estudio 1 apenas
+    // como contexto para resolver client id/secret - o token e gravado depois.
+    $studio = current_studio();
+    if (!is_array($studio) || !$studio) {
+        $studio = get_studio(1) ?: [];
+    }
     $config = ads_roi_google_oauth_config(is_array($studio) ? $studio : []);
     $res = ads_roi_http_request('POST', $config['token_uri'], [], [
         'code' => $code,
