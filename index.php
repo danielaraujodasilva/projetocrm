@@ -8730,7 +8730,7 @@ if ($page === 'studio_ads_roi') {
 
         // ---- PDF enxuto (tabelas) ----
         $vTot = max(0.01, (float)$s['spend_total']);
-        echo '<div id="roiPdfDoc" style="display:none;background:#fff;color:#101828;font-family:Helvetica,Arial,sans-serif;width:760px;padding:0">';
+        echo '<div id="roiPdfDoc" style="display:none;background:#fff;color:#101828;font-family:Manrope,"Segoe UI",Arial,sans-serif;width:760px;padding:0">';
         echo '<div style="border-bottom:2px solid #101828;padding-bottom:8px;margin-bottom:14px"><div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#667085;font-weight:700">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div style="font-size:20px;font-weight:800;color:#101828;margin-top:2px">Retorno dos An�ncios</div><div style="font-size:11px;color:#667085;margin-top:3px">Per�odo analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ') - gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><tbody>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700;width:38%">Gasto no per�odo</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_total']) . ' <span style="color:#98a2b3">(Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ')</span></td></tr>';
@@ -8784,6 +8784,9 @@ if ($page === 'studio_ads_roi') {
                 btn.disabled = true;
                 btn.textContent = "Gerando PDF...";
                 doc.style.display = "";
+                // Garante a fonte carregada antes de rasterizar: com fonte ainda em fallback
+                // o html2canvas pode desenhar os acentos corrompidos.
+                var fontesProntas = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
 
                 // Bloqueia fontes externas que fazem o html2canvas recusar o render.
                 var restaurar = [];
@@ -8805,7 +8808,7 @@ if ($page === 'studio_ads_roi') {
                 };
                 var periodoLimpo = (periodo ? periodo.textContent : "").replace(/[^\d]+/g, "-").replace(/^-|-$/g, "");
 
-                window.html2canvas(doc, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false })
+                fontesProntas.then(function () { return window.html2canvas(doc, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false }); })
                     .then(function (canvas) {
                         // A4 em PÉ (retrato), que é o formato bom para imprimir.
                         var pdf = new window.jspdf.jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
