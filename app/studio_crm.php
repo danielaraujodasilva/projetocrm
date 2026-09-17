@@ -2913,7 +2913,7 @@ function studio_find_whatsapp_conversation(array $studio, int $id): ?array
 
     $stmt = studio_db($studio)->prepare(
         "SELECT wc.*, c.name AS customer_name, c.email AS customer_email, c.instagram AS customer_instagram, c.notes AS customer_notes,
-                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value, NULL AS assigned_user_name,
+                l.name AS lead_name, l.interest AS lead_interest, l.status AS lead_status, l.pipeline_stage AS lead_pipeline_stage, l.estimated_value AS lead_estimated_value, l.source AS lead_source, NULL AS assigned_user_name,
                 COALESCE(wc.last_message_preview, wm_last.body) AS latest_message_preview,
                 COALESCE(wc.last_message_preview, wm_last.body) AS last_message_preview,
                 COALESCE(wc.last_message_direction, wm_last.direction) AS latest_message_direction,
@@ -3328,7 +3328,17 @@ function studio_update_whatsapp_profile(array $studio, array $data): array
         'pipeline_stage' => trim((string)($data['pipeline_stage'] ?? $conversation['lead_pipeline_stage'] ?? 'em_conversa')),
         'lead_score' => (int)($data['lead_score'] ?? $conversation['lead_score'] ?? 0),
         'estimated_value' => (string)($data['estimated_value'] ?? $conversation['lead_estimated_value'] ?? '0'),
-        'source' => trim((string)($data['source'] ?? 'WhatsApp')),
+        // Preserva a origem existente quando o campo nao vem no POST (evita virar
+        // "WhatsApp" e apagar o rastreio de anuncio). Normaliza o valor escolhido.
+        'source' => (function () use ($data, $conversation): string {
+            if (array_key_exists('source', $data) && trim((string)$data['source']) !== '') {
+                return function_exists('ads_origem_normalizar')
+                    ? ads_origem_normalizar((string)$data['source'])
+                    : trim((string)$data['source']);
+            }
+            $atual = trim((string)($conversation['lead_source'] ?? $conversation['source'] ?? ''));
+            return $atual !== '' ? $atual : 'whatsapp';
+        })(),
     ];
     if ($leadId > 0 || !empty($data['create_lead'])) {
         $leadId = studio_save_lead($studio, $leadPayload);

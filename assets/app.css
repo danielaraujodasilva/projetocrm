@@ -25,7 +25,6 @@
     display: grid;
     gap: 22px;
 }
-
 .tattoo-image-compose {
     padding: clamp(24px, 5vw, 54px);
     border: 1px solid rgba(255, 255, 255, .12);
@@ -9967,3 +9966,6 @@ body.flow-modal-open{overflow:hidden}
 .flow-branch-row select{min-width:0;margin:0}
 .flow-branch-empty{padding:11px;border:1px dashed #c6ddd3;border-radius:10px;color:#6e857d;font-size:.78rem;background:#fff}
 @media(max-width:680px){.flow-canvas.is-flow-graph{min-height:0!important;padding:16px 8px 28px}.flow-branch-row{grid-template-columns:1fr}.flow-branch-row select{width:100%}}
+
+.lead-source-inline{font-size:11px;font-weight:700;border:1px solid #d0d5dd;border-radius:999px;padding:1px 6px;background:#fff;color:#344054;max-width:150px;cursor:pointer}
+.lead-source-inline:disabled{opacity:.6}
