@@ -8677,10 +8677,10 @@ if ($page === 'studio_ads_roi') {
         // Explicações de cálculo exibidas nos tooltips clicáveis (chave => [título, corpo HTML]).
         $help = [
             'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
-            'agendamentos' => ['Agendamentos reais', 'Conta linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no período. É a agenda de verdade, não os leads do anúncio.<br><br>O subtítulo mostra quantos desses estão com status <code>cancelado</code>.'],
+            'agendamentos' => ['Agendamentos com valor', 'Conta as linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no per�odo <b>e que t�m valor cadastrado</b> (campo <code>value</code> maior que zero). � a agenda de verdade, n�o os leads do an�ncio.<br><br><b>Compromissos sem valor n�o contam</b> - limpeza, reuni�o, bloqueio de hor�rio e cancelamento sem valor ficam fora, porque n�o s�o servi�o vendido. Sem esse filtro o CPA e o ROAS sairiam artificialmente bons.<br><br>O subt�tulo mostra quantos <b>cancelados</b> existem na agenda do per�odo, com ou sem valor.'],
             'cpa' => ['Custo por agendamento', 'Quanto custou, em média, cada agendamento do período:<br><br><code>gasto total ÷ nº de agendamentos</code><br><br>Se não houve agendamento no período, aparece <b>—</b> (divisão por zero).'],
             'roas' => ['Retorno (ROAS)', 'Retorno sobre o gasto de anúncio:<br><br><code>valor agendado ÷ gasto total</code><br><br>Ex.: <b>2,69x</b> significa que cada R$ 1 gasto voltou como R$ 2,69 em tatuagem agendada.<br><br>Fica <span style="color:#d92d20">vermelho</span> abaixo de 1x (ainda não pagou o anúncio) e <span style="color:#079455">verde</span> a partir de 1x.<br><br><b>Atenção:</b> é o valor <i>agendado</i>, não o efetivamente recebido — parte dos agendamentos pode fechar depois.'],
-            'valor_agendado' => ['Valor agendado', 'Soma do campo <code>value</code> dos agendamentos do período, considerando só os que têm valor maior que zero (ignora compromissos sem valor).<br><br>É o numerador do ROAS.'],
+            'valor_agendado' => ['Valor cadastrado', 'Soma do campo <code>value</code> dos agendamentos do per�odo que t�m valor maior que zero (compromissos sem valor ficam fora).<br><br><b>Aten��o:</b> � o valor <i>lan�ado na agenda</i>, n�o dinheiro recebido. Depende de algu�m ter cadastrado o valor do servi�o - agendamento sem valor n�o entra na soma.<br><br>� o numerador do ROAS.'],
             'projecao' => ['Projeção mensal', 'Estimativa pelo orçamento diário configurado abaixo (soma dos canais ativos em <code>ads_channel_config</code>):<br><br><code>orçamento/dia × 30</code><br><br>Não usa o gasto real — serve para planejar o mês.'],
             'custo_canal' => ['Meta x Google — rateio', 'Compara o gasto de cada canal no período. A coluna <b>% do gasto</b> é <code>gasto do canal ÷ gasto total</code>.<br><br>Já o <b>Custo por agendamento*</b> é um <i>rateio</i>: como a agenda não registra de qual anúncio veio cada cliente, dividimos o gasto do canal pelo total de agendamentos do período (o mesmo denominador para os dois canais). Por isso os dois valores somam o CPA geral, não um CPA real por canal.<br><br>Para separar com precisão, lance os leads por canal na seção abaixo.'],
             'dia_a_dia' => ['Dia a dia', 'Detalhe diário do período. Cada linha cruza, para aquela data:<br><br>• <b>Gasto</b>: soma Meta + Google do dia (com a regra anti-duplicidade do SYNC).<br>• <b>Agend.</b>: agendamentos da agenda nesse dia.<br>• <b>Custo/agend.</b>: <code>gasto do dia ÷ agendamentos do dia</code>.<br>• <b>Valor</b>: soma dos valores agendados no dia.<br>• <b>ROAS</b>: <code>valor do dia ÷ gasto do dia</code>.<br><br>Dias sem gasto aparecem com <b>—</b> no lugar do ROAS (sem divisão por zero).'],
@@ -8694,13 +8694,13 @@ if ($page === 'studio_ads_roi') {
 
         echo '<div class="roi-cards">';
         echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Agendamentos reais' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)$s['cancelados'] . ' cancelados</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Agendamentos com valor' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</div></div>';
         $cpa = $s['custo_por_agendamento'];
         echo '<div class="roi-card"><div class="lbl">Custo por agendamento' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">quanto custa trazer 1 cliente</div></div>';
         $roas = $s['roas'];
         $roasClass = (is_null($roas) || $roas < 1) ? 'roi-bad' : 'roi-good';
         echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format($roas, 2, ',', '.') . 'x') . '</div><div class="sub">valor agendado / gasto</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Valor agendado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma das tatuagens agendadas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Valor cadastrado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma dos agendamentos com valor</div></div>';
         echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
         echo '</div>';
 
@@ -8818,8 +8818,8 @@ ROICSS;
         echo '<div class="roi-big"><div class="k">O caminho do dinheiro no período</div>';
         echo '<div class="roi-money">';
         echo '<div class="m"><span>Entrou (gasto)</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta + Google</em></div>';
-        echo '<div class="m"><span>virou</span><strong>' . (int)$s['agendamentos'] . ' agendamento' . ((int)$s['agendamentos'] === 1 ? '' : 's') . '</strong><em>' . (int)$s['cancelados'] . ' cancelado' . ((int)$s['cancelados'] === 1 ? '' : 's') . '</em></div>';
-        echo '<div class="m"><span>que valem</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>tatuagens agendadas</em></div>';
+        echo '<div class="m"><span>virou</span><strong>' . (int)$s['agendamentos'] . ' agendamento' . ((int)$s['agendamentos'] === 1 ? '' : 's') . ' com valor</strong><em>' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelado' . ((int)($s['cancelados_total'] ?? $s['cancelados']) === 1 ? '' : 's') . ' na agenda</em></div>';
+        echo '<div class="m"><span>valor cadastrado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>no valor dos agendamentos</em></div>';
         echo '<div class="m"><span>Custo de cada</span><strong>' . $fmt($cpa) . '</strong><em>por agendamento</em></div>';
         echo '</div>';
         echo '<p class="why" style="margin-top:12px">Cada <b>R$ 1</b> de anúncio virou <b>R$ ' . (is_null($roas) ? '0,00' : number_format($roas, 2, ',', '.')) . '</b> em tatuagem agendada. É por isso que o sinal está ' . (($roas >= 1) ? 'verde' : 'vermelho') . '.</p>';
@@ -8844,10 +8844,10 @@ ROICSS;
         echo '<div class="roi-pdf-head"><div><div class="brand">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div class="roi-pdf-title">Retorno dos Anúncios</div><div class="roi-pdf-sub">Período analisado: ' . h($vPeriodo) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ')</div></div><div class="who">' . h((string)($studio['name'] ?? '')) . '<br>Relatório gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
         echo '<div class="roi-money" style="margin-bottom:14px">';
         echo '<div class="m"><span>Gasto no período</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</em></div>';
-        echo '<div class="m"><span>Agendamentos</span><strong>' . (int)$s['agendamentos'] . '</strong><em>' . (int)$s['cancelados'] . ' cancelados</em></div>';
+        echo '<div class="m"><span>Agendamentos com valor</span><strong>' . (int)$s['agendamentos'] . '</strong><em>' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</em></div>';
         echo '<div class="m"><span>Custo por agendamento</span><strong>' . $fmt($cpa) . '</strong><em>média do período</em></div>';
         echo '<div class="m"><span>ROAS</span><strong>' . (is_null($roas) ? '-' : number_format($roas, 2, ',', '.') . 'x') . '</strong><em>valor agendado / gasto</em></div>';
-        echo '<div class="m"><span>Valor agendado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>soma das tatuagens</em></div>';
+        echo '<div class="m"><span>Valor cadastrado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>dos agendamentos com valor</em></div>';
         echo '</div>';
         echo '<div class="roi-big" style="margin-bottom:14px"><div class="k">Leitura do período</div><div class="answer ' . (($roas >= 1) ? 'good' : 'bad') . '" style="font-size:19px">' . h($vFrase) . '</div><div class="why">' . h($vPaybackTxt) . '</div></div>';
         echo '<div class="roi-chart-wrap">';
@@ -8925,7 +8925,7 @@ ROICSS;
                         labels: labels,
                         datasets: [
                             { label: "Gasto do dia", data: gasto, backgroundColor: COLORS.spend, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
-                            { label: "Valor agendado", data: valor, backgroundColor: COLORS.valor, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
+                            { label: "Valor cadastrado", data: valor, backgroundColor: COLORS.valor, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
                             { label: "Agendamentos", data: appt, type: "line", borderColor: COLORS.appt, backgroundColor: COLORS.appt, borderWidth: 2, pointRadius: 3, tension: .25, yAxisID: "y2", order: 1 }
                         ]
                     },

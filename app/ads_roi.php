@@ -85,9 +85,14 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
     // Usa a matriz com precedência SYNC > manual (evita somar o mesmo gasto 2x/3x).
     $spendByDay = ads_roi_spend_matrix($pdo, $start, $end);
 
+    // Só conta como AGENDAMENTO a linha que tem valor cadastrado (> 0). Compromissos da
+    // agenda sem valor (limpeza, reunião, bloqueio de horário) e agendamentos cancelados
+    // sem valor não entram na conta - senão o CPA e o ROAS saem artificialmente bons.
+    // Cancelados COM valor continuam contando (o serviço foi vendido) e aparecem no subtítulo.
     $apptSql = 'SELECT appointment_date,
-                       COUNT(*) AS agendamentos,
-                       SUM(CASE WHEN LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados,
+                       SUM(CASE WHEN value > 0 THEN 1 ELSE 0 END) AS agendamentos,
+                       SUM(CASE WHEN value > 0 AND LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados,
+                       SUM(CASE WHEN LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados_total,
                        SUM(CASE WHEN value > 0 THEN value ELSE 0 END) AS valor_total
                 FROM appointments
                 WHERE appointment_date BETWEEN ? AND ?
@@ -106,7 +111,7 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
         $d = $cursor->format('Y-m-d');
         $metaSpend = (float)($spendByDay[$d]['meta']['spend'] ?? 0);
         $googleSpend = (float)($spendByDay[$d]['google']['spend'] ?? 0);
-        $appt = $apptByDay[$d] ?? ['agendamentos' => 0, 'cancelados' => 0, 'valor_total' => 0];
+        $appt = $apptByDay[$d] ?? ['agendamentos' => 0, 'cancelados' => 0, 'cancelados_total' => 0, 'valor_total' => 0];
         $totalSpend = $metaSpend + $googleSpend;
         $ag = (int)$appt['agendamentos'];
         $days[] = [
@@ -116,6 +121,7 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
             'spend_total' => $totalSpend,
             'agendamentos' => $ag,
             'cancelados' => (int)$appt['cancelados'],
+            'cancelados_total' => (int)($appt['cancelados_total'] ?? 0),
             'valor_agendado' => (float)$appt['valor_total'],
             'custo_por_agendamento' => $ag > 0 ? round($totalSpend / $ag, 2) : null,
             'roas' => $totalSpend > 0 ? round(((float)$appt['valor_total']) / $totalSpend, 2) : null,
@@ -139,10 +145,12 @@ function ads_roi_summary(PDO $pdo, string $start, string $end): array
 
     $totAg = 0;
     $totCancel = 0;
+    $totCancelTotal = 0;
     $totValor = 0.0;
     foreach ($series as $d) {
         $totAg += (int)$d['agendamentos'];
         $totCancel += (int)$d['cancelados'];
+        $totCancelTotal += (int)($d['cancelados_total'] ?? $d['cancelados']);
         $totValor += (float)$d['valor_agendado'];
     }
 
@@ -152,6 +160,7 @@ function ads_roi_summary(PDO $pdo, string $start, string $end): array
         'spend_total' => $totSpend,
         'agendamentos' => $totAg,
         'cancelados' => $totCancel,
+        'cancelados_total' => $totCancelTotal,
         'valor_agendado' => $totValor,
         'custo_por_agendamento' => $totAg > 0 ? round($totSpend / $totAg, 2) : null,
         'roas' => $totSpend > 0 ? round($totValor / $totSpend, 2) : null,
