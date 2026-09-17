@@ -2662,6 +2662,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         ],
         'Atendimento' => [
             ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
+            ['historico', 'fa-clock-rotate-left', 'Histórico de Conversas', 'studio_historico'],
         ],
         'Marketing' => [
             ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
@@ -3193,13 +3194,13 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
 }
 
-$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi'];
+$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico'];
 if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
     flash_set('error', 'Apenas administradores podem acessar esta área.');
     redirect_to('studio_home');
@@ -8578,13 +8579,16 @@ if ($page === 'studio_ads_roi') {
     }
     $adsRoiSummary = ads_roi_summary($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     $adsRoiProjection = ads_roi_monthly_projection($adsRoiPdo);
+    // Origem do cliente: rastreada pela ponte do WhatsApp (ctwaContext + carimbo).
+    $adsLeadsByOrigin = ads_leads_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    $adsHitsByOrigin = ads_hits_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
     $adsRoiBudgets = [];
     foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8626,6 +8630,18 @@ if ($page === 'studio_ads_roi') {
         echo '<label>Até <input type="date" name="roi_to" value="' . h($adsRoiEnd) . '" max="' . h(date('Y-m-d')) . '"></label>';
         echo '<button class="btn btn-sm btn-dark" type="submit">Aplicar período</button>';
         echo '</form>';
+
+        // ---- Links de rastreio de origem (Opcao 1) ----
+        $originBase = rtrim((string)($GLOBALS['app_config']['app']['base_url'] ?? ''), '/');
+        if ($originBase === '') { $originBase = 'https://danieltatuador.com/projetocrm'; }
+        echo '<div class="roi-card" style="margin-bottom:18px"><div class="lbl">Links de rastreio de origem</div>';
+        echo '<div class="sub" style="margin:8px 0 10px">Use estes links nos an&uacute;ncios. Eles marcam a origem automaticamente e o ROAS por canal passa a ser real.</div>';
+        echo '<div style="font-size:12px;line-height:2">';
+        echo '<div><b>META:</b> <code>' . h($originBase . '/ir.php?src=meta') . '</code></div>';
+        echo '<div><b>GOOGLE:</b> <code>' . h($originBase . '/ir.php?src=google') . '</code></div>';
+        echo '<div><b>INSTAGRAM:</b> <code>' . h($originBase . '/ir.php?src=instagram') . '</code></div>';
+        echo '<div><b>INDICA&Ccedil;&Atilde;O:</b> <code>' . h($originBase . '/ir.php?src=indicacao') . '</code></div>';
+        echo '</div></div>';
 
         // ---- Conexao do Google Ads (a API nao tem developer token desde 09/09/2026;
         // o acesso e do projeto Google Cloud dono do OAuth) ----
@@ -8671,6 +8687,9 @@ if ($page === 'studio_ads_roi') {
         $help = [
             'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
             'agendamentos' => ['Agendamentos com valor', 'Conta as linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no período <b>e que têm valor cadastrado</b> (campo <code>value</code> maior que zero). é a agenda de verdade, não os leads do anúncio.<br><br><b>Compromissos sem valor não contam</b> - limpeza, reunião, bloqueio de horário e cancelamento sem valor ficam fora, porque não são serviço vendido. Sem esse filtro o CPA e o ROAS sairiam artificialmente bons.<br><br>O subtítulo mostra quantos <b>cancelados</b> existem na agenda do período, com ou sem valor.'],
+            'leads_anuncio' => ['Leads de anúncio', 'Quantos contatos <b>de anúncio</b> entraram no período, contando <code>leads</code> criados entre <b>DATA_INICIO</b> e <b>DATA_FIM</b> cuja origem é do Meta (Facebook) ou Instagram.<br><br>A origem vem do rastreio do WhatsApp: o pacote <code>ctwaContext</code> que a Meta envia quando a conversa nasce de um clique em anúncio (traz o ID do anúncio), e o carimbo <b>"Anúncio do facebook/instagram"</b> como segunda prova.<br><br>Se este número estiver <b>zero</b>, nenhuma conversa de anúncio foi rastreada no período - e aí o custo por lead e o ROI por canal não podem ser calculados.'],
+            'leads_origem' => ['Leads por origem', 'Total de leads com <b>qualquer origem identificada</b>: anúncio (Meta/Instagram), Google, indicação, porta e cliente reincidente.<br><br>O subtítulo mostra duas coisas:<br>• <b>sem origem</b>: leads cuja origem ainda não foi identificada (cliente que não veio de link nem de anúncio rastreado).<br>• <b>total</b>: todos os leads criados no período, incluindo os importados do Google Agenda.<br><br>Quanto maior a fatia "sem origem", menos confiável fica qualquer divisão por canal.'],
+            'cpl' => ['Custo por lead de anúncio', 'Quanto custou cada contato vindo de anúncio:<br><br><code>gasto total ÷ leads de anúncio</code><br><br>É o número mais direto para saber se o anúncio está caro <b>antes</b> de virar agendamento. Aparece <b>—</b> quando não houve lead de anúncio no período (divisão por zero).'],
             'cpa' => ['Custo por agendamento', 'Quanto custou, em média, cada agendamento do período:<br><br><code>gasto total ÷ nº de agendamentos</code><br><br>Se não houve agendamento no período, aparece <b>—</b> (divisão por zero).'],
             'roas' => ['Retorno (ROAS)', 'Retorno sobre o gasto de anúncio:<br><br><code>valor cadastrado ÷ gasto total</code><br><br>Ex.: <b>2,69x</b> significa que cada R$ 1 gasto voltou como R$ 2,69 em tatuagem agendada.<br><br>Fica <span style="color:#d92d20">vermelho</span> abaixo de 1x (ainda não pagou o anúncio) e <span style="color:#079455">verde</span> a partir de 1x.<br><br><b>Atenção:</b> é o valor <i>agendado</i>, não o efetivamente recebido — parte dos agendamentos pode fechar depois.'],
             'valor_agendado' => ['Valor cadastrado', 'Soma do campo <code>value</code> dos agendamentos do período que têm valor maior que zero (compromissos sem valor ficam fora).<br><br><b>Atenção:</b> é o valor <i>lançado na agenda</i>, não dinheiro recebido. Depende de alguém ter cadastrado o valor do serviço - agendamento sem valor não entra na soma.<br><br>é o numerador do ROAS.'],
@@ -8687,12 +8706,45 @@ if ($page === 'studio_ads_roi') {
 
         echo '<div class="roi-cards">';
         echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
+
+        // ---- Contagem de LEADS por origem (dado rastreado pela ponte do WhatsApp) ----
+        $orcLead = ['meta' => 0, 'instagram' => 0, 'google' => 0, 'indicacao' => 0, 'porta' => 0, 'reincidente' => 0, 'outro' => 0, 'sem_origem' => 0];
+        foreach ($adsLeadsByOrigin as $k => $v) {
+            if ($k === '__total') { continue; }
+            $k = strtolower(trim((string)$k));
+            if (!isset($orcLead[$k])) {
+                // Origem livre (ex.: WhatsApp, Google Agenda): cai em outro.
+                if (in_array($k, ['meta ads', 'facebook', 'fb', 'messenger'], true)) { $k = 'meta'; }
+                elseif (in_array($k, ['insta', 'ig', 'ctwa_instagram'], true)) { $k = 'instagram'; }
+                elseif (str_contains($k, 'google')) { $k = 'google'; }
+                elseif (str_contains($k, 'indicac')) { $k = 'indicacao'; }
+                else { $k = 'outro'; }
+            }
+            $orcLead[$k] += (int)$v;
+        }
+        $leadsAnuncio = $orcLead['meta'] + $orcLead['instagram'];
+        $leadsRastreados = $leadsAnuncio + $orcLead['google'] + $orcLead['indicacao'] + $orcLead['porta'] + $orcLead['reincidente'] + $orcLead['outro'];
+        $leadsSemOrigem = $orcLead['sem_origem'];
+        $leadsTotal = (int)($adsLeadsByOrigin['__total'] ?? 0);
+
+        echo '<div class="roi-card"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . $orcLead['meta'] . ' + Instagram ' . $orcLead['instagram'] . ' no período</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Leads por origem' . $helpBtn('leads_origem') . '</div><div class="val">' . $leadsRastreados . '</div><div class="sub">' . $leadsSemOrigem . ' sem origem · ' . $leadsTotal . ' leads no total</div></div>';
+
         echo '<div class="roi-card"><div class="lbl">Agendamentos com valor' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</div></div>';
+
+        // Custo por lead de anúncio (só faz sentido com gasto e com leads rastreados).
+        $cpl = ($leadsAnuncio > 0 && (float)$s['spend_total'] > 0)
+            ? ((float)$s['spend_total'] / $leadsAnuncio)
+            : null;
+        echo '<div class="roi-card"><div class="lbl">Custo por lead de anúncio' . $helpBtn('cpl') . '</div><div class="val">' . $fmt($cpl) . '</div><div class="sub">' . ($leadsAnuncio > 0 ? 'gasto ÷ leads de anúncio' : 'sem leads de anúncio no período') . '</div></div>';
+
         $cpa = $s['custo_por_agendamento'];
-        echo '<div class="roi-card"><div class="lbl">Custo por agendamento' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">custo de cada tatuagem que entrou</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Custo por agendamento' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">gasto ÷ agendamentos com valor</div></div>';
+
         $roas = $s['roas'];
         $roasClass = (is_null($roas) || $roas < 1) ? 'roi-bad' : 'roi-good';
-        echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format($roas, 2, ',', '.') . 'x') . '</div><div class="sub">valor cadastrado / gasto</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format((float)$roas, 2, ',', '.') . 'x') . '</div><div class="sub">valor cadastrado ÷ gasto</div></div>';
+
         echo '<div class="roi-card"><div class="lbl">Valor cadastrado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma dos agendamentos com valor</div></div>';
         echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
         echo '</div>';
@@ -8729,26 +8781,20 @@ if ($page === 'studio_ads_roi') {
             window.addEventListener("resize", closePanel);
         })();</script>';
 
-        $verdict = 'Sem dados suficientes no período. Lance o gasto dos anúncios abaixo para o painel mostrar o retorno.';
-        if (!is_null($roas) && $roas >= 1) {
-            $verdict = '✅ Está compensando: cada R$ 1 de anúncio voltou como ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada no período.';
-        } elseif (!is_null($roas)) {
-            $verdict = '⚠️ Ainda não compensou no período (ROAS ' . number_format($roas, 2, ',', '.') . 'x). Atenção: parte dos agendamentos pode ser de mês anterior, e fechamento costuma vir depois do agendamento.';
-        }
-        echo '<div class="alert alert-info">' . h($verdict) . '</div>';
+        echo '<div class="alert alert-secondary" style="font-size:13px">A origem do cliente passou a ser <b>rastreada</b> pelas conversas do WhatsApp (o pacote de anúncio da Meta chega junto com a mensagem). Por isso os indicadores de <b>retorno (ROAS)</b>, <b>custo por agendamento</b>, <b>custo por lead de anúncio</b> e a <b>contagem de leads por origem</b> voltaram a aparecer.<br><br>Enquanto houver muitos leads <b>sem origem</b>, esses números consideram só o que foi rastreado — e o painel avisa no subtítulo de cada card.</div>';
 
         echo '<h3 class="h5 mt-4 mb-2">Meta x Google (período)' . $helpBtn('custo_canal') . '</h3>';
-        echo '<table class="roi-table mb-4"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th><th>Custo por agendamento*</th></tr></thead><tbody>';
+        echo '<table class="roi-table mb-4"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th></tr></thead><tbody>';
         $totSpend = max(0.01, (float)$s['spend_total']);
         $chMeta = (float)$s['spend_meta']; $chGoogle = (float)$s['spend_google'];
-        echo '<tr><td><span class="roi-pill meta">META</span></td><td>' . $fmt($chMeta) . '</td><td>' . number_format($chMeta / $totSpend * 100, 1, ',', '.') . '%</td><td>' . $fmt($s['agendamentos'] > 0 ? $chMeta / max(1, $s['agendamentos']) : null) . '</td></tr>';
-        echo '<tr><td><span class="roi-pill google">GOOGLE</span></td><td>' . $fmt($chGoogle) . '</td><td>' . number_format($chGoogle / $totSpend * 100, 1, ',', '.') . '%</td><td>' . $fmt($s['agendamentos'] > 0 ? $chGoogle / max(1, $s['agendamentos']) : null) . '</td></tr>';
+        echo '<tr><td><span class="roi-pill meta">META</span></td><td>' . $fmt($chMeta) . '</td><td>' . number_format($chMeta / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
+        echo '<tr><td><span class="roi-pill google">GOOGLE</span></td><td>' . $fmt($chGoogle) . '</td><td>' . number_format($chGoogle / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
         echo '</tbody></table>';
-        echo '<p class="muted" style="font-size:12px">* rateio por canal — a agenda não separa a origem do agendamento. Lance os leads por canal abaixo para separar com precisão.</p>';
+        echo '<div class="alert alert-warning" style="font-size:13px">Compara&ccedil;&atilde;o de resultado por canal temporariamente indispon&iacute;vel: a agenda ainda n&atilde;o registra de qual an&uacute;ncio veio cada cliente, ent&atilde;o n&atilde;o d&aacute; para afirmar qual canal traz mais agendamento. Os n&uacute;meros acima mostram apenas <b>quanto foi gasto</b> em cada canal.</div>';
 
         echo '<h3 class="h5 mt-4 mb-2">Dia a dia' . $helpBtn('dia_a_dia') . '</h3>';
         echo '<div style="max-height:420px;overflow:auto;border:1px solid #eaecf0;border-radius:14px">';
-        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Agend.</th><th>Custo/agend.</th><th>Valor</th><th>ROAS</th></tr></thead><tbody>';
+        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Agend.</th><th>Valor</th></tr></thead><tbody>';
         foreach (array_reverse($s['series']) as $d) {
             $roasD = $d['roas'];
             $cls = (is_null($roasD) || $roasD < 1) ? 'roi-bad' : 'roi-good';
@@ -8757,9 +8803,8 @@ if ($page === 'studio_ads_roi') {
             echo '<td>' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '—') . '</td>';
             echo '<td>' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '—') . '</td>';
             echo '<td>' . (int)$d['agendamentos'] . '</td>';
-            echo '<td>' . $fmt($d['custo_por_agendamento']) . '</td>';
             echo '<td>' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '—') . '</td>';
-            echo '<td class="' . $cls . '">' . (is_null($roasD) ? '—' : number_format($roasD, 2, ',', '.') . 'x') . '</td></tr>';
+            echo '</tr>';
         }
         echo '</tbody></table></div>';
 
@@ -8770,21 +8815,19 @@ if ($page === 'studio_ads_roi') {
         echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><tbody>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700;width:38%">Gasto no período</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_total']) . ' <span style="color:#98a2b3">(Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ')</span></td></tr>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Agendamentos com valor</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . (int)$s['agendamentos'] . ' <span style="color:#98a2b3">(' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda)</span></td></tr>';
-        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Custo por agendamento</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($cpa) . '</td></tr>';
-        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Retorno (ROAS)</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . (is_null($roas) ? '-' : number_format($roas, 2, ',', '.') . 'x') . '</td></tr>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Valor cadastrado</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['valor_agendado']) . '</td></tr>';
         echo '</tbody></table>';
         echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Meta x Google (período)</div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><thead><tr>';
-        foreach (['Canal', 'Gasto', '% do gasto', 'Custo por agendamento*'] as $th) { echo '<th style="text-align:left;padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        foreach (['Canal', 'Gasto', '% do gasto'] as $th) { echo '<th style="text-align:left;padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
         echo '</tr></thead><tbody>';
-        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">META</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_meta']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_meta'] / $vTot * 100, 1, ',', '.') . '%</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['agendamentos'] > 0 ? (float)$s['spend_meta'] / max(1, (int)$s['agendamentos']) : null) . '</td></tr>';
-        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">GOOGLE</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_google']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_google'] / $vTot * 100, 1, ',', '.') . '%</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['agendamentos'] > 0 ? (float)$s['spend_google'] / max(1, (int)$s['agendamentos']) : null) . '</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">META</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_meta']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_meta'] / $vTot * 100, 1, ',', '.') . '%</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">GOOGLE</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_google']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_google'] / $vTot * 100, 1, ',', '.') . '%</td></tr>';
         echo '</tbody></table>';
-        echo '<div style="font-size:10px;color:#98a2b3;margin:-12px 0 14px">* rateio por canal - a agenda não separa a origem do agendamento.</div>';
+        echo '<div style="font-size:10px;color:#98a2b3;margin:-12px 0 14px">Comparacao de resultado por canal indisponivel: a agenda nao registra a origem do cliente.</div>';
         echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Dia a dia</div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>';
-        foreach (['Data', 'Meta', 'Google', 'Gasto total', 'Agend.', 'Custo/agend.', 'Valor', 'ROAS'] as $th) { echo '<th style="text-align:left;padding:5px 7px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        foreach (['Data', 'Meta', 'Google', 'Gasto total', 'Agend.', 'Valor'] as $th) { echo '<th style="text-align:left;padding:5px 7px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
         echo '</tr></thead><tbody>';
         foreach ($s['series'] as $d) {
             echo '<tr>';
@@ -8793,13 +8836,11 @@ if ($page === 'studio_ads_roi') {
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '-') . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '-') . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (int)$d['agendamentos'] . '</td>';
-            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . $fmt($d['custo_por_agendamento']) . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '-') . '</td>';
-            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (is_null($d['roas']) ? '-' : number_format((float)$d['roas'], 2, ',', '.') . 'x') . '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
-        echo '<div style="margin-top:14px;padding-top:8px;border-top:1px solid #eaecf0;font-size:10px;color:#98a2b3;line-height:1.5">Documento gerado pelo painel Retorno dos Anúncios. O gasto vem da sincronização diária com a Meta Ads API; agendamentos e valores vêm da agenda real do estúdio. Agendamento sem valor cadastrado não entra na conta. ROAS é calculado sobre o valor <b>agendado</b>, não o efetivamente recebido.</div>';
+        echo '<div style="margin-top:14px;padding-top:8px;border-top:1px solid #eaecf0;font-size:10px;color:#98a2b3;line-height:1.5">Documento gerado pelo painel Retorno dos Anúncios. O gasto vem da sincronização diária com a Meta Ads API; agendamentos e valores vêm da agenda real do estúdio. Agendamento sem valor cadastrado não entra na conta. Indicadores de retorno (ROAS) e custo por agendamento ficam ocultos enquanto a origem do cliente nao for rastreada.</div>';
         echo '</div>';
         echo '<script src="' . h(app_asset_url('assets/vendor/html2canvas-pro/html2canvas-pro.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
         echo '<script src="' . h(app_asset_url('assets/vendor/jspdf/jspdf.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
@@ -8885,6 +8926,14 @@ if ($page === 'studio_ads_roi') {
 ROIPDFJS;
 
     }, null);
+    exit;
+}
+
+if ($page === 'studio_historico') {
+    $studio = require_studio();
+    // A pagina vive em app/pagina_historico.php (somente leitura do arquivo da ponte).
+    require_once APP_BASE_PATH . '/app/historico_conversas.php';
+    require APP_BASE_PATH . '/app/pagina_historico.php';
     exit;
 }
 
