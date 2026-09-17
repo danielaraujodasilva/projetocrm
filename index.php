@@ -8704,6 +8704,498 @@ if ($page === 'studio_ads_roi') {
         echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
         echo '</div>';
 
+        echo <<<'ROICSS'
+        <style>
+            .roi-view-switch{display:flex;gap:6px;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:4px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+            .roi-view-switch button{border:0;background:transparent;border-radius:9px;padding:7px 14px;font-size:13px;font-weight:700;color:#475467;cursor:pointer}
+            .roi-view-switch button.is-on{background:#101828;color:#fff}
+            .roi-view-switch .roi-switch-label{font-size:12px;color:#98a2b3;font-weight:600;padding-left:6px}
+            .roi-view-switch .roi-pdf-export{margin-left:auto;border:1px solid #101828;background:#fff;color:#101828;border-radius:9px;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer}
+            .roi-view-switch .roi-pdf-export:hover{background:#101828;color:#fff}
+            .roi-visual-simple{display:grid;gap:14px}
+            .roi-big{border-radius:18px;padding:20px 22px;border:1px solid #e6e8ee;background:#fff}
+            .roi-big .k{font-size:13px;font-weight:700;color:#667085;text-transform:uppercase;letter-spacing:.04em}
+            .roi-big .answer{font-size:30px;font-weight:800;line-height:1.15;margin-top:8px}
+            .roi-big .answer.good{color:#079455}.roi-big .answer.bad{color:#d92d20}
+            .roi-big .why{font-size:13px;color:#475467;margin-top:6px;line-height:1.5}
+            .roi-money{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+            .roi-money .m{background:#f9fafb;border:1px solid #eaecf0;border-radius:14px;padding:12px 14px}
+            .roi-money .m span{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#667085;font-weight:700}
+            .roi-money .m strong{display:block;font-size:19px;color:#101828;margin-top:4px}
+            .roi-money .m em{font-style:normal;font-size:11px;color:#98a2b3}
+            .roi-bar{width:100%;display:block}
+            .roi-chart-wrap{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+            .roi-chart-card{background:#fff;border:1px solid #e6e8ee;border-radius:16px;padding:14px 16px 8px;min-width:0}
+            .roi-chart-card.full{grid-column:1/-1}
+            .roi-chart-card h4{margin:0 0 2px;font-size:14px;color:#101828;font-weight:800}
+            .roi-chart-card p{margin:0 0 10px;font-size:12px;color:#98a2b3}
+            .roi-chart-box{position:relative;height:260px}
+            .roi-chart-box.tall{height:320px}
+            .roi-donut{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+            .roi-donut .roi-chart-box{flex:1 1 240px;height:230px}
+            .roi-donut .roi-legend{flex:0 1 180px;display:grid;gap:10px}
+            .roi-donut .roi-legend div{font-size:13px;color:#344054}
+            .roi-donut .roi-legend b{display:block;font-size:17px;color:#101828}
+            .roi-donut .roi-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;font-style:normal}
+            .roi-pdf-sheet{background:#fff;padding:4px 2px}
+            .roi-pdf-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:2px solid #101828;padding-bottom:10px;margin-bottom:16px}
+            .roi-pdf-head .brand{font-size:12px;font-weight:700;color:#667085;text-transform:uppercase;letter-spacing:.05em}
+            .roi-pdf-head .who{text-align:right;font-size:12px;color:#667085}
+            .roi-pdf-title{font-size:21px;font-weight:800;color:#101828}
+            .roi-pdf-sub{font-size:12px;color:#667085;margin-top:3px}
+            .roi-pdf-foot{margin-top:16px;padding-top:10px;border-top:1px solid #eaecf0;font-size:11px;color:#98a2b3;line-height:1.5}
+            .roi-pdf-loading{position:fixed;inset:0;z-index:1200;background:rgba(16,24,40,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:700}
+            @media (max-width:560px){.roi-view-switch .roi-pdf-export{margin-left:0;width:100%}.roi-big .answer{font-size:24px}}
+        </style>
+ROICSS;
+        echo '<div class="roi-view-switch" role="group" aria-label="Modo de visualização">';
+        echo '<button type="button" id="roiViewSimple" class="is-on">Visual simples</button>';
+        echo '<button type="button" id="roiViewFull">Detalhado</button>';
+        echo '<span class="roi-switch-label">os números e as tabelas continuam iguais, logo abaixo</span>';
+        echo '<button type="button" id="roiPdfExport" class="roi-pdf-export" title="Salva em PDF exatamente o que está na tela">Salvar PDF</button>';
+        echo '</div>';
+
+        // ---- Dados do modo visual (não altera nenhum cálculo existente) ----
+        $vTot = max(0.01, (float)$s['spend_total']);
+        $vMetaPct = round((float)$s['spend_meta'] / $vTot * 100, 1);
+        $vGooglePct = round((float)$s['spend_google'] / $vTot * 100, 1);
+        $vPeriodo = date('d/m/Y', strtotime($adsRoiStart)) . ' a ' . date('d/m/Y', strtotime($adsRoiEnd));
+        $vDataBr = date('d/m/Y', strtotime($adsRoiEnd));
+        $vTemDados = ((float)$s['spend_total'] > 0 || (int)$s['agendamentos'] > 0 || (float)$s['valor_agendado'] > 0);
+
+        // Série diária (mesma de $s['series']) pronta para o JSON.
+        $vSeries = [];
+        foreach ($s['series'] as $d) {
+            $vSeries[] = [
+                'label' => date('d/m', strtotime((string)$d['date'])),
+                'meta' => round((float)$d['meta_spend'], 2),
+                'google' => round((float)$d['google_spend'], 2),
+                'gasto' => round((float)$d['spend_total'], 2),
+                'agend' => (int)$d['agendamentos'],
+                'valor' => round((float)$d['valor_agendado'], 2),
+            ];
+        }
+
+        $vPayback = null;
+        if (!is_null($roas) && $roas > 0) {
+            $vPayback = (int)ceil($adsRoiPeriod / (float)$roas);
+        }
+        $vFrase = '';
+        if (!$vTemDados) {
+            $vFrase = 'Ainda não há dados no período. Lance o gasto dos anúncios abaixo para o gráfico aparecer.';
+        } elseif (!is_null($roas) && $roas >= 1) {
+            $vFrase = 'O anúncio está se pagando: cada R$ 1 investido no período virou R$ ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada.';
+        } elseif (!is_null($roas)) {
+            $vFrase = 'Ainda não se pagou: cada R$ 1 investido virou R$ ' . number_format($roas, 2, ',', '.') . ' em tatuagem agendada. Falta ' . number_format((float)$roas * 100, 0, ',', '.') . '% para chegar ao empate.';
+        } else {
+            $vFrase = 'Houve gasto no período mas nenhum agendamento caiu nesses dias — sem retorno registrado ainda.';
+        }
+        $vPaybackTxt = is_null($vPayback)
+            ? 'Sem retorno no período'
+            : '~' . $vPayback . ' dia' . ($vPayback === 1 ? '' : 's') . ' para o anúncio se pagar';
+
+        $vDados = [
+            'periodo' => $vPeriodo,
+            'dias' => (int)$adsRoiPeriod,
+            'custom' => (bool)$adsRoiCustom,
+            'gasto' => round((float)$s['spend_total'], 2),
+            'gastoMeta' => round((float)$s['spend_meta'], 2),
+            'gastoGoogle' => round((float)$s['spend_google'], 2),
+            'metaPct' => $vMetaPct,
+            'googlePct' => $vGooglePct,
+            'valor' => round((float)$s['valor_agendado'], 2),
+            'agendamentos' => (int)$s['agendamentos'],
+            'cancelados' => (int)$s['cancelados'],
+            'cpa' => is_null($cpa) ? null : round((float)$cpa, 2),
+            'roas' => is_null($roas) ? null : round((float)$roas, 2),
+            'series' => $vSeries,
+        ];
+        echo '<script type="application/json" id="roiVisualData">' . json_encode($vDados, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
+
+        echo '<div id="roiVisualOuter" class="roi-visual-simple">';
+        echo '<div id="roiVisualSimple">';
+        echo '<div class="roi-big"><div class="k">O anúncio valeu a pena?' . $helpBtn('roas') . '</div><div class="answer ' . (($roas >= 1) ? 'good' : 'bad') . '">' . $vFrase . '</div><div class="why">' . h($vPaybackTxt) . ' · período de ' . h($vPeriodo) . '</div></div>';
+        echo '<div class="roi-big"><div class="k">O caminho do dinheiro no período</div>';
+        echo '<div class="roi-money">';
+        echo '<div class="m"><span>Entrou (gasto)</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta + Google</em></div>';
+        echo '<div class="m"><span>virou</span><strong>' . (int)$s['agendamentos'] . ' agendamento' . ((int)$s['agendamentos'] === 1 ? '' : 's') . '</strong><em>' . (int)$s['cancelados'] . ' cancelado' . ((int)$s['cancelados'] === 1 ? '' : 's') . '</em></div>';
+        echo '<div class="m"><span>que valem</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>tatuagens agendadas</em></div>';
+        echo '<div class="m"><span>Custo de cada</span><strong>' . $fmt($cpa) . '</strong><em>por agendamento</em></div>';
+        echo '</div>';
+        echo '<p class="why" style="margin-top:12px">Cada <b>R$ 1</b> de anúncio virou <b>R$ ' . (is_null($roas) ? '0,00' : number_format($roas, 2, ',', '.')) . '</b> em tatuagem agendada. É por isso que o sinal está ' . (($roas >= 1) ? 'verde' : 'vermelho') . '.</p>';
+        echo '</div>';
+        echo '<div class="roi-chart-wrap">';
+        echo '<div class="roi-chart-card"><h4>Anúncio x Retorno, dia a dia</h4><p>' . ($vMetaPct > 0 || $vGooglePct > 0 ? 'barra escura = gasto do dia · barra verde = valor agendado no dia' : 'sem gasto lançado no período') . '</p><div class="roi-chart-box tall"><canvas id="roiChartDaily" width="640" height="320" role="img" aria-label="Gráfico de gasto e retorno por dia"></canvas></div></div>';
+        echo '<div class="roi-chart-card"><h4>Onde o dinheiro foi investido</h4><p>divisão do gasto entre Meta e Google</p><div class="roi-donut"><div class="roi-chart-box"><canvas id="roiChartSplit" width="300" height="230" role="img" aria-label="Gráfico de divisão do gasto por canal"></canvas></div><div class="roi-legend">';
+        echo '<div><i style="background:#3538cd"></i>Meta<b>' . $fmt($s['spend_meta']) . '</b>' . number_format($vMetaPct, 1, ',', '.') . '% do gasto</div>';
+        echo '<div><i style="background:#12b76a"></i>Google<b>' . $fmt($s['spend_google']) . '</b>' . number_format($vGooglePct, 1, ',', '.') . '% do gasto</div>';
+        echo '</div></div></div>';
+        echo '<div class="roi-chart-card"><h4>Agendamentos por dia</h4><p>clientes que marcaram tatuagem em cada dia</p><div class="roi-chart-box"><canvas id="roiChartAppt" width="640" height="260" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
+        echo '</div>';
+        echo '</div>';
+        echo '<div id="roiChartFull" class="roi-chart-wrap" hidden style="display:none"><div id="roiVisualFull" style="display:contents">';
+        echo '<div class="roi-chart-card"><h4>Gasto mês a mês do período</h4><p>quanto o anúncio consumiu em cada mês</p><div class="roi-chart-box"><canvas id="roiChartMonth" width="640" height="260" role="img" aria-label="Gráfico de gasto por mês"></canvas></div></div>';
+        echo '<div class="roi-chart-card"><h4>Retorno por real investido</h4><p>a linha vermelha é o ponto de equilíbrio (1,00x = empate)</p><div class="roi-chart-box"><canvas id="roiChartRoas" width="640" height="260" role="img" aria-label="Gráfico de ROAS por dia"></canvas></div></div>';
+        echo '<div class="roi-chart-card full"><h4>Agendamentos dia a dia</h4><p>volume de clientes que marcaram em cada dia do período</p><div class="roi-chart-box tall"><canvas id="roiChartApptFull" width="960" height="320" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
+
+        echo '</div>';
+        echo '</div>';
+        echo '<div id="roiPdfSheet" class="roi-pdf-sheet" hidden style="display:none">';
+        echo '<div class="roi-pdf-head"><div><div class="brand">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div class="roi-pdf-title">Retorno dos Anúncios</div><div class="roi-pdf-sub">Período analisado: ' . h($vPeriodo) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ')</div></div><div class="who">' . h((string)($studio['name'] ?? '')) . '<br>Relatório gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
+        echo '<div class="roi-money" style="margin-bottom:14px">';
+        echo '<div class="m"><span>Gasto no período</span><strong>' . $fmt($s['spend_total']) . '</strong><em>Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</em></div>';
+        echo '<div class="m"><span>Agendamentos</span><strong>' . (int)$s['agendamentos'] . '</strong><em>' . (int)$s['cancelados'] . ' cancelados</em></div>';
+        echo '<div class="m"><span>Custo por agendamento</span><strong>' . $fmt($cpa) . '</strong><em>média do período</em></div>';
+        echo '<div class="m"><span>ROAS</span><strong>' . (is_null($roas) ? '-' : number_format($roas, 2, ',', '.') . 'x') . '</strong><em>valor agendado / gasto</em></div>';
+        echo '<div class="m"><span>Valor agendado</span><strong>' . $fmt($s['valor_agendado']) . '</strong><em>soma das tatuagens</em></div>';
+        echo '</div>';
+        echo '<div class="roi-big" style="margin-bottom:14px"><div class="k">Leitura do período</div><div class="answer ' . (($roas >= 1) ? 'good' : 'bad') . '" style="font-size:19px">' . h($vFrase) . '</div><div class="why">' . h($vPaybackTxt) . '</div></div>';
+        echo '<div class="roi-chart-wrap">';
+        echo '<div class="roi-chart-card full"><h4>Anúncio x Retorno, dia a dia</h4><p>barra escura = gasto do dia · barra verde = valor agendado no dia</p><div class="roi-chart-box tall"><canvas id="roiPdfDaily" width="960" height="320" role="img" aria-label="Gráfico de gasto e retorno por dia"></canvas></div></div>';
+        echo '<div class="roi-chart-card"><h4>Divisão do gasto</h4><p>Meta ' . $fmt($s['spend_meta']) . ' · Google ' . $fmt($s['spend_google']) . '</p><div class="roi-chart-box"><canvas id="roiPdfSplit" width="420" height="260" role="img" aria-label="Gráfico de divisão do gasto"></canvas></div></div>';
+        echo '<div class="roi-chart-card"><h4>Gasto mês a mês</h4><p>consumo do anúncio por mês</p><div class="roi-chart-box"><canvas id="roiPdfMonth" width="420" height="260" role="img" aria-label="Gráfico de gasto por mês"></canvas></div></div>';
+        echo '<div class="roi-chart-card full"><h4>Agendamentos por dia</h4><p>clientes que marcaram tatuagem em cada dia</p><div class="roi-chart-box"><canvas id="roiPdfAppt" width="960" height="260" role="img" aria-label="Gráfico de agendamentos por dia"></canvas></div></div>';
+        echo '</div>';
+        echo '<div class="roi-pdf-foot">Documento gerado automaticamente pelo painel Retorno dos Anúncios. Gasto vem dos lançamentos do período (com a regra anti-duplicidade da importação da API); agendamentos e valores vêm da agenda real do estúdio. ROAS é calculado sobre o valor <b>agendado</b>, não sobre o efetivamente recebido.</div>';
+        echo '</div>';
+        echo '</div>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/chartjs/chart.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/html2canvas-pro/html2canvas-pro.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo '<script src="' . h(app_asset_url('assets/vendor/jspdf/jspdf.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
+        echo <<<'ROIJS'
+        <script>
+        (function () {
+            var node = document.getElementById("roiVisualData");
+            if (!node) { return; }
+            var data;
+            try { data = JSON.parse(node.textContent || "{}"); } catch (e) { return; }
+
+            var fmtBRL = function (v) {
+                return "R$ " + (Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            };
+            var charts = [];
+            var COLORS = { spend: "#101828", meta: "#3538cd", google: "#12b76a", valor: "#12b76a", appt: "#7a5af8", roas: "#3538cd", zero: "#d92d20", grid: "#eaecf0", tick: "#667085" };
+
+            function baseOptions(extra) {
+                var o = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    resizeDelay: 80,
+                    interaction: { mode: "index", intersect: false },
+                    plugins: {
+                        legend: { labels: { boxWidth: 12, boxHeight: 12, usePointStyle: true, color: "#344054", font: { size: 12 } } },
+                        tooltip: { backgroundColor: "#101828", padding: 10, titleFont: { size: 12 }, bodyFont: { size: 12 } }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: COLORS.tick, font: { size: 11 }, maxRotation: 0, autoSkipPadding: 12 } },
+                        y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 } } }
+                    }
+                };
+                if (extra) {
+                    Object.keys(extra).forEach(function (k) {
+                        if (k === "plugins" || k === "scales") {
+                            Object.keys(extra[k]).forEach(function (kk) { o[k][kk] = extra[k][kk]; });
+                        } else { o[k] = extra[k]; }
+                    });
+                }
+                return o;
+            }
+
+            function make(canvasId, config) {
+                var el = document.getElementById(canvasId);
+                if (!el || !window.Chart) { return null; }
+                try {
+                    var c = new Chart(el.getContext("2d"), config);
+                    charts.push(c);
+                    return c;
+                } catch (e) { return null; }
+            }
+
+            var labels = data.series.map(function (d) { return d.label; });
+            var gasto = data.series.map(function (d) { return d.gasto; });
+            var valor = data.series.map(function (d) { return d.valor; });
+            var appt = data.series.map(function (d) { return d.agend; });
+
+            // 1) Anúncio x Retorno por dia (barras agrupadas + linha de retorno).
+            function dailyConfig(tall) {
+                return {
+                    type: "bar",
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: "Gasto do dia", data: gasto, backgroundColor: COLORS.spend, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
+                            { label: "Valor agendado", data: valor, backgroundColor: COLORS.valor, borderRadius: 4, maxBarThickness: tall ? 26 : 18, order: 2 },
+                            { label: "Agendamentos", data: appt, type: "line", borderColor: COLORS.appt, backgroundColor: COLORS.appt, borderWidth: 2, pointRadius: 3, tension: .25, yAxisID: "y2", order: 1 }
+                        ]
+                    },
+                    options: baseOptions({
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return "R$ " + v; } } },
+                            y2: { beginAtZero: true, position: "right", grid: { display: false }, ticks: { color: COLORS.appt, font: { size: 11 }, precision: 0 }, title: { display: true, text: "Agendamentos", color: COLORS.appt, font: { size: 11 } } }
+                        },
+                        plugins: {
+                            tooltip: {
+                                backgroundColor: "#101828", padding: 10,
+                                callbacks: {
+                                    label: function (ctx) {
+                                        if (ctx.dataset.yAxisID === "y2") { return "Agendamentos: " + ctx.parsed.y; }
+                                        return ctx.dataset.label + ": " + fmtBRL(ctx.parsed.y);
+                                    }
+                                }
+                            }
+                        }
+                    })
+                };
+            }
+            make("roiChartDaily", dailyConfig(true));
+            make("roiPdfDaily", dailyConfig(true));
+
+            // 2) Divisão do gasto (rosca).
+            function splitConfig() {
+                var semGasto = (Number(data.gasto) || 0) <= 0;
+                return {
+                    type: "doughnut",
+                    data: {
+                        labels: ["Meta", "Google"],
+                        datasets: [{
+                            data: semGasto ? [1] : [data.gastoMeta, data.gastoGoogle],
+                            backgroundColor: semGasto ? ["#eaecf0"] : [COLORS.meta, COLORS.google],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: baseOptions({
+                        cutout: "62%",
+                        scales: {},
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: "#101828", padding: 10,
+                                callbacks: {
+                                    label: function (ctx) {
+                                        if (semGasto) { return "Sem gasto no período"; }
+                                        return ctx.label + ": " + fmtBRL(ctx.parsed) + " (" + (ctx.label === "Meta" ? data.metaPct : data.googlePct) + "%)";
+                                    }
+                                }
+                            }
+                        }
+                    })
+                };
+            }
+            make("roiChartSplit", splitConfig());
+            make("roiPdfSplit", splitConfig());
+
+            // 3) Gasto por mês.
+            function monthAgg() {
+                var map = {};
+                data.series.forEach(function (d) {
+                    var parts = String(d.label).split("/");
+                    if (parts.length !== 2) { return; }
+                    var key = parts[1] + "-" + parts[0];
+                    map[key] = (map[key] || 0) + (Number(d.gasto) || 0);
+                });
+                var keys = Object.keys(map).sort();
+                var names = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+                return {
+                    labels: keys.map(function (k) {
+                        var p = k.split("-");
+                        return names[(Number(p[1]) - 1)] + "/" + p[0].slice(2);
+                    }),
+                    values: keys.map(function (k) { return Math.round(map[k] * 100) / 100; })
+                };
+            }
+            var month = monthAgg();
+            function monthConfig() {
+                return {
+                    type: "bar",
+                    data: { labels: month.labels, datasets: [{ label: "Gasto no mês", data: month.values, backgroundColor: COLORS.spend, borderRadius: 6, maxBarThickness: 46 }] },
+                    options: baseOptions({
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { backgroundColor: "#101828", padding: 10, callbacks: { label: function (ctx) { return "Gasto: " + fmtBRL(ctx.parsed.y); } } }
+                        },
+                        scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return "R$ " + v; } } } }
+                    })
+                };
+            }
+            make("roiPdfMonth", monthConfig());
+
+            // 4) Agendamentos por dia (barras + linha de média).
+            function apptConfig(tall) {
+                var media = appt.length ? (appt.reduce(function (a, b) { return a + b; }, 0) / appt.length) : 0;
+                return {
+                    type: "bar",
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            { label: "Agendamentos", data: appt, backgroundColor: COLORS.appt, borderRadius: 4, maxBarThickness: tall ? 26 : 18 },
+                            { label: "Média do período", data: labels.map(function () { return Math.round(media * 100) / 100; }), type: "line", borderColor: "#f79009", borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0 }
+                        ]
+                    },
+                    options: baseOptions({
+                        plugins: {
+                            tooltip: {
+                                backgroundColor: "#101828", padding: 10,
+                                callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + (Math.round(ctx.parsed.y * 100) / 100); } }
+                            }
+                        },
+                        scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, precision: 0 } } }
+                    })
+                };
+            }
+            make("roiChartAppt", apptConfig(false));
+            make("roiPdfAppt", apptConfig(false));
+
+            // 5) ROAS por dia com linha de equilíbrio em 1x.
+            (function () {
+                var roasValues = data.series.map(function (d) { return (Number(d.gasto) > 0) ? Math.round((Number(d.valor) / Number(d.gasto)) * 100) / 100 : null; });
+                function roasConfig() {
+                    return {
+                        type: "line",
+                        data: {
+                            labels: labels,
+                            datasets: [
+                                { label: "ROAS do dia", data: roasValues, borderColor: COLORS.roas, backgroundColor: "rgba(53,56,205,.08)", fill: true, tension: .25, pointRadius: 3, spanGaps: true },
+                                { label: "Empate (1,00x)", data: labels.map(function () { return 1; }), borderColor: COLORS.zero, borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }
+                            ]
+                        },
+                        options: baseOptions({
+                            scales: { y: { beginAtZero: true, grid: { color: COLORS.grid }, ticks: { color: COLORS.tick, font: { size: 11 }, callback: function (v) { return (Math.round(v * 100) / 100) + "x"; } } } },
+                            plugins: {
+                                tooltip: {
+                                    backgroundColor: "#101828", padding: 10,
+                                    callbacks: { label: function (ctx) { return ctx.datasetIndex === 0 ? ("ROAS: " + (ctx.parsed.y === null ? "-" : (Math.round(ctx.parsed.y * 100) / 100) + "x")) : "Empate: 1,00x"; } }
+                                }
+                            }
+                        })
+                    };
+                }
+                make("roiChartRoas", roasConfig());
+            })();
+
+            // ---- Alternância Visual simples / Detalhado (não esconde nada que já existia) ----
+            var simple = document.getElementById("roiVisualSimple");
+            var full = document.getElementById("roiChartFull");
+            var bSimple = document.getElementById("roiViewSimple");
+            var bFull = document.getElementById("roiViewFull");
+            // Os graficos do modo "Detalhado" sao criados so quando o container tem tamanho:
+            // Chart.js mede o canvas na criacao e um canvas dentro de [hidden] mede 0.
+            var fullChartsBuilt = false;
+            function buildFullCharts() {
+                if (fullChartsBuilt) { return; }
+                fullChartsBuilt = true;
+                make("roiChartMonth", monthConfig());
+                make("roiChartApptFull", apptConfig(true));
+            }
+            function showSimple(on) {
+                if (simple) { simple.hidden = !on; simple.style.display = on ? "" : "none"; }
+                if (full) { full.hidden = on; full.style.display = on ? "none" : ""; }
+                if (bSimple) { bSimple.classList.toggle("is-on", on); }
+                if (bFull) { bFull.classList.toggle("is-on", !on); }
+                if (!on) { buildFullCharts(); }
+                // Redimensiona agora e de novo depois que o layout assentar.
+                function fit() { charts.forEach(function (c) { try { c.resize(); } catch (e) {} }); }
+                fit();
+                setTimeout(fit, 130);
+            }
+            if (bSimple) { bSimple.addEventListener("click", function () { showSimple(true); }); }
+            if (bFull) { bFull.addEventListener("click", function () { showSimple(false); }); }
+
+            // ---- Salvar PDF da visualização atual ----
+            var btnPdf = document.getElementById("roiPdfExport");
+            if (btnPdf) {
+                btnPdf.addEventListener("click", function () {
+                    if (!window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
+                        alert("Não foi possível carregar o gerador de PDF. Recarregue a página e tente de novo.");
+                        return;
+                    }
+                    var sheet = document.getElementById("roiPdfSheet");
+                    if (!sheet) { return; }
+                    var original = btnPdf.textContent;
+                    btnPdf.disabled = true;
+                    btnPdf.textContent = "Gerando PDF...";
+                    var overlay = document.createElement("div");
+                    overlay.className = "roi-pdf-loading";
+                    overlay.textContent = "Montando o PDF...";
+                    document.body.appendChild(overlay);
+
+                    // Resolve candidatos de CDN/roteiro de fontes (evita html2canvas achar que a página "sujou").
+                    var restore = [];
+                    var origin = window.location.origin;
+                    Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"], link[rel="preload"]')).forEach(function (link) {
+                        var href = link.getAttribute("href") || "";
+                        if (!href) { return; }
+                        var abs = link.href;
+                        var internal = abs.indexOf(origin) === 0;
+                        var isFont = /font-awesome|fonts\.googleapis|fonts\.gstatic/i.test(href);
+                        if (internal || isFont) { restore.push([link, link.getAttribute("href")]); link.removeAttribute("href"); }
+                    });
+
+                    sheet.hidden = false;
+                    sheet.style.display = "";
+
+                    var done = false;
+                    var finish = function () {
+                        if (done) { return; }
+                        done = true;
+                        restore.forEach(function (pair) { pair[0].setAttribute("href", pair[1]); });
+                        sheet.hidden = true;
+                        sheet.style.display = "none";
+                        overlay.remove();
+                        btnPdf.disabled = false;
+                        btnPdf.textContent = original;
+                    };
+
+                    var waitCharts = new Promise(function (resolve) {
+                        requestAnimationFrame(function () { charts.forEach(function (c) { try { c.resize(); } catch (e) {} }); requestAnimationFrame(resolve); });
+                    });
+
+                    waitCharts.then(function () {
+                        return window.html2canvas(sheet, { scale: 2, backgroundColor: "#ffffff", useCORS: true, logging: false, windowWidth: Math.max(1024, sheet.scrollWidth) });
+                    }).then(function (canvas) {
+                        var doc = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+                        var pw = doc.internal.pageSize.getWidth();
+                        var ph = doc.internal.pageSize.getHeight();
+                        var margin = 8;
+                        var headerH = 12;
+                        var availW = pw - margin * 2;
+                        var availH = ph - margin * 2 - headerH;
+                        var imgW = availW;
+                        var imgH = canvas.height * (imgW / canvas.width);
+                        var pages = Math.max(1, Math.ceil(imgH / availH));
+                        var sliceRatio = (availH / imgH);
+                        var sliceSrcH = canvas.height * sliceRatio;
+                        var title = "Retorno dos Anúncios — " + (data.periodo || "");
+                        for (var p = 0; p < pages; p++) {
+                            var srcY = Math.round(p * sliceSrcH);
+                            var srcH = Math.round(Math.min(sliceSrcH, canvas.height - srcY));
+                            if (srcH <= 0) { break; }
+                            var part = document.createElement("canvas");
+                            part.width = canvas.width;
+                            part.height = srcH;
+                            part.getContext("2d").drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+                            if (p > 0) { doc.addPage("a4", "landscape"); }
+                            doc.setFontSize(10);
+                            doc.setTextColor(102, 112, 133);
+                            doc.text(title, margin, margin + 4);
+                            doc.setTextColor(152, 162, 179);
+                            doc.text("página " + (p + 1) + " de " + pages, pw - margin, margin + 4, { align: "right" });
+                            var thisH = srcH * (imgW / canvas.width);
+                            doc.addImage(part.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin + headerH, imgW, thisH);
+                        }
+                        var file = "retorno-anuncios-" + (data.periodo || "").replace(/[^\d]+/g, "-").replace(/^-|-$/g, "") + ".pdf";
+                        doc.save(file);
+                        finish();
+                    }).catch(function () {
+                        finish();
+                        alert("Não foi possível montar o PDF agora. Tente novamente.");
+                    });
+                });
+            }
+        })();
+        </script>
+ROIJS;
+
         // Painel único de tooltip + dados das explicações em JSON (aberto por clique no "?").
         echo '<div class="roi-help-panel" id="roiHelpPanel" role="dialog" aria-modal="false"><button type="button" class="roi-help-close" aria-label="Fechar">&times;</button><div id="roiHelpBody"></div></div>';
         echo '<script>(function(){
