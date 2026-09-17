@@ -89,7 +89,7 @@ render_studio_shell(
     'Histórico de Conversas',
     'Todas as mensagens arquivadas do WhatsApp — com origem, transcrição de áudio e busca.',
     'historico',
-    function () use ($histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase) {
+    function () use ($studio, $histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase) {
 
         $escreve = static fn($v) => is_string($v) ? htmlspecialchars($v, ENT_QUOTES, 'UTF-8') : (string)$v;
 
@@ -154,7 +154,61 @@ render_studio_shell(
         echo '</div>';
         echo '</form>';
 
-        // ---- Conversa única aberta --------------------------------------
+        // JavaScript do seletor de origem.
+        // ATENCAO: este bloco PRECISA ficar ANTES dos `return;` das visoes,
+        // senao o script nunca e emitido. E precisa estar dentro do callback,
+        // porque o render_studio_shell fecha </body></html> no fim.
+        ?>
+        <script>
+        (function () {
+          function csrf() {
+            var el = document.querySelector('input[name="csrf_token"]');
+            return el ? el.value : '';
+          }
+          document.querySelectorAll('.hist-source-inline').forEach(function (sel) {
+            var anterior = sel.value;
+            sel.addEventListener('change', function () {
+              var leadId = sel.getAttribute('data-lead-source') || '';
+              if (!leadId) return;
+              sel.disabled = true;
+              sel.style.borderColor = '#f5c542';
+
+              var body = new URLSearchParams();
+              body.set('action', 'set_lead_source');
+              body.set('lead_id', leadId);
+              body.set('source', sel.value);
+              body.set('inline', '1');
+              body.set('csrf_token', csrf());
+
+              fetch(window.location.pathname + window.location.search, {
+                method: 'POST',
+                headers: {
+                  'X-Requested-With': 'XMLHttpRequest',
+                  'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: body.toString()
+              })
+                .then(function (r) { return r.json(); })
+                .then(function (json) {
+                  if (!json.ok) throw new Error(json.error || 'Falha ao salvar');
+                  sel.style.borderColor = '#079455';
+                  setTimeout(function () { sel.style.borderColor = ''; }, 1600);
+                })
+                .catch(function (err) {
+                  sel.value = anterior;
+                  sel.style.borderColor = '#d92d20';
+                  alert(err.message || 'Nao foi possivel salvar a origem');
+                })
+                .finally(function () {
+                  sel.disabled = false;
+                });
+            });
+          });
+        })();
+        </script>
+        <?php
+
+        // ---- Conversa unica aberta (visao de chat) -------------------
         if ($histFoneAberto !== '') {
             $conv = historico_ler_mensagens(['telefone' => $histFoneAberto], 500, 0);
             $itens = array_reverse($conv['itens']); // cronológico
@@ -313,58 +367,3 @@ render_studio_shell(
     },
     null
 );
-
-// JavaScript do seletor de origem. Fica FORA do shell para nao conflitar com o
-// HTML gerado e poder usar o csrf_token da pagina.
-?>
-<script>
-(function () {
-  var selects = document.querySelectorAll('.hist-source-inline');
-  if (!selects.length) return;
-
-  function csrf() {
-    var el = document.querySelector('input[name="csrf_token"]');
-    return el ? el.value : '';
-  }
-
-  selects.forEach(function (sel) {
-    var anterior = sel.value;
-    sel.addEventListener('change', function () {
-      var leadId = sel.getAttribute('data-lead-source') || '';
-      if (!leadId) return;
-      sel.disabled = true;
-      sel.style.borderColor = '#f5c542';
-
-      var body = new URLSearchParams();
-      body.set('action', 'set_lead_source');
-      body.set('lead_id', leadId);
-      body.set('source', sel.value);
-      body.set('inline', '1');
-      body.set('csrf_token', csrf());
-
-      fetch(window.location.pathname + window.location.search, {
-        method: 'POST',
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: body.toString()
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (json) {
-          if (!json.ok) throw new Error(json.error || 'Falha ao salvar');
-          sel.style.borderColor = '#079455';
-          setTimeout(function () { sel.style.borderColor = ''; }, 1600);
-        })
-        .catch(function (err) {
-          sel.value = anterior;
-          sel.style.borderColor = '#d92d20';
-          alert(err.message || 'Nao foi possivel salvar a origem');
-        })
-        .finally(function () {
-          sel.disabled = false;
-        });
-    });
-  });
-})();
-</script>
