@@ -527,6 +527,54 @@ body {
 }
 
 .m2-item-badges b.ok {
+    background: rgba(37, 208, 122, .16);
+    color: #7ee2a8;
+}
+
+/* Nao lida: o cliente falou por ultimo. Destaca o item na lista. */
+.m2-item.is-unread strong {
+    color: #fff;
+    font-weight: 800;
+}
+
+.m2-item.is-unread::after {
+    content: '';
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #25d07a;
+    justify-self: end;
+    align-self: center;
+    grid-column: 3;
+}
+
+.m2-item.is-unread .m2-avatar {
+    position: relative;
+}
+
+.m2-unread-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: #25d07a;
+    border: 2px solid var(--m2-panel);
+    box-sizing: content-box;
+}
+
+.m2-item em {
+    font-style: normal;
+    font-size: .68rem;
+    color: #8696a0;
+    max-width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.m2-item-badges b.ok {
     background: rgba(0, 168, 132, .18);
     color: #8df3dd;
 }

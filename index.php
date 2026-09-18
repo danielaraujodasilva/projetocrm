@@ -3587,6 +3587,8 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
                 'name' => (string)($linha['name'] !== '' ? $linha['name'] : $linha['phone']),
                 'last_message_preview' => (string)($linha['preview'] ?? ''),
                 'message_last_at' => (string)($linha['ultima_em'] ?? ''),
+                // Estado de leitura: quem falou por ultimo (cliente = nao lida).
+                'respondida' => !empty($linha['respondida']),
                 'attendance_mode' => 'human',
                 'needs_human' => 0,
                 'is_baileys' => true,
@@ -3811,7 +3813,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
     echo '<div class="m2-range-actions"><button class="m2-range-apply" type="submit">Aplicar periodo</button><a class="m2-range-clear" href="' . h($mobileFilterHref(['date_filter' => null, 'date_from' => null, 'date_to' => null])) . '">Limpar</a></div>';
     echo '</form></div>';
     echo '</div></details>';
-    if ($isAdmin) {
+    // O formulario de exclusao em massa so faz sentido no CRM (apaga do banco).
+    // No modo Baileys as conversas sao o arquivo da ponte: nada de excluir, e
+    // um <form> a mais aqui quebra a grade do painel (empurra a lista sem rolagem).
+    if ($isAdmin && !$mobileUsaBaileys) {
         echo '<form id="m2BulkDeleteForm" class="m2-bulk-form" method="post">';
         echo csrf_field();
         echo '<input type="hidden" name="action" value="mobile_delete_whatsapp_conversations">';
@@ -3835,8 +3840,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
             $searchText = strtolower($rowName . ' ' . $rowFone . ' ' . $rowPreview);
             $rowInitial = mb_strtoupper(mb_substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1));
             $quando = (string)($row['message_last_at'] ?? '');
+            // Nao lida = o cliente falou por ultimo (o atendimento nao respondeu).
+            $naoLida = empty($row['respondida']);
             $previa = $rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda';
-            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h($rowInitial) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="ok">' . ($quando !== '' ? h(date('d/m H:i', strtotime($quando))) : '—') . '</b></small></span><em>' . h($rowFone) . '</em></a>';
+            echo '<a class="m2-item' . h($active) . ($naoLida ? ' is-unread' : '') . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h($rowInitial) . ($naoLida ? '<i class="m2-unread-dot" aria-label="Nao lida"></i>' : '') . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="' . ($naoLida ? 'warn' : 'ok') . '">' . ($naoLida ? 'sem resposta' : 'respondida') . '</b><b class="muted">' . ($quando !== '' ? h(date('d/m H:i', strtotime($quando))) : '&mdash;') . '</b></small></span><em>' . h($rowFone) . '</em></a>';
             continue;
         }
         $rowId = (int)($row['id'] ?? 0);
@@ -3857,7 +3864,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         }
     }
     echo '</nav>';
-    if ($isAdmin) {
+    if ($isAdmin && !$mobileUsaBaileys) {
         echo '</form>';
     }
     echo '</aside>';
