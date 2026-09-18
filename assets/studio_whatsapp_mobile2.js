@@ -1228,6 +1228,87 @@
 
   updateBulkSelectionUi();
 
+  // ---- Scroll infinito (rota Baileys) ---------------------------------
+  // A lista carrega em lotes. Quando a sentinela aparece, busca o proximo lote
+  // e anexa os itens. Sem isso, abrir a pagina traria todas as conversas de uma
+  // vez e ficaria pesado conforme o volume cresce.
+  (function () {
+    var sentinela = document.getElementById('m2CarregarMais');
+    var lista = document.getElementById('m2Items');
+    if (!sentinela || !lista) return;
+
+    var carregando = false;
+
+    function extrairItens(html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var nav = doc.getElementById('m2Items');
+      var prox = doc.getElementById('m2CarregarMais');
+      var fim = doc.getElementById('m2FimLista');
+      return {
+        itens: nav ? Array.prototype.slice.call(nav.children) : [],
+        proxima: prox ? prox.getAttribute('data-proxima') : '',
+        acabou: !!fim
+      };
+    }
+
+    function carregar() {
+      if (carregando) return;
+      carregando = true;
+      var url = sentinela.getAttribute('data-proxima');
+      if (!url) { carregando = false; return; }
+      sentinela.textContent = 'Carregando mais...';
+
+      fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var dados = extrairItens(html);
+          if (!dados.itens.length) {
+            sentinela.outerHTML = '<div class="m2-carregar fim">Fim da lista</div>';
+            return;
+          }
+          dados.itens.forEach(function (item) {
+            var link = item.querySelector ? item.querySelector('a') : null;
+            var href = (item.getAttribute && item.getAttribute('href')) || (link ? link.getAttribute('href') : '');
+            // Evita duplicar item ja presente (ex.: volta do cache).
+            if (href) {
+              var existentes = lista.querySelectorAll('a.m2-item');
+              for (var i = 0; i < existentes.length; i++) {
+                if (existentes[i].getAttribute('href') === href) return;
+              }
+            }
+            lista.appendChild(item);
+          });
+          if (dados.acabou || !dados.proxima) {
+            sentinela.outerHTML = '<div class="m2-carregar fim">Fim da lista</div>';
+          } else {
+            sentinela.setAttribute('data-proxima', dados.proxima);
+            sentinela.textContent = 'Carregando mais...';
+          }
+        })
+        .catch(function () {
+          sentinela.textContent = 'Nao consegui carregar. Toque para tentar de novo.';
+        })
+        .finally(function () { carregando = false; });
+    }
+
+    if ('IntersectionObserver' in window) {
+      var observador = new IntersectionObserver(function (entradas) {
+        entradas.forEach(function (e) { if (e.isIntersecting) carregar(); });
+      }, { root: lista, rootMargin: '240px' });
+      observador.observe(sentinela);
+    }
+
+    // Rede de seguranca: alguns navegadores de celular tratam mal o observer
+    // dentro de container com scroll; o evento de scroll tambem tenta carregar.
+    lista.addEventListener('scroll', function () {
+      if (sentinela.parentNode && (lista.scrollTop + lista.clientHeight) >= (lista.scrollHeight - 260)) {
+        carregar();
+      }
+    });
+
+    sentinela.addEventListener('click', carregar);
+  })();
+
   document.addEventListener('click', function (event) {
     var audioToggle = event.target.closest('.m2-audio-toggle');
     if (audioToggle) {

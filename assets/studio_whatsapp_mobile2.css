@@ -574,6 +574,49 @@ body {
     white-space: nowrap;
 }
 
+/* Toggle Todas / Sem resposta (rota Baileys: sem menu de filtros). */
+.m2-toggle-row {
+    display: flex;
+    gap: 6px;
+    padding: 0 10px 8px;
+}
+
+.m2-toggle {
+    flex: 1 1 auto;
+    text-align: center;
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: .76rem;
+    font-weight: 700;
+    text-decoration: none;
+    color: #8696a0;
+    background: rgba(255, 255, 255, .06);
+    border: 1px solid transparent;
+}
+
+.m2-toggle:hover {
+    color: #e9edef;
+}
+
+.m2-toggle.on {
+    background: rgba(37, 208, 122, .16);
+    color: #7ee2a8;
+    border-color: rgba(37, 208, 122, .35);
+}
+
+/* Sentinela do scroll infinito. */
+.m2-carregar {
+    padding: 14px;
+    text-align: center;
+    font-size: .76rem;
+    color: #8696a0;
+}
+
+.m2-carregar.fim {
+    color: #5c6b73;
+    padding: 10px;
+}
+
 .m2-item-badges b.ok {
     background: rgba(0, 168, 132, .18);
     color: #8df3dd;

@@ -3573,14 +3573,33 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
     // nao do banco do CRM (que guarda o numero da API oficial). O resto da
     // tela - painel, cadastro, respostas rapidas, figurinhas - segue igual.
     $mobileTelefoneBaileys = '';
+    $mobileBaileysSoSemResposta = false;
+    $mobileBaileysTemMais = false;
+    $mobileBaileysOffset = 0;
+    $mobileBaileysLote = 20;
     if ($mobileUsaBaileys) {
         require_once APP_BASE_PATH . '/app/historico_conversas.php';
         require_once APP_BASE_PATH . '/app/historico_leads_map.php';
         $mobileTelefoneBaileys = preg_replace('/\D+/', '', (string)($_GET['fone'] ?? $_GET['id'] ?? ''));
+        // Toggle simples: todas ou so as sem resposta.
+        $mobileBaileysSoSemResposta = (string)($_GET['filtro'] ?? '') === 'sem_resposta';
+        // Carrega em LOTES: o resto vem quando a lista chega no fim (scroll infinito).
+        // O filtro de resposta vai para o SERVIDOR (o agrupamento ja sabe filtrar),
+        // para cada lote trazer ~20 do que esta sendo mostrado - e nao 20 no total
+        // e so alguns depois do filtro.
+        $mobileBaileysLote = 20;
+        $mobileBaileysOffset = max(0, (int)($_GET['lote'] ?? 0)) * $mobileBaileysLote;
+        $filtrosLote = $filters;
+        if ($mobileBaileysSoSemResposta) {
+            $filtrosLote['resposta'] = 'sem_resposta';
+        }
+        $agrupado = historico_conversas_agrupadas($filtrosLote, $mobileBaileysLote + 1, $mobileBaileysOffset);
+        $linhasTodas = array_slice($agrupado['conversas'], 0, $mobileBaileysLote);
+        $mobileBaileysTemMais = count($agrupado['conversas']) > $mobileBaileysLote;
         $conversations = [];
         $conversation = null;
         $messages = [];
-        foreach (historico_conversas_agrupadas($filters, 200, 0)['conversas'] as $linha) {
+        foreach ($linhasTodas as $linha) {
             $conversations[] = [
                 'id' => (string)$linha['phone'],
                 'phone' => (string)$linha['phone'],
@@ -3761,6 +3780,23 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
 
     echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '">';
     echo '<aside class="m2-list" id="m2ListPanel">';
+    if ($mobileUsaBaileys) {
+        // Rota Baileys: cabecalho enxuto. Sem filtros/gerenciar: so um toggle
+        // entre todas e sem resposta (o resto nao faz sentido nessa fonte).
+        $urlTodas = app_url($mobileRoute, array_filter([
+            'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
+        ]));
+        $urlSem = app_url($mobileRoute, array_filter([
+            'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
+            'filtro' => 'sem_resposta',
+        ]));
+        echo '<header class="m2-top"><strong>WhatsApp Baileys</strong><span class="m2-top-actions"></span></header>';
+        echo '<div class="m2-toggle-row">';
+        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? '' : ' on') . '" href="' . h($urlTodas) . '">Todas</a>';
+        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? ' on' : '') . '" href="' . h($urlSem) . '">Sem resposta</a>';
+        echo '</div>';
+        echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
+    } else {
     echo '<header class="m2-top"><strong>WhatsApp</strong>' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . '<span class="m2-top-actions"><button class="m2-icon m2-filter-button" type="button" id="m2FiltersButton" aria-label="Filtros" title="Filtros"><i class="fa-solid fa-sliders"></i></button>' . ($isAdmin ? '<button class="m2-icon m2-manage-toggle" type="button" id="m2ManageToggle" aria-label="Gerenciar" title="Gerenciar"><i class="fa-solid fa-user-gear"></i></button>' : '') . '</span></header>';
     echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
     $mobileFilterHref = static function (array $patch = []) use ($mobileRoute, $filters): string {
@@ -3813,6 +3849,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
     echo '<div class="m2-range-actions"><button class="m2-range-apply" type="submit">Aplicar periodo</button><a class="m2-range-clear" href="' . h($mobileFilterHref(['date_filter' => null, 'date_from' => null, 'date_to' => null])) . '">Limpar</a></div>';
     echo '</form></div>';
     echo '</div></details>';
+    } // fim do bloco de filtros (somente rota do CRM)
     // O formulario de exclusao em massa so faz sentido no CRM (apaga do banco).
     // No modo Baileys as conversas sao o arquivo da ponte: nada de excluir, e
     // um <form> a mais aqui quebra a grade do painel (empurra a lista sem rolagem).
@@ -3864,6 +3901,20 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         }
     }
     echo '</nav>';
+    if ($mobileUsaBaileys && $mobileBaileysTemMais) {
+        // Sentinela do scroll infinito: o JS observa este elemento e busca o
+        // proximo lote quando ele entra na tela.
+        $proxLote = (int)floor($mobileBaileysOffset / $mobileBaileysLote) + 1;
+        $urlProx = '?' . http_build_query(array_filter([
+            'page' => 'studio_whatsapp_baileys',
+            'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
+            'filtro' => $mobileBaileysSoSemResposta ? 'sem_resposta' : null,
+            'lote' => $proxLote,
+        ], static fn($v) => $v !== null && $v !== ''));
+        echo '<div class="m2-carregar" id="m2CarregarMais" data-proxima="' . h($urlProx) . '">Carregando mais...</div>';
+    } elseif ($mobileUsaBaileys) {
+        echo '<div class="m2-carregar fim" id="m2FimLista">Fim da lista</div>';
+    }
     if ($isAdmin && !$mobileUsaBaileys) {
         echo '</form>';
     }
