@@ -586,6 +586,13 @@
       clearAttachment();
       clearReplyContext();
       form.setAttribute('data-sending', '0');
+      // Rota Baileys: as mensagens vivem no arquivo da ponte, que o poll do CRM
+      // (studio_whatsapp_mobile_api) nao le. Recarrega para trazer a conversa
+      // inteira ja com o que foi enviado.
+      if (form.getAttribute('data-transporte') === 'baileys') {
+        window.location.reload();
+        return;
+      }
       await refreshMessages(true);
       await refreshConversationList(true);
       window.setTimeout(function () {

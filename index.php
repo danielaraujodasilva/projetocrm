@@ -804,6 +804,10 @@ if ($action === 'studio_login') {
             flash_set(!empty($envio['ok']) ? 'success' : 'error', !empty($envio['ok'])
                 ? 'Mensagem enviada.'
                 : ('Nao foi possivel enviar: ' . (string)($envio['error'] ?? '')));
+            // Devolve para a tela de origem: o chat Baileys volta pra ele mesmo.
+            if (!empty($_POST['return_to_baileys'])) {
+                redirect_to('studio_whatsapp_baileys', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
+            }
             redirect_to('studio_historico', ['h_fone' => $fone]);
         }
 
@@ -2721,6 +2725,15 @@ function render_head(string $title): void
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/app.css') ?: app_build_version())) . '">';
     if (in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)) {
         echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
+        // Manifest do atalho: a rota do Baileys tem o proprio, para o "adicionar a
+        // tela inicial" abrir o chat do numero da ponte.
+        $manifestTipo = (str_contains((string)($_SERVER['REQUEST_URI'] ?? ''), 'studio_whatsapp_baileys')) ? '?tipo=baileys' : '';
+        echo '<link rel="manifest" href="' . h(app_url('studio_whatsapp_manifest') . $manifestTipo) . '">';
+        echo '<meta name="theme-color" content="#075e54">';
+        echo '<meta name="mobile-web-app-capable" content="yes">';
+        echo '<meta name="apple-mobile-web-app-capable" content="yes">';
+        echo '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
+        echo '<meta name="apple-mobile-web-app-title" content="Zap">';
     }
     echo '</head><body' . $bodyClass . '>';
     echo '<input type="text" readonly class="app-build-badge-input" data-build-version="' . h(app_build_version()) . '" value="' . h(app_build_version()) . '" title="Clique para selecionar a versao">';
@@ -2966,6 +2979,8 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         'Atendimento' => [
             ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
             ['historico', 'fa-clock-rotate-left', 'Histórico de Conversas', 'studio_historico'],
+            ['baileys', 'fa-mobile-screen-button', 'WhatsApp Baileys', 'studio_whatsapp_baileys'],
+            ['baileys_atalho', 'fa-mobile-screen', 'Atalho do Baileys no celular', 'studio_whatsapp_baileys_atalho'],
         ],
         'Marketing' => [
             ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
@@ -3497,7 +3512,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
@@ -3519,8 +3534,11 @@ if (in_array($page, ['studio_whatsapp_workspace', 'studio_whatsapp_conversation'
     redirect_to('studio_whatsapp_mobile', $mobileParams);
 }
 
-if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
-    $mobileRoute = 'studio_whatsapp_mobile';
+if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' || $page === 'studio_whatsapp_baileys') {
+    // Rota do chat mobile. `studio_whatsapp_baileys` e o MESMO chat, so que
+    // respondendo pelo numero do Baileys (a ponte) em vez da API oficial.
+    $mobileUsaBaileys = ($page === 'studio_whatsapp_baileys');
+    $mobileRoute = $mobileUsaBaileys ? 'studio_whatsapp_baileys' : 'studio_whatsapp_mobile';
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
 
@@ -3549,6 +3567,74 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     $conversationId = (int)($_GET['id'] ?? 0);
     $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
     $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 100, $conversation) : [];
+
+    // ---- Rota Baileys: mesma tela, outra fonte -------------------------
+    // As conversas e mensagens vem do ARQUIVO da ponte (numero do Baileys),
+    // nao do banco do CRM (que guarda o numero da API oficial). O resto da
+    // tela - painel, cadastro, respostas rapidas, figurinhas - segue igual.
+    $mobileTelefoneBaileys = '';
+    if ($mobileUsaBaileys) {
+        require_once APP_BASE_PATH . '/app/historico_conversas.php';
+        require_once APP_BASE_PATH . '/app/historico_leads_map.php';
+        $mobileTelefoneBaileys = preg_replace('/\D+/', '', (string)($_GET['fone'] ?? $_GET['id'] ?? ''));
+        $conversations = [];
+        $conversation = null;
+        $messages = [];
+        foreach (historico_conversas_agrupadas($filters, 200, 0)['conversas'] as $linha) {
+            $conversations[] = [
+                'id' => (string)$linha['phone'],
+                'phone' => (string)$linha['phone'],
+                'name' => (string)($linha['name'] !== '' ? $linha['name'] : $linha['phone']),
+                'last_message_preview' => (string)($linha['preview'] ?? ''),
+                'message_last_at' => (string)($linha['ultima_em'] ?? ''),
+                'attendance_mode' => 'human',
+                'needs_human' => 0,
+                'is_baileys' => true,
+            ];
+        }
+        if ($mobileTelefoneBaileys !== '') {
+            // Conversa "virtual": existe so para a tela renderizar o chat.
+            $convNome = '';
+            foreach ($conversations as $cv) {
+                if ((string)$cv['phone'] === $mobileTelefoneBaileys) {
+                    $convNome = (string)$cv['name'];
+                    break;
+                }
+            }
+            $conversation = [
+                'id' => 0,
+                'phone' => $mobileTelefoneBaileys,
+                'name' => $convNome !== '' ? $convNome : $mobileTelefoneBaileys,
+                'attendance_mode' => 'human',
+                'needs_human' => 0,
+                'lead_score' => 0,
+                'is_baileys' => true,
+            ];
+            // Mensagens viram o mesmo formato que a tela espera.
+            foreach (historico_mensagens_unificadas($studio, $mobileTelefoneBaileys, 500) as $m) {
+                $tipo = strtolower((string)($m['media_type'] ?? 'text'));
+                $texto = (string)($m['text'] ?? '');
+                if ($texto === '' && !empty($m['transcription'])) {
+                    $texto = (string)$m['transcription'];
+                }
+                $messages[] = [
+                    'id' => (string)($m['at'] ?? '') . '|' . (string)($m['phone'] ?? ''),
+                    'message_id' => (string)($m['message_id'] ?? ''),
+                    'direction' => !empty($m['from_me']) ? 'out' : 'in',
+                    'body' => $texto,
+                    'message_type' => $tipo !== '' ? $tipo : 'text',
+                    'media_mime' => '',
+                    'media_url' => '',
+                    'media_file_name' => '',
+                    'sent_at' => (string)($m['sent_at'] ?? $m['at'] ?? ''),
+                    'transcricao' => (string)($m['transcription'] ?? ''),
+                ];
+            }
+        }
+        // A tela usa conversationId numérico em vários lugares; no modo Baileys
+        // usamos 0 e o telefone como chave.
+        $conversationId = 0;
+    }
     $isAdmin = studio_current_user_is_admin();
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
@@ -3737,8 +3823,22 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
         echo '<input type="hidden" name="q" value="' . h($filters['q']) . '">';
         echo '<div class="m2-bulk-bar"><label class="m2-select-all"><input type="checkbox" id="m2SelectAllConversations"><span>Selecionar tudo</span></label><span class="m2-bulk-count" id="m2BulkCount">0 selecionadas</span><button class="m2-bulk-delete" type="submit" id="m2DeleteSelectedConversations" disabled>Excluir selecionadas</button></div>';
     }
-    echo '<nav class="m2-items' . ($isAdmin ? ' m2-items-admin' : '') . '" id="m2Items">';
+    echo '<nav class="m2-items' . ($isAdmin && !$mobileUsaBaileys ? ' m2-items-admin' : '') . '" id="m2Items">';
     foreach ($conversations as $row) {
+        // No modo Baileys a "conversa" e o telefone do arquivo da ponte.
+        if ($mobileUsaBaileys) {
+            $rowFone = (string)($row['phone'] ?? '');
+            $rowName = (string)($row['name'] ?? $rowFone);
+            $rowPreview = trim((string)($row['last_message_preview'] ?? ''));
+            $href = app_url($mobileRoute, ['fone' => $rowFone]);
+            $active = ($rowFone === $mobileTelefoneBaileys) ? ' active' : '';
+            $searchText = strtolower($rowName . ' ' . $rowFone . ' ' . $rowPreview);
+            $rowInitial = mb_strtoupper(mb_substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1));
+            $quando = (string)($row['message_last_at'] ?? '');
+            $previa = $rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda';
+            echo '<a class="m2-item' . h($active) . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h($rowInitial) . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="ok">' . ($quando !== '' ? h(date('d/m H:i', strtotime($quando))) : '—') . '</b></small></span><em>' . h($rowFone) . '</em></a>';
+            continue;
+        }
         $rowId = (int)($row['id'] ?? 0);
         $rowName = $labelForConversation($row);
         $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
@@ -3768,31 +3868,39 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
     } else {
         $displayName = $labelForConversation($conversation);
         $displayInitial = mb_strtoupper(mb_substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1));
-        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h($displayInitial) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName))) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
-        $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
-        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
-        echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
-        $mobileAiModeActive = ((string)($conversation['attendance_mode'] ?? 'human') === 'bot');
-        echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" id="m2AiModeButton" class="' . ($mobileAiModeActive ? 'is-active' : '') . '" title="' . h($mobileAiModeActive ? 'IA ligada nesta conversa' : 'IA desligada nesta conversa') . '" aria-label="' . h($mobileAiModeActive ? 'IA ligada' : 'IA desligada') . '" data-next-mode="' . h($mobileAiModeActive ? 'human' : 'bot') . '"><i class="fa-solid ' . h($mobileAiModeActive ? 'fa-toggle-on' : 'fa-toggle-off') . '"></i></button>';
-        echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
-        echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
-        if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
-        if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
-        if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
-        echo '</div>';
-        echo '<div class="m2-menu hidden" id="m2Menu">';
-        if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
-            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-hand-pointer"></i>Assumir</button></form>';
+        // Modo Baileys: nada de atribuicao/IA do CRM (a conversa nao vive no banco).
+        $cabecalhoInfo = $mobileUsaBaileys
+            ? 'pelo numero do Baileys'
+            : ($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName)));
+        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h($displayInitial) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($cabecalhoInfo) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        // Modo Baileys: sem breadcrumb do CRM, sem status de IA e sem acoes de
+        // atribuicao - a conversa vive no arquivo da ponte, nao no banco.
+        if (!$mobileUsaBaileys) {
+            $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
+            echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
+            echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
+            $mobileAiModeActive = ((string)($conversation['attendance_mode'] ?? 'human') === 'bot');
+            echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" id="m2AiModeButton" class="' . ($mobileAiModeActive ? 'is-active' : '') . '" title="' . h($mobileAiModeActive ? 'IA ligada nesta conversa' : 'IA desligada nesta conversa') . '" aria-label="' . h($mobileAiModeActive ? 'IA ligada' : 'IA desligada') . '" data-next-mode="' . h($mobileAiModeActive ? 'human' : 'bot') . '"><i class="fa-solid ' . h($mobileAiModeActive ? 'fa-toggle-on' : 'fa-toggle-off') . '"></i></button>';
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
+            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
+            if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
+            if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
+            if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
+            echo '</div>';
+            echo '<div class="m2-menu hidden" id="m2Menu">';
+            if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
+                echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="assign_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-hand-pointer"></i>Assumir</button></form>';
+            }
+            if (($assignedUserId === $currentUserId || $isAdmin) && $assignedUserId > 0) {
+                echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-lock-open"></i>Liberar</button></form>';
+            }
+            if ($isAdmin) {
+                echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><select name="target_user_id" required><option value="">Transferir para...</option>';
+                foreach (studio_list_users($studio) as $studioUser) echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
+                echo '</select><button type="submit"><i class="fa-solid fa-right-left"></i>Transferir</button></form>';
+            }
+            echo '</div>';
         }
-        if (($assignedUserId === $currentUserId || $isAdmin) && $assignedUserId > 0) {
-            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="release_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit"><i class="fa-solid fa-lock-open"></i>Liberar</button></form>';
-        }
-        if ($isAdmin) {
-            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="transfer_whatsapp_conversation"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><select name="target_user_id" required><option value="">Transferir para...</option>';
-            foreach (studio_list_users($studio) as $studioUser) echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
-            echo '</select><button type="submit"><i class="fa-solid fa-right-left"></i>Transferir</button></form>';
-        }
-        echo '</div>';
         echo '<div class="m2-messages" id="m2Messages">';
         foreach ($messages as $message) {
             $direction = (string)($message['direction'] ?? 'in');
@@ -3845,7 +3953,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2') {
             echo '<div class="m2-card"><strong>Janela oficial encerrada</strong><small>Use um template aprovado para reabrir esta conversa fora das 24h.</small></div>';
         }
         echo '<div class="m2-reply-preview hidden" id="m2ReplyPreview"><div><span>Responder</span><strong id="m2ReplyPreviewSender">Mensagem</strong><p id="m2ReplyPreviewText"></p></div><button type="button" id="m2CancelReply" aria-label="Cancelar resposta"><i class="fa-solid fa-xmark"></i></button></div>';
-        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="send_whatsapp_message"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1"><input type="hidden" name="context_message_id" id="m2ContextMessageId" value=""><input type="hidden" name="context_local_message_id" id="m2ContextLocalMessageId" value=""><input type="hidden" name="context_preview" id="m2ContextPreview" value=""><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2StickerButton" aria-label="Figurinhas"><i class="fa-regular fa-note-sticky"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
+        echo '<form class="m2-composer" id="m2Composer" method="post" enctype="multipart/form-data"' . ($mobileUsaBaileys ? ' data-transporte="baileys"' : '') . '>' . csrf_field() . '<input type="hidden" name="action" value="' . ($mobileUsaBaileys ? 'historico_responder' : 'send_whatsapp_message') . '">' . ($mobileUsaBaileys ? '<input type="hidden" name="telefone" value="' . h((string)($conversation['phone'] ?? '')) . '"><input type="hidden" name="nome" value="' . h($displayName) . '"><input type="hidden" name="inline" value="1">' : '') . '<input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '">' . ($mobileUsaBaileys ? '' : '<input type="hidden" name="phone" value="' . h((string)($conversation['phone'] ?? '')) . '">') . '<input type="hidden" name="return_to_mobile" value="1"><input type="hidden" name="return_to_mobile2" value="1">' . ($mobileUsaBaileys ? '<input type="hidden" name="return_to_baileys" value="1">' : '') . '<input type="hidden" name="context_message_id" id="m2ContextMessageId" value=""><input type="hidden" name="context_local_message_id" id="m2ContextLocalMessageId" value=""><input type="hidden" name="context_preview" id="m2ContextPreview" value=""><input id="m2AttachmentInput" class="m2-file-input" type="file" name="media_file" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip"><button type="button" id="m2EmojiButton" aria-label="Emoji"><i class="fa-regular fa-face-smile"></i></button><button type="button" id="m2StickerButton" aria-label="Figurinhas"><i class="fa-regular fa-note-sticky"></i></button><button type="button" id="m2AttachButton" aria-label="Anexar"><i class="fa-solid fa-paperclip"></i></button><textarea id="m2Message" name="message" placeholder="Mensagem" rows="1" ' . (!$canSend ? 'disabled' : '') . '></textarea><button type="button" id="m2RecordButton" aria-label="Audio"><i class="fa-solid fa-microphone"></i></button><button type="submit" aria-label="Enviar" ' . (!$canSend ? 'disabled' : '') . '><i class="fa-solid fa-paper-plane"></i></button></form>';
         if (!$canSend) {
             echo '<div class="m2-notice">Voce pode visualizar, mas precisa assumir a conversa para responder.</div>';
         }
@@ -6447,11 +6555,14 @@ if ($page === 'studio_whatsapp_mobile_api') {
 }
 
 if ($page === 'studio_whatsapp_manifest') {
+    // Manifest do atalho de celular. `?tipo=baileys` gera o do chat pelo numero
+    // do Baileys (a ponte), que abre direto no clone do WhatsApp.
+    $manifestBaileys = strtolower((string)($_GET['tipo'] ?? '')) === 'baileys';
     header('Content-Type: application/manifest+json; charset=utf-8');
     echo json_encode([
-        'name' => 'CRM WhatsApp',
-        'short_name' => 'Zap CRM',
-        'start_url' => app_url('studio_whatsapp_mobile'),
+        'name' => $manifestBaileys ? 'WhatsApp Baileys' : 'CRM WhatsApp',
+        'short_name' => $manifestBaileys ? 'Zap Baileys' : 'Zap CRM',
+        'start_url' => app_url($manifestBaileys ? 'studio_whatsapp_baileys' : 'studio_whatsapp_mobile'),
         'scope' => app_base_path() . '/',
         'display' => 'standalone',
         'background_color' => '#0b141a',
@@ -6460,6 +6571,26 @@ if ($page === 'studio_whatsapp_manifest') {
             ['src' => app_asset_url('assets/wa-icon.svg'), 'sizes' => 'any', 'type' => 'image/svg+xml'],
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+if ($page === 'studio_whatsapp_baileys_atalho') {
+    // Pagina-ponte para salvar o atalho: o usuario abre, adiciona a tela de
+    // inicio e o atalho passa a abrir direto o chat do Baileys em tela cheia.
+    $studioAtalho = require_studio();
+    render_studio_shell('Atalho do WhatsApp Baileys', 'Salve na tela do celular para abrir como um WhatsApp paralelo.', 'baileys', function () use ($studioAtalho) {
+        $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+        $urlApp = app_url('studio_whatsapp_baileys');
+        $urlAbs = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://'
+            . ($_SERVER['HTTP_HOST'] ?? 'danieltatuador.com') . $urlApp;
+        echo '<section class="panel"><h2>Abrir o WhatsApp Baileys</h2>';
+        echo '<p class="muted">Este e o chat que responde pelo numero ligado a ponte (o mesmo que recebe as mensagens). Ele tem os recursos do atendimento: responder, audio, anexo, figurinha, respostas rapidas.</p>';
+        echo '<div class="actions" style="margin:14px 0"><a class="btn" href="' . $h($urlApp) . '">Abrir o chat agora</a></div>';
+        echo '<h3>Salvar como atalho no celular</h3>';
+        echo '<ol class="muted" style="line-height:1.8"><li>Abra o chat no navegador do celular.</li><li><b>Android (Chrome):</b> menu &rarr; <b>Adicionar a tela inicial</b>.</li><li><b>iPhone (Safari):</b> botao Compartilhar &rarr; <b>Adicionar a Tela de Inicio</b>.</li></ol>';
+        echo '<p class="muted">Endereco do chat: <code>' . $h($urlAbs) . '</code></p>';
+        echo '</section>';
+    }, null);
     exit;
 }
 
