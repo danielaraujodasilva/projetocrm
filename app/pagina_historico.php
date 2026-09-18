@@ -48,12 +48,18 @@ $histOffset = ($histPagina - 1) * $histLimite;
 // Indice de contatos para o autocomplete dos filtros (telefone e nome).
 $histContatos = historico_indice_contatos();
 
+// Modo de ordenacao da lista de conversas (clicando no titulo da coluna).
+$histOrdenar = strtolower((string)($_GET['h_ordenar'] ?? 'recentes'));
+if (!in_array($histOrdenar, ['recentes', 'antigas', 'nome', 'nome_desc', 'msgs', 'msgs_desc', 'origem', 'origem_desc', 'resposta', 'resposta_desc'], true)) {
+    $histOrdenar = 'recentes';
+}
+
 // Telefone selecionado (visão de conversa única).
 $histFoneAberto = preg_replace('/\D+/', '', (string)($_GET['h_fone'] ?? ''));
 
 // Constrói a query base preservando os filtros.
-$histQueryBase = static function (array $extra = []) use ($hf, $histModo, $histLimite): string {
-    $q = array_merge(['page' => 'studio_historico', 'h_modo' => $histModo, 'h_limite' => $histLimite], $hf, $extra);
+$histQueryBase = static function (array $extra = []) use ($hf, $histModo, $histLimite, $histOrdenar): string {
+    $q = array_merge(['page' => 'studio_historico', 'h_modo' => $histModo, 'h_limite' => $histLimite, 'h_ordenar' => $histOrdenar], $hf, $extra);
     return http_build_query($q);
 };
 echo '<style>
@@ -88,8 +94,10 @@ echo '<style>
  .hist-bar a{padding:6px 13px;border-radius:999px;font-size:12px;font-weight:700;text-decoration:none;background:#eef2f6;color:#344054}
  .hist-bar a.on{background:#101828;color:#fff}
  .hist-help{font-size:12px;color:#667085;margin:-6px 0 14px}
- .hist-source-inline{font-size:11px;font-weight:700;border:1px solid #d0d5dd;border-radius:999px;padding:2px 7px;background:#fff;color:#344054;max-width:160px;cursor:pointer}
+ .hist-source-inline{font-size:11px;font-weight:700;border:1px solid #d0d5dd;border-radius:999px;padding:2px 8px;background:#fff;color:#344054;max-width:170px;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
  .hist-source-inline:disabled{opacity:.55}
+ .hist-source-inline.op-sem{background:#f2f4f7;color:#667085;border-color:#e4e7ec}
+ .hist-bolinha{display:inline-block;width:8px;height:8px;border-radius:999px;margin-right:5px;vertical-align:middle}
  .hist-hint{font-size:10px;color:#98a2b3;margin-top:3px}
  .hist-ac-wrap{position:relative}
  .hist-ac-list{position:absolute;z-index:40;top:100%;left:0;right:0;margin-top:3px;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.12);max-height:270px;overflow:auto;display:none}
@@ -105,13 +113,35 @@ echo '<style>
  .hist-paginacao .atual{background:#101828;color:#fff}
  .hist-paginacao .info{background:transparent;color:#667085;font-weight:600}
  .hist-resp{font-size:10px;font-weight:800;white-space:nowrap}
+ .hist-chat-wrap{max-width:860px;margin:0 auto}
+ .hist-chat-head{display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:11px 15px}
+ .hist-chat-head strong{display:block;font-size:15px;color:#101828}
+ .hist-chat-head small{font-size:11px;color:#667085}
+ .hist-chat-status{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:4px 10px;border-radius:999px;white-space:nowrap}
+ .hist-chat-status.ok{background:#e8f5ee;color:#0a6b3d}
+ .hist-chat-status.off{background:#fdecea;color:#b42318}
+ .hist-chat{max-height:56vh;overflow-y:auto;padding:14px;background:#f7f8fa;border:1px solid #e6e8ee;border-radius:14px;margin-top:10px}
+ .hist-dia{text-align:center;margin:12px 0 10px;font-size:10px;color:#98a2b3;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+ .hist-msg-nova{outline:2px solid #dbe6fb}
+ .hist-composer{display:flex;gap:8px;align-items:flex-end;background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:10px;margin-top:10px}
+ .hist-composer textarea{flex:1;border:1px solid #d0d5dd;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;resize:none;max-height:160px;line-height:1.45}
+ .hist-composer textarea:disabled{background:#f2f4f7;color:#98a2b3}
+ .hist-composer .hist-send{background:#2f6fed;color:#fff;border:0;border-radius:10px;padding:10px 18px;font-weight:700;font-size:13px;cursor:pointer}
+ .hist-composer .hist-send:disabled{background:#c3cbd6;cursor:not-allowed}
+ .hist-composer-hint{font-size:10px;color:#98a2b3;margin-top:7px;text-align:center}
+ .pill-crm{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:#eef4ff;color:#2f6fed}
+ .hist-table th a{color:#475467;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+ .hist-table th a:hover{color:#101828}
+ .hist-table th .seta{color:#98a2b3;font-size:9px}
+ .hist-table th.on a{color:#2f6fed}
+ .hist-table th.on .seta{color:#2f6fed}
 </style>';
 
 render_studio_shell(
     'Histórico de Conversas',
     'Todas as mensagens arquivadas do WhatsApp — com origem, transcrição de áudio e busca.',
     'historico',
-    function () use ($studio, $histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase, $histPagina, $histOffset, $histContatos) {
+    function () use ($studio, $histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase, $histPagina, $histOffset, $histContatos, $histOrdenar) {
 
         $escreve = static fn($v) => is_string($v) ? htmlspecialchars($v, ENT_QUOTES, 'UTF-8') : (string)$v;
 
@@ -265,6 +295,40 @@ render_studio_shell(
           montarAc('h_telefone', 'ac_telefone', 'fone');
           montarAc('h_nome', 'ac_nome', 'nome');
 
+          // ---- Cores das origens (tinta o seletor pela origem escolhida) ---
+          // Mapa codigo -> cor, montado no servidor a partir do catalogo unico.
+          var CORES_ORIGEM = <?php
+            $coresMapa = [];
+            foreach (ads_origem_catalogo() as $cod => $info) {
+                $coresMapa[$cod] = (string)$info[2];
+            }
+            echo json_encode($coresMapa, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+          ?>;
+
+          function pintarOrigem(sel) {
+            var cod = sel.value;
+            var cor = CORES_ORIGEM[cod];
+            if (!cod || !cor) {
+              sel.classList.add('op-sem');
+              sel.style.background = '';
+              sel.style.color = '';
+              sel.style.borderColor = '';
+              sel.setAttribute('data-cor', '#98a2b3');
+              return;
+            }
+            sel.classList.remove('op-sem');
+            // Fundo claro (cor com transparencia) e texto na cor cheia: legivel
+            // sem depender de calculo de contraste.
+            sel.style.background = cor + '1a';
+            sel.style.color = cor;
+            sel.style.borderColor = cor + '66';
+            sel.setAttribute('data-cor', cor);
+          }
+          document.querySelectorAll('.hist-source-inline').forEach(function (sel) {
+            pintarOrigem(sel);
+            sel.addEventListener('change', function () { pintarOrigem(sel); });
+          });
+
           document.querySelectorAll('.hist-source-inline').forEach(function (sel) {
             var anterior = sel.value;
             sel.addEventListener('change', function () {
@@ -306,10 +370,11 @@ render_studio_shell(
                     var hint = sel.parentNode ? sel.parentNode.querySelector('.hist-hint') : null;
                     if (hint) hint.textContent = 'lead #' + json.lead_id + ' criado';
                   }
-                  setTimeout(function () { sel.style.borderColor = ''; }, 1600);
+                  setTimeout(function () { pintarOrigem(sel); }, 1600);
                 })
                 .catch(function (err) {
                   sel.value = anterior;
+                  pintarOrigem(sel);
                   sel.style.borderColor = '#d92d20';
                   alert(err.message || 'Nao foi possivel salvar a origem');
                 })
@@ -322,21 +387,63 @@ render_studio_shell(
         </script>
         <?php
 
-        // ---- Conversa unica aberta (visao de chat) -------------------
+        // ---- Conversa aberta: CHAT (le e responde) -------------------
         if ($histFoneAberto !== '') {
-            $conv = historico_ler_mensagens(['telefone' => $histFoneAberto], 500, 0);
-            $itens = array_reverse($conv['itens']); // cronológico
+            // Junta arquivo da ponte + banco do CRM, em ordem cronologica.
+            $itens = historico_mensagens_unificadas($studio, $histFoneAberto, 500);
+            $totalItens = count($itens);
+            $nomeConversa = '';
+            foreach ($itens as $m) {
+                if (trim((string)($m['name'] ?? '')) !== '') {
+                    $nomeConversa = (string)$m['name'];
+                    break;
+                }
+            }
+            $leadDoFone = null;
+            try {
+                $leadDoFone = historico_lead_por_telefone(studio_db($studio), $histFoneAberto);
+            } catch (Throwable $e) {
+                $leadDoFone = null;
+            }
+            $ponteOk = $histPonte;
+            $semTelefoneReal = !historico_telefone_utilizavel($histFoneAberto);
 
             echo '<p><a class="hist-btn sec" href="?' . $escreve($histQueryBase(['h_fone' => ''])) . '">&larr; Voltar para a lista</a></p>';
-            echo '<h3 class="h5">Conversa com <code>' . $escreve($histFoneAberto) . '</code> (' . count($itens) . ' mensagens)</h3>';
-            echo '<div class="hist-chat">';
-            if (!$itens) {
-                echo '<div class="hist-empty">Nenhuma mensagem encontrada para esse telefone com os filtros atuais.</div>';
+
+            // Cabecalho do chat.
+            echo '<div class="hist-chat-wrap">';
+            echo '<div class="hist-chat-head">';
+            echo '<div><strong>' . $escreve($nomeConversa !== '' ? $nomeConversa : $histFoneAberto) . '</strong>';
+            echo '<small><code>' . $escreve($histFoneAberto) . '</code> · ' . $totalItens . ' mensagem(ns)';
+            if ($leadDoFone) {
+                echo ' · <a href="' . $escreve(app_url('studio_lead', ['id' => (int)$leadDoFone['id']])) . '">lead #' . (int)$leadDoFone['id'] . '</a>';
             }
+            echo '</small></div>';
+            echo '<span class="hist-chat-status ' . ($ponteOk ? 'ok' : 'off') . '">' . ($ponteOk ? 'ponte no ar' : 'ponte parada') . '</span>';
+            echo '</div>';
+
+            if (!$ponteOk) {
+                echo '<div class="alert alert-warning" style="font-size:13px">A ponte está <b>parada</b>: dá para ler o histórico, mas o envio não vai funcionar agora.</div>';
+            }
+            if ($semTelefoneReal) {
+                echo '<div class="alert alert-warning" style="font-size:13px">Este contato só tem ID interno do WhatsApp (sem número real): não é possível responder.</div>';
+            }
+
+            echo '<div class="hist-chat" id="histChat">';
+            if (!$itens) {
+                echo '<div class="hist-empty">Nenhuma mensagem encontrada para este telefone.</div>';
+            }
+            $diaAnterior = '';
             foreach ($itens as $m) {
                 $out = !empty($m['from_me']);
                 $quando = (string)($m['sent_at'] ?? $m['at'] ?? '');
                 $ts = $quando !== '' ? date('d/m H:i', strtotime($quando)) : '';
+                $dia = $quando !== '' ? date('Y-m-d', strtotime($quando)) : '';
+                // Separador de dia, como em um chat de verdade.
+                if ($dia !== '' && $dia !== $diaAnterior) {
+                    $diaAnterior = $dia;
+                    echo '<div class="hist-dia">' . $escreve(date('d/m/Y', strtotime($quando))) . '</div>';
+                }
                 $tags = '';
                 if (!empty($m['origin'])) {
                     $tags .= '<span class="pill ad">anúncio ' . $escreve((string)($m['origin']['platform'] ?? '')) . '</span> ';
@@ -346,6 +453,9 @@ render_studio_shell(
                     $tags .= '<span class="pill audio">áudio' . (!empty($m['transcription']) ? ' transcrito' : '') . '</span> ';
                 } elseif ($tipo !== 'text' && $tipo !== '') {
                     $tags .= '<span class="pill plain">' . $escreve($tipo) . '</span> ';
+                }
+                if (($m['fonte'] ?? '') === 'crm') {
+                    $tags .= '<span class="pill-crm">pelo CRM</span> ';
                 }
 
                 $texto = (string)($m['text'] ?? '');
@@ -365,13 +475,104 @@ render_studio_shell(
                 echo '</div>';
             }
             echo '</div>';
-            echo '<p style="margin-top:14px"><a class="hist-btn sec" href="?' . $escreve($histQueryBase(['h_fone' => ''])) . '">&larr; Voltar para a lista</a></p>';
+
+            // Composer: responde pelo Baileys (o numero que recebeu).
+            $podeEnviar = $ponteOk && !$semTelefoneReal;
+            echo '<form class="hist-composer" id="histComposer" method="post" autocomplete="off">';
+            echo '<input type="hidden" name="csrf_token" value="' . $escreve(csrf_token()) . '">';
+            echo '<input type="hidden" name="action" value="historico_responder">';
+            echo '<input type="hidden" name="telefone" value="' . $escreve($histFoneAberto) . '">';
+            echo '<input type="hidden" name="nome" value="' . $escreve($nomeConversa) . '">';
+            echo '<input type="hidden" name="inline" value="1">';
+            echo '<textarea id="histMessage" name="mensagem" rows="1" placeholder="'
+                . ($podeEnviar ? 'Escreva uma resposta...' : 'Envio indisponivel') . '"'
+                . ($podeEnviar ? '' : ' disabled') . '></textarea>';
+            echo '<button type="submit" class="hist-send"' . ($podeEnviar ? '' : ' disabled') . ' aria-label="Enviar">Enviar</button>';
+            echo '</form>';
+            echo '<div class="hist-composer-hint">Enviado pelo número que recebeu a mensagem (WhatsApp da ponte). Enter envia; Shift+Enter quebra linha.</div>';
+            echo '</div>';
+            ?>
+            <script>
+            (function () {
+              var form = document.getElementById('histComposer');
+              var ta = document.getElementById('histMessage');
+              var chat = document.getElementById('histChat');
+              if (!form || !ta) return;
+
+              // Rola para o fim (mensagem mais recente), como em um chat.
+              if (chat) { chat.scrollTop = chat.scrollHeight; }
+
+              function altura() {
+                ta.style.height = 'auto';
+                ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+              }
+              ta.addEventListener('input', altura);
+              altura();
+
+              // Enter envia; Shift+Enter quebra linha.
+              ta.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Enter' && !ev.shiftKey) {
+                  ev.preventDefault();
+                  form.requestSubmit ? form.requestSubmit() : form.submit();
+                }
+              });
+
+              form.addEventListener('submit', function (ev) {
+                ev.preventDefault();
+                var texto = String(ta.value || '').trim();
+                if (!texto) return;
+                var botao = form.querySelector('.hist-send');
+                if (botao) { botao.disabled = true; botao.textContent = '...'; }
+
+                var corpo = new URLSearchParams();
+                corpo.set('action', 'historico_responder');
+                corpo.set('telefone', form.querySelector('[name="telefone"]').value);
+                corpo.set('nome', form.querySelector('[name="nome"]').value);
+                corpo.set('mensagem', texto);
+                corpo.set('inline', '1');
+                corpo.set('csrf_token', form.querySelector('[name="csrf_token"]').value);
+
+                fetch(window.location.pathname + window.location.search, {
+                  method: 'POST',
+                  headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
+                  body: corpo.toString()
+                })
+                  .then(function (r) { return r.json(); })
+                  .then(function (json) {
+                    if (!json.ok) throw new Error(json.error || 'Falha ao enviar');
+                    // Eco imediato: mostra a bolha sem recarregar.
+                    var agora = new Date();
+                    var hh = String(agora.getHours()).padStart(2, '0');
+                    var mm = String(agora.getMinutes()).padStart(2, '0');
+                    var bolha = document.createElement('div');
+                    bolha.className = 'hist-msg out hist-msg-nova';
+                    var meta = document.createElement('div');
+                    meta.className = 'meta';
+                    meta.textContent = hh + ':' + mm + ' · atendimento (enviando)';
+                    bolha.appendChild(meta);
+                    bolha.appendChild(document.createTextNode(texto));
+                    chat.appendChild(bolha);
+                    chat.scrollTop = chat.scrollHeight;
+                    ta.value = '';
+                    altura();
+                  })
+                  .catch(function (err) {
+                    alert(err.message || 'Nao foi possivel enviar');
+                  })
+                  .finally(function () {
+                    if (botao) { botao.disabled = false; botao.textContent = 'Enviar'; }
+                    ta.focus();
+                  });
+              });
+            })();
+            </script>
+            <?php
             return;
         }
 
         // ---- Lista ------------------------------------------------------
         if ($histModo === 'conversas') {
-            $res = historico_conversas_agrupadas($hf, $histLimite, $histOffset);
+            $res = historico_conversas_agrupadas($hf, $histLimite, $histOffset, $histOrdenar);
             // Liga cada conversa ao lead do CRM (para poder editar a origem daqui).
             $leadsMapa = [];
             try {
@@ -385,7 +586,25 @@ render_studio_shell(
             $primeiro = $totalConv ? ($histOffset + 1) : 0;
             $ultimo = min($totalConv, $histOffset + $histLimite);
             echo '<p class="hist-help">' . $totalConv . ' conversa(s)' . ($hf ? ' com os filtros aplicados' : '') . ($totalConv ? ' — mostrando ' . $primeiro . '–' . $ultimo : '') . '. Clique no telefone para ver o histórico completo. A coluna <b>Origem</b> é editável.</p>';
-            echo '<table class="hist-table"><thead><tr><th>Última</th><th>Telefone</th><th>Nome</th><th>Msgs</th><th>Resposta</th><th>Origem (editável)</th><th>Última mensagem</th></tr></thead><tbody>';
+            // Cabecalho clicavel. Cada titulo ordena por aquela coluna; quando a
+            // coluna ja esta ativa, clicar inverte o sentido. As chaves de
+            // ordenacao ficam em historico_conversas_agrupadas().
+            $thOrd = static function (string $rotulo, string $asc, string $desc) use ($histOrdenar, $histQueryBase, $escreve): string {
+                $ativo = $histOrdenar === $asc || $histOrdenar === $desc;
+                $proximo = ($histOrdenar === $asc) ? $desc : $asc;
+                $seta = !$ativo ? '\u{2195}' : ($histOrdenar === $asc ? '\u{2191}' : '\u{2193}');
+                $href = '?' . $histQueryBase(['h_ordenar' => $proximo, 'h_pagina' => 1, 'h_fone' => '']);
+                return '<th class="' . ($ativo ? 'on' : '') . '"><a href="' . $escreve($href) . '" title="Ordenar por ' . $escreve($rotulo) . '">' . $escreve($rotulo) . ' <span class="seta">' . $seta . '</span></a></th>';
+            };
+            echo '<table class="hist-table"><thead><tr>'
+                . $thOrd('Última', 'recentes', 'antigas')
+                . '<th>Telefone</th>'
+                . $thOrd('Nome', 'nome', 'nome_desc')
+                . $thOrd('Msgs', 'msgs', 'msgs_desc')
+                . $thOrd('Resposta', 'resposta', 'resposta_desc')
+                . $thOrd('Origem (editável)', 'origem', 'origem_desc')
+                . '<th>Última mensagem</th>'
+                . '</tr></thead><tbody>';
             if (!$res['conversas']) {
                 echo '<tr><td colspan="7" class="hist-empty" style="border:0">Nenhuma conversa encontrada.</td></tr>';
             }
@@ -399,7 +618,7 @@ render_studio_shell(
                     // Tem lead: mostra seletor que salva no CRM.
                     $origemAtual = ads_origem_normalizar((string)$leadDoFone['source']);
                     $detectada = !empty($c['origem']) ? (string)($c['origem']['platform'] ?? '') : '';
-                    $cel = '<select class="hist-source-inline" data-lead-source="' . (int)$leadDoFone['id'] . '" title="Origem do lead #' . (int)$leadDoFone['id'] . '">';
+                    $cel = '<select class="hist-source-inline" data-lead-source="' . (int)$leadDoFone['id'] . '" data-cor="' . $escreve(ads_origem_cor($origemAtual)) . '" title="Origem do lead #' . (int)$leadDoFone['id'] . '">';
                     if ($origemAtual === '') {
                         $cel .= '<option value="">— sem origem —</option>';
                     }
@@ -420,7 +639,7 @@ render_studio_shell(
                     // origem, o CRM cria o lead com este telefone e grava a origem
                     // (acao create_lead_source). Assim toda conversa e classificavel.
                     $utilizavel = historico_telefone_utilizavel($fone);
-                    $cel = '<select class="hist-source-inline" data-lead-phone="' . $escreve($fone) . '" data-lead-name="' . $escreve((string)($c['name'] ?? '')) . '" title="Sem lead no CRM - escolher cria o lead">';
+                    $cel = '<select class="hist-source-inline" data-lead-phone="' . $escreve($fone) . '" data-lead-name="' . $escreve((string)($c['name'] ?? '')) . '" data-cor="#98a2b3" title="Sem lead no CRM - escolher cria o lead">';
                     $cel .= '<option value="">- sem origem -</option>';
                     foreach (ads_origem_opcoes_agrupadas() as $grupo) {
                         $cel .= '<optgroup label="' . $escreve((string)$grupo['label']) . '">';
@@ -507,11 +726,22 @@ render_studio_shell(
         }
 
         // Modo "todas as mensagens".
-        $res = historico_ler_mensagens($hf, $histLimite, $histOffset);
+        $res = historico_ler_mensagens($hf, $histLimite, $histOffset, $histOrdenar);
         $totalMsg = (int)$res['total_filtrado'];
         $totalPag = max(1, (int)ceil($totalMsg / $histLimite));
         echo '<p class="hist-help">' . $totalMsg . ' mensagem(ns) encontradas — mostrando ' . ($totalMsg ? ($histOffset + 1) : 0) . '–' . min($totalMsg, $histOffset + $histLimite) . '. Arquivo tem ' . (int)$res['total_arquivo'] . ' no total.</p>';
-        echo '<table class="hist-table"><thead><tr><th>Quando</th><th>Fone</th><th>Nome</th><th>Dir.</th><th>Tipo</th><th>Origem</th><th>Texto / transcrição</th></tr></thead><tbody>';
+        // Ordenacao clicavel do modo mensagens (só recentes/antigas fazem sentido).
+        $thMsg = static function (string $rotulo, string $asc, string $desc) use ($histOrdenar, $histQueryBase, $escreve): string {
+            $ativo = $histOrdenar === $asc || $histOrdenar === $desc;
+            $proximo = ($histOrdenar === $asc) ? $desc : $asc;
+            $seta = !$ativo ? '\u{2195}' : ($histOrdenar === $asc ? '\u{2191}' : '\u{2193}');
+            $href = '?' . $histQueryBase(['h_ordenar' => $proximo, 'h_pagina' => 1, 'h_fone' => '']);
+            return '<th class="' . ($ativo ? 'on' : '') . '"><a href="' . $escreve($href) . '">' . $escreve($rotulo) . ' <span class="seta">' . $seta . '</span></a></th>';
+        };
+        echo '<table class="hist-table"><thead><tr>'
+            . $thMsg('Quando', 'recentes', 'antigas')
+            . '<th>Fone</th><th>Nome</th><th>Dir.</th><th>Tipo</th><th>Origem</th><th>Texto / transcrição</th>'
+            . '</tr></thead><tbody>';
         if (!$res['itens']) {
             echo '<tr><td colspan="7" class="hist-empty" style="border:0">Nenhuma mensagem encontrada.</td></tr>';
         }

@@ -663,6 +663,82 @@ if ($action === 'studio_login') {
             redirect_to('studio_leads');
         }
 
+        if ($action === 'historico_responder') {
+            // Responde pelo numero que recebeu (Baileys), via ponte local.
+            require_once APP_BASE_PATH . '/app/historico_conversas.php';
+            $studio = require_studio();
+            $fone = preg_replace('/\D+/', '', (string)($_POST['telefone'] ?? ''));
+            $texto = trim((string)($_POST['mensagem'] ?? ''));
+            $nome = trim((string)($_POST['nome'] ?? ''));
+            $usuario = current_studio_user();
+            $ator = is_array($usuario) ? trim((string)($usuario['name'] ?? 'Atendimento')) : 'Atendimento';
+
+            $wantsJson = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') || !empty($_POST['inline']);
+
+            if ($fone === '' || $texto === '') {
+                $erro = 'Informe o telefone e a mensagem.';
+                if ($wantsJson) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode(['ok' => false, 'error' => $erro], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    exit;
+                }
+                flash_set('error', $erro);
+                redirect_to('studio_historico', ['h_fone' => $fone]);
+            }
+
+            $envio = historico_ponte_enviar($fone, $texto, $nome, $ator);
+
+            // Espelha a conversa no CRM (para o atendimento do CRM tambem ver).
+            try {
+                $conv = studio_find_whatsapp_conversation_by_phone($studio, $fone);
+                if (!is_array($conv)) {
+                    // Devolve a conversa (nao um envelope): ver studio_crm.php.
+                    $novo = studio_upsert_whatsapp_conversation($studio, [
+                        'phone' => $fone,
+                        'name' => $nome !== '' ? $nome : 'Cliente WhatsApp',
+                    ]);
+                    $conv = is_array($novo) ? $novo : studio_find_whatsapp_conversation_by_phone($studio, $fone);
+                }
+                if (is_array($conv) && !empty($conv['id'])) {
+                    $pdoH = studio_db($studio);
+                    $pdoH->prepare('INSERT INTO whatsapp_messages (conversation_id, message_id, direction, sender_type, body, message_type, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())')
+                        ->execute([
+                            (int)$conv['id'],
+                            (string)($envio['messageId'] ?? ''),
+                            'outbound',
+                            'human',
+                            $texto,
+                            'text',
+                        ]);
+                    $pdoH->prepare('UPDATE whatsapp_conversations SET last_message_at = NOW(), last_message_preview = ?, updated_at = NOW() WHERE id = ?')
+                        ->execute([mb_substr($texto, 0, 180), (int)$conv['id']]);
+                }
+            } catch (Throwable $e) {
+                // O envio ja aconteceu: falha ao espelhar nao invalida a resposta.
+            }
+
+            studio_event((int)$studio['id'], 'historico_reply_sent', 'Resposta enviada pelo Historico.', [
+                'category' => 'whatsapp',
+                'target_type' => 'phone',
+                'context' => ['para' => $fone, 'ok' => !empty($envio['ok']), 'chars' => mb_strlen($texto)],
+            ]);
+
+            if ($wantsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'ok' => !empty($envio['ok']),
+                    'error' => (string)($envio['error'] ?? ''),
+                    'message_id' => (string)($envio['messageId'] ?? ''),
+                    'at' => date('c'),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            flash_set(!empty($envio['ok']) ? 'success' : 'error', !empty($envio['ok'])
+                ? 'Mensagem enviada.'
+                : ('Nao foi possivel enviar: ' . (string)($envio['error'] ?? '')));
+            redirect_to('studio_historico', ['h_fone' => $fone]);
+        }
+
         if ($action === 'create_lead_source') {
             // Conversa do historico sem lead no CRM: cria o lead com o telefone
             // da conversa e ja grava a origem escolhida. Assim nenhuma conversa
@@ -9233,7 +9309,7 @@ ROIPDFJS;
 
 if ($page === 'studio_historico') {
     $studio = require_studio();
-    // A pagina vive em app/pagina_historico.php (somente leitura do arquivo da ponte).
+    // A pagina vive em app/pagina_historico.php (le o arquivo da ponte, edita origem e responde).
     require_once APP_BASE_PATH . '/app/historico_conversas.php';
     require_once APP_BASE_PATH . '/app/historico_leads_map.php';
     require APP_BASE_PATH . '/app/pagina_historico.php';
