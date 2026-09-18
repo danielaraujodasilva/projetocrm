@@ -675,8 +675,69 @@ if ($action === 'studio_login') {
 
             $wantsJson = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') || !empty($_POST['inline']);
 
-            if ($fone === '' || $texto === '') {
-                $erro = 'Informe o telefone e a mensagem.';
+            // Extras: midia/anexo e resposta citada.
+            $extras = [];
+            $anexo = null;
+            $anexoDireto = null;
+
+            // 1) Midia enviada como base64 pelo JS (figurinha ou leitura local).
+            $midiaKind = strtolower(trim((string)($_POST['midia_kind'] ?? '')));
+            $midiaBase64 = trim((string)($_POST['midia_base64'] ?? ''));
+            if ($midiaKind !== '' && $midiaBase64 !== '') {
+                if (!in_array($midiaKind, ['image', 'video', 'audio', 'document', 'sticker'], true)) {
+                    $midiaKind = 'document';
+                }
+                // data URL: separa o mime do conteudo.
+                $mimeDireto = 'application/octet-stream';
+                $dadosPuros = $midiaBase64;
+                if (preg_match('#^data:([^;,]+);base64,(.*)$#s', $midiaBase64, $casou)) {
+                    $mimeDireto = $casou[1];
+                    $dadosPuros = $casou[2];
+                }
+                if (strlen($dadosPuros) > 24 * 1024 * 1024) {
+                    $anexoDireto = null;
+                } else {
+                    $anexoDireto = [
+                        'kind' => $midiaKind,
+                        'base64' => $dadosPuros,
+                        'mime' => $mimeDireto,
+                        'fileName' => trim((string)($_POST['midia_nome'] ?? '')) ?: ('arquivo_' . time()),
+                        'relativePath' => '',
+                    ];
+                }
+            }
+
+            // 2) Upload normal de arquivo (input file).
+            try {
+                $anexo = studio_prepare_whatsapp_attachment($studio, $_POST, $_FILES, 0);
+            } catch (Throwable $e) {
+                $anexo = null;
+            }
+            if (!is_array($anexo)) {
+                $anexo = $anexoDireto;
+            }
+
+            if (is_array($anexo)) {
+                $extras['kind'] = (string)($anexo['kind'] ?? 'document');
+                $extras['base64'] = (string)($anexo['base64'] ?? '');
+                $extras['mime'] = (string)($anexo['mime'] ?? '');
+                $extras['fileName'] = (string)($anexo['fileName'] ?? '');
+                $extras['caption'] = $texto;
+                // Audio gravado no navegador sai como mensagem de voz.
+                if ($extras['kind'] === 'audio') {
+                    $extras['ptt'] = true;
+                }
+            }
+            // Citacao: o arquivo da ponte nao guarda a mensagem original completa,
+            // entao mandamos a previa: a ponte prefixa "> previa" na resposta.
+            $citadaPreview = trim((string)($_POST['context_preview'] ?? ''));
+            if ($citadaPreview !== '') {
+                $extras['quotedPreview'] = mb_substr($citadaPreview, 0, 200);
+            }
+
+            $temMidia = is_array($anexo) && (string)($anexo['base64'] ?? '') !== '';
+            if ($fone === '' || ($texto === '' && !$temMidia)) {
+                $erro = 'Informe o telefone e a mensagem (ou um anexo).';
                 if ($wantsJson) {
                     header('Content-Type: application/json; charset=utf-8');
                     echo json_encode(['ok' => false, 'error' => $erro], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -686,7 +747,8 @@ if ($action === 'studio_login') {
                 redirect_to('studio_historico', ['h_fone' => $fone]);
             }
 
-            $envio = historico_ponte_enviar($fone, $texto, $nome, $ator);
+            $envio = historico_ponte_enviar($fone, $texto, $nome, $ator, $extras);
+            $tipoEnviado = (string)($envio['kind'] ?? ($extras['kind'] ?? 'text'));
 
             // Espelha a conversa no CRM (para o atendimento do CRM tambem ver).
             try {
@@ -701,17 +763,21 @@ if ($action === 'studio_login') {
                 }
                 if (is_array($conv) && !empty($conv['id'])) {
                     $pdoH = studio_db($studio);
-                    $pdoH->prepare('INSERT INTO whatsapp_messages (conversation_id, message_id, direction, sender_type, body, message_type, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())')
+                    $corpoMensagem = $texto !== '' ? $texto : ('[' . $tipoEnviado . ']');
+                    $pdoH->prepare('INSERT INTO whatsapp_messages (conversation_id, message_id, direction, sender_type, body, message_type, media_url, media_mime, media_file_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())')
                         ->execute([
                             (int)$conv['id'],
                             (string)($envio['messageId'] ?? ''),
                             'outbound',
                             'human',
-                            $texto,
-                            'text',
+                            $corpoMensagem,
+                            $tipoEnviado,
+                            (string)($anexo['relativePath'] ?? ''),
+                            (string)($anexo['mime'] ?? ''),
+                            (string)($anexo['fileName'] ?? ''),
                         ]);
                     $pdoH->prepare('UPDATE whatsapp_conversations SET last_message_at = NOW(), last_message_preview = ?, updated_at = NOW() WHERE id = ?')
-                        ->execute([mb_substr($texto, 0, 180), (int)$conv['id']]);
+                        ->execute([mb_substr($corpoMensagem, 0, 180), (int)$conv['id']]);
                 }
             } catch (Throwable $e) {
                 // O envio ja aconteceu: falha ao espelhar nao invalida a resposta.
@@ -720,7 +786,7 @@ if ($action === 'studio_login') {
             studio_event((int)$studio['id'], 'historico_reply_sent', 'Resposta enviada pelo Historico.', [
                 'category' => 'whatsapp',
                 'target_type' => 'phone',
-                'context' => ['para' => $fone, 'ok' => !empty($envio['ok']), 'chars' => mb_strlen($texto)],
+                'context' => ['para' => $fone, 'ok' => !empty($envio['ok']), 'tipo' => $tipoEnviado, 'chars' => mb_strlen($texto)],
             ]);
 
             if ($wantsJson) {
@@ -729,6 +795,8 @@ if ($action === 'studio_login') {
                     'ok' => !empty($envio['ok']),
                     'error' => (string)($envio['error'] ?? ''),
                     'message_id' => (string)($envio['messageId'] ?? ''),
+                    'kind' => $tipoEnviado,
+                    'media_url' => (string)($anexo['relativePath'] ?? ''),
                     'at' => date('c'),
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                 exit;
@@ -737,6 +805,71 @@ if ($action === 'studio_login') {
                 ? 'Mensagem enviada.'
                 : ('Nao foi possivel enviar: ' . (string)($envio['error'] ?? '')));
             redirect_to('studio_historico', ['h_fone' => $fone]);
+        }
+
+        if ($action === 'historico_salvar_figurinha') {
+            // Salva uma figurinha recebida para reutilizar depois.
+            // A pagina le do arquivo da ponte, entao nao ha message_id do CRM:
+            // gravamos direto na galeria a partir do caminho do arquivo.
+            require_once APP_BASE_PATH . '/app/historico_conversas.php';
+            $studio = require_studio();
+            $usuario = current_studio_user();
+            $usuarioId = is_array($usuario) ? (int)($usuario['id'] ?? 0) : 0;
+            $wantsJson = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') || !empty($_POST['inline']);
+            $mediaUrl = trim((string)($_POST['media_url'] ?? ''));
+            $nomeArquivo = trim((string)($_POST['file_name'] ?? ''));
+            $erro = '';
+            $ok = false;
+            try {
+                if ($usuarioId <= 0) {
+                    throw new RuntimeException('Faca login como atendente para salvar figurinhas.');
+                }
+                if ($mediaUrl === '') {
+                    throw new RuntimeException('Figurinha sem caminho.');
+                }
+                // Caminho confinado a raiz do app (nada de ../).
+                $absoluto = APP_BASE_PATH . '/' . ltrim($mediaUrl, '/');
+                $real = realpath($absoluto);
+                $raiz = realpath(APP_BASE_PATH);
+                if (!$real || !$raiz || !str_starts_with(strtolower($real), strtolower($raiz)) || !is_file($real)) {
+                    throw new RuntimeException('Arquivo da figurinha nao encontrado.');
+                }
+                $mime = 'image/webp';
+                if (function_exists('mime_content_type')) {
+                    $detectado = @mime_content_type($real);
+                    if (is_string($detectado) && $detectado !== '') {
+                        $mime = $detectado;
+                    }
+                }
+                $titulo = $nomeArquivo !== '' ? $nomeArquivo : basename($real);
+                $titulo = mb_substr((string)preg_replace('/\.[^.]+$/', '', $titulo), 0, 120, 'UTF-8');
+
+                $pdoH = studio_db($studio);
+                $pdoH->prepare(
+                    'INSERT INTO whatsapp_stickers
+                        (studio_id, studio_user_id, source_message_id, title, media_url, media_mime, media_file_name, media_file_path, created_at, last_used_at)
+                     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NOW(), NULL)
+                     ON DUPLICATE KEY UPDATE title = COALESCE(NULLIF(VALUES(title), ""), title)'
+                )->execute([
+                    (int)$studio['id'],
+                    $usuarioId,
+                    $titulo !== '' ? $titulo : 'figurinha',
+                    $mediaUrl,
+                    $mime,
+                    basename($real),
+                    $mediaUrl,
+                ]);
+                $ok = true;
+            } catch (Throwable $e) {
+                $erro = $e->getMessage();
+            }
+            if ($wantsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['ok' => $ok, 'error' => $erro], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            flash_set($ok ? 'success' : 'error', $ok ? 'Figurinha salva.' : ('Nao foi possivel salvar: ' . $erro));
+            redirect_to('studio_historico');
         }
 
         if ($action === 'create_lead_source') {

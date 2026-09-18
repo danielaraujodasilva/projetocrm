@@ -372,37 +372,66 @@ function historico_mensagens_unificadas(array $studio, string $telefone, int $li
  * pareado e a ponte, que expoe POST /send em 127.0.0.1 (nunca na internet).
  * Aqui so falamos com esse endpoint local.
  *
- * Devolve ['ok'=>bool, 'error'=>string, 'messageId'=>string].
+ * $extras aceita:
+ *   kind        -> text|image|video|audio|document|sticker
+ *   base64      -> bytes da midia (pode ser data URL)
+ *   mime        -> tipo do arquivo
+ *   fileName    -> nome exibido no documento
+ *   caption     -> legenda da midia
+ *   ptt         -> true vira mensagem de voz (audio)
+ *   quoted      -> chave Baileys da mensagem citada
+ *   quotedPreview -> previa da citacao (para o registro)
+ *
+ * Devolve ['ok'=>bool, 'error'=>string, 'messageId'=>string, 'kind'=>string].
  */
-function historico_ponte_enviar(string $telefone, string $texto, string $nome = '', string $ator = ''): array
+function historico_ponte_enviar(string $telefone, string $texto, string $nome = '', string $ator = '', array $extras = []): array
 {
     $porta = historico_ponte_porta();
     if ($porta === 0) {
-        return ['ok' => false, 'error' => 'Ponte do WhatsApp offline (nao da para enviar agora).'];
+        return ['ok' => false, 'error' => 'Ponte do WhatsApp offline (nao da para enviar agora.)'];
     }
     $texto = trim($texto);
-    if ($texto === '') {
+    $kind = strtolower(trim((string)($extras['kind'] ?? 'text')));
+    if ($kind === '') {
+        $kind = 'text';
+    }
+    if ($kind === 'text' && $texto === '') {
         return ['ok' => false, 'error' => 'Mensagem vazia.'];
+    }
+    if ($kind !== 'text' && trim((string)($extras['base64'] ?? '')) === '') {
+        return ['ok' => false, 'error' => 'Nenhum arquivo para enviar.'];
     }
     $destino = preg_replace('/\D+/', '', $telefone);
     if ($destino === '') {
         return ['ok' => false, 'error' => 'Telefone invalido para envio.'];
     }
 
-    $payload = json_encode([
+    $payload = [
         'to' => $destino,
         'message' => $texto,
         'name' => $nome,
         'by' => $ator,
-    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        'kind' => $kind,
+    ];
+    foreach (['base64', 'mime', 'fileName', 'caption', 'ptt', 'quoted', 'quotedPreview'] as $campo) {
+        if (array_key_exists($campo, $extras)) {
+            $payload[$campo] = $extras[$campo];
+        }
+    }
+
+    $corpo = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($corpo === false) {
+        return ['ok' => false, 'error' => 'Nao foi possivel montar o envio (dados invalidos).'];
+    }
 
     $ch = curl_init('http://127.0.0.1:' . $porta . '/send');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_POSTFIELDS => $corpo,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 20,
+        // Midia grande demora: teto generoso, mas finito.
+        CURLOPT_TIMEOUT => 90,
         CURLOPT_CONNECTTIMEOUT => 3,
     ]);
     $resposta = curl_exec($ch);
@@ -420,7 +449,12 @@ function historico_ponte_enviar(string $telefone, string $texto, string $nome = 
     if (empty($json['ok'])) {
         return ['ok' => false, 'error' => (string)($json['error'] ?? 'A ponte recusou o envio.')];
     }
-    return ['ok' => true, 'error' => '', 'messageId' => (string)($json['messageId'] ?? '')];
+    return [
+        'ok' => true,
+        'error' => '',
+        'messageId' => (string)($json['messageId'] ?? ''),
+        'kind' => (string)($json['kind'] ?? $kind),
+    ];
 }
 
 /**

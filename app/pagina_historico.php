@@ -130,6 +130,33 @@ echo '<style>
  .hist-composer .hist-send:disabled{background:#c3cbd6;cursor:not-allowed}
  .hist-composer-hint{font-size:10px;color:#98a2b3;margin-top:7px;text-align:center}
  .pill-crm{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;background:#eef4ff;color:#2f6fed}
+ .hist-file-input{display:none}
+ .hist-compose-tools{display:flex;gap:4px;align-items:center;padding-bottom:2px}
+ .hist-compose-tools button{border:0;background:transparent;font-size:19px;line-height:1;cursor:pointer;padding:5px 6px;border-radius:9px;color:#475467}
+ .hist-compose-tools button:hover{background:#eef2f6}
+ .hist-compose-tools button:disabled{opacity:.4;cursor:not-allowed}
+ .hist-compose-tools button.gravando{background:#fdecea;color:#b42318;animation:histPulsa 1s infinite}
+ @keyframes histPulsa{0%,100%{opacity:1}50%{opacity:.45}}
+ .hist-msg-acoes{display:flex;gap:8px;margin-top:5px;opacity:0;transition:opacity .12s}
+ .hist-msg:hover .hist-msg-acoes{opacity:1}
+ .hist-msg-acoes button{border:0;background:transparent;font-size:10px;color:#98a2b3;cursor:pointer;padding:1px 4px;font-weight:700}
+ .hist-msg-acoes button:hover{color:#2f6fed}
+ .hist-citacao{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;border:1px solid #e6e8ee;border-left:3px solid #2f6fed;border-radius:10px;padding:8px 12px;margin-top:10px}
+ .hist-citacao span{font-size:10px;font-weight:800;color:#2f6fed;text-transform:uppercase;letter-spacing:.04em}
+ .hist-citacao p{margin:2px 0 0;font-size:12px;color:#475467}
+ .hist-anexo{background:#eef4ff;border:1px solid #dbe6fb;border-radius:10px;padding:8px 12px;margin-top:8px;font-size:12px;color:#2f6fed;font-weight:600}
+ .hist-emoji{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:2px;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:8px;margin-top:8px;max-height:190px;overflow-y:auto}
+ .hist-emoji button{border:0;background:transparent;font-size:19px;cursor:pointer;padding:4px;border-radius:8px}
+ .hist-emoji button:hover{background:#eef2f6}
+ .hist-figurinhas{display:flex;flex-wrap:wrap;gap:8px;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:10px;margin-top:8px;max-height:190px;overflow-y:auto}
+ .hist-figurinhas img{width:62px;height:62px;object-fit:contain;cursor:pointer;border:1px solid #eaecf0;border-radius:10px;padding:3px;background:#f9fafb}
+ .hist-figurinhas img:hover{border-color:#2f6fed;background:#eef4ff}
+ .hist-fig-vazio{font-size:12px;color:#98a2b3;padding:6px}
+ .hist-rapidas{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:9px}
+ .hist-rapidas span{font-size:10px;font-weight:800;color:#667085;text-transform:uppercase;letter-spacing:.03em}
+ .hist-rapidas button{border:1px solid #d0d5dd;background:#fff;border-radius:999px;padding:4px 11px;font-size:11px;font-weight:600;color:#344054;cursor:pointer}
+ .hist-rapidas button:hover{border-color:#2f6fed;color:#2f6fed}
+ .hidden{display:none!important}
  .hist-table th a{color:#475467;text-decoration:none;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
  .hist-table th a:hover{color:#101828}
  .hist-table th .seta{color:#98a2b3;font-size:9px}
@@ -472,24 +499,90 @@ render_studio_shell(
                 if (!empty($m['origin']['source_id'])) {
                     echo '<div class="meta" style="margin-top:6px">ID do anúncio: ' . $escreve((string)$m['origin']['source_id']) . '</div>';
                 }
+                // Acao da bolha: responder citando. (Salvar figurinha fica no
+                // painel, a partir da galeria do CRM: o arquivo da ponte nao
+                // guarda stickers, so o texto/transcricao e os audios.)
+                $previewCitacao = mb_substr($texto, 0, 120);
+                echo '<div class="hist-msg-acoes">';
+                echo '<button type="button" data-citar="' . $escreve((string)($m['message_id'] ?? '')) . '" data-preview="' . $escreve($previewCitacao) . '" title="Responder citando">responder</button>';
+                echo '</div>';
                 echo '</div>';
             }
             echo '</div>';
 
-            // Composer: responde pelo Baileys (o numero que recebeu).
+            // Composer completo: responde pelo Baileys (o numero que recebeu).
             $podeEnviar = $ponteOk && !$semTelefoneReal;
-            echo '<form class="hist-composer" id="histComposer" method="post" autocomplete="off">';
+            $respostasRapidas = [];
+            $figurinhas = [];
+            $usuarioAtual = current_studio_user();
+            $usuarioAtualId = is_array($usuarioAtual) ? (int)($usuarioAtual['id'] ?? 0) : 0;
+            try {
+                if (function_exists('studio_list_quick_replies')) {
+                    $respostasRapidas = array_values(array_filter(
+                        studio_list_quick_replies($studio),
+                        static fn(array $r): bool => !empty($r['is_active'])
+                    ));
+                }
+            } catch (Throwable $e) {
+                $respostasRapidas = [];
+            }
+            try {
+                if ($usuarioAtualId > 0 && function_exists('studio_list_whatsapp_stickers')) {
+                    $figurinhas = studio_list_whatsapp_stickers($studio, $usuarioAtualId, 24);
+                }
+            } catch (Throwable $e) {
+                $figurinhas = [];
+            }
+
+            // Previa de resposta citada.
+            echo '<div class="hist-citacao hidden" id="histCitacao"><div><span>Respondendo</span><p id="histCitacaoTexto"></p></div><button type="button" id="histCancelarCitacao" aria-label="Cancelar" style="border:0;background:transparent;cursor:pointer;font-size:15px;color:#667085">&times;</button></div>';
+
+            echo '<form class="hist-composer" id="histComposer" method="post" enctype="multipart/form-data" autocomplete="off">';
             echo '<input type="hidden" name="csrf_token" value="' . $escreve(csrf_token()) . '">';
             echo '<input type="hidden" name="action" value="historico_responder">';
             echo '<input type="hidden" name="telefone" value="' . $escreve($histFoneAberto) . '">';
             echo '<input type="hidden" name="nome" value="' . $escreve($nomeConversa) . '">';
             echo '<input type="hidden" name="inline" value="1">';
+            echo '<input type="hidden" name="context_message_id" id="histContextId" value="">';
+            echo '<input type="hidden" name="context_preview" id="histContextPreview" value="">';
+            echo '<input type="file" id="histArquivo" name="media_file" class="hist-file-input" accept="image/*,audio/*,video/*,.webp,.pdf,.doc,.docx,.txt,.zip">';
+            // Botoes de recurso (emoji, figurinha, anexo) + campo + enviar.
+            echo '<div class="hist-compose-tools">';
+            echo '<button type="button" id="histEmojiBtn" title="Emoji" aria-label="Emoji">&#128522;</button>';
+            echo '<button type="button" id="histFigurinhaBtn" title="Figurinhas" aria-label="Figurinhas">&#127991;&#65039;</button>';
+            echo '<button type="button" id="histAnexoBtn" title="Anexar" aria-label="Anexar"' . ($podeEnviar ? '' : ' disabled') . '>&#128206;</button>';
+            echo '<button type="button" id="histGravarBtn" title="Gravar audio" aria-label="Gravar audio"' . ($podeEnviar ? '' : ' disabled') . '>&#127908;</button>';
+            echo '</div>';
             echo '<textarea id="histMessage" name="mensagem" rows="1" placeholder="'
                 . ($podeEnviar ? 'Escreva uma resposta...' : 'Envio indisponivel') . '"'
                 . ($podeEnviar ? '' : ' disabled') . '></textarea>';
             echo '<button type="submit" class="hist-send"' . ($podeEnviar ? '' : ' disabled') . ' aria-label="Enviar">Enviar</button>';
             echo '</form>';
-            echo '<div class="hist-composer-hint">Enviado pelo número que recebeu a mensagem (WhatsApp da ponte). Enter envia; Shift+Enter quebra linha.</div>';
+            echo '<div class="hist-anexo hidden" id="histAnexoPreview"></div>';
+            echo '<div class="hist-emoji hidden" id="histEmojiPanel"></div>';
+            echo '<div class="hist-figurinhas hidden" id="histFigurinhaPanel"></div>';
+            echo '<div class="hist-composer-hint" id="histHint">Enviado pelo numero que recebeu a mensagem. Enter envia; Shift+Enter quebra linha.</div>';
+
+            if ($respostasRapidas) {
+                echo '<div class="hist-rapidas"><span>Respostas rapidas:</span>';
+                foreach (array_slice($respostasRapidas, 0, 16) as $rr) {
+                    echo '<button type="button" data-rapida="' . $escreve((string)$rr['body']) . '">' . $escreve((string)$rr['title']) . '</button>';
+                }
+                echo '</div>';
+            }
+
+            // Dados para o JS.
+            echo '<script>' . "\n";
+            $emojis = ['😀','😃','😄','😁','😆','😅','😂','🤣','😊','😇','🙂','🙃','😉','😍','😘','😗','😙','😚','😋','😛','😜','🤪','😎','🥳','😏','😒','😞','😔','😢','😭','😤','😡','🤯','🥺','😬','😴','🤔','🫠','🤝','👍','👎','👌','🤌','👏','🙌','🙏','💪','🤘','✌️','👀','🫶','❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕','💞','💘','🔥','✨','⭐','💫','💥','💯','✅','❌','⚠️','📅','⏰','📍','💰','💳','📸','🎨','🖊️','🌹','🐍','🦁','🐺','🦋','🌙','☀️','⚡','👑','💀','👻','🍒','🍺','☕','🎯','🚀','📲','🤖'];
+            echo 'window.HIST_EMOJIS = ' . json_encode($emojis, JSON_UNESCAPED_UNICODE) . ";\n";
+            echo 'window.HIST_FIGURINHAS = ' . json_encode(array_map(static function (array $f): array {
+                return [
+                    'id' => (int)($f['id'] ?? 0),
+                    'url' => (string)($f['mediaUrl'] ?? $f['media_url'] ?? ''),
+                ];
+            }, $figurinhas), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ";\n";
+            echo 'window.HIST_PODE_ENVIAR = ' . ($podeEnviar ? 'true' : 'false') . ';' . "\n";
+            echo '</script>';
             echo '</div>';
             ?>
             <script>
@@ -499,8 +592,18 @@ render_studio_shell(
               var chat = document.getElementById('histChat');
               if (!form || !ta) return;
 
-              // Rola para o fim (mensagem mais recente), como em um chat.
               if (chat) { chat.scrollTop = chat.scrollHeight; }
+
+              var input = document.getElementById('histArquivo');
+              var preview = document.getElementById('histAnexoPreview');
+              var emojiPanel = document.getElementById('histEmojiPanel');
+              var figPanel = document.getElementById('histFigurinhaPanel');
+              var citacao = document.getElementById('histCitacao');
+              var citacaoTexto = document.getElementById('histCitacaoTexto');
+              var ctxId = document.getElementById('histContextId');
+              var ctxPreview = document.getElementById('histContextPreview');
+              var hint = document.getElementById('histHint');
+              var gravando = false, recorder = null, pedacos = [], streamAtivo = null, tick = null, inicio = 0;
 
               function altura() {
                 ta.style.height = 'auto';
@@ -508,6 +611,205 @@ render_studio_shell(
               }
               ta.addEventListener('input', altura);
               altura();
+
+              // ---- Resposta citada -------------------------------------
+              function limparCitacao() {
+                if (ctxId) ctxId.value = '';
+                if (ctxPreview) ctxPreview.value = '';
+                if (citacao) citacao.classList.add('hidden');
+              }
+              document.querySelectorAll('[data-citar]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                  if (!citacao) return;
+                  ctxId.value = btn.getAttribute('data-citar') || '';
+                  ctxPreview.value = btn.getAttribute('data-preview') || '';
+                  if (citacaoTexto) citacaoTexto.textContent = (btn.getAttribute('data-preview') || '').slice(0, 160);
+                  citacao.classList.remove('hidden');
+                  ta.focus();
+                });
+              });
+              var cancelar = document.getElementById('histCancelarCitacao');
+              if (cancelar) cancelar.addEventListener('click', limparCitacao);
+
+              // ---- Emoji ------------------------------------------------
+              if (emojiPanel) {
+                (window.HIST_EMOJIS || []).forEach(function (e) {
+                  var b = document.createElement('button');
+                  b.type = 'button';
+                  b.textContent = e;
+                  b.addEventListener('click', function () {
+                    var p = ta.selectionStart || ta.value.length;
+                    ta.value = ta.value.slice(0, p) + e + ta.value.slice(ta.selectionEnd || p);
+                    ta.selectionStart = ta.selectionEnd = p + e.length;
+                    altura();
+                    ta.focus();
+                  });
+                  emojiPanel.appendChild(b);
+                });
+              }
+              var emojiBtn = document.getElementById('histEmojiBtn');
+              if (emojiBtn) emojiBtn.addEventListener('click', function () {
+                emojiPanel.classList.toggle('hidden');
+                if (figPanel) figPanel.classList.add('hidden');
+              });
+
+              // ---- Figurinhas -------------------------------------------
+              if (figPanel) {
+                var lista = window.HIST_FIGURINHAS || [];
+                if (!lista.length) {
+                  figPanel.innerHTML = '<div class="hist-fig-vazio">Nenhuma figurinha salva. Salve uma recebida pelo botao na conversa.</div>';
+                } else {
+                  lista.forEach(function (f) {
+                    if (!f.url) return;
+                    var img = document.createElement('img');
+                    img.src = f.url;
+                    img.alt = 'figurinha';
+                    img.addEventListener('click', function () { enviarMidia('sticker', f.url, ''); });
+                    figPanel.appendChild(img);
+                  });
+                }
+              }
+              var figBtn = document.getElementById('histFigurinhaBtn');
+              if (figBtn) figBtn.addEventListener('click', function () {
+                figPanel.classList.toggle('hidden');
+                if (emojiPanel) emojiPanel.classList.add('hidden');
+              });
+
+              // ---- Anexo ------------------------------------------------
+              var anexoBtn = document.getElementById('histAnexoBtn');
+              if (anexoBtn && input) anexoBtn.addEventListener('click', function () { input.click(); });
+              if (input) input.addEventListener('change', function () {
+                if (!input.files || !input.files.length) { if (preview) preview.classList.add('hidden'); return; }
+                var f = input.files[0];
+                if (preview) {
+                  preview.textContent = 'Anexo: ' + f.name + ' (' + Math.round(f.size / 1024) + ' KB)';
+                  preview.classList.remove('hidden');
+                }
+              });
+
+              // ---- Gravacao de audio ------------------------------------
+              var gravarBtn = document.getElementById('histGravarBtn');
+              if (gravarBtn) gravarBtn.addEventListener('click', async function () {
+                if (gravando) { if (recorder && recorder.state !== 'inactive') recorder.stop(); return; }
+                var libera = navigator.mediaDevices && window.MediaRecorder;
+                if (!libera) { alert('Este navegador nao liberou gravacao de audio.'); return; }
+                try {
+                  streamAtivo = await navigator.mediaDevices.getUserMedia({ audio: true });
+                  var prefere = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+                    ? 'audio/ogg;codecs=opus'
+                    : (MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '');
+                  recorder = new MediaRecorder(streamAtivo, prefere ? { mimeType: prefere } : {});
+                  pedacos = [];
+                  inicio = Date.now();
+                  gravando = true;
+                  gravarBtn.classList.add('gravando');
+                  gravarBtn.textContent = '\u25A0';
+                  if (hint) hint.textContent = 'Gravando... clique no quadrado para parar e enviar.';
+                  tick = setInterval(function () {
+                    var s = Math.floor((Date.now() - inicio) / 1000);
+                    if (hint) hint.textContent = 'Gravando ' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0') + ' - clique no quadrado para parar.';
+                  }, 500);
+                  recorder.ondataavailable = function (ev) { if (ev.data && ev.data.size > 0) pedacos.push(ev.data); };
+                  recorder.onstop = function () {
+                    if (tick) { clearInterval(tick); tick = null; }
+                    if (streamAtivo) { streamAtivo.getTracks().forEach(function (t) { t.stop(); }); streamAtivo = null; }
+                    gravando = false;
+                    gravarBtn.classList.remove('gravando');
+                    gravarBtn.textContent = '\uD83C\uDF99\uFE0F';
+                    var mime = recorder.mimeType || prefere || 'audio/webm';
+                    var ext = (mime.indexOf('ogg') !== -1 || mime.indexOf('opus') !== -1) ? 'ogg' : 'webm';
+                    var blob = new Blob(pedacos, { type: mime });
+                    var arquivo = new File([blob], 'audio_' + Date.now() + '.' + ext, { type: mime });
+                    var dt = new DataTransfer();
+                    dt.items.add(arquivo);
+                    input.files = dt.files;
+                    if (preview) { preview.textContent = 'Audio pronto (' + Math.round(blob.size / 1024) + ' KB) - clique em Enviar.'; preview.classList.remove('hidden'); }
+                    if (hint) hint.textContent = 'Audio pronto. Clique em Enviar.';
+                  };
+                  recorder.start();
+                } catch (e) {
+                  gravando = false;
+                  gravarBtn.classList.remove('gravando');
+                  gravarBtn.textContent = '\uD83C\uDF99\uFE0F';
+                  alert('Nao foi possivel iniciar a gravacao.');
+                }
+              });
+
+              // ---- Respostas rapidas ------------------------------------
+              document.querySelectorAll('[data-rapida]').forEach(function (b) {
+                b.addEventListener('click', function () {
+                  ta.value = b.getAttribute('data-rapida') || '';
+                  altura();
+                  ta.focus();
+                });
+              });
+
+              // ---- Envio (texto, midia e figurinha) ---------------------
+              function bolha(rotulo, texto, mediaUrl) {
+                var agora = new Date();
+                var hh = String(agora.getHours()).padStart(2, '0');
+                var mm = String(agora.getMinutes()).padStart(2, '0');
+                var div = document.createElement('div');
+                div.className = 'hist-msg out hist-msg-nova';
+                var meta = document.createElement('div');
+                meta.className = 'meta';
+                meta.textContent = hh + ':' + mm + ' (enviando)';
+                div.appendChild(meta);
+                if (mediaUrl && /^data:image\//.test(mediaUrl)) {
+                  var img = document.createElement('img');
+                  img.src = mediaUrl; img.style.maxWidth = '180px'; img.style.borderRadius = '8px';
+                  div.appendChild(img);
+                }
+                if (texto) { var p = document.createElement('div'); p.textContent = texto; div.appendChild(p); }
+                if (!texto && !mediaUrl) { var q = document.createElement('div'); q.textContent = rotulo; div.appendChild(q); }
+                chat.appendChild(div);
+                chat.scrollTop = chat.scrollHeight;
+                return div;
+              }
+
+              function enviarMidia(kind, base64, nome, textoExtra) {
+                var corpo = new FormData();
+                corpo.append('action', 'historico_responder');
+                corpo.append('inline', '1');
+                corpo.append('telefone', form.querySelector('[name="telefone"]').value);
+                corpo.append('nome', form.querySelector('[name="nome"]').value);
+                corpo.append('mensagem', textoExtra || '');
+                corpo.append('csrf_token', form.querySelector('[name="csrf_token"]').value);
+                if (ctxId && ctxId.value) {
+                  corpo.append('context_message_id', ctxId.value);
+                  corpo.append('context_preview', ctxPreview.value);
+                }
+                corpo.append('midia_kind', kind);
+                corpo.append('midia_base64', base64);
+                corpo.append('midia_nome', nome || '');
+                fetch(window.location.pathname + window.location.search, {
+                  method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: corpo
+                })
+                  .then(function (r) { return r.json(); })
+                  .then(function (json) {
+                    if (!json.ok) throw new Error(json.error || 'Falha ao enviar');
+                    var b = bolha('[' + kind + ']', textoExtra || '', base64);
+                    var m = b.querySelector('.meta');
+                    if (m) m.textContent = m.textContent.replace('(enviando)', '(enviado)');
+                    limparCitacao();
+                  })
+                  .catch(function (err) { alert(err.message || 'Nao foi possivel enviar'); });
+              }
+
+              // Figurinha salva: manda pelo caminho, o servidor le o arquivo.
+              window.enviarFigurinhaSalva = function (url) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', url, true);
+                xhr.responseType = 'blob';
+                xhr.onload = function () {
+                  if (xhr.status !== 200) { alert('Nao consegui ler a figurinha.'); return; }
+                  var fr = new FileReader();
+                  fr.onload = function () { enviarMidia('sticker', String(fr.result), 'figurinha.webp', ''); };
+                  fr.readAsDataURL(xhr.response);
+                };
+                xhr.onerror = function () { alert('Nao consegui ler a figurinha.'); };
+                xhr.send();
+              };
 
               // Enter envia; Shift+Enter quebra linha.
               ta.addEventListener('keydown', function (ev) {
@@ -520,45 +822,46 @@ render_studio_shell(
               form.addEventListener('submit', function (ev) {
                 ev.preventDefault();
                 var texto = String(ta.value || '').trim();
-                if (!texto) return;
+                var temArquivo = input && input.files && input.files.length > 0;
+                if (!texto && !temArquivo) return;
                 var botao = form.querySelector('.hist-send');
                 if (botao) { botao.disabled = true; botao.textContent = '...'; }
 
-                var corpo = new URLSearchParams();
-                corpo.set('action', 'historico_responder');
-                corpo.set('telefone', form.querySelector('[name="telefone"]').value);
-                corpo.set('nome', form.querySelector('[name="nome"]').value);
-                corpo.set('mensagem', texto);
-                corpo.set('inline', '1');
-                corpo.set('csrf_token', form.querySelector('[name="csrf_token"]').value);
+                var corpo = new FormData();
+                corpo.append('action', 'historico_responder');
+                corpo.append('inline', '1');
+                corpo.append('telefone', form.querySelector('[name="telefone"]').value);
+                corpo.append('nome', form.querySelector('[name="nome"]').value);
+                corpo.append('mensagem', texto);
+                corpo.append('csrf_token', form.querySelector('[name="csrf_token"]').value);
+                if (ctxId && ctxId.value) {
+                  corpo.append('context_message_id', ctxId.value);
+                  corpo.append('context_preview', ctxPreview.value);
+                }
+                if (temArquivo) corpo.append('media_file', input.files[0]);
 
+                var arquivoLocal = temArquivo ? input.files[0] : null;
+                var mediaUrlLocal = '';
                 fetch(window.location.pathname + window.location.search, {
-                  method: 'POST',
-                  headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/x-www-form-urlencoded' },
-                  body: corpo.toString()
+                  method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: corpo
                 })
                   .then(function (r) { return r.json(); })
                   .then(function (json) {
                     if (!json.ok) throw new Error(json.error || 'Falha ao enviar');
-                    // Eco imediato: mostra a bolha sem recarregar.
-                    var agora = new Date();
-                    var hh = String(agora.getHours()).padStart(2, '0');
-                    var mm = String(agora.getMinutes()).padStart(2, '0');
-                    var bolha = document.createElement('div');
-                    bolha.className = 'hist-msg out hist-msg-nova';
-                    var meta = document.createElement('div');
-                    meta.className = 'meta';
-                    meta.textContent = hh + ':' + mm + ' · atendimento (enviando)';
-                    bolha.appendChild(meta);
-                    bolha.appendChild(document.createTextNode(texto));
-                    chat.appendChild(bolha);
-                    chat.scrollTop = chat.scrollHeight;
+                    var b;
+                    if (arquivoLocal && /^image\//.test(arquivoLocal.type)) {
+                      mediaUrlLocal = URL.createObjectURL(arquivoLocal);
+                    }
+                    b = bolha(arquivoLocal ? '[arquivo]' : '', texto, mediaUrlLocal);
+                    var m = b.querySelector('.meta');
+                    if (m) m.textContent = m.textContent.replace('(enviando)', '(enviado)');
                     ta.value = '';
+                    if (input) input.value = '';
+                    if (preview) preview.classList.add('hidden');
                     altura();
+                    limparCitacao();
                   })
-                  .catch(function (err) {
-                    alert(err.message || 'Nao foi possivel enviar');
-                  })
+                  .catch(function (err) { alert(err.message || 'Nao foi possivel enviar'); })
                   .finally(function () {
                     if (botao) { botao.disabled = false; botao.textContent = 'Enviar'; }
                     ta.focus();
