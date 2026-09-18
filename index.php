@@ -663,6 +663,57 @@ if ($action === 'studio_login') {
             redirect_to('studio_leads');
         }
 
+        if ($action === 'create_lead_source') {
+            // Conversa do historico sem lead no CRM: cria o lead com o telefone
+            // da conversa e ja grava a origem escolhida. Assim nenhuma conversa
+            // fica presa sem categoria.
+            require_once APP_BASE_PATH . '/app/historico_leads_map.php';
+            $studio = require_studio();
+            $pdo = studio_db($studio);
+            $fone = trim((string)($_POST['phone'] ?? ''));
+            $novaOrigem = ads_origem_normalizar((string)($_POST['source'] ?? ''));
+            if ($fone === '') {
+                throw new RuntimeException('Conversa sem telefone para criar o lead.');
+            }
+            // Se ja existir lead com esse telefone, so atualiza a origem (evita duplicar).
+            $existente = historico_lead_por_telefone($pdo, $fone);
+            if ($existente) {
+                $leadId = (int)$existente['id'];
+                $pdo->prepare('UPDATE leads SET source = ?, updated_at = NOW() WHERE id = ?')
+                    ->execute([$novaOrigem, $leadId]);
+            } else {
+                $leadId = studio_save_lead($studio, [
+                    'name' => trim((string)($_POST['name'] ?? '')) !== '' ? trim((string)$_POST['name']) : $fone,
+                    'phone' => $fone,
+                    'source' => $novaOrigem,
+                    'status' => 'novo',
+                    'pipeline_stage' => 'entrada',
+                ]);
+            }
+            studio_event((int)$studio['id'], 'lead_source_set', 'Origem do lead definida pelo historico.', [
+                'category' => 'people',
+                'target_type' => 'lead',
+                'target_id' => $leadId,
+                'context' => ['source' => $novaOrigem, 'via' => 'historico', 'criado' => !$existente],
+            ]);
+            $wantsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || !empty($_POST['inline']);
+            if ($wantsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'ok' => true,
+                    'lead_id' => $leadId,
+                    'source' => $novaOrigem,
+                    'label' => ads_origem_rotulo($novaOrigem),
+                    'cor' => ads_origem_cor($novaOrigem),
+                    'criado' => !$existente,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
+            }
+            flash_set('success', 'Origem atualizada: ' . ads_origem_rotulo($novaOrigem));
+            redirect_to('studio_historico');
+        }
+
         if ($action === 'save_appointment') {
             $studio = require_studio();
             $wasUpdate = (int)($_POST['id'] ?? 0) > 0;

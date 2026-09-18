@@ -26,10 +26,105 @@ function historico_conversas_path(): string
     return 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados\\conversas.jsonl';
 }
 
-/** Caminho do log de eventos da ponte (conexao, origens detectadas). */
+/**
+ * Telefone utilizavel como telefone de lead?
+ *
+ * LID (identificador interno do WhatsApp, 14+ digitos, sem formato de telefone)
+ * nao serve: criar lead com ele poluiria a base. Nesse caso a origem pode ser
+ * definida, mas avisamos que o contato nao tem numero real.
+ */
+function historico_telefone_utilizavel(string $fone): bool
+{
+    $d = preg_replace('/\D+/', '', $fone);
+    if ($d === '') {
+        return false;
+    }
+    // Telefone BR/DDI: 10 a 13 digitos. LID tem 14+.
+    return strlen($d) >= 10 && strlen($d) <= 13;
+}
+
 function historico_eventos_path(): string
 {
     return 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados\\eventos.jsonl';
+}
+
+/**
+ * Mapa LID -> telefone real, montado a partir do proprio arquivo.
+ *
+ * POR QUE EXISTE
+ * O arquivo da ponte guarda duas geracoes de linhas:
+ *   - novas: `phone` = numero real e `jid_original` = LID (ex.: 78516867584147@lid)
+ *   - antigas: `phone` = o LID cru, sem `jid_original` (gravadas antes do fix do
+ *     resolvePhone em scan.js)
+ *
+ * Sem isso, a linha antiga aparece como uma CONVERSA separada, com "telefone"
+ * que nao casa com lead nenhum no CRM - por isso a coluna Origem dela nao era
+ * editavel. Aqui reconstruimos o de/para (a linha nova diz que aquele LID
+ * corresponde a aquele numero) para reaproveitar o telefone real.
+ *
+ * Somente leitura.
+ */
+function historico_mapa_lid_telefone(): array
+{
+    static $mapa = null;
+    if (is_array($mapa)) {
+        return $mapa;
+    }
+    $mapa = [];
+    $path = historico_conversas_path();
+    if (!is_file($path)) {
+        return $mapa;
+    }
+    $fh = @fopen($path, 'r');
+    if (!$fh) {
+        return $mapa;
+    }
+    while (($linha = fgets($fh)) !== false) {
+        $m = json_decode(trim($linha), true);
+        if (!is_array($m)) {
+            continue;
+        }
+        // So as linhas novas servem: trazem o par (LID, telefone real).
+        $jid = (string)($m['jid_original'] ?? '');
+        $fone = (string)($m['phone'] ?? '');
+        if ($jid === '' || $fone === '' || !str_contains($jid, '@lid')) {
+            continue;
+        }
+        $lid = preg_replace('/@.*$/', '', $jid);
+        if ($lid !== '' && $lid !== $fone) {
+            $mapa[$lid] = $fone;
+        }
+    }
+    fclose($fh);
+    return $mapa;
+}
+
+/**
+ * Telefone canonico de uma mensagem do arquivo.
+ *
+ * Se o `phone` gravado e um LID antigo, troca pelo numero real conhecido.
+ * Devolve '' quando e um LID sem correspondencia (nao e telefone utilizavel).
+ */
+function historico_telefone_canonico(array $m): string
+{
+    $fone = (string)($m['phone'] ?? '');
+    if ($fone === '') {
+        return '';
+    }
+    // Linha nova: o proprio campo diz que o telefone foi resolvido.
+    if (!empty($m['phone_resolvido'])) {
+        return $fone;
+    }
+    // Linha antiga: o `phone` pode ser LID. Tenta traduzir.
+    $mapa = historico_mapa_lid_telefone();
+    if (isset($mapa[$fone])) {
+        return (string)$mapa[$fone];
+    }
+    // LID sem equivalente conhecido: nao ha telefone real para casar.
+    if (strlen($fone) > 15 || str_contains((string)($m['jid_original'] ?? ''), '@lid')) {
+        return '';
+    }
+    return $fone;
 }
 
 /** A ponte esta no ar? (checa a porta do painel local) */
@@ -312,7 +407,8 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100): 
     $res = historico_ler_mensagens($filtros, 5000, 0);
     $porFone = [];
     foreach ($res['itens'] as $m) {
-        $fone = (string)($m['phone'] ?? '');
+        // Junta a linha antiga (LID) com a conversa de telefone real.
+        $fone = historico_telefone_canonico($m);
         if ($fone === '') {
             continue;
         }

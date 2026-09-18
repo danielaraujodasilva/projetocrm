@@ -169,13 +169,19 @@ render_studio_shell(
             var anterior = sel.value;
             sel.addEventListener('change', function () {
               var leadId = sel.getAttribute('data-lead-source') || '';
-              if (!leadId) return;
+              var leadPhone = sel.getAttribute('data-lead-phone') || '';
+              if (!leadId && !leadPhone) return;
               sel.disabled = true;
               sel.style.borderColor = '#f5c542';
 
               var body = new URLSearchParams();
-              body.set('action', 'set_lead_source');
-              body.set('lead_id', leadId);
+              body.set('action', leadId ? 'set_lead_source' : 'create_lead_source');
+              if (leadId) {
+                body.set('lead_id', leadId);
+              } else {
+                body.set('phone', leadPhone);
+                body.set('name', sel.getAttribute('data-lead-name') || '');
+              }
               body.set('source', sel.value);
               body.set('inline', '1');
               body.set('csrf_token', csrf());
@@ -192,6 +198,14 @@ render_studio_shell(
                 .then(function (json) {
                   if (!json.ok) throw new Error(json.error || 'Falha ao salvar');
                   sel.style.borderColor = '#079455';
+                  // Se acabou de criar o lead, o seletor passa a apontar para ele
+                  // e o aviso deixa de dizer que precisa criar.
+                  if (json.lead_id && !sel.getAttribute('data-lead-source')) {
+                    sel.setAttribute('data-lead-source', String(json.lead_id));
+                    sel.removeAttribute('data-lead-phone');
+                    var hint = sel.parentNode ? sel.parentNode.querySelector('.hist-hint') : null;
+                    if (hint) hint.textContent = 'lead #' + json.lead_id + ' criado';
+                  }
                   setTimeout(function () { sel.style.borderColor = ''; }, 1600);
                 })
                 .catch(function (err) {
@@ -298,11 +312,29 @@ render_studio_shell(
                         $cel .= '<div class="hist-hint">rastreado: ' . $escreve($detectada) . '</div>';
                     }
                 } else {
-                    // Sem lead: so mostra o que a ponte detectou (nao da para editar).
-                    $cel = $c['origem']
-                        ? '<span class="pill ad">' . $escreve((string)($c['origem']['platform'] ?? 'anúncio')) . '</span>'
-                        : '<span class="pill plain">—</span>';
-                    $cel .= '<div class="hist-hint">sem lead no CRM</div>';
+                    // Sem lead no CRM: o seletor tambem aparece. Ao escolher uma
+                    // origem, o CRM cria o lead com este telefone e grava a origem
+                    // (acao create_lead_source). Assim toda conversa e classificavel.
+                    $utilizavel = historico_telefone_utilizavel($fone);
+                    $cel = '<select class="hist-source-inline" data-lead-phone="' . $escreve($fone) . '" data-lead-name="' . $escreve((string)($c['name'] ?? '')) . '" title="Sem lead no CRM - escolher cria o lead">';
+                    $cel .= '<option value="">- sem origem -</option>';
+                    foreach (ads_origem_opcoes_agrupadas() as $grupo) {
+                        $cel .= '<optgroup label="' . $escreve((string)$grupo['label']) . '">';
+                        foreach ($grupo['itens'] as $codigo => $rotulo) {
+                            $cel .= '<option value="' . $escreve((string)$codigo) . '">' . $escreve((string)$rotulo) . '</option>';
+                        }
+                        $cel .= '</optgroup>';
+                    }
+                    $cel .= '</select>';
+                    $detectada = !empty($c['origem']) ? (string)($c['origem']['platform'] ?? '') : '';
+                    $cel .= '<div class="hist-hint">';
+                    if ($detectada !== '') {
+                        $cel .= 'rastreado: ' . $escreve($detectada) . ' - ';
+                    }
+                    $cel .= $utilizavel
+                        ? 'salvar cria o lead no CRM'
+                        : 'ID interno do WhatsApp - salvar cria o lead mesmo assim';
+                    $cel .= '</div>';
                 }
 
                 $link = '?' . $histQueryBase(['h_fone' => $fone]);
