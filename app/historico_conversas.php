@@ -401,8 +401,11 @@ function historico_estatisticas(): array
 /**
  * Agrupa as mensagens por telefone (uma "conversa" por contato),
  * para a visao de lista. Sempre le do mais recente para o mais antigo.
+ *
+ * $offset permite paginar: a ordenacao e sempre "mais recente primeiro",
+ * entao a fatia [offset, offset+limite) e estavel entre requisicoes.
  */
-function historico_conversas_agrupadas(array $filtros = [], int $limite = 100): array
+function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, int $offset = 0): array
 {
     $res = historico_ler_mensagens($filtros, 5000, 0);
     $porFone = [];
@@ -419,15 +422,28 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100): 
                 'ultima_em' => (string)($m['sent_at'] ?? $m['at'] ?? ''),
                 'total' => 0,
                 'recebidas' => 0,
+                'enviadas' => 0,
                 'audios' => 0,
                 'transcritos' => 0,
                 'origem' => $m['origin'] ?? null,
                 'preview' => '',
+                // Ultima mensagem de cada lado: define se a conversa foi respondida.
+                'ultima_cliente' => '',
+                'ultima_atendimento' => '',
             ];
         }
+        $quando = (string)($m['sent_at'] ?? $m['at'] ?? '');
         $porFone[$fone]['total']++;
         if (empty($m['from_me'])) {
             $porFone[$fone]['recebidas']++;
+            if ($quando > $porFone[$fone]['ultima_cliente']) {
+                $porFone[$fone]['ultima_cliente'] = $quando;
+            }
+        } else {
+            $porFone[$fone]['enviadas']++;
+            if ($quando > $porFone[$fone]['ultima_atendimento']) {
+                $porFone[$fone]['ultima_atendimento'] = $quando;
+            }
         }
         if (strtolower((string)($m['media_type'] ?? '')) === 'audio') {
             $porFone[$fone]['audios']++;
@@ -450,13 +466,63 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100): 
         }
     }
 
+    // Estado de resposta: respondida quando o atendimento falou depois da ultima
+    // mensagem do cliente. Sem mensagem do cliente, nao ha o que responder.
+    foreach ($porFone as &$c) {
+        $c['respondida'] = $c['ultima_cliente'] === ''
+            ? true
+            : ($c['ultima_atendimento'] !== '' && $c['ultima_atendimento'] >= $c['ultima_cliente']);
+    }
+    unset($c);
+
+    // Filtro por estado de resposta (nivel conversa, nao mensagem).
+    $resposta = strtolower(trim((string)($filtros['resposta'] ?? '')));
+    if ($resposta === 'respondida' || $resposta === 'sem_resposta') {
+        $querRespondida = $resposta === 'respondida';
+        $porFone = array_filter($porFone, static fn(array $c): bool => (bool)$c['respondida'] === $querRespondida);
+    }
+
     // Ordena pela mensagem mais recente.
     usort($porFone, static fn(array $a, array $b): int => strcmp((string)$b['ultima_em'], (string)$a['ultima_em']));
 
+    $todas = array_values($porFone);
+    $offset = max(0, $offset);
+
     return [
-        'conversas' => array_slice(array_values($porFone), 0, $limite),
-        'total_conversas' => count($porFone),
+        'conversas' => array_slice($todas, $offset, $limite),
+        'total_conversas' => count($todas),
+        'offset' => $offset,
+        'limite' => $limite,
     ];
+}
+
+/**
+ * Indice leve (telefone/nome/ultima) para o autocomplete dos filtros.
+ * Nao carrega as mensagens: so o suficiente para sugerir.
+ */
+function historico_indice_contatos(): array
+{
+    $res = historico_ler_mensagens([], 5000, 0);
+    $porFone = [];
+    foreach ($res['itens'] as $m) {
+        $fone = historico_telefone_canonico($m);
+        if ($fone === '') {
+            continue;
+        }
+        if (!isset($porFone[$fone])) {
+            $porFone[$fone] = ['phone' => $fone, 'name' => '', 'ultima_em' => ''];
+        }
+        if (!empty($m['name']) && $porFone[$fone]['name'] === '') {
+            $porFone[$fone]['name'] = (string)$m['name'];
+        }
+        $quando = (string)($m['sent_at'] ?? $m['at'] ?? '');
+        if ($quando > $porFone[$fone]['ultima_em']) {
+            $porFone[$fone]['ultima_em'] = $quando;
+        }
+    }
+    $out = array_values($porFone);
+    usort($out, static fn(array $a, array $b): int => strcmp((string)$b['ultima_em'], (string)$a['ultima_em']));
+    return $out;
 }
 
 /** Lista os telefones que ja tiveram origem de anuncio detectada. */

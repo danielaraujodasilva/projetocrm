@@ -25,6 +25,7 @@ $hf = [
     'origem'   => trim((string)($_GET['h_origem'] ?? '')),
     'tipo'     => trim((string)($_GET['h_tipo'] ?? '')),
     'direcao'  => trim((string)($_GET['h_direcao'] ?? '')),
+    'resposta' => trim((string)($_GET['h_resposta'] ?? '')),
     'de'       => trim((string)($_GET['h_de'] ?? '')),
     'ate'      => trim((string)($_GET['h_ate'] ?? '')),
 ];
@@ -35,9 +36,17 @@ if (!in_array($histModo, ['conversas', 'mensagens'], true)) {
     $histModo = 'conversas';
 }
 $histLimite = (int)($_GET['h_limite'] ?? 100);
-if (!in_array($histLimite, [50, 100, 200, 500], true)) {
+if (!in_array($histLimite, [25, 50, 100, 200, 500], true)) {
     $histLimite = 100;
 }
+
+// Pagina atual (1-based). A lista e ordenada por "mais recente primeiro",
+// entao a fatia e estavel entre requisicoes.
+$histPagina = max(1, (int)($_GET['h_pagina'] ?? 1));
+$histOffset = ($histPagina - 1) * $histLimite;
+
+// Indice de contatos para o autocomplete dos filtros (telefone e nome).
+$histContatos = historico_indice_contatos();
 
 // Telefone selecionado (visão de conversa única).
 $histFoneAberto = preg_replace('/\D+/', '', (string)($_GET['h_fone'] ?? ''));
@@ -47,7 +56,6 @@ $histQueryBase = static function (array $extra = []) use ($hf, $histModo, $histL
     $q = array_merge(['page' => 'studio_historico', 'h_modo' => $histModo, 'h_limite' => $histLimite], $hf, $extra);
     return http_build_query($q);
 };
-
 echo '<style>
  .hist-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
  .hist-card{background:#fff;border:1px solid #e6e8ee;border-radius:14px;padding:13px 15px}
@@ -83,13 +91,27 @@ echo '<style>
  .hist-source-inline{font-size:11px;font-weight:700;border:1px solid #d0d5dd;border-radius:999px;padding:2px 7px;background:#fff;color:#344054;max-width:160px;cursor:pointer}
  .hist-source-inline:disabled{opacity:.55}
  .hist-hint{font-size:10px;color:#98a2b3;margin-top:3px}
+ .hist-ac-wrap{position:relative}
+ .hist-ac-list{position:absolute;z-index:40;top:100%;left:0;right:0;margin-top:3px;background:#fff;border:1px solid #d0d5dd;border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.12);max-height:270px;overflow:auto;display:none}
+ .hist-ac-list.on{display:block}
+ .hist-ac-item{padding:7px 11px;font-size:12px;cursor:pointer;border-bottom:1px solid #f2f4f7;display:flex;justify-content:space-between;gap:10px}
+ .hist-ac-item:last-child{border-bottom:0}
+ .hist-ac-item:hover,.hist-ac-item.ativo{background:#eef4ff}
+ .hist-ac-item .fone{color:#667085;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+ .hist-ac-vazio{padding:9px 11px;font-size:12px;color:#98a2b3}
+ .hist-paginacao{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;margin:16px 0 6px}
+ .hist-paginacao a,.hist-paginacao span{padding:6px 11px;border-radius:9px;font-size:12px;font-weight:700;text-decoration:none;background:#eef2f6;color:#344054}
+ .hist-paginacao a:hover{background:#dfe6ef}
+ .hist-paginacao .atual{background:#101828;color:#fff}
+ .hist-paginacao .info{background:transparent;color:#667085;font-weight:600}
+ .hist-resp{font-size:10px;font-weight:800;white-space:nowrap}
 </style>';
 
 render_studio_shell(
     'Histórico de Conversas',
     'Todas as mensagens arquivadas do WhatsApp — com origem, transcrição de áudio e busca.',
     'historico',
-    function () use ($studio, $histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase) {
+    function () use ($studio, $histStats, $histPonte, $histArquivo, $histTamanho, $hf, $histModo, $histLimite, $histFoneAberto, $histQueryBase, $histPagina, $histOffset, $histContatos) {
 
         $escreve = static fn($v) => is_string($v) ? htmlspecialchars($v, ENT_QUOTES, 'UTF-8') : (string)$v;
 
@@ -114,9 +136,11 @@ render_studio_shell(
 
         // ---- Modos ------------------------------------------------------
         echo '<div class="hist-bar">';
-        echo '<a class="' . ($histModo === 'conversas' ? 'on' : '') . '" href="?' . $escreve($histQueryBase(['h_modo' => 'conversas', 'h_fone' => ''])) . '">Por conversa</a>';
-        echo '<a class="' . ($histModo === 'mensagens' ? 'on' : '') . '" href="?' . $escreve($histQueryBase(['h_modo' => 'mensagens', 'h_fone' => ''])) . '">Todas as mensagens</a>';
-        echo '<a class="" href="' . $escreve('?' . $histQueryBase(['h_origem' => 'com', 'h_fone' => ''])) . '" title="Somente conversas de anúncio">Só origem de anúncio</a>';
+        echo '<a class="' . ($histModo === 'conversas' ? 'on' : '') . '" href="?' . $escreve($histQueryBase(['h_modo' => 'conversas', 'h_fone' => '', 'h_pagina' => 1])) . '">Por conversa</a>';
+        echo '<a class="' . ($histModo === 'mensagens' ? 'on' : '') . '" href="?' . $escreve($histQueryBase(['h_modo' => 'mensagens', 'h_fone' => '', 'h_pagina' => 1])) . '">Todas as mensagens</a>';
+        echo '<a class="" href="' . $escreve('?' . $histQueryBase(['h_origem' => 'com', 'h_fone' => '', 'h_pagina' => 1])) . '" title="Somente conversas de anúncio">Só origem de anúncio</a>';
+        echo '<a class="" href="' . $escreve('?' . $histQueryBase(['h_origem' => 'sem', 'h_fone' => '', 'h_pagina' => 1])) . '" title="Sem origem detectada">Sem origem</a>';
+        echo '<a class="" href="' . $escreve('?' . $histQueryBase(['resposta' => 'sem_resposta', 'h_fone' => '', 'h_pagina' => 1])) . '" title="Cliente falou por ultimo">Sem resposta</a>';
         echo '<a class="" href="?' . $escreve(http_build_query(['page' => 'studio_historico'])) . '" title="Limpar tudo">Limpar filtros</a>';
         echo '</div>';
 
@@ -125,8 +149,8 @@ render_studio_shell(
         echo '<input type="hidden" name="page" value="studio_historico">';
         echo '<input type="hidden" name="h_modo" value="' . $escreve($histModo) . '">';
         echo '<div class="row">';
-        echo '<label>Telefone<input name="h_telefone" value="' . $escreve($hf['telefone'] ?? '') . '" placeholder="11999 ou 5511..."></label>';
-        echo '<label>Nome<input name="h_nome" value="' . $escreve($hf['nome'] ?? '') . '" placeholder="parte do nome"></label>';
+        echo '<label>Telefone<div class="hist-ac-wrap"><input name="h_telefone" id="h_telefone" autocomplete="off" value="' . $escreve($hf['telefone'] ?? '') . '" placeholder="11999 ou 5511..."><div class="hist-ac-list" id="ac_telefone"></div></div></label>';
+        echo '<label>Nome<div class="hist-ac-wrap"><input name="h_nome" id="h_nome" autocomplete="off" value="' . $escreve($hf['nome'] ?? '') . '" placeholder="parte do nome"><div class="hist-ac-list" id="ac_nome"></div></div></label>';
         echo '<label>Texto / transcrição<input name="h_texto" value="' . $escreve($hf['texto'] ?? '') . '" placeholder="palavra na conversa"></label>';
         echo '<label>Origem<select name="h_origem">';
         foreach (['' => 'Todas', 'com' => 'Com origem', 'sem' => 'Sem origem', 'facebook' => 'Facebook', 'instagram' => 'Instagram', 'meta' => 'Meta'] as $val => $lbl) {
@@ -143,10 +167,15 @@ render_studio_shell(
             echo '<option value="' . $escreve($val) . '"' . (($hf['direcao'] ?? '') === $val ? ' selected' : '') . '>' . $escreve($lbl) . '</option>';
         }
         echo '</select></label>';
+        echo '<label>Resposta<select name="h_resposta">';
+        foreach (['' => 'Todas', 'respondida' => 'Respondidas', 'sem_resposta' => 'Sem resposta'] as $val => $lbl) {
+            echo '<option value="' . $escreve($val) . '"' . (($hf['resposta'] ?? '') === $val ? ' selected' : '') . '>' . $escreve($lbl) . '</option>';
+        }
+        echo '</select></label>';
         echo '<label>De<input type="date" name="h_de" value="' . $escreve($hf['de'] ?? '') . '"></label>';
         echo '<label>Até<input type="date" name="h_ate" value="' . $escreve($hf['ate'] ?? '') . '"></label>';
         echo '<label>Mostrar<select name="h_limite">';
-        foreach ([50, 100, 200, 500] as $n) {
+        foreach ([25, 50, 100, 200, 500] as $n) {
             echo '<option value="' . $n . '"' . ($histLimite === $n ? ' selected' : '') . '>' . $n . '</option>';
         }
         echo '</select></label>';
@@ -165,6 +194,77 @@ render_studio_shell(
             var el = document.querySelector('input[name="csrf_token"]');
             return el ? el.value : '';
           }
+
+          // ---- Autocomplete de telefone e nome ----------------------------
+          var contatos = <?php echo json_encode(array_values($histContatos), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+
+          function semAcento(v) {
+            return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          }
+          function montarAc(inputId, listId, tipo) {
+            var input = document.getElementById(inputId);
+            var lista = document.getElementById(listId);
+            if (!input || !lista) return;
+            var ativo = -1;
+            var itens = [];
+
+            function fechar() { lista.classList.remove('on'); ativo = -1; }
+            function desenhar(filtro) {
+              var alvo = semAcento(filtro);
+              itens = contatos.filter(function (c) {
+                if (!alvo) return true;
+                if (tipo === 'fone') return String(c.phone || '').indexOf(String(filtro).replace(/\D+/g, '')) !== -1;
+                return semAcento(c.name).indexOf(alvo) !== -1;
+              }).slice(0, 40);
+
+              if (!itens.length) {
+                lista.innerHTML = '<div class="hist-ac-vazio">nada encontrado</div>';
+                lista.classList.add('on');
+                return;
+              }
+              lista.innerHTML = itens.map(function (c, i) {
+                var nome = c.name ? c.name : '(sem nome)';
+                return '<div class="hist-ac-item" data-i="' + i + '"><span>' + nome.replace(/[&<>\"]/g, function (ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }) + '</span><span class="fone">' + c.phone + '</span></div>';
+              }).join('');
+              lista.classList.add('on');
+            }
+            function escolher(i) {
+              var c = itens[i];
+              if (!c) return;
+              // Preenche o filtro que o usuario esta usando; o outro fica, se vazio, completo.
+              input.value = tipo === 'fone' ? c.phone : (c.name || c.phone);
+              fechar();
+            }
+            input.addEventListener('focus', function () { desenhar(input.value); });
+            input.addEventListener('input', function () { desenhar(input.value); });
+            input.addEventListener('keydown', function (ev) {
+              if (!lista.classList.contains('on')) {
+                if (ev.key === 'ArrowDown') { desenhar(input.value); ev.preventDefault(); }
+                return;
+              }
+              if (ev.key === 'ArrowDown') { ativo = Math.min(ativo + 1, itens.length - 1); }
+              else if (ev.key === 'ArrowUp') { ativo = Math.max(ativo - 1, 0); }
+              else if (ev.key === 'Enter') { if (ativo >= 0) { escolher(ativo); ev.preventDefault(); } return; }
+              else if (ev.key === 'Escape') { fechar(); return; }
+              else { return; }
+              ev.preventDefault();
+              Array.prototype.forEach.call(lista.querySelectorAll('.hist-ac-item'), function (el, i) {
+                el.classList.toggle('ativo', i === ativo);
+              });
+            });
+            lista.addEventListener('mousedown', function (ev) {
+              var el = ev.target.closest('.hist-ac-item');
+              if (!el) return;
+              ev.preventDefault();
+              escolher(parseInt(el.getAttribute('data-i'), 10));
+            });
+            document.addEventListener('click', function (ev) {
+              if (!ev.target.closest('.hist-ac-wrap')) fechar();
+            });
+          }
+          montarAc('h_telefone', 'ac_telefone', 'fone');
+          montarAc('h_nome', 'ac_nome', 'nome');
+
           document.querySelectorAll('.hist-source-inline').forEach(function (sel) {
             var anterior = sel.value;
             sel.addEventListener('change', function () {
@@ -271,7 +371,7 @@ render_studio_shell(
 
         // ---- Lista ------------------------------------------------------
         if ($histModo === 'conversas') {
-            $res = historico_conversas_agrupadas($hf, $histLimite);
+            $res = historico_conversas_agrupadas($hf, $histLimite, $histOffset);
             // Liga cada conversa ao lead do CRM (para poder editar a origem daqui).
             $leadsMapa = [];
             try {
@@ -280,10 +380,14 @@ render_studio_shell(
             } catch (Throwable $e) {
                 $leadsMapa = [];
             }
-            echo '<p class="hist-help">' . (int)$res['total_conversas'] . ' conversa(s)' . ($hf ? ' com os filtros aplicados' : '') . '. Clique no telefone para ver o histórico completo. A coluna <b>Origem</b> é editável quando a conversa tem lead no CRM.</p>';
-            echo '<table class="hist-table"><thead><tr><th>Última</th><th>Telefone</th><th>Nome</th><th>Msgs</th><th>Origem (editável)</th><th>Última mensagem</th></tr></thead><tbody>';
+            $totalConv = (int)$res['total_conversas'];
+            $totalPag = max(1, (int)ceil($totalConv / $histLimite));
+            $primeiro = $totalConv ? ($histOffset + 1) : 0;
+            $ultimo = min($totalConv, $histOffset + $histLimite);
+            echo '<p class="hist-help">' . $totalConv . ' conversa(s)' . ($hf ? ' com os filtros aplicados' : '') . ($totalConv ? ' — mostrando ' . $primeiro . '–' . $ultimo : '') . '. Clique no telefone para ver o histórico completo. A coluna <b>Origem</b> é editável.</p>';
+            echo '<table class="hist-table"><thead><tr><th>Última</th><th>Telefone</th><th>Nome</th><th>Msgs</th><th>Resposta</th><th>Origem (editável)</th><th>Última mensagem</th></tr></thead><tbody>';
             if (!$res['conversas']) {
-                echo '<tr><td colspan="6" class="hist-empty" style="border:0">Nenhuma conversa encontrada.</td></tr>';
+                echo '<tr><td colspan="7" class="hist-empty" style="border:0">Nenhuma conversa encontrada.</td></tr>';
             }
             foreach ($res['conversas'] as $c) {
                 $quando = (string)$c['ultima_em'];
@@ -351,17 +455,62 @@ render_studio_shell(
                     echo ' <span class="pill audio">' . (int)$c['audios'] . ' áudio' . ((int)$c['transcritos'] > 0 ? '/' . (int)$c['transcritos'] . ' ok' : '') . '</span>';
                 }
                 echo '</td>';
+                // Estado de resposta: respondida quando o atendimento falou por ultimo.
+                if (!empty($c['respondida'])) {
+                    echo '<td><span class="hist-resp" style="color:#079455">respondida</span></td>';
+                } else {
+                    echo '<td><span class="hist-resp" style="color:#d92d20">sem resposta</span></td>';
+                }
                 echo '<td>' . $cel . '</td>';
                 echo '<td class="muted">' . $escreve(mb_substr((string)$c['preview'], 0, 90)) . '</td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
+
+            // Paginacao: janela de ate 7 numeros em volta da pagina atual.
+            if ($totalPag > 1) {
+                $linkPag = static function (int $p) use ($histQueryBase): string {
+                    return '?' . $histQueryBase(['h_pagina' => $p, 'h_fone' => '']);
+                };
+                echo '<div class="hist-paginacao">';
+                if ($histPagina > 1) {
+                    echo '<a href="' . $escreve($linkPag($histPagina - 1)) . '">&larr; Anterior</a>';
+                }
+                $ini = max(1, $histPagina - 3);
+                $fim = min($totalPag, $histPagina + 3);
+                if ($ini > 1) {
+                    echo '<a href="' . $escreve($linkPag(1)) . '">1</a>';
+                    if ($ini > 2) {
+                        echo '<span class="info">…</span>';
+                    }
+                }
+                for ($p = $ini; $p <= $fim; $p++) {
+                    if ($p === $histPagina) {
+                        echo '<span class="atual">' . $p . '</span>';
+                    } else {
+                        echo '<a href="' . $escreve($linkPag($p)) . '">' . $p . '</a>';
+                    }
+                }
+                if ($fim < $totalPag) {
+                    if ($fim < $totalPag - 1) {
+                        echo '<span class="info">…</span>';
+                    }
+                    echo '<a href="' . $escreve($linkPag($totalPag)) . '">' . $totalPag . '</a>';
+                }
+                if ($histPagina < $totalPag) {
+                    echo '<a href="' . $escreve($linkPag($histPagina + 1)) . '">Próxima &rarr;</a>';
+                }
+                echo '<span class="info">página ' . $histPagina . ' de ' . $totalPag . '</span>';
+                echo '</div>';
+            }
             return;
         }
 
         // Modo "todas as mensagens".
-        $res = historico_ler_mensagens($hf, $histLimite, 0);
-        echo '<p class="hist-help">' . (int)$res['total_filtrado'] . ' mensagem(ns) encontradas' . ($res['truncado'] ? ', mostrando as ' . $histLimite . ' mais recentes' : '') . '. Arquivo tem ' . (int)$res['total_arquivo'] . ' no total.</p>';
+        $res = historico_ler_mensagens($hf, $histLimite, $histOffset);
+        $totalMsg = (int)$res['total_filtrado'];
+        $totalPag = max(1, (int)ceil($totalMsg / $histLimite));
+        echo '<p class="hist-help">' . $totalMsg . ' mensagem(ns) encontradas — mostrando ' . ($totalMsg ? ($histOffset + 1) : 0) . '–' . min($totalMsg, $histOffset + $histLimite) . '. Arquivo tem ' . (int)$res['total_arquivo'] . ' no total.</p>';
         echo '<table class="hist-table"><thead><tr><th>Quando</th><th>Fone</th><th>Nome</th><th>Dir.</th><th>Tipo</th><th>Origem</th><th>Texto / transcrição</th></tr></thead><tbody>';
         if (!$res['itens']) {
             echo '<tr><td colspan="7" class="hist-empty" style="border:0">Nenhuma mensagem encontrada.</td></tr>';
@@ -396,6 +545,39 @@ render_studio_shell(
             echo '</tr>';
         }
         echo '</tbody></table>';
+
+        // Paginacao (mesmo padrao da lista de conversas).
+        if ($totalPag > 1) {
+            $linkPag = static function (int $p) use ($histQueryBase): string {
+                return '?' . $histQueryBase(['h_pagina' => $p, 'h_fone' => '']);
+            };
+            echo '<div class="hist-paginacao">';
+            if ($histPagina > 1) {
+                echo '<a href="' . $escreve($linkPag($histPagina - 1)) . '">&larr; Anterior</a>';
+            }
+            $ini = max(1, $histPagina - 3);
+            $fim = min($totalPag, $histPagina + 3);
+            if ($ini > 1) {
+                echo '<a href="' . $escreve($linkPag(1)) . '">1</a>';
+                if ($ini > 2) { echo '<span class="info">…</span>'; }
+            }
+            for ($p = $ini; $p <= $fim; $p++) {
+                if ($p === $histPagina) {
+                    echo '<span class="atual">' . $p . '</span>';
+                } else {
+                    echo '<a href="' . $escreve($linkPag($p)) . '">' . $p . '</a>';
+                }
+            }
+            if ($fim < $totalPag) {
+                if ($fim < $totalPag - 1) { echo '<span class="info">…</span>'; }
+                echo '<a href="' . $escreve($linkPag($totalPag)) . '">' . $totalPag . '</a>';
+            }
+            if ($histPagina < $totalPag) {
+                echo '<a href="' . $escreve($linkPag($histPagina + 1)) . '">Próxima &rarr;</a>';
+            }
+            echo '<span class="info">página ' . $histPagina . ' de ' . $totalPag . '</span>';
+            echo '</div>';
+        }
     },
     null
 );
