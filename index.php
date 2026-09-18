@@ -8681,13 +8681,16 @@ if ($page === 'studio_ads_roi') {
     require_once APP_BASE_PATH . '/app/venda_ia.php';
     $vendaResumo = venda_resumo_por_origem($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     $vendaIaOnline = venda_ia_online($studio);
+    // Fila de conversas esperando analise (aviso de atraso).
+    $vendaFila = venda_fila_tamanho($studio);
+    $vendaAlertaFila = (int)(venda_config($studio)['alerta_fila'] ?? 30);
     $adsRoiBudgetStmt = $adsRoiPdo->query('SELECT channel, daily_budget FROM ads_channel_config');
     $adsRoiBudgets = [];
     foreach ($adsRoiBudgetStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline, $vendaFila, $vendaAlertaFila) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -8925,6 +8928,12 @@ if ($page === 'studio_ads_roi') {
 
         if (!$vendaIaOnline) {
             echo '<div class="alert alert-warning" style="font-size:12px">A IA local (Ollama) está <b>fora do ar</b>: nenhuma conversa nova está sendo analisada agora. A tarefa <code>ProjetoCRM Ollama IA Local</code> sobe o serviço automaticamente.</div>';
+        }
+        if ((int)$vendaFila >= (int)$vendaAlertaFila) {
+            echo '<div class="alert alert-warning" style="font-size:12px"><b>Há ' . (int)$vendaFila . ' conversas esperando análise</b> (limite de atenção: ' . (int)$vendaAlertaFila . '). '
+                . 'A análise está alcançando o volume de conversas novas. Se a fila continuar crescendo, as datas dos cards ficam atrasadas em relação à realidade.</div>';
+        } elseif ((int)$vendaFila > 0) {
+            echo '<div class="alert alert-secondary" style="font-size:12px">' . (int)$vendaFila . ' conversa(s) na fila de análise - o job processa na próxima rodada.</div>';
         }
         $vIgnoradas = (int)($vendaResumo['ignoradas'] ?? 0);
         echo '<div class="alert alert-secondary" style="font-size:12px">'

@@ -58,6 +58,14 @@ function venda_config(array $studio): array
         'modelo' => trim((string)($s['venda_ia_modelo'] ?? '')) ?: 'llama3.2:3b',
         // Quantas mensagens do fim da conversa entram no prompt.
         'mensagens' => max(10, min(120, (int)($s['venda_ia_mensagens'] ?? 40))),
+        // Orcamento de TEMPO por rodada (segundos). A rodada para quando estoura,
+        // em vez de ter numero fixo de conversas: assim nao trava se a fila crescer
+        // e aproveita o tempo disponivel quando a maquina esta livre.
+        'orcamento_segundos' => max(60, min(3600, (int)($s['venda_ia_orcamento_s'] ?? 600))),
+        // Teto de seguranca por rodada, para nao rodar sem fim.
+        'max_por_rodada' => max(1, min(200, (int)($s['venda_ia_max_rodada'] ?? 60))),
+        // A partir daqui, o painel avisa que ha fila acumulando.
+        'alerta_fila' => max(5, min(500, (int)($s['venda_ia_alerta_fila'] ?? 30))),
         // Teto de caracteres da transcricao. Conversa muito longa faz o modelo
         // "se perder" e responder ao conteudo em vez de classificar.
         'max_chars' => max(2000, min(20000, (int)($s['venda_ia_max_chars'] ?? 6000))),
@@ -385,28 +393,69 @@ function venda_analisar_conversa(array $studio, int $conversationId): array
 }
 
 /**
- * Analisa um lote de conversas pendentes.
+ * Analisa um lote de conversas pendentes, respeitando um ORCAMENTO DE TEMPO.
+ *
+ * Diferente de pegar um numero fixo: continua analisando enquanto houver fila e
+ * tempo houver, e para quando o orcamento estoura. Devolve 'restantes' para o
+ * chamador decidir se agenda outra rodada imediata.
  */
-function venda_analisar_lote(array $studio, int $limite = 10): array
+function venda_analisar_lote(array $studio, int $orcamentoSegundos = 600, int $maxConversas = 60): array
 {
-    $pendentes = venda_conversas_pendentes($studio, $limite);
+    $cfg = venda_config($studio);
+    $inicio = microtime(true);
     $feitos = [];
     $erros = [];
+    $ignoradas = 0;
+
+    // Pega um bloco maior que o teto e vai consumindo ate o tempo acabar.
+    $pendentes = venda_conversas_pendentes($studio, $maxConversas);
+
     foreach ($pendentes as $c) {
+        if ((microtime(true) - $inicio) >= $orcamentoSegundos) {
+            break; // tempo esgotado: o resto fica para a proxima rodada
+        }
+        if (count($feitos) >= $maxConversas) {
+            break;
+        }
+
         $r = venda_analisar_conversa($studio, (int)$c['id']);
         if (!empty($r['ok'])) {
             $feitos[] = $r;
+        } elseif (!empty($r['ignorada'])) {
+            $ignoradas++;
         } else {
             $erros[] = ['conversation_id' => (int)$c['id'], 'erro' => (string)($r['erro'] ?? '')];
         }
     }
+
+    // Quantas ainda ficaram na fila depois desta rodada.
+    $restantes = count(venda_conversas_pendentes($studio, 500));
+
     return [
         'ok' => true,
         'analisadas' => count($feitos),
+        'ignoradas' => $ignoradas,
         'erros' => count($erros),
+        'restantes' => $restantes,
+        'segundos' => round(microtime(true) - $inicio, 1),
         'resultados' => $feitos,
         'detalhe_erros' => $erros,
+        'recomenda_nova_rodada' => $restantes > 0,
+        'config' => $cfg,
     ];
+}
+
+/**
+ * Quantas conversas estao esperando analise.
+ * Usado pelo painel para avisar que a fila esta crescendo.
+ */
+function venda_fila_tamanho(array $studio): int
+{
+    try {
+        return count(venda_conversas_pendentes($studio, 500));
+    } catch (Throwable $e) {
+        return 0;
+    }
 }
 
 /**
