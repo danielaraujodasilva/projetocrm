@@ -53,9 +53,16 @@ function venda_config(array $studio): array
 {
     $s = studio_settings($studio);
     return [
-        // Ollama local. Nao sai da maquina.
-        'url' => trim((string)($s['venda_ia_url'] ?? '')) ?: 'http://127.0.0.1:11434',
-        'modelo' => trim((string)($s['venda_ia_modelo'] ?? '')) ?: 'llama3.2:3b',
+        // Motor de inferencia. 'ollama' ou 'openai' (qualquer API compativel).
+        // Ambos falam o mesmo formato /v1/chat/completions.
+        'motor' => strtolower(trim((string)($s['venda_ia_motor'] ?? 'lmstudio'))),
+        // LM Studio local: usa a GPU (backend Vulkan proprio) nesta maquina.
+        // Ollama NAO consegue usar a GPU aqui (cai para CPU).
+        'url' => trim((string)($s['venda_ia_url'] ?? '')) ?: 'http://127.0.0.1:1234',
+        'modelo' => trim((string)($s['venda_ia_modelo'] ?? '')) ?: 'qwen/qwen3-vl-4b',
+        // Endpoint do Ollama (usado quando motor=ollama).
+        'url_ollama' => trim((string)($s['venda_ia_url_ollama'] ?? '')) ?: 'http://127.0.0.1:11434',
+        'modelo_ollama' => trim((string)($s['venda_ia_modelo_ollama'] ?? '')) ?: 'llama3.2:3b',
         // Quantas mensagens do fim da conversa entram no prompt.
         'mensagens' => max(10, min(120, (int)($s['venda_ia_mensagens'] ?? 40))),
         // Orcamento de TEMPO por rodada (segundos). A rodada para quando estoura,
@@ -147,14 +154,15 @@ function venda_analisar_texto(string $transcricao, array $cfg): array
 
     $payload = json_encode([
         'model' => $cfg['modelo'],
-        'prompt' => $prompt,
+        'messages' => [['role' => 'user', 'content' => $prompt]],
+        'temperature' => 0.1,
+        'max_tokens' => 300,
         'stream' => false,
-        'format' => 'json',
-        // Temperatura baixa: queremos classificacao estavel, nao criatividade.
-        'options' => ['temperature' => 0.1, 'num_predict' => 300],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    $ch = curl_init(rtrim($cfg['url'], '/') . '/api/generate');
+    // LM Studio e Ollama falam o MESMO endpoint compativel com OpenAI.
+    // Isso deixa a troca de motor ser so configuracao.
+    $ch = curl_init(rtrim($cfg['url'], '/') . '/v1/chat/completions');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $payload,
@@ -169,16 +177,18 @@ function venda_analisar_texto(string $transcricao, array $cfg): array
     curl_close($ch);
 
     if ($erroCurl !== '') {
-        return ['ok' => false, 'erro' => 'Falha ao falar com a IA local: ' . $erroCurl];
+        return ['ok' => false, 'erro' => 'Falha ao falar com a IA: ' . $erroCurl];
     }
     if ($codigo !== 200 || !is_string($resposta)) {
-        return ['ok' => false, 'erro' => 'A IA local respondeu HTTP ' . $codigo . '.'];
+        return ['ok' => false, 'erro' => 'A IA respondeu HTTP ' . $codigo . '.'];
     }
 
     $json = json_decode($resposta, true);
-    $texto = is_array($json) ? (string)($json['response'] ?? '') : '';
+    $texto = is_array($json)
+        ? trim((string)($json['choices'][0]['message']['content'] ?? $json['choices'][0]['text'] ?? ''))
+        : '';
     if ($texto === '') {
-        return ['ok' => false, 'erro' => 'A IA local nao devolveu texto.'];
+        return ['ok' => false, 'erro' => 'A IA nao devolveu texto.'];
     }
 
     // O modelo pode embrulhar o JSON em texto. Procura o objeto que TEM a chave fechou.
@@ -246,16 +256,26 @@ function venda_registrar_ignorada(PDO $pdo, int $conversationId, string $phone, 
     )->execute([$conversationId, $phone, mb_substr('Ignorada: ' . $motivo, 0, 480)]);
 }
 
-/** A IA local esta no ar? */
+/** A IA esta no ar? (checa o motor configurado) */
 function venda_ia_online(array $studio): bool
 {
     $cfg = venda_config($studio);
-    $ch = curl_init(rtrim($cfg['url'], '/') . '/api/tags');
+    // Tenta o endpoint compativel com OpenAI usado na analise.
+    $ch = curl_init(rtrim($cfg['url'], '/') . '/v1/models');
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 4, CURLOPT_CONNECTTIMEOUT => 3]);
     curl_exec($ch);
     $codigo = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    return $codigo === 200;
+    if ($codigo === 200) {
+        return true;
+    }
+    // Fallback: o Ollama responde em /api/tags.
+    $ch = curl_init(rtrim($cfg['url_ollama'] ?? 'http://127.0.0.1:11434', '/') . '/api/tags');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 4, CURLOPT_CONNECTTIMEOUT => 3]);
+    curl_exec($ch);
+    $codigo2 = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return $codigo2 === 200;
 }
 
 /**
@@ -441,7 +461,7 @@ function venda_analisar_lote(array $studio, int $orcamentoSegundos = 600, int $m
         'resultados' => $feitos,
         'detalhe_erros' => $erros,
         'recomenda_nova_rodada' => $restantes > 0,
-        'config' => $cfg,
+        'motor' => $cfg['motor'] ?? 'local',
     ];
 }
 
