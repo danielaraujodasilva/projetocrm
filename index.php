@@ -9172,8 +9172,8 @@ if ($page === 'studio_ads_roi') {
             .roi-period-bar .roi-custom{display:flex;flex:1 1 100%;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:7px 10px}
             .roi-period-bar .roi-custom label{display:flex;gap:6px;align-items:center;font-size:12px;color:#475467;font-weight:600;margin:0;white-space:nowrap}
             .roi-period-bar .roi-custom input[type=date]{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:13px;min-width:0;max-width:100%}
-            .roi-period-bar .roi-custom .btn{flex:1 1 auto}
             .roi-pdf-btn{flex:0 0 auto;white-space:nowrap}
+
             .roi-period-active{display:inline-block;background:#eef4ff;color:#3538cd;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700;margin-bottom:14px;line-height:1.4}
             .roi-help{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;border-radius:50%;background:#eaecf0;color:#475467;font-size:11px;font-weight:800;cursor:pointer;border:0;margin-left:5px;vertical-align:middle;line-height:1}
             .roi-help:hover{background:#d0d5dd}
@@ -9191,8 +9191,6 @@ if ($page === 'studio_ads_roi') {
                 .roi-card{min-height:0}
                 .roi-card .val{font-size:22px}
                 .roi-card .lbl{font-size:11px}
-                .roi-period-bar .roi-custom{flex:0 1 auto;flex-wrap:nowrap}
-                .roi-period-bar .roi-custom .btn{flex:0 0 auto}
             }
             @media (min-width:900px){
                 .roi-cards{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
@@ -9219,6 +9217,10 @@ if ($page === 'studio_ads_roi') {
         echo '<label>Até <input type="date" name="roi_to" value="' . h($adsRoiEnd) . '" max="' . h(date('Y-m-d')) . '"></label>';
         echo '<button class="btn btn-sm btn-dark" type="submit">Aplicar período</button>';
         echo '</form>';
+        // Fecha a barra AQUI: presets + datas. Sem isso, o card de links, a pilula do
+        // Google Ads e o botao de PDF entravam como filhos da barra flex e ela inflava
+        // para ~355px, deixando um vazio enorme no rodape da pagina.
+        echo '</div>';
 
         // ---- Links de rastreio de origem (Opcao 1) ----
         $originBase = rtrim((string)($GLOBALS['app_config']['app']['base_url'] ?? ''), '/');
@@ -9269,7 +9271,6 @@ if ($page === 'studio_ads_roi') {
         echo '</div>';
 
         echo '<button type="button" id="roiPdfBtn" class="btn btn-sm btn-outline-dark" title="Salva o resumo e as tabelas em PDF A4, pronto para imprimir">Salvar PDF</button>';
-        echo '</div>';
         echo '<div class="roi-period-active">Período analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' · ' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ' (personalizado)' : '') . '</div>';
 
         // Explicações de cálculo exibidas nos tooltips clicáveis (chave => [título, corpo HTML]).

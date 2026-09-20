@@ -87,6 +87,113 @@ function ads_apply_origin_to_conversation(array $studio, int $conversationId, st
 }
 
 /**
+ * Religa uma conversa orfa ao lead correspondente e, de quebra, liga a origem.
+ *
+ * POR QUE EXISTE: nem sempre a origem chega antes da conversa. Quando o historico
+ * do WhatsApp e arquivado de uma vez (syncFullHistory) ou quando o cliente escreve
+ * antes de a ponte detectar o anuncio, a conversa nasce sem lead_id. Sem lead_id a
+ * analise de venda nao sabe a origem e o card "Conversa inicial" aparece zerado,
+ * mesmo com leads de anuncio no periodo (bug visto em 18/09/2026: 15 conversas de
+ * anuncio contadas como sem_origem).
+ *
+ * Regra de posse (Opcao A): quem cria o lead e o fluxo da conversa (studio_crm.php).
+ * Esta funcao nunca cria lead - so LIGA o que ja existe. Assim nao ha duplicacao.
+ *
+ * SOMENTE LE LE ADICIONA o vinculo: nao altera telefone, nome nem origem do lead.
+ */
+function ads_vincular_conversa_ao_lead(array $studio, int $conversationId, string $phone = ''): bool
+{
+    if ($conversationId <= 0) {
+        return false;
+    }
+    try {
+        $pdo = studio_db($studio);
+
+        $stmt = $pdo->prepare('SELECT id, phone, lead_id FROM whatsapp_conversations WHERE id = ? LIMIT 1');
+        $stmt->execute([$conversationId]);
+        $conv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) {
+            return false;
+        }
+        // Ja vinculada: nada a fazer (idempotente).
+        if ((int)($conv['lead_id'] ?? 0) > 0) {
+            return false;
+        }
+
+        $alvo = $phone !== '' ? $phone : (string)($conv['phone'] ?? '');
+        $alvo = preg_replace('/\D+/', '', $alvo);
+        if ($alvo === '') {
+            return false;
+        }
+
+        // Mesma tolerancia de telefone do resto do CRM (DDI/9o digito/formatacao).
+        $leadId = 0;
+        $candidatos = $pdo->query('SELECT id, phone FROM leads WHERE phone IS NOT NULL AND phone <> "" ORDER BY updated_at DESC, id DESC LIMIT 500');
+        foreach ($candidatos->fetchAll(PDO::FETCH_ASSOC) ?: [] as $lead) {
+            if (phones_match((string)$lead['phone'], $alvo)) {
+                $leadId = (int)$lead['id'];
+                break;
+            }
+        }
+        if ($leadId <= 0) {
+            // Sem lead ainda: nao cria (Opcao A). A ponte guarda a pendencia.
+            return false;
+        }
+
+        $pdo->prepare('UPDATE whatsapp_conversations SET lead_id = ?, updated_at = NOW() WHERE id = ? AND (lead_id IS NULL OR lead_id = 0)')
+            ->execute([$leadId, $conversationId]);
+
+        return true;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Le a origem de anuncio ja registrada pela ponte para um telefone.
+ *
+ * POR QUE EXISTE (Opcao A): a ponte de rastreio detecta o anuncio e grava a
+ * origem em ads_origin_hits ANTES de a conversa existir. Como o fluxo da
+ * conversa e o dono da criacao do lead, ele precisa desta consulta para nascer
+ * ja com a origem certa - em vez de nascer como "WhatsApp" e nunca mais saber
+ * de onde veio. Fonte de verdade: ads_origin_hits (auditoria da ponte).
+ *
+ * Devolve o codigo canonico ('meta', 'instagram', ...) ou '' quando nao houver.
+ */
+function ads_origem_do_telefone(array $studio, string $phone): string
+{
+    $phone = preg_replace('/\D+/', '', $phone);
+    if ($phone === '') {
+        return '';
+    }
+    try {
+        $pdo = studio_db($studio);
+
+        // Tolerancia de telefone igual ao resto do CRM: tenta o numero como veio
+        // e a variante sem o DDI 55 (a ponte pode ter gravado qualquer uma).
+        $variantes = [$phone];
+        if (strlen($phone) > 11 && str_starts_with($phone, '55')) {
+            $variantes[] = substr($phone, 2);
+        }
+        $ph = implode(',', array_fill(0, count($variantes), '?'));
+
+        $stmt = $pdo->prepare("SELECT origin FROM ads_origin_hits WHERE phone IN ($ph) ORDER BY id DESC LIMIT 1");
+        $stmt->execute($variantes);
+        $origem = trim((string)($stmt->fetchColumn() ?: ''));
+        if ($origem === '') {
+            return '';
+        }
+
+        $codigo = ads_origem_normalizar($origem);
+        // So origem de anuncio vale a pena gravar como source do lead; organico
+        // continua caindo no fluxo normal ("WhatsApp").
+        return ads_origem_e_anuncio($codigo) ? $codigo : '';
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+/**
  * Diagnostico da ponte de origem.
  *
  * POR QUE EXISTE: a pagina de Historico le o ARQUIVO da ponte, e o painel de ROI le o
