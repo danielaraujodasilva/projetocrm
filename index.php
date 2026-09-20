@@ -9143,11 +9143,16 @@ if ($page === 'studio_ads_roi') {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
-            .roi-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
-            .roi-card{background:#fff;border:1px solid #e6e8ee;border-radius:16px;padding:16px 18px;box-shadow:0 1px 3px rgba(16,24,40,.05)}
-            .roi-card .lbl{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#667085;font-weight:600}
-            .roi-card .val{font-size:24px;font-weight:800;color:#101828;margin-top:6px}
-            .roi-card .sub{font-size:12px;color:#98a2b3;margin-top:4px}
+            /* ============================================================
+               Retorno dos Anuncios - layout mobile first
+               Base = celular; densidade de desktop vem nos @media.
+               Nenhuma classe foi removida nem renomeada.
+               ============================================================ */
+            .roi-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:18px}
+            .roi-card{display:flex;flex-direction:column;justify-content:center;min-height:92px;background:#fff;border:1px solid #e6e8ee;border-radius:16px;padding:13px 14px;box-shadow:0 1px 3px rgba(16,24,40,.05);overflow-wrap:anywhere}
+            .roi-card .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#667085;font-weight:700;line-height:1.35}
+            .roi-card .val{font-size:19px;font-weight:800;color:#101828;margin-top:6px;line-height:1.15}
+            .roi-card .sub{font-size:11px;color:#98a2b3;margin-top:4px;line-height:1.35}
             .roi-good{color:#079455}.roi-bad{color:#d92d20}
             /* Precisa de .roi-card na frente: .roi-card .val tem mais peso que .roi-bad sozinho. */
             .roi-card .val.roi-good{color:#079455}
@@ -9155,26 +9160,47 @@ if ($page === 'studio_ads_roi') {
             .roi-card.saldo-baixo{background:#fffbfa;border:2px solid #d92d20}
             .roi-card.saldo-baixo .lbl{color:#b42318}
             .roi-selo-baixo{display:inline-block;background:#d92d20;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;margin-left:6px;letter-spacing:.03em}
+            /* Tabelas: o wrapper com overflow cuida do restante no celular. */
             .roi-table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;font-size:13px}
-            .roi-table th{background:#f9fafb;text-align:left;padding:10px 12px;color:#475467;font-weight:700;border-bottom:1px solid #eaecf0}
-            .roi-table td{padding:9px 12px;border-bottom:1px solid #f2f4f7;color:#344054}
+            .roi-table th{background:#f9fafb;text-align:left;padding:9px 10px;color:#475467;font-weight:700;border-bottom:1px solid #eaecf0;font-size:11px;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap}
+            .roi-table td{padding:9px 10px;border-bottom:1px solid #f2f4f7;color:#344054;white-space:nowrap}
             .roi-table tr:hover td{background:#fcfcfd}
-            .roi-pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+            .roi-pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
             .roi-pill.meta{background:#eef2ff;color:#3538cd}.roi-pill.google{background:#ecfdf3;color:#027a48}.roi-pill.outro{background:#f2f4f7;color:#475467}
-            .roi-period-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
-            .roi-period-bar .roi-custom{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:6px 10px}
-            .roi-period-bar .roi-custom label{display:flex;gap:6px;align-items:center;font-size:12px;color:#475467;font-weight:600;margin:0}
-            .roi-period-bar .roi-custom input[type=date]{border:1px solid #d0d5dd;border-radius:8px;padding:4px 8px;font-size:13px}
-            .roi-period-active{display:inline-block;background:#eef4ff;color:#3538cd;border-radius:999px;padding:3px 12px;font-size:12px;font-weight:700;margin-bottom:14px}
-            .roi-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#eaecf0;color:#475467;font-size:11px;font-weight:800;cursor:pointer;border:0;margin-left:6px;vertical-align:middle;line-height:1}
+            .roi-period-bar{display:flex;gap:7px;flex-wrap:nowrap;align-items:center;margin-bottom:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:3px;scrollbar-width:none}
+            .roi-period-bar::-webkit-scrollbar{display:none}
+            .roi-period-bar > .btn{flex:0 0 auto;white-space:nowrap}
+            .roi-period-bar .roi-custom{display:flex;flex:0 0 auto;gap:8px;align-items:center;flex-wrap:nowrap;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:7px 10px}
+            .roi-period-bar .roi-custom label{display:flex;gap:6px;align-items:center;font-size:12px;color:#475467;font-weight:600;margin:0;white-space:nowrap}
+            .roi-period-bar .roi-custom input[type=date]{border:1px solid #d0d5dd;border-radius:8px;padding:6px 8px;font-size:13px;max-width:150px}
+            .roi-period-active{display:inline-block;background:#eef4ff;color:#3538cd;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700;margin-bottom:14px;line-height:1.4}
+            .roi-help{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;border-radius:50%;background:#eaecf0;color:#475467;font-size:11px;font-weight:800;cursor:pointer;border:0;margin-left:5px;vertical-align:middle;line-height:1}
             .roi-help:hover{background:#d0d5dd}
-            .roi-help-panel{display:none;position:fixed;z-index:1050;width:min(420px,calc(100vw - 24px));background:#fff;border:1px solid #d0d5dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:16px 18px;font-size:13px;color:#344054;line-height:1.5}
+            .roi-help-panel{display:none;position:fixed;z-index:1050;width:min(420px,calc(100vw - 24px));max-height:70vh;overflow-y:auto;background:#fff;border:1px solid #d0d5dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:16px 18px;font-size:13px;color:#344054;line-height:1.5}
             .roi-help-panel.is-open{display:block}
-            .roi-help-panel h4{margin:0 0 8px;font-size:14px;color:#101828}
-            .roi-help-panel code{background:#f2f4f7;border-radius:6px;padding:1px 6px;font-size:12px;color:#3538cd}
+            .roi-help-panel h4{margin:0 0 8px;font-size:14px;color:#101828;padding-right:22px}
+            .roi-help-panel code{background:#f2f4f7;border-radius:6px;padding:1px 6px;font-size:12px;color:#3538cd;word-break:break-word}
             .roi-help-panel ul{margin:8px 0 0;padding-left:18px}
             .roi-help-panel li{margin-bottom:6px}
-            .roi-help-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:18px;line-height:1;color:#98a2b3;cursor:pointer}
+            .roi-help-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:20px;line-height:1;color:#98a2b3;cursor:pointer}
+
+            /* --- Telas maiores --- */
+            @media (min-width:600px){
+                .roi-cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+                .roi-card{min-height:0}
+                .roi-card .val{font-size:22px}
+                .roi-card .lbl{font-size:11px}
+                .roi-period-bar{flex-wrap:wrap;overflow-x:visible}
+            }
+            @media (min-width:900px){
+                .roi-cards{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px}
+                .roi-card{padding:16px 18px}
+                .roi-card .lbl{font-size:12px;font-weight:600}
+                .roi-card .val{font-size:24px}
+                .roi-table th{padding:10px 12px;font-size:13px;text-transform:none;letter-spacing:0}
+                .roi-table td{padding:9px 12px}
+                .roi-period-bar .roi-custom{padding:6px 10px}
+            }
         </style>';
         echo '<div class="roi-period-bar">';
         // Presets de periodo. "Hoje" e o padrao.
