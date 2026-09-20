@@ -98,9 +98,14 @@ function ads_apply_origin_to_conversation(array $studio, int $conversationId, st
  */
 function ads_bridge_health(): array
 {
-    $base = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados';
-    $eventosPath = $base . '\\eventos.jsonl';
-    $statePath = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\state.json';
+    $base = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge';
+    // ATENCAO: os dois arquivos registram eventos DIFERENTES da mesma ponte.
+    //  - eventos.jsonl: eventos do servico (recordEvent) -> origem_detectada, audio, conexao.
+    //  - bridge.log:    log do push (log)              -> origin_pushed, push_error.
+    // Ler so o eventos.jsonl fazia pushed_ok ficar sempre 0 e o painel alertar
+    // um falso positivo de "detectou mas nao gravou" (bug visto em 20/09/2026).
+    $eventosPath = $base . '\\dados\\eventos.jsonl';
+    $logPath = $base . '\\bridge.log';
 
     $out = [
         'ok' => true,
@@ -121,37 +126,49 @@ function ads_bridge_health(): array
 
     $hoje = date('Y-m-d');
 
-    if (is_file($eventosPath)) {
-        $fh = @fopen($eventosPath, 'r');
-        if ($fh) {
-            while (($linha = fgets($fh)) !== false) {
-                $ev = json_decode(trim($linha), true);
-                if (!is_array($ev)) {
-                    continue;
-                }
-                $quando = substr((string)($ev['at'] ?? ''), 0, 10);
-                $tipo = (string)($ev['event'] ?? '');
-                if ($quando !== $hoje) {
-                    continue;
-                }
-                if ($tipo === 'origem_detectada') {
-                    $out['detectadas_hoje']++;
-                } elseif ($tipo === 'origin_pushed') {
-                    $out['pushed_ok']++;
-                } elseif ($tipo === 'push_error') {
-                    $out['push_erros']++;
-                    $out['ultimo_erro'] = trim((string)($ev['response'] ?? $ev['error'] ?? ''));
-                }
-            }
-            fclose($fh);
+    // Varre um arquivo JSONL contando so os eventos de hoje.
+    $varrer = static function (string $path) use (&$out, $hoje): void {
+        if (!is_file($path)) {
+            return;
         }
-    }
+        $fh = @fopen($path, 'r');
+        if (!$fh) {
+            return;
+        }
+        while (($linha = fgets($fh)) !== false) {
+            $ev = json_decode(trim($linha), true);
+            if (!is_array($ev)) {
+                continue;
+            }
+            if (substr((string)($ev['at'] ?? ''), 0, 10) !== $hoje) {
+                continue;
+            }
+            $tipo = (string)($ev['event'] ?? '');
+            if ($tipo === 'origem_detectada') {
+                $out['detectadas_hoje']++;
+            } elseif ($tipo === 'origin_pushed') {
+                $out['pushed_ok']++;
+            } elseif ($tipo === 'push_error') {
+                $out['push_erros']++;
+                $out['ultimo_erro'] = trim((string)($ev['response'] ?? $ev['error'] ?? ''));
+            }
+        }
+        fclose($fh);
+    };
+
+    $varrer($eventosPath); // origem_detectada vive aqui
+    $varrer($logPath);     // origin_pushed / push_error vivem aqui
 
     // Detectou origem mas nada foi gravado? Sinal de falha silenciosa.
     if ($out['push_erros'] > 0) {
         $out['ok'] = false;
         $out['alerta'] = 'A ponte detectou origem de anúncio mas houve ' . $out['push_erros']
             . ' falha(s) ao gravar no CRM hoje. Os leads abaixo podem estar incompletos.';
+    } elseif ($out['detectadas_hoje'] > 0 && $out['pushed_ok'] === 0) {
+        // So alerta aqui quando realmente detectou e nao gravou nada.
+        $out['ok'] = false;
+        $out['alerta'] = 'A ponte detectou ' . $out['detectadas_hoje']
+            . ' origem(ns) de anúncio hoje, mas nenhuma foi gravada no CRM. Confira o token/URL do push.';
     } elseif (!$out['ponte_online']) {
         $out['ok'] = false;
         $out['alerta'] = 'A ponte do WhatsApp está parada: nenhuma origem nova está sendo rastreada agora.';
