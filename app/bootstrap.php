@@ -50,6 +50,9 @@ require APP_BASE_PATH . '/app/studio_crm.php';
 require APP_BASE_PATH . '/app/google_calendar.php';
 require_once APP_BASE_PATH . '/app/ads_roi.php';
 require_once APP_BASE_PATH . '/app/ads_origem_catalogo.php';
+// So os codigos de origem (contagem) — nao depende dos rotulos do catalogo, para o
+// painel de ROI continuar funcionando mesmo se o catalogo estiver indisponivel.
+require_once APP_BASE_PATH . '/app/ads_origem_codigos.php';
 require_once APP_BASE_PATH . '/app/ads_origin.php';
 require_once APP_BASE_PATH . '/app/general_image_pipeline.php';
 require_once APP_BASE_PATH . '/app/general_image_studio.php';

@@ -14266,7 +14266,9 @@ function studio_whatsapp_ai_voice_config(array $studio, array $overrides = []): 
         'xtts_sample_path' => trim((string)($settings['ai_voice_reply_xtts_sample_path'] ?? '')),
         'xtts_sample_paths' => studio_whatsapp_ai_voice_decode_sample_paths((string)($settings['ai_voice_reply_xtts_sample_paths'] ?? '')),
         'xtts_language' => $language,
-        'xtts_python' => trim((string)(getenv('XTTS_PYTHON') ?: 'C:\\AI\\xtts\\Scripts\\python.exe')),
+        'xtts_python' => getenv('IA_LOCAL_VOICE_ENABLED') === 'true'
+            ? trim((string)(getenv('XTTS_PYTHON') ?: 'C:\\AI\\xtts\\Scripts\\python.exe'))
+            : APP_BASE_PATH . DIRECTORY_SEPARATOR . '_ia-desativada' . DIRECTORY_SEPARATOR . 'python-inexistente.exe',
         'voice' => trim((string)($settings['ai_voice_reply_voice'] ?? '')),
         'rate' => max(-10, min(10, (int)($settings['ai_voice_reply_rate'] ?? 2))),
         'volume' => max(0, min(100, (int)($settings['ai_voice_reply_volume'] ?? 100))),
@@ -26411,11 +26413,22 @@ function studio_calendar_extract_phone(string $text): string
 function studio_calendar_extract_event_value(string $title): array
 {
     $candidate = preg_replace('/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[-\s]?\d{4}/', ' ', $title) ?? $title;
+    // Remove "dia NN" / horarios (HH:MM) antes de procurar valor: senao "dia 05"
+    // vira R$ 5 e "as 8:30" vira R$ 30.
+    $candidate = preg_replace('/\bdias?\s+\d{1,2}\b/iu', ' ', $candidate) ?? $candidate;
+    $candidate = preg_replace('/\b\d{1,2}\s*[:h]\s*\d{2}\b/u', ' ', $candidate) ?? $candidate;
+    $candidate = preg_replace('/\bas\s+\d{1,2}\b/iu', ' ', $candidate) ?? $candidate;
     $patterns = [
         '/R\$\s*([\d\.\,]+)/iu',
         '/([\d\.\,]+)\s*\$/u',
         '/\b(\d{2,6}(?:[,.]\d{2})?)\s*,?\s*(?:com|pagou sinal|sinal pago|pago|pix|entrada|deposito|depósito|sinal)\b/iu',
         '/[-–]\s*(\d{2,6}(?:[,.]\d{2})?)\b/u',
+        // Formato do estudio: "Nome, VALOR, para Daniel" / "Nome, 799, costa".
+        // O valor aparece isolado entre virgulas.
+        '/,\s*(\d{2,6}(?:[,.]\d{2})?)\s*,/u',
+        // Formato "<palavra> VALOR, para Daniel" (ex.: "costas 799, para Daniel").
+        // Exige virgula + "para <tatuador>" depois, para nao capturar horario.
+        '/\s(\d{2,6}(?:[,.]\d{2})?)\s*,\s*para\s+[A-Za-zÀ-ÿ]+/iu',
         '/\b(\d{2,6}(?:[,.]\d{2})?)\s*(?:\((?:pago|sinal|sem sinal|fiado|parcelado)[^)]*\))?$/iu',
     ];
 
@@ -27094,7 +27107,7 @@ function studio_import_calendar_events(array $studio, array $items): array
             if ($existingAppointmentId > 0) {
                 $stmt = $pdo->prepare(
                     'SELECT id, lead_id, title, description, appointment_date, start_time, end_time, status, value,
-                            raw_title, google_calendar_event_id, google_calendar_id,
+                            raw_title, google_calendar_event_id, google_calendar_id, google_created_at,
                             ai_review_required, ai_parse_confidence, ai_parse_summary, ai_parse_payload
                      FROM appointments
                      WHERE id = ?
@@ -27144,6 +27157,7 @@ function studio_import_calendar_events(array $studio, array $items): array
                          deposit_value = CASE WHEN COALESCE(deposit_value, 0) = 0 THEN ? ELSE deposit_value END,
                          import_source = "google_calendar", raw_title = ?,
                          google_calendar_event_id = ?, google_calendar_id = ?,
+                         google_created_at = COALESCE(google_created_at, ?),
                          ai_review_required = ?, ai_parse_confidence = ?, ai_parse_summary = ?, ai_parse_payload = ?,
                          updated_at = NOW()
                      WHERE id = ?'
@@ -27160,6 +27174,7 @@ function studio_import_calendar_events(array $studio, array $items): array
                     $desired['raw_title'],
                     $desired['google_event_id'] !== '' ? $desired['google_event_id'] : null,
                     $desired['google_calendar_id'] !== '' ? $desired['google_calendar_id'] : null,
+                    !empty($item['google_created_at']) ? (string)$item['google_created_at'] : null,
                     $desired['ai_review_required'],
                     $desired['ai_parse_confidence'],
                     $desired['ai_parse_summary'],
@@ -27189,9 +27204,9 @@ function studio_import_calendar_events(array $studio, array $items): array
                 'INSERT INTO appointments
                     (customer_id, lead_id, artist_id, title, description, appointment_date, start_time, end_time,
                      status, value, deposit_value, import_source, import_uid, google_calendar_event_id,
-                     google_calendar_id, raw_title, ai_review_required, ai_parse_confidence, ai_parse_summary, ai_parse_payload,
+                     google_calendar_id, google_created_at, raw_title, ai_review_required, ai_parse_confidence, ai_parse_summary, ai_parse_payload,
                      created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "google_calendar", ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "google_calendar", ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())'
             );
             $stmt->execute([
                 $customerId,
@@ -27208,6 +27223,7 @@ function studio_import_calendar_events(array $studio, array $items): array
                 $item['uid'],
                 $googleEventId !== '' ? $googleEventId : null,
                 $googleCalendarId !== '' ? $googleCalendarId : null,
+                !empty($item['google_created_at']) ? (string)$item['google_created_at'] : null,
                 mb_substr($item['raw_title'], 0, 260),
                 (int)($item['ai_review_required'] ?? 0),
                 $item['ai_parse_confidence'] ?? null,

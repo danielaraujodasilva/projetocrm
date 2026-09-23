@@ -89,17 +89,19 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
     // Usa a matriz com precedência SYNC > manual (evita somar o mesmo gasto 2x/3x).
     $spendByDay = ads_roi_spend_matrix($pdo, $start, $end);
 
-    // Só conta como AGENDAMENTO a linha que tem valor cadastrado (> 0). Compromissos da
-    // agenda sem valor (limpeza, reunião, bloqueio de horário) e agendamentos cancelados
-    // sem valor não entram na conta - senão o CPA e o ROAS saem artificialmente bons.
-    // Cancelados COM valor continuam contando (o serviço foi vendido) e aparecem no subtítulo.
+    // Só conta como REALIZADO a linha que tem valor cadastrado (> 0). Compromissos da
+    // agenda sem valor (limpeza, reunião, bloqueio de horário) ficam fora - senão o CPA
+    // e o ROAS saem artificialmente bons. Agendamento FUTURO (confirmado) e contado
+    // separado, pela data do evento, no bloco "agendados_futuros" do dia.
     $apptSql = 'SELECT appointment_date,
-                       SUM(CASE WHEN value > 0 THEN 1 ELSE 0 END) AS agendamentos,
+                       SUM(CASE WHEN value > 0 AND LOWER(status) = "finalizado" THEN 1 ELSE 0 END) AS realizados,
+                       SUM(CASE WHEN value > 0 AND LOWER(status) = "finalizado" THEN value ELSE 0 END) AS valor_realizado,
+                       SUM(CASE WHEN LOWER(status) IN ("confirmado","pre_agendado","agendado") THEN 1 ELSE 0 END) AS agendados_futuros,
                        SUM(CASE WHEN value > 0 AND LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados,
-                       SUM(CASE WHEN LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados_total,
-                       SUM(CASE WHEN value > 0 THEN value ELSE 0 END) AS valor_total
+                       SUM(CASE WHEN LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados_total
                 FROM appointments
                 WHERE appointment_date BETWEEN ? AND ?
+                  AND YEAR(appointment_date) BETWEEN 2000 AND 2100
                 GROUP BY appointment_date';
     $apptStmt = $pdo->prepare($apptSql);
     $apptStmt->execute([$start, $end]);
@@ -115,20 +117,25 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
         $d = $cursor->format('Y-m-d');
         $metaSpend = (float)($spendByDay[$d]['meta']['spend'] ?? 0);
         $googleSpend = (float)($spendByDay[$d]['google']['spend'] ?? 0);
-        $appt = $apptByDay[$d] ?? ['agendamentos' => 0, 'cancelados' => 0, 'cancelados_total' => 0, 'valor_total' => 0];
+        $appt = $apptByDay[$d] ?? ['realizados' => 0, 'valor_realizado' => 0, 'agendados_futuros' => 0, 'cancelados' => 0, 'cancelados_total' => 0];
         $totalSpend = $metaSpend + $googleSpend;
-        $ag = (int)$appt['agendamentos'];
+        $real = (int)$appt['realizados'];
+        $valReal = (float)$appt['valor_realizado'];
         $days[] = [
             'date' => $d,
             'meta_spend' => $metaSpend,
             'google_spend' => $googleSpend,
             'spend_total' => $totalSpend,
-            'agendamentos' => $ag,
+            // "agendamentos" mantido por compatibilidade: aqui significa REALIZADOS.
+            'agendamentos' => $real,
+            'realizados' => $real,
+            'valor_realizado' => $valReal,
+            'agendados_futuros' => (int)$appt['agendados_futuros'],
             'cancelados' => (int)$appt['cancelados'],
             'cancelados_total' => (int)($appt['cancelados_total'] ?? 0),
-            'valor_agendado' => (float)$appt['valor_total'],
-            'custo_por_agendamento' => $ag > 0 ? round($totalSpend / $ag, 2) : null,
-            'roas' => $totalSpend > 0 ? round(((float)$appt['valor_total']) / $totalSpend, 2) : null,
+            'valor_agendado' => $valReal,
+            'custo_por_agendamento' => $real > 0 ? round($totalSpend / $real, 2) : null,
+            'roas' => ($totalSpend > 0 && $valReal > 0) ? round($valReal / $totalSpend, 2) : null,
         ];
         $cursor->modify('+1 day');
     }
@@ -169,6 +176,84 @@ function ads_roi_summary(PDO $pdo, string $start, string $end): array
         'custo_por_agendamento' => $totAg > 0 ? round($totSpend / $totAg, 2) : null,
         'roas' => $totSpend > 0 ? round($totValor / $totSpend, 2) : null,
         'series' => $series,
+    ];
+}
+
+/**
+ * AGENDADO x REALIZADO - duas coisas DIFERENTES (regra do dono, 22/09/2026).
+ *
+ *   AGENDADO  = o cliente marcou e reservou a data. Conta na data em que o
+ *               agendamento foi CRIADO (created_at), inclusive os que depois
+ *               foram cancelados (marcaram, mas nao veio).
+ *   REALIZADO = a tatuagem ACONTECEU de fato. So status 'finalizado'.
+ *               Cancelado NUNCA conta como realizado.
+ *
+ * Antes o painel somava os dois num campo so ("agendamentos"), filtrando por
+ * appointment_date - o que somava promessa futura e venda cancelada junto da
+ * venda feita, e contava no dia errado.
+ *
+ * Devolve os totais do periodo + serie diaria para os dois blocos.
+ */
+function ads_roi_agendado_realizado(PDO $pdo, string $start, string $end): array
+{
+    $agendadosSerie = [];
+    $realizadosSerie = [];
+    $futurosSerie = [];
+    // AGENDADOS FUTUROS: eventos com data >= hoje e status confirmado/pre-agendado.
+    // Esta e a unica contagem de "agendado" confiavel, porque usa a DATA DO EVENTO
+    // (a agenda do Google) e nao o created_at - que nos importados e a data da
+    // importacao, nao a data em que o cliente marcou. Responde "quantos clientes
+    // tenho na frente", que e a pergunta util.
+    // EXCLUI compromisso pessoal/operacional (limpeza, Luna, niver, casamento,
+    // pericia INSS, etc): nao sao venda. Filtro por titulo, como o parser do sync.
+    $stFut = $pdo->prepare(
+        'SELECT appointment_date AS dia, COUNT(*) AS n, SUM(value) AS valor
+           FROM appointments
+          WHERE appointment_date BETWEEN ? AND ?
+            AND YEAR(appointment_date) BETWEEN 2000 AND 2100
+            AND LOWER(TRIM(status)) IN ("confirmado", "pre_agendado", "agendado")
+            AND NOT (
+                 LOWER(title) REGEXP "limpeza|luna|niver|aniversario|aniversário|casamento|inss|pericia|perícia|café da manhã|cafe da manha|estorno|escola|tv vizinho|lembrar|sábado da|sabado da|spa day|manutenção|manutencao"
+            )
+          GROUP BY appointment_date'
+    );
+    $stFut->execute([$start, $end]);
+    foreach ($stFut->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $futurosSerie[(string)$r['dia']] = ['n' => (int)$r['n'], 'valor' => (float)$r['valor']];
+    }
+
+    // REALIZADO: tatuagem feita. So 'finalizado', pela data do atendimento.
+    $st2 = $pdo->prepare(
+        'SELECT appointment_date AS dia, COUNT(*) AS n, SUM(value) AS valor
+           FROM appointments
+          WHERE appointment_date BETWEEN ? AND ?
+            AND YEAR(appointment_date) BETWEEN 2000 AND 2100
+            AND LOWER(TRIM(status)) = "finalizado"
+          GROUP BY appointment_date'
+    );
+    $st2->execute([$start, $end]);
+    foreach ($st2->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $realizadosSerie[(string)$r['dia']] = [
+            'n' => (int)$r['n'],
+            'valor' => (float)$r['valor'],
+        ];
+    }
+
+    $somaFut = 0; $valFut = 0.0; $somaReal = 0; $valReal = 0.0;
+    foreach ($futurosSerie as $x) { $somaFut += $x['n']; $valFut += $x['valor']; }
+    foreach ($realizadosSerie as $x) { $somaReal += $x['n']; $valReal += $x['valor']; }
+
+    return [
+        'futuros' => $somaFut,
+        'futuros_valor' => $valFut,
+        'realizados' => $somaReal,
+        'realizados_valor' => $valReal,
+        'serie_futuros' => $futurosSerie,
+        'serie_realizados' => $realizadosSerie,
+        // Compatibilidade: "agendados" agora significa os futuros.
+        'agendados' => $somaFut,
+        'agendados_valor' => $valFut,
+        'serie_agendados' => $futurosSerie,
     ];
 }
 

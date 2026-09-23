@@ -285,26 +285,21 @@ function ads_bridge_health(): array
 }
 
 /**
- * Conta LEADS por origem no periodo (data de criacao do lead).
- *
- * Diferente de ads_roi_by_origin(): aqui conta o lead em si, nao o agendamento.
- * Serve para responder "quantos contatos cada canal trouxe", que e a base do
- * custo por lead. Retorna [origem => n] e o total no indice '__total'.
+ * Contagem por origem no periodo, a partir de uma tabela+coluna de data.
+ * Helper interno de ads_leads_by_origin()/ads_leads_by_origin_ponte().
  */
-function ads_leads_by_origin(PDO $pdo, string $start, string $end): array
+function ads_contar_origens(PDO $pdo, string $sql, array $params): array
 {
     try {
-        $sql = 'SELECT COALESCE(NULLIF(TRIM(source), ""), "sem_origem") AS origem,
-                       COUNT(*) AS total
-                FROM leads
-                WHERE DATE(created_at) BETWEEN ? AND ?
-                GROUP BY origem ORDER BY total DESC';
         $stmt = $pdo->prepare($sql);
-        $stmt->execute([$start, $end]);
+        $stmt->execute($params);
         $out = ['__total' => 0];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $origem = strtolower(trim((string)$row['origem']));
             $n = (int)$row['total'];
+            if ($origem === '') {
+                $origem = 'sem_origem';
+            }
             $out[$origem] = ($out[$origem] ?? 0) + $n;
             $out['__total'] += $n;
         }
@@ -312,6 +307,74 @@ function ads_leads_by_origin(PDO $pdo, string $start, string $end): array
     } catch (Throwable $e) {
         return ['__total' => 0];
     }
+}
+
+/**
+ * Conta LEADS por origem no periodo (data de criacao do lead) — tabela `leads`.
+ *
+ * Diferente de ads_roi_by_origin(): aqui conta o lead em si, nao o agendamento.
+ * Serve para responder "quantos contatos cada canal trouxe", que e a base do
+ * custo por lead. Retorna [origem => n] e o total no indice '__total'.
+ */
+function ads_leads_by_origin(PDO $pdo, string $start, string $end): array
+{
+    return ads_contar_origens($pdo,
+        'SELECT COALESCE(NULLIF(TRIM(source), ""), "sem_origem") AS origem,
+                COUNT(*) AS total
+         FROM leads
+         WHERE DATE(created_at) BETWEEN ? AND ?
+         GROUP BY origem ORDER BY total DESC', [$start, $end]);
+}
+
+/**
+ * Conta LEADS por origem usando a PONTE como fonte (ads_origin_hits).
+ *
+ * POR QUE EXISTE (migracao oficial -> ponte, 22/09/2026)
+ * Quando o estudio migrou do WhatsApp oficial (Cloud API) para a ponte Baileys, o
+ * CRM deixou de receber mensagem nova e, com ela, o fluxo que criava lead por
+ * conversa. A ponte continuou detectando a origem de cada anuncio e gravando em
+ * ads_origin_hits (com telefone e ctwa_clid), mas nada criava mais a linha em
+ * `leads` — entao os cards de lead do ROI zeravam mesmo com anuncio trazendo
+ * contato todos os dias.
+ *
+ * Aqui a contagem sai do proprio registro da ponte: 1 hit = 1 contato de anuncio.
+ * Deduplica por telefone, porque a mesma pessoa pode gerar mais de um hit.
+ *
+ * Retorna o mesmo formato de ads_leads_by_origin(): [origem => n] + '__total'.
+ */
+function ads_leads_by_origin_ponte(PDO $pdo, string $start, string $end): array
+{
+    // platform e a coluna mais fiel ao canal real (facebook/instagram); origin e
+    // o codigo canonico. Preferimos platform e caímos para origin quando vazia.
+    $sql = 'SELECT LOWER(COALESCE(NULLIF(TRIM(platform), ""), NULLIF(TRIM(origin), ""))) AS origem,
+                   COUNT(*) AS total
+            FROM (
+                SELECT phone,
+                       LOWER(COALESCE(NULLIF(TRIM(platform), ""), NULLIF(TRIM(origin), ""))) AS platform,
+                       LOWER(TRIM(origin)) AS origin
+                FROM ads_origin_hits
+                WHERE DATE(created_at) BETWEEN ? AND ?
+                GROUP BY phone, platform, origin
+            ) t
+            GROUP BY origem ORDER BY total DESC';
+    return ads_contar_origens($pdo, $sql, [$start, $end]);
+}
+
+/**
+ * Contagem por origem que o painel de ROI deve USAR.
+ *
+ * Precedencia: ponte (ads_origin_hits) quando ela tiver dado no periodo.
+ * Se a ponte estiver vazia (ex.: periodo antigo, antes da ponte, ou ponte fora),
+ * cai para a tabela `leads` — assim periodo historico continua mostrando o que
+ * foi gravado na epoca, em vez de zerar.
+ */
+function ads_leads_by_origin_painel(PDO $pdo, string $start, string $end): array
+{
+    $ponte = ads_leads_by_origin_ponte($pdo, $start, $end);
+    if ((int)($ponte['__total'] ?? 0) > 0) {
+        return $ponte;
+    }
+    return ads_leads_by_origin($pdo, $start, $end);
 }
 
 /**

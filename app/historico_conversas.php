@@ -968,3 +968,51 @@ function historico_telefones_com_origem(): array
     }
     return $out;
 }
+
+/**
+ * Conta as CONVERSAS reais do periodo no arquivo da ponte.
+ *
+ * POR QUE EXISTE
+ * O card "Conversa iniciada" do ROI lia so `conversa_venda` (analise de venda), que
+ * existe apenas para conversa espelhada no CRM pelo WhatsApp oficial. Apos a migracao
+ * para a ponte (22/09/2026) nenhuma conversa nova entra no espelho, entao o card
+ * zerava mesmo com o estudio atendendo dezenas de pessoas por dia.
+ *
+ * Criterio: mesma regra da etapa "Interagiu" do funil — telefone com 3 ou mais
+ * mensagens RECEBIDAS no periodo, contado uma vez por telefone (nao por mensagem).
+ * LID sem telefone resolvido fica de fora (nao da para casar com lead/agenda).
+ *
+ * SOMENTE LEITURA: nao escreve nada.
+ * Devolve ['total'=>int, 'telefones'=>[fone=>true]].
+ */
+function ads_conversas_ponte_periodo(string $de, string $ate, int $minRecebidas = 3): array
+{
+    $recebidas = [];
+    if (!is_file(historico_conversas_path())) {
+        return ['total' => 0, 'telefones' => []];
+    }
+    historico_percorrer_reverso(function (array $m) use (&$recebidas, $de, $ate): void {
+        $fone = historico_telefone_canonico($m);
+        if ($fone === '') {
+            return;
+        }
+        $fone = preg_replace('/\D+/', '', $fone);
+        if ($fone === '' || !historico_telefone_utilizavel($fone)) {
+            return;
+        }
+        if (!historico_casa_filtros($m, ['de' => $de, 'ate' => $ate])) {
+            return;
+        }
+        if (empty($m['from_me'])) {
+            $recebidas[$fone] = ($recebidas[$fone] ?? 0) + 1;
+        }
+    });
+
+    $telefones = [];
+    foreach ($recebidas as $fone => $n) {
+        if ($n >= $minRecebidas) {
+            $telefones[(string)$fone] = true;
+        }
+    }
+    return ['total' => count($telefones), 'telefones' => $telefones];
+}

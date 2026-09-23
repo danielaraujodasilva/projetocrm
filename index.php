@@ -2984,6 +2984,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         ],
         'Marketing' => [
             ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
+            ['funil', 'fa-filter', 'Funil de Vendas', 'studio_funil'],
             ['meta_ads', 'fa-chart-line', 'Meta Ads', 'studio_meta_ads'],
             ['tattoo_images', 'fa-wand-magic-sparkles', 'Criar imagens', 'studio_tattoo_images'],
         ],
@@ -3512,13 +3513,13 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_funil', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho', 'studio_verificar_card'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
 }
 
-$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_historico'];
+$studioAdminOnlyPages = ['studio_artists', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_funil', 'studio_historico', 'studio_verificar_card'];
 if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !studio_current_user_is_admin()) {
     flash_set('error', 'Apenas administradores podem acessar esta área.');
     redirect_to('studio_home');
@@ -4139,6 +4140,12 @@ if ($page === 'studio_home') {
         });
         $attentionLeads = array_slice($attentionLeads, 0, 8);
         $attentionLeadsTotal = count($attentionLeads);
+        // TOTAL REAL de leads parados (antes era o tamanho da lista ja cortada em 8,
+        // o que fazia o alerta dizer "8" quando havia centenas). Mede o mesmo
+        // criterio de "stale" (>24h sem atualizacao), SEM corte e SEM os status
+        // terminais: lead 'fechado' ja foi atendido e nao "merece retorno" -
+        // incluir isso inflava o alerta em ~450 registros mortos.
+        $staleAttentionLeadsTotal = (int)$pdo->query("SELECT COUNT(*) FROM leads WHERE COALESCE(updated_at, created_at) < NOW() - INTERVAL 24 HOUR AND status NOT IN ('fechado', 'cancelado')")->fetchColumn();
         $staleAttentionLeadsCount = count(array_filter($attentionLeads, static function (array $lead) use ($current): bool {
             $updatedAt = (string)($lead['updated_at'] ?? $lead['created_at'] ?? '');
             if ($updatedAt === '') {
@@ -4173,6 +4180,25 @@ if ($page === 'studio_home') {
             };
             if (!empty($whatsappStatusData['phone'])) {
                 $whatsappState .= ' · ' . preg_replace('/\D+/', '', (string)$whatsappStatusData['phone']);
+            }
+        }
+        // FONTE DO CARD "Conversas abertas": a ponte Baileys (canal vivo).
+        // O espelho do CRM (whatsapp_conversations) parou em 18/09/2026 porque a
+        // ingestao migrou para a ponte; ler o espelho zerava/mentia o card. Total
+        // real vem de historico_conversas_agrupadas() - a MESMA fonte da pagina
+        // studio_whatsapp_baileys - e conta TODAS as conversas do periodo.
+        require_once APP_BASE_PATH . '/app/historico_conversas.php';
+        $baileysConversasPeriodo = ['total_conversas' => 0];
+        $baileysSemResposta = ['total_conversas' => 0];
+        if (plan_allows('whatsapp') && function_exists('historico_conversas_agrupadas')) {
+            try {
+                // limite=0: nao precisamos das linhas, so do total agregado.
+                $baileysConversasPeriodo = historico_conversas_agrupadas([], 0, 0, 'recentes');
+                // "Esperando resposta": filtro aplicado no agrupamento (antes do corte).
+                $baileysSemResposta = historico_conversas_agrupadas(['resposta' => 'sem_resposta'], 0, 0, 'recentes');
+            } catch (Throwable $e) {
+                $baileysConversasPeriodo = ['total_conversas' => 0];
+                $baileysSemResposta = ['total_conversas' => 0];
             }
         }
         $pendingWhatsappConversations = plan_allows('whatsapp') ? studio_list_whatsapp_conversations($studio, ['filter' => 'unreplied'], 10) : [];
@@ -4279,10 +4305,10 @@ if ($page === 'studio_home') {
             // O monitor nunca deve derrubar a Home do CRM.
         }
 
-        if ($staleAttentionLeadsCount > 0) {
+        if ($staleAttentionLeadsTotal > 0) {
             $alerts[] = [
                 'title' => 'Leads sem atualização há mais de 24h',
-                'description' => 'Você tem ' . $staleAttentionLeadsCount . ' leads parados ou frios que merecem retorno.',
+                'description' => 'Você tem ' . $staleAttentionLeadsTotal . ' leads parados ou frios que merecem retorno.',
                 'href' => app_url('studio_leads'),
                 'tone' => 'warn',
             ];
@@ -4322,7 +4348,10 @@ if ($page === 'studio_home') {
                     'tone' => 'danger',
                 ];
             }
-            $pendingWhatsappCount = count($pendingWhatsappConversations);
+            // "Esperando resposta" = conversas SEM RESPOSTA na fonte viva (Baileys),
+            // a mesma da pagina studio_whatsapp_baileys. O espelho do CRM parou em
+            // 18/09 e fazia este alerta dizer "1".
+            $pendingWhatsappCount = (int)($baileysSemResposta['total_conversas'] ?? 0);
             if ($pendingWhatsappCount > 0) {
                 $alerts[] = [
                     'title' => 'Conversas esperando resposta',
@@ -4427,7 +4456,7 @@ if ($page === 'studio_home') {
             'whatsapp_conversations' => [
                 'title' => 'Conversas do WhatsApp que precisam de resposta',
                 'summary' => plan_allows('whatsapp')
-                    ? ('Aguardando resposta: ' . count($pendingWhatsappConversations) . ' | Pediram humano: ' . count($needsHumanConversations))
+                    ? ('Aguardando resposta: ' . (int)($baileysSemResposta['total_conversas'] ?? 0) . ' | Pediram humano: ' . count($needsHumanConversations))
                     : 'WhatsApp n&atilde;o liberado no plano atual.',
                 'type' => 'whatsapp',
                 'items' => array_slice(array_values($whatsappConversationItems), 0, 10),
@@ -4532,7 +4561,7 @@ if ($page === 'studio_home') {
         echo '<div class="home-kpi-grid">';
         $homeKpis = [
             ['Leads hoje', (string)$newLeadsToday, 'Novas oportunidades', 'fa-bolt', 'attention_leads'],
-            ['Conversas abertas', (string)count($pendingWhatsappConversations), 'Aguardando resposta', 'fa-comments', 'whatsapp_conversations'],
+            ['Conversas abertas', (string)(int)($baileysConversasPeriodo['total_conversas'] ?? 0), 'Aguardando resposta', 'fa-comments', 'whatsapp_conversations'],
             ['Agenda de hoje', (string)$todayAppointmentsCount, 'Atendimentos ativos', 'fa-calendar-check', 'today_agenda'],
             ['Faturamento previsto', format_money($scheduledToEndOfMonth), 'Até o fim do mês', 'fa-arrow-trend-up', 'scheduled_month'],
             ['Meta Ads', is_array($metaInsights) && !empty($metaInsights['ok']) ? format_money((float)($metaInsights['spend'] ?? 0)) : '—', 'Gasto nos últimos 30 dias', 'fa-chart-line', 'meta_ads'],
@@ -4563,7 +4592,7 @@ if ($page === 'studio_home') {
         echo '<section class="home-actions-section"><div class="section-heading"><div><span class="section-eyebrow">Próximos passos</span><h2>Atalhos inteligentes</h2><p class="muted mb-0">Acesse as rotinas mais usadas sem procurar no menu.</p></div></div>';
         echo '<div class="settings-overview-grid dashboard-home-blocks row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3 mt-3">';
         $homeCards = [
-            ['label' => 'Responder WhatsApp', 'summary' => count($pendingWhatsappConversations) . ' conversas aguardando retorno.', 'focus' => 'whatsapp_conversations', 'icon' => 'fa-comments'],
+            ['label' => 'Responder WhatsApp', 'summary' => (int)($baileysSemResposta['total_conversas'] ?? 0) . ' conversas aguardando retorno.', 'focus' => 'whatsapp_conversations', 'icon' => 'fa-comments'],
             ['label' => 'Ver leads quentes', 'summary' => $attentionLeadsTotal . ' oportunidades pedem atenção.', 'focus' => 'attention_leads', 'icon' => 'fa-bolt'],
             ['label' => 'Abrir agenda', 'summary' => $todayAppointmentsCount . ' atendimentos previstos hoje.', 'focus' => 'today_agenda', 'icon' => 'fa-calendar-days'],
             ['label' => 'Acompanhar Meta Ads', 'summary' => $metaSpendLabel, 'focus' => 'meta_ads', 'icon' => 'fa-chart-line'],
@@ -8487,27 +8516,25 @@ if ($page === 'studio_settings') {
         echo '</div></div></div>';
         echo '<div id="settingsSourceWhatsapp" hidden><div class="settings-panel" id="settings-whatsapp" data-settings-panel="whatsapp">';
         echo '<div class="settings-panel-head">';
-        echo '<div><h3 style="margin:0">WhatsApp</h3><p class="muted" style="margin:6px 0 0">Entrada, provedor e configuração oficial em um fluxo só.</p></div>';
+        echo '<div><h3 style="margin:0">WhatsApp</h3><p class="muted" style="margin:6px 0 0">Entrada e comportamento do atendimento (ponte).</p></div>';
         echo '<a class="btn tiny secondary" href="#topo-configuracoes">Voltar ao topo</a>';
         echo '</div>';
-        echo '<div class="settings-panel-summary-grid">';
-        echo '<div class="drilldown-card compact settings-summary-card"><span class="badge">Provedor</span><strong>API oficial da Meta</strong><div class="muted">O fluxo oficial está selecionado como motor principal.</div></div>';
-        echo '<div class="drilldown-card compact settings-summary-card"><span class="badge">Ambiente</span><strong>' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? 'Sandbox / teste' : 'Produção') . '</strong><div class="muted">' . h((string)($settings['whatsapp_official_mode'] ?? 'production') === 'sandbox' ? 'Usando dados e número de teste.' : 'Usando credenciais de produção.') . '</div></div>';
-        echo '<div class="drilldown-card compact settings-summary-card"><span class="badge ' . h($whatsappOfficialStatus['ready'] ? 'ok' : 'warn') . '">Diagnóstico</span><strong>' . h((string)$whatsappOfficialStatus['score']) . '/' . h((string)$whatsappOfficialStatus['total']) . ' pronto</strong><div class="muted">' . h($whatsappOfficialStatus['ready'] ? 'Bloco oficial apto para testes.' : 'Ainda faltam campos para ativação completa.') . '</div></div>';
-        echo '</div>';
+        echo '<div class="alert alert-secondary" style="font-size:13px"><b>Atendimento pela ponte.</b> Desde 22/09/2026 o estúdio atende pelo WhatsApp da ponte (Baileys). O número antigo da API oficial da Meta foi <b>aposentado</b> e não recebe mais mensagem. A configuração dele continua guardada, escondida, e pode ser religada se precisar voltar.</div>';
         echo '<div class="settings-two-column">';
         echo '<div class="panel soft settings-group">';
-        echo '<h3 style="margin-top:0">Entrada do WhatsApp</h3>';
+        echo '<h3 style="margin-top:0">Entrada do atendimento</h3>';
         echo '<div class="grid cols-2">';
-        echo '<div class="field"><label>Motor principal</label><div class="muted">A integração usa somente a API oficial da Meta.</div></div>';
-        echo '<input type="hidden" name="whatsapp_provider" value="official">';
+        echo '<div class="field"><label>Motor principal</label><div class="muted">Atendimento pela ponte do WhatsApp (Baileys).</div></div>';
+        echo '<input type="hidden" name="whatsapp_provider" value="baileys">';
         echo '<div class="field"><label>Padrão das novas conversas</label><select name="whatsapp_default_mode">';
         render_options(['human' => 'Humano atende primeiro', 'bot' => 'IA atende primeiro'], (string)($settings['whatsapp_default_mode'] ?? 'human'));
         echo '</select><small class="muted">Define quem assume as conversas que entram agora.</small></div>';
-        echo '<div class="field"><label>Integração WhatsApp</label><div class="muted">A integração usa somente a API oficial da Meta.</div></div>';
         echo '</div>';
         echo '<div class="field"><label>Frases iniciais da campanha META</label><textarea name="meta_campaign_phrases" placeholder="Tenho interesse no fechamento!&#10;Quero fechar minha tattoo!">' . h($settings['meta_campaign_phrases'] ?? "Tenho interesse no fechamento!") . '</textarea><small class="muted">Uma frase por linha. O sistema usa isso para identificar leads/campanhas.</small></div>';
+        echo '<div class="settings-save-row"><button class="btn" type="submit" data-settings-submit="whatsapp">Salvar ajustes do WhatsApp</button></div>';
         echo '</div>';
+        echo '</div>';
+        if (false): // Bloco do numero oficial APOSENTADO (22/09/2026): mantido para religar depois.
         echo '<div class="panel soft settings-group">';
         echo '<h3 style="margin-top:0">WhatsApp oficial da Meta</h3>';
         echo '<p class="muted">Use este bloco para preparar a API oficial sem misturar isso com as configurações básicas da operação.</p>';
@@ -8611,6 +8638,7 @@ if ($page === 'studio_settings') {
         echo '</div>';
         echo '</div>';
         echo '</div></div>';
+        endif; // Fim do bloco do numero oficial APOSENTADO (22/09/2026).
         $aiProviderCurrent = (string)($settings['ai_provider'] ?? 'nvidia');
         if (!in_array($aiProviderCurrent, ['nvidia', 'openai', 'ollama'], true)) {
             $aiProviderCurrent = 'nvidia';
@@ -9117,9 +9145,36 @@ if ($page === 'studio_ads_roi') {
         $adsRoiPreset = $adsRoiPeriod;
     }
     $adsRoiSummary = ads_roi_summary($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // AGENDADO x REALIZADO: coisas diferentes. Agendado = marcou (pela data de
+    // criacao, inclui cancelado). Realizado = tatuagem feita (so 'finalizado').
+    $adsRoiAgReal = ads_roi_agendado_realizado($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // Card "Agendamentos futuros" ignora o filtro (que olha para tras): sempre
+    // mostra a agenda a frente a partir de hoje. E o numero que responde
+    // "quantos clientes tenho marcados".
+    $adsRoiFuturosTotal = ads_roi_agendado_realizado($adsRoiPdo, date('Y-m-d'), date('Y-m-d', strtotime('+365 days')));
+    // "Agendamentos criados hoje": clientes que MARCARAM hoje. Usa google_created_at
+    // (data real de criacao do evento no Google), nao created_at - que nos importados
+    // e a data da IMPORTACAO e contamina o resultado. Exclui compromisso pessoal.
+    $adsRoiCriadosHojeStmt = $adsRoiPdo->prepare(
+        'SELECT COUNT(*) FROM appointments
+          WHERE DATE(COALESCE(google_created_at, created_at)) = ?
+            AND YEAR(appointment_date) BETWEEN 2000 AND 2100
+            AND (import_source IS NULL OR import_source = "" OR google_created_at IS NOT NULL)
+            AND NOT (
+                 LOWER(title) REGEXP "limpeza|luna|niver|aniversario|aniversário|casamento|inss|pericia|perícia|café da manhã|cafe da manha|estorno|escola|tv vizinho|lembrar|sábado da|sabado da|spa day|manutenção|manutencao"
+            )'
+    );
+    $adsRoiCriadosHojeStmt->execute([date('Y-m-d')]);
+    $adsRoiCriadosHoje = (int)$adsRoiCriadosHojeStmt->fetchColumn();
     $adsRoiProjection = ads_roi_monthly_projection($adsRoiPdo);
     // Origem do cliente: rastreada pela ponte do WhatsApp (ctwaContext + carimbo).
-    $adsLeadsByOrigin = ads_leads_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // Precedencia ponte > tabela `leads`: desde a migracao para a ponte (22/09/2026)
+    // nao nasce mais lead por conversa no CRM, entao a contagem de contato de
+    // anuncio vem do registro da propria ponte (ads_origin_hits).
+    $adsLeadsByOrigin = ads_leads_by_origin_painel($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // "Leads por origem" precisa do catalogo de rotulos para agrupar valores antigos
+    // (ex.: "Meta Ads" e "meta" contam juntos). Carrega antes de renderizar.
+    require_once APP_BASE_PATH . '/app/ads_origem_catalogo.php';
     $adsHitsByOrigin = ads_hits_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     // Diagnostico da ponte de origem: detectou mas nao gravou? (divergencia invisivel)
     $adsBridgeHealth = ads_bridge_health();
@@ -9139,7 +9194,10 @@ if ($page === 'studio_ads_roi') {
         $adsRoiBudgets[strtolower((string)$b['channel'])] = (float)$b['daily_budget'];
     }
 
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline, $vendaFila, $vendaAlertaFila) {
+    // ATENCAO: toda variavel vista dentro desta closure PRECISA estar na lista use abaixo.
+    // Ja esqueci isso 3x (Undefined variable silencioso). Ao adicionar uma variavel nova
+    // usada no corpo, adicione-a AQUI tambem.
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiAgReal, $adsRoiFuturosTotal, $adsRoiCriadosHoje, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline, $vendaFila, $vendaAlertaFila) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -9157,6 +9215,12 @@ if ($page === 'studio_ads_roi') {
             /* Precisa de .roi-card na frente: .roi-card .val tem mais peso que .roi-bad sozinho. */
             .roi-card .val.roi-good{color:#079455}
             .roi-card .val.roi-bad{color:#d92d20}
+            /* Card clicavel: o numero abre a lista que o compoe (verificar_card.php). */
+            a.roi-card-link{text-decoration:none;color:inherit;transition:border-color .12s,box-shadow .12s,transform .12s}
+            a.roi-card-link:hover{border-color:#3538cd;box-shadow:0 4px 12px rgba(53,56,205,.14);transform:translateY(-1px)}
+            a.roi-card-link .sub b{color:#3538cd}
+            a.roi-card-link::after{content:"";font-family:"Font Awesome 6 Free";font-weight:900;font-size:10px;color:#98a2b3;position:absolute;top:12px;right:13px}
+            .roi-card{position:relative}
             .roi-card.saldo-baixo{background:#fffbfa;border:2px solid #d92d20}
             .roi-card.saldo-baixo .lbl{color:#b42318}
             .roi-selo-baixo{display:inline-block;background:#d92d20;color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;margin-left:6px;letter-spacing:.03em}
@@ -9175,6 +9239,21 @@ if ($page === 'studio_ads_roi') {
             .roi-pdf-btn{flex:0 0 auto;white-space:nowrap}
 
             .roi-period-active{display:inline-block;background:#eef4ff;color:#3538cd;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700;margin-bottom:14px;line-height:1.4}
+
+            /* --- Grupos de cards: cada grupo tem um titulo curto e 2-3 numeros. --- */
+            .roi-group{margin-bottom:20px}
+            .roi-group-head{display:flex;align-items:baseline;gap:8px;margin:0 0 8px}
+            .roi-group-head h3{font-size:13px;font-weight:800;color:#101828;margin:0;letter-spacing:-.01em}
+            .roi-group-head span{font-size:11px;color:#98a2b3}
+            .roi-group .roi-cards{margin-bottom:0}
+            /* Destaque: o numero de dinheiro que mais importa. */
+            .roi-card.destaque{background:linear-gradient(135deg,#f4fdf7,#eafaf0);border-color:#a6f4c5}
+            .roi-card.destaque .val{color:#027a48}
+            /* Rodape unico de explicacao, em vez de vários avisos no meio. */
+            .roi-nota{margin-top:18px;border-top:1px solid #eaecf0;padding-top:12px;font-size:12px;color:#667085;line-height:1.55}
+            .roi-nota summary{cursor:pointer;font-weight:700;color:#475467;font-size:12px}
+            .roi-nota[open] summary{margin-bottom:8px}
+            .roi-nota p{margin:0 0 8px}
             .roi-help{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:18px;height:18px;border-radius:50%;background:#eaecf0;color:#475467;font-size:11px;font-weight:800;cursor:pointer;border:0;margin-left:5px;vertical-align:middle;line-height:1}
             .roi-help:hover{background:#d0d5dd}
             .roi-help-panel{display:none;position:fixed;z-index:1050;width:min(420px,calc(100vw - 24px));background:#fff;border:1px solid #d0d5dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18);padding:16px 18px;font-size:13px;color:#344054;line-height:1.5}
@@ -9207,6 +9286,12 @@ if ($page === 'studio_ads_roi') {
         </style>';
         echo '<div class="roi-period-bar">';
         // Presets de periodo. "Hoje" e o padrao.
+        // "Ontem" e um intervalo de UM dia especifico (o dia anterior), entao usa
+        // roi_from/roi_to em vez de roi_days: com roi_days=1 o fim seria sempre hoje.
+        $ontem = date('Y-m-d', strtotime('-1 day'));
+        $ehOntem = $adsRoiCustom && $adsRoiStart === $ontem && $adsRoiEnd === $ontem;
+        $actOntem = $ehOntem ? 'btn-dark' : 'btn-outline-secondary';
+        echo '<a class="btn btn-sm ' . $actOntem . '" href="' . h(app_url('studio_ads_roi', ['roi_from' => $ontem, 'roi_to' => $ontem])) . '">Ontem</a>';
         foreach ([1 => 'Hoje', 7 => '7 dias', 15 => '15 dias', 30 => '30 dias', 60 => '60 dias', 90 => '90 dias'] as $p => $rotulo) {
             $act = ($adsRoiPreset === $p) ? 'btn-dark' : 'btn-outline-secondary';
             echo '<a class="btn btn-sm ' . $act . '" href="' . h(app_url('studio_ads_roi')) . '&roi_days=' . $p . '">' . h($rotulo) . '</a>';
@@ -9277,6 +9362,8 @@ if ($page === 'studio_ads_roi') {
         $help = [
             'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
             'agendamentos' => ['Agendamentos com valor', 'Conta as linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no período <b>e que têm valor cadastrado</b> (campo <code>value</code> maior que zero). é a agenda de verdade, não os leads do anúncio.<br><br><b>Compromissos sem valor não contam</b> - limpeza, reunião, bloqueio de horário e cancelamento sem valor ficam fora, porque não são serviço vendido. Sem esse filtro o CPA e o ROAS sairiam artificialmente bons.<br><br>O subtítulo mostra quantos <b>cancelados</b> existem na agenda do período, com ou sem valor.'],
+            'agendados' => ['Agendados', 'Quantos clientes <b>marcaram data</b> no período, contando pela <b>data de criação</b> do agendamento (<code>created_at</code>) - o dia em que o cliente fechou e reservou.<br><br><b>Inclui cancelados:</b> quem marcou e depois cancelou continua contando aqui (marcou, mas não veio).<br><br>Agendado <b>não</b> é venda feita - é promessa de venda. Compare com o bloco <b>Realizados</b> para ver quantas viraram tatuagem de verdade.'],
+            'realizados' => ['Realizados', 'Quantas tatuagens <b>aconteceram de fato</b> no período: agendamentos com status <code>finalizado</code>, contados pela <b>data do atendimento</b>.<br><br><b>Cancelado nunca entra aqui.</b> Só conta o serviço que foi realmente executado.<br><br>É o bloco que representa a <b>venda concretizada</b> - e é a base do ROAS e do custo por tatuagem.'],
             'leads_anuncio' => ['Leads de anúncio', 'Quantos contatos <b>de anúncio</b> entraram no período, contando <code>leads</code> criados entre <b>DATA_INICIO</b> e <b>DATA_FIM</b> cuja origem é do Meta (Facebook) ou Instagram.<br><br>A origem vem do rastreio do WhatsApp: o pacote <code>ctwaContext</code> que a Meta envia quando a conversa nasce de um clique em anúncio (traz o ID do anúncio), e o carimbo <b>"Anúncio do facebook/instagram"</b> como segunda prova.<br><br>Se este número estiver <b>zero</b>, nenhuma conversa de anúncio foi rastreada no período - e aí o custo por lead e o ROI por canal não podem ser calculados.'],
             'leads_origem' => ['Leads por origem', 'Total de leads com <b>qualquer origem identificada</b>: anúncio (Meta/Instagram), Google, indicação, porta e cliente reincidente.<br><br>O subtítulo mostra duas coisas:<br>• <b>sem origem</b>: leads cuja origem ainda não foi identificada (cliente que não veio de link nem de anúncio rastreado).<br>• <b>total</b>: todos os leads criados no período, incluindo os importados do Google Agenda.<br><br>Quanto maior a fatia "sem origem", menos confiável fica qualquer divisão por canal.'],
             'cpl' => ['Custo por lead de anúncio', 'Quanto custou cada contato vindo de anúncio:<br><br><code>gasto total ÷ leads de anúncio</code><br><br>É o número mais direto para saber se o anúncio está caro <b>antes</b> de virar agendamento. Aparece <b>—</b> quando não houve lead de anúncio no período (divisão por zero).'],
@@ -9372,28 +9459,82 @@ if ($page === 'studio_ads_roi') {
                 . 'Saldo <b>baixo</b> = Meta abaixo de R$ 30 ou Google abaixo de R$ 50.</div>';
         }
 
-        echo '<h3 class="h5 mt-4 mb-2">Conversa x Venda (análise da IA local)</h3>';
+        // Parametros de periodo para os links de verificacao (verificar_card.php).
+        // Precisa vir ANTES do primeiro card que usa: declarado depois, o PHP entrega
+        // null no operador de uniao e a pagina morre com "null + array".
+        $verifParams = ['roi_days' => (int)$adsRoiPeriod] + ($adsRoiCustom ? ['roi_from' => $adsRoiStart, 'roi_to' => $adsRoiEnd] : []);
+        $verifLeadParams = $verifParams;
+
+        // Conversas do periodo: a ponte manda quando ha conversa; senao cai para a IA.
+        require_once APP_BASE_PATH . '/app/historico_conversas.php';
+        $vConversasPonte = ads_conversas_ponte_periodo($adsRoiStart, $adsRoiEnd);
+        $vUsandoPonte = (int)$vConversasPonte['total'] > 0;
         $vTot = $vendaResumo['totais'] ?? ['conversas' => 0, 'vendas' => 0, 'valor' => 0.0];
-        $vConversas = (int)($vTot['conversas'] ?? 0);
-        $vVendas = (int)($vTot['vendas'] ?? 0);
-        $vValor = (float)($vTot['valor'] ?? 0);
-        $vTaxa = $vConversas > 0 ? round($vVendas / $vConversas * 100, 1) : null;
-        $vTicket = $vVendas > 0 ? $vValor / $vVendas : null;
-        $vCustoVenda = ($vVendas > 0 && (float)$s['spend_total'] > 0) ? ((float)$s['spend_total'] / $vVendas) : null;
+        $vConversas = $vUsandoPonte ? (int)$vConversasPonte['total'] : (int)($vTot['conversas'] ?? 0);
 
+        // Leads de anuncio: derivados da contagem por origem (definida mais abaixo
+        // no bloco de leads). Declarado aqui para o card do grupo usar.
+        $leadsAnuncio = 0;
+        $leadsRastreados = 0;
+        $leadsSemOrigem = 0;
+        $leadsTotal = (int)($adsLeadsByOrigin['__total'] ?? 0);
+
+        // Contagem de LEADS por origem (dado rastreado pela ponte do WhatsApp).
+        // Precisa calcular ANTES dos cards do grupo, que consomem estes numeros.
+        $orcLead = [];
+        foreach (array_keys(ads_origem_catalogo()) as $cod) {
+            $orcLead[$cod] = 0;
+        }
+        $orcLead['sem_origem'] = 0;
+        foreach ($adsLeadsByOrigin as $k => $v) {
+            if ($k === '__total') { continue; }
+            $k = strtolower(trim((string)$k));
+            if ($k === '' || $k === 'sem_origem') {
+                $orcLead['sem_origem'] += (int)$v;
+                continue;
+            }
+            $cod = ads_origem_normalizar($k);
+            $orcLead[$cod] = ($orcLead[$cod] ?? 0) + (int)$v;
+        }
+        foreach ($orcLead as $cod => $n) {
+            if (ads_origem_e_anuncio((string)$cod)) { $leadsAnuncio += (int)$n; }
+            if ($cod !== 'sem_origem') { $leadsRastreados += (int)$n; }
+        }
+        $leadsSemOrigem = $orcLead['sem_origem'];
+
+        echo '<div class="roi-group">';
+        echo '<div class="roi-group-head"><h3>O que os anúncios trouxeram</h3><span>período selecionado</span></div>';
         echo '<div class="roi-cards">';
-        echo '<div class="roi-card"><div class="lbl">Conversa iniciada</div><div class="val">' . $vConversas . '</div><div class="sub">conversas analisadas no período</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Venda concretizada</div><div class="val " style="color:#079455">' . $vVendas . '</div><div class="sub">a IA identificou fechamento</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Taxa de fechamento</div><div class="val">' . (is_null($vTaxa) ? '—' : number_format($vTaxa, 1, ',', '.') . '%') . '</div><div class="sub">vendas ÷ conversas</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Valor vendido</div><div class="val">' . $fmt($vValor) . '</div><div class="sub">soma das vendas identificadas</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Ticket médio</div><div class="val">' . $fmt($vTicket) . '</div><div class="sub">valor ÷ vendas</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Custo por venda</div><div class="val">' . $fmt($vCustoVenda) . '</div><div class="sub">gasto ÷ vendas</div></div>';
-        echo '</div>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifParams + ['escopo' => 'conversas'])) . '"><div class="lbl">Conversas</div><div class="val">' . $vConversas . '</div><div class="sub">contatos iniciados · <b>ver</b></div></a>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifLeadParams + ['escopo' => 'leads_anuncio'])) . '"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . (int)(($orcLead['facebook'] ?? 0) + ($orcLead['meta'] ?? 0)) . ' + Insta ' . (int)($orcLead['instagram'] ?? 0) . ' · <b>ver</b></div></a>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifLeadParams + ['escopo' => 'gasto'])) . '"><div class="lbl">Gasto' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ' · <b>ver</b></div></a>';
+        echo '</div></div>';
 
-        // Detalhe por origem: o que cada campanha trouxe e o que fechou.
+        echo '<div class="roi-group">';
+        echo '<div class="roi-group-head"><h3>Agenda</h3><span>futuros e realizados são coisas diferentes</span></div>';
+        echo '<div class="roi-cards">';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifParams + ['escopo' => 'marcados'])) . '"><div class="lbl">Marcados hoje</div><div class="val" style="color:#079455">' . (int)$adsRoiCriadosHoje . '</div><div class="sub">clientes que fecharam hoje · <b>ver</b></div></a>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifParams + ['escopo' => 'futuros'])) . '"><div class="lbl">Futuros</div><div class="val" style="color:#3538cd">' . (int)($adsRoiFuturosTotal['futuros'] ?? $adsRoiAgReal['futuros']) . '</div><div class="sub">na agenda daqui pra frente · <b>ver</b></div></a>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifParams + ['escopo' => 'realizados'])) . '"><div class="lbl">Realizados</div><div class="val" style="color:#027a48">' . (int)$adsRoiAgReal['realizados'] . '</div><div class="sub">tatuagens que aconteceram · <b>ver</b></div></a>';
+        echo '</div></div>';
+
+        echo '<div class="roi-group">';
+        echo '<div class="roi-group-head"><h3>Dinheiro</h3><span>o que voltou versus o que foi gasto</span></div>';
+        echo '<div class="roi-cards">';
+        $roas = ((float)$s['spend_total'] > 0 && (float)$adsRoiAgReal['realizados_valor'] > 0)
+            ? ((float)$adsRoiAgReal['realizados_valor'] / (float)$s['spend_total'])
+            : null;
+        $roasClass = (is_null($roas) || $roas < 1) ? 'roi-bad' : 'roi-good';
+        echo '<div class="roi-card destaque"><div class="lbl">Faturado (realizado)' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($adsRoiAgReal['realizados_valor']) . '</div><div class="sub">soma das tatuagens feitas</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format((float)$roas, 2, ',', '.') . 'x') . '</div><div class="sub">faturado ÷ gasto</div></div>';
+        echo '<div class="roi-card"><div class="lbl">A receber (futuro)</div><div class="val">' . $fmt($adsRoiFuturosTotal['futuros_valor'] ?? 0) . '</div><div class="sub">agendamentos à frente</div></div>';
+        echo '</div></div>';
+
+        // Origem das conversas: so quando houver dado da ponte, evita tabela vazia.
         $vOrigens = $vendaResumo['por_origem'] ?? [];
         if ($vOrigens) {
-            echo '<table class="roi-table mb-3"><thead><tr><th>Canal de origem</th><th>Conversas</th><th>Vendas</th><th>Taxa</th><th>Valor</th></tr></thead><tbody>';
+            echo '<div class="roi-group"><div class="roi-group-head"><h3>Fechamento por canal</h3></div>';
+            echo '<table class="roi-table"><thead><tr><th>Canal</th><th>Conversas</th><th>Vendas</th><th>Taxa</th><th>Valor</th></tr></thead><tbody>';
             foreach ($vOrigens as $origemNome => $dados) {
                 $c = (int)$dados['conversas'];
                 $vd = (int)$dados['vendas'];
@@ -9404,27 +9545,22 @@ if ($page === 'studio_ads_roi') {
                     . '<td>' . $tx . '</td>'
                     . '<td>' . $fmt((float)$dados['valor']) . '</td></tr>';
             }
-            echo '</tbody></table>';
+            echo '</tbody></table></div>';
         }
 
+        // Avisos operacionais: so os que EXIGEM acao, em uma linha cada.
         if (!$vendaIaOnline) {
-            echo '<div class="alert alert-warning" style="font-size:12px">A IA local (Ollama) está <b>fora do ar</b>: nenhuma conversa nova está sendo analisada agora. A tarefa <code>ProjetoCRM Ollama IA Local</code> sobe o serviço automaticamente.</div>';
+            echo '<div class="alert alert-warning" style="font-size:12px"><b>IA local fora do ar.</b> Nenhuma conversa nova está sendo classificada agora (tarefa <code>ProjetoCRM Ollama IA Local</code>).</div>';
         }
         if ((int)$vendaFila >= (int)$vendaAlertaFila) {
-            echo '<div class="alert alert-warning" style="font-size:12px"><b>Há ' . (int)$vendaFila . ' conversas esperando análise</b> (limite de atenção: ' . (int)$vendaAlertaFila . '). '
-                . 'A análise está alcançando o volume de conversas novas. Se a fila continuar crescendo, as datas dos cards ficam atrasadas em relação à realidade.</div>';
-        } elseif ((int)$vendaFila > 0) {
-            echo '<div class="alert alert-secondary" style="font-size:12px">' . (int)$vendaFila . ' conversa(s) na fila de análise - o job processa na próxima rodada.</div>';
+            echo '<div class="alert alert-warning" style="font-size:12px"><b>' . (int)$vendaFila . ' conversas na fila de análise</b> — as datas dos cards podem ficar atrasadas.</div>';
         }
         $vIgnoradas = (int)($vendaResumo['ignoradas'] ?? 0);
-        echo '<div class="alert alert-secondary" style="font-size:12px">'
-            . '<b>Como funciona.</b> A IA local lê as conversas e decide se o cliente fechou a venda. '
-            . 'Roda de 2 em 2 horas pela tarefa <code>ProjetoCRM Analise Vendas IA</code>. '
-            . ($vIgnoradas > 0 ? 'Conversas ignoradas de propósito (ex.: seu próprio número): <b>' . $vIgnoradas . '</b>. ' : '')
-            . 'Confiança baixa ou motivo genérico ficam registrados para você conferir na análise.</div>';
+        $notaFila = (int)$vendaFila > 0 && (int)$vendaFila < (int)$vendaAlertaFila ? (int)$vendaFila . ' conversa(s) na fila. ' : '';
+        $notaIgnoradas = $vIgnoradas > 0 ? 'Conversas ignoradas de propósito (ex.: seu número): ' . $vIgnoradas . '. ' : '';
 
         echo '<div class="roi-cards">';
-        echo '<div class="roi-card"><div class="lbl">Gasto no período' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . '</div></div>';
+        // (bloco antigo removido: os cards agora vivem nos grupos acima)
 
         // ---- Contagem de LEADS por origem (dado rastreado pela ponte do WhatsApp) ----
         // Usa o catalogo para agrupar valores antigos (ex.: "Meta Ads" e "meta" contam juntos).
@@ -9443,6 +9579,8 @@ if ($page === 'studio_ads_roi') {
             $cod = ads_origem_normalizar($k);
             $orcLead[$cod] = ($orcLead[$cod] ?? 0) + (int)$v;
         }
+        // Vincula os cards de lead ao detalhe clicável (verificar_card.php).
+        // $verifLeadParams ja foi declarado acima, antes do card de gasto.
         // Leads de anuncio = origens do grupo "anuncio" do catalogo.
         $leadsAnuncio = 0;
         foreach ($orcLead as $cod => $n) {
@@ -9459,27 +9597,19 @@ if ($page === 'studio_ads_roi') {
         $leadsSemOrigem = $orcLead['sem_origem'];
         $leadsTotal = (int)($adsLeadsByOrigin['__total'] ?? 0);
 
-        echo '<div class="roi-card"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . (int)($orcLead['meta'] ?? 0) . ' + Instagram ' . (int)($orcLead['instagram'] ?? 0) . ' + Google ' . (int)($orcLead['google'] ?? 0) . '</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Leads por origem' . $helpBtn('leads_origem') . '</div><div class="val">' . $leadsRastreados . '</div><div class="sub">' . $leadsSemOrigem . ' sem origem · ' . $leadsTotal . ' leads no total</div></div>';
-
-        echo '<div class="roi-card"><div class="lbl">Agendamentos com valor' . $helpBtn('agendamentos') . '</div><div class="val">' . (int)$s['agendamentos'] . '</div><div class="sub">' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda</div></div>';
-
-        // Custo por lead de anúncio (só faz sentido com gasto e com leads rastreados).
+        // Custos: parte do bloco Dinheiro, mas em uma linha secundaria menor.
         $cpl = ($leadsAnuncio > 0 && (float)$s['spend_total'] > 0)
             ? ((float)$s['spend_total'] / $leadsAnuncio)
             : null;
-        echo '<div class="roi-card"><div class="lbl">Custo por lead de anúncio' . $helpBtn('cpl') . '</div><div class="val">' . $fmt($cpl) . '</div><div class="sub">' . ($leadsAnuncio > 0 ? 'gasto ÷ leads de anúncio' : 'sem leads de anúncio no período') . '</div></div>';
-
-        $cpa = $s['custo_por_agendamento'];
-        echo '<div class="roi-card"><div class="lbl">Custo por agendamento' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">gasto ÷ agendamentos com valor</div></div>';
-
-        $roas = $s['roas'];
-        $roasClass = (is_null($roas) || $roas < 1) ? 'roi-bad' : 'roi-good';
-        echo '<div class="roi-card"><div class="lbl">Retorno (ROAS)' . $helpBtn('roas') . '</div><div class="val ' . $roasClass . '">' . (is_null($roas) ? '—' : number_format((float)$roas, 2, ',', '.') . 'x') . '</div><div class="sub">valor cadastrado ÷ gasto</div></div>';
-
-        echo '<div class="roi-card"><div class="lbl">Valor cadastrado' . $helpBtn('valor_agendado') . '</div><div class="val">' . $fmt($s['valor_agendado']) . '</div><div class="sub">soma dos agendamentos com valor</div></div>';
+        $cpa = ((int)$adsRoiAgReal['realizados'] > 0 && (float)$s['spend_total'] > 0)
+            ? ((float)$s['spend_total'] / (int)$adsRoiAgReal['realizados'])
+            : null;
+        echo '<div class="roi-group"><div class="roi-group-head"><h3>Custos</h3><span>gasto dividido por cada resultado</span></div>';
+        echo '<div class="roi-cards">';
+        echo '<div class="roi-card"><div class="lbl">Custo por lead' . $helpBtn('cpl') . '</div><div class="val">' . $fmt($cpl) . '</div><div class="sub">gasto ÷ leads de anúncio</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Custo por realizada' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">gasto ÷ tatuagens feitas</div></div>';
         echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
-        echo '</div>';
+        echo '</div></div>';
 
         // Painel único de tooltip + dados das explicações em JSON (aberto por clique no "?").
         echo '<div class="roi-help-panel" id="roiHelpPanel" role="dialog" aria-modal="false"><button type="button" class="roi-help-close" aria-label="Fechar">&times;</button><div id="roiHelpBody"></div></div>';
@@ -9513,29 +9643,36 @@ if ($page === 'studio_ads_roi') {
             window.addEventListener("resize", closePanel);
         })();</script>';
 
-        echo '<div class="alert alert-secondary" style="font-size:13px">A origem do cliente passou a ser <b>rastreada</b> pelas conversas do WhatsApp (o pacote de anúncio da Meta chega junto com a mensagem). Por isso os indicadores de <b>retorno (ROAS)</b>, <b>custo por agendamento</b>, <b>custo por lead de anúncio</b> e a <b>contagem de leads por origem</b> voltaram a aparecer.<br><br>Enquanto houver muitos leads <b>sem origem</b>, esses números consideram só o que foi rastreado — e o painel avisa no subtítulo de cada card.</div>';
+        // Nota unica no rodape: explica as regras sem poluir o topo da tela.
+        echo '<details class="roi-nota"><summary>Como estes números são calculados</summary>'
+            . '<p><b>Fonte.</b> Os números da agenda vêm do Google Calendar (calendário do estúdio) e são recalculados a cada abertura. As conversas vêm da ponte do WhatsApp.</p>'
+            . '<p><b>Marcados hoje</b> usa a data real de criação do evento no Google (não a data em que entrou no CRM). <b>Futuros</b> = clientes com data marcada à frente. <b>Realizados</b> = tatuagens com status finalizado, nunca cancelados. São coisas diferentes e nunca se somam.</p>'
+            . ($notaFila !== '' ? '<p>' . h($notaFila) . '</p>' : '')
+            . ($notaIgnoradas !== '' ? '<p>' . h($notaIgnoradas) . '</p>' : '')
+            . '<p>A origem do cliente é rastreada pelo pacote de anúncio que a Meta envia junto com a mensagem. Enquanto houver muitos leads sem origem, os números por canal consideram só o que foi rastreado.</p>'
+            . '</details>';
 
-        echo '<h3 class="h5 mt-4 mb-2">Meta x Google (período)' . $helpBtn('custo_canal') . '</h3>';
-        echo '<table class="roi-table mb-4"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th></tr></thead><tbody>';
+        echo '<div class="roi-group">';
+        echo '<div class="roi-group-head"><h3>Gasto por canal</h3></div>';
+        echo '<table class="roi-table"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th></tr></thead><tbody>';
         $totSpend = max(0.01, (float)$s['spend_total']);
         $chMeta = (float)$s['spend_meta']; $chGoogle = (float)$s['spend_google'];
         echo '<tr><td><span class="roi-pill meta">META</span></td><td>' . $fmt($chMeta) . '</td><td>' . number_format($chMeta / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
         echo '<tr><td><span class="roi-pill google">GOOGLE</span></td><td>' . $fmt($chGoogle) . '</td><td>' . number_format($chGoogle / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
-        echo '</tbody></table>';
-        echo '<div class="alert alert-warning" style="font-size:13px">Compara&ccedil;&atilde;o de resultado por canal temporariamente indispon&iacute;vel: a agenda ainda n&atilde;o registra de qual an&uacute;ncio veio cada cliente, ent&atilde;o n&atilde;o d&aacute; para afirmar qual canal traz mais agendamento. Os n&uacute;meros acima mostram apenas <b>quanto foi gasto</b> em cada canal.</div>';
+        echo '</tbody></table></div>';
 
-        echo '<h3 class="h5 mt-4 mb-2">Dia a dia' . $helpBtn('dia_a_dia') . '</h3>';
+        echo '<div class="roi-group">';
+        echo '<div class="roi-group-head"><h3>Dia a dia</h3><span>' . $helpBtn('dia_a_dia') . '</span></div>';
         echo '<div style="max-height:420px;overflow:auto;border:1px solid #eaecf0;border-radius:14px">';
-        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Agend.</th><th>Valor</th></tr></thead><tbody>';
+        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Futuros</th><th>Realizados</th><th>Valor</th></tr></thead><tbody>';
         foreach (array_reverse($s['series']) as $d) {
-            $roasD = $d['roas'];
-            $cls = (is_null($roasD) || $roasD < 1) ? 'roi-bad' : 'roi-good';
             echo '<tr><td>' . h(date('d/m', strtotime((string)$d['date']))) . '</td>';
             echo '<td>' . ($d['meta_spend'] > 0 ? $fmt($d['meta_spend']) : '—') . '</td>';
             echo '<td>' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '—') . '</td>';
             echo '<td>' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '—') . '</td>';
-            echo '<td>' . (int)$d['agendamentos'] . '</td>';
-            echo '<td>' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '—') . '</td>';
+            echo '<td>' . (int)($d['agendados_futuros'] ?? 0) . '</td>';
+            echo '<td>' . (int)$d['realizados'] . '</td>';
+            echo '<td>' . ($d['valor_realizado'] > 0 ? $fmt($d['valor_realizado']) : '—') . '</td>';
             echo '</tr>';
         }
         echo '</tbody></table></div>';
@@ -9661,12 +9798,34 @@ ROIPDFJS;
     exit;
 }
 
+if ($page === 'studio_verificar_card') {
+    // Painel de verificacao dos cards: cada numero abre a lista que o compoe.
+    // A pagina vive em verificar_card.php (rota propria dentro do app).
+    // O catalogo de rotulos vem junto: o detalhe mostra a origem de cada linha.
+    require_once APP_BASE_PATH . '/app/ads_origem_catalogo.php';
+    require APP_BASE_PATH . '/verificar_card.php';
+    exit;
+}
+
 if ($page === 'studio_historico') {
     $studio = require_studio();
     // A pagina vive em app/pagina_historico.php (le o arquivo da ponte, edita origem e responde).
     require_once APP_BASE_PATH . '/app/historico_conversas.php';
     require_once APP_BASE_PATH . '/app/historico_leads_map.php';
     require APP_BASE_PATH . '/app/pagina_historico.php';
+    exit;
+}
+
+if ($page === 'studio_funil') {
+    // Funil de vendas: do hit do anuncio ate a tatuagem feita (5 etapas).
+    // Le ads_origin_hits + appointments e cruza com o arquivo da ponte do WhatsApp.
+    $studio = require_studio();
+    require_once APP_BASE_PATH . '/app/historico_conversas.php';
+    require_once APP_BASE_PATH . '/app/historico_leads_map.php';
+    require_once APP_BASE_PATH . '/app/funil.php';
+    render_studio_shell('Funil de Vendas', 'Do anuncio ate a tatuagem feita: quantos leads do Ads abrem conversa, interagem, agendam e tatuam.', 'funil', function () use ($studio) {
+        render_funil($studio);
+    }, $flash);
     exit;
 }
 

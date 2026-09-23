@@ -23,6 +23,11 @@ function studio_tattoo_image_absolute_from_relative(string $relative): string
 
 function studio_tattoo_image_realesrgan_root(): string
 {
+    // DESLIGADO em 2026-09-20: IA local de imagem removida desta maquina (hardware nao suportou).
+    // Para reativar, restaure o backup _backup-ia-desligada-* ou defina IA_LOCAL_IMAGE_ENABLED=true.
+    if (getenv('IA_LOCAL_IMAGE_ENABLED') !== 'true') {
+        return APP_BASE_PATH . DIRECTORY_SEPARATOR . '_ia-desativada';
+    }
     $envRoot = trim((string)(getenv('REALESRGAN_NCNN_ROOT') ?: ''));
     return $envRoot !== '' ? $envRoot : 'C:\\AI\\realesrgan-ncnn-vulkan';
 }
@@ -30,6 +35,9 @@ function studio_tattoo_image_realesrgan_root(): string
 function studio_tattoo_image_realesrgan_upscale(string $sourcePath, int $factor = 4): string
 {
     $factor = max(2, min(4, $factor));
+    if (getenv('IA_LOCAL_IMAGE_ENABLED') !== 'true') {
+        return '';
+    }
     $root = studio_tattoo_image_realesrgan_root();
     $exe = $root . DIRECTORY_SEPARATOR . 'realesrgan-ncnn-vulkan.exe';
     if (!is_file($exe) || !is_file($sourcePath)) {

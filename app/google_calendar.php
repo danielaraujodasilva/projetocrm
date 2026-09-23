@@ -442,11 +442,25 @@ function google_calendar_api_event_item(array $event, string $calendarId): array
         'DTEND' => $endValue,
         'STATUS' => strtoupper((string)($event['status'] ?? 'confirmed')),
         'ALL_DAY' => isset($startData['date']) && !isset($startData['dateTime']),
+        // Data REAL de criacao do evento no Google (quando o cliente marcou de fato).
+        'CREATED' => (string)($event['created'] ?? ''),
     ];
     $parsed = studio_parse_calendar_event_for_crm($source);
     $parsed['uid'] = import_uid('google-api|' . $calendarId . '|' . $eventId);
     $parsed['google_event_id'] = $eventId;
     $parsed['google_calendar_id'] = $calendarId;
+    // created do Google vem em RFC3339 UTC; normaliza para datetime local.
+    $created = trim((string)($event['created'] ?? ''));
+    $parsed['google_created_at'] = null;
+    if ($created !== '') {
+        try {
+            $parsed['google_created_at'] = (new DateTimeImmutable($created))
+                ->setTimezone(new DateTimeZone('America/Sao_Paulo'))
+                ->format('Y-m-d H:i:s');
+        } catch (Throwable) {
+            $parsed['google_created_at'] = null;
+        }
+    }
     return $parsed;
 }
 
