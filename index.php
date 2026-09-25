@@ -2985,6 +2985,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         'Marketing' => [
             ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
             ['funil', 'fa-filter', 'Funil de Vendas', 'studio_funil'],
+            ['painel_unificado', 'fa-gauge-high', 'Painel Unificado (teste)', 'studio_painel_teste'],
             ['meta_ads', 'fa-chart-line', 'Meta Ads', 'studio_meta_ads'],
             ['tattoo_images', 'fa-wand-magic-sparkles', 'Criar imagens', 'studio_tattoo_images'],
         ],
@@ -3000,7 +3001,7 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         ],
     ];
     $renderStudioNav = static function (array $groups, string $current): void {
-        $adminOnlyRoutes = ['studio_artists', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads'];
+        $adminOnlyRoutes = ['studio_artists', 'studio_finance', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_settings', 'studio_meta_ads', 'studio_painel_teste'];
         $isAdmin = studio_current_user_is_admin();
         foreach ($groups as $groupLabel => $items) {
             $visibleItems = [];
@@ -3513,7 +3514,7 @@ if ($page === 'public_agent') {
     exit;
 }
 
-$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_funil', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho', 'studio_verificar_card'];
+$studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_funil', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho', 'studio_verificar_card', 'studio_painel_teste'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
     redirect_to('studio_login');
@@ -5581,7 +5582,7 @@ if ($page === 'studio_agenda') {
         echo '</div></div></div></div>';
         echo '<div id="appointmentDetailModal" class="crm-modal hidden"><div class="crm-modal-panel appointment-detail-modal"><div class="crm-panel-header"><div><h3 id="appointmentDetailTitle" class="crm-panel-title">Agendamento</h3><p id="appointmentDetailSummary" class="muted" style="margin:4px 0 0"></p></div><button type="button" id="closeAppointmentDetailModal" class="crm-button crm-icon-button"><i class="fa-solid fa-xmark"></i></button></div><div class="p-4" id="appointmentDetailBody"></div></div></div>';
         echo '<script>(function(){const csrfHtml=' . json_encode(csrf_field(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';document.addEventListener("click",function(event){const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}if(!item.conversation_id)return;window.setTimeout(function(){const actions=document.querySelector("#appointmentDetailBody .appointment-detail-actions");if(!actions||actions.querySelector("[data-conversation-actions]"))return;const box=document.createElement("div");box.dataset.conversationActions="1";box.className="panel soft";box.style.marginBottom="12px";box.innerHTML="<strong>Pré-agendamento</strong><p class=\\"muted\\">O horário está reservado como pré-agendado e não bloqueia a agenda. Abra a conversa, assuma o atendimento e depois confirme o sinal.</p>";const openLink=document.createElement("a");openLink.className="btn";openLink.href=item.conversation_url||"#";openLink.textContent="Abrir conversa";const form=document.createElement("form");form.method="post";form.className="inline-form";form.innerHTML=csrfHtml+"<input type=\\"hidden\\" name=\\"action\\" value=\\"assign_whatsapp_conversation\\"><input type=\\"hidden\\" name=\\"conversation_id\\" value=\\""+String(item.conversation_id)+"\\">";const assume=document.createElement("button");assume.type="submit";assume.className="btn secondary";assume.textContent="Assumir conversa";form.appendChild(assume);box.append(openLink,form);actions.parentNode.insertBefore(box,actions);},0);});})();</script>';
-        echo '<script>(function(){const toolsBtn=document.getElementById("openAgendaToolsButton");const toolsModal=document.getElementById("agendaToolsModal");const closeTools=document.getElementById("closeAgendaToolsModal");const freeBtn=document.getElementById("openFreeSlotsButton");const freeModal=document.getElementById("freeSlotsModal");const closeFree=document.getElementById("closeFreeSlotsModal");const detailModal=document.getElementById("appointmentDetailModal");const closeDetail=document.getElementById("closeAppointmentDetailModal");const detailTitle=document.getElementById("appointmentDetailTitle");const detailSummary=document.getElementById("appointmentDetailSummary");const detailBody=document.getElementById("appointmentDetailBody");const csrfHtml=' . json_encode(csrf_field(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';const open=(modal)=>{if(modal)modal.classList.remove("hidden");};const close=(modal)=>{if(modal)modal.classList.add("hidden");};const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));if(toolsBtn&&toolsModal)toolsBtn.addEventListener("click",()=>open(toolsModal));if(closeTools)closeTools.addEventListener("click",()=>close(toolsModal));if(freeBtn&&freeModal)freeBtn.addEventListener("click",()=>{close(toolsModal);open(freeModal);});if(closeFree)closeFree.addEventListener("click",()=>close(freeModal));if(closeDetail)closeDetail.addEventListener("click",()=>close(detailModal));document.addEventListener("click",(event)=>{const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger||!detailModal||!detailTitle||!detailBody)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}detailTitle.textContent=item.name||item.title||"Agendamento";detailSummary.textContent=[item.date_label,item.time_label,item.status].filter(Boolean).join(" · ");const alerts=Array.isArray(item.health_alerts)?item.health_alerts:[];const referenceHtml=item.reference_url?`<div class="appointment-reference-inline"><a href="${esc(item.reference_url)}" target="_blank" rel="noopener"><img src="${esc(item.reference_url)}" alt="Referência do agendamento"></a><div><strong>Referência principal</strong><p>${esc(item.reference_name||"Imagem enviada no WhatsApp")}</p></div></div>`:"";detailBody.innerHTML=`<div class="appointment-detail-grid"><div class="appointment-detail-kpi"><span>Quando</span><strong>${esc(item.date_label||"-")}</strong><small>${esc(item.time_label||"-")}</small></div><div class="appointment-detail-kpi"><span>Status</span><strong>${esc(item.status||"-")}</strong><small>${esc(item.origin_label||"Manual")}</small></div><div class="appointment-detail-kpi"><span>Tatuador</span><strong>${esc(item.artist||"-")}</strong><small>${esc(item.google_calendar_id?"Google Agenda":"CRM")}</small></div><div class="appointment-detail-kpi"><span>Valores</span><strong>${esc(item.value_label||"R$ 0,00")}</strong><small>Sinal ${esc(item.deposit_label||"R$ 0,00")}</small></div></div>${referenceHtml}<div class="panel soft appointment-detail-notes"><strong>Título original</strong><p>${esc(item.title||item.name||"-")}</p>${item.description?`<strong>Descrição</strong><p>${esc(item.description)}</p>`:""}${item.raw_title?`<strong>Origem/importação</strong><p>${esc(item.raw_title)}</p>`:""}${alerts.length?`<strong>Alertas de saúde</strong><div class="appointment-health-list">${alerts.map((alert)=>`<span class="badge warn">${esc(alert.label)}: ${esc(alert.detail)}</span>`).join("")}</div>`:""}</div><div class="actions appointment-detail-actions"><a class="btn" href="${esc(item.edit_url||"#")}">Editar agendamento</a><form method="post" class="inline-form" onsubmit="return confirm(\'Excluir este agendamento?\')">${csrfHtml}<input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="appointment_id" value="${esc(item.id||"")}"><input type="hidden" name="appointment_date" value="${esc(item.date||"")}"><button type="submit" class="btn secondary">Excluir</button></form><button type="button" class="btn secondary" data-close-appointment-detail>Fechar</button></div>`;open(detailModal);});document.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("[data-close-appointment-detail]"))close(detailModal);});[toolsModal,freeModal,detailModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal)close(modal);});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){close(toolsModal);close(freeModal);close(detailModal);}});})();</script>';
+        echo '<script>(function(){const toolsBtn=document.getElementById("openAgendaToolsButton");const toolsModal=document.getElementById("agendaToolsModal");const closeTools=document.getElementById("closeAgendaToolsModal");const freeBtn=document.getElementById("openFreeSlotsButton");const freeModal=document.getElementById("freeSlotsModal");const closeFree=document.getElementById("closeFreeSlotsModal");const detailModal=document.getElementById("appointmentDetailModal");const closeDetail=document.getElementById("closeAppointmentDetailModal");const detailTitle=document.getElementById("appointmentDetailTitle");const detailSummary=document.getElementById("appointmentDetailSummary");const detailBody=document.getElementById("appointmentDetailBody");const csrfHtml=' . json_encode(csrf_field(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';const open=(modal)=>{if(modal)modal.classList.remove("hidden");};const close=(modal)=>{if(modal)modal.classList.add("hidden");};const esc=(value)=>String(value??"").replace(/[&<>"\x27]/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]||ch));if(toolsBtn&&toolsModal)toolsBtn.addEventListener("click",()=>open(toolsModal));if(closeTools)closeTools.addEventListener("click",()=>close(toolsModal));if(freeBtn&&freeModal)freeBtn.addEventListener("click",()=>{close(toolsModal);open(freeModal);});if(closeFree)closeFree.addEventListener("click",()=>close(freeModal));if(closeDetail)closeDetail.addEventListener("click",()=>close(detailModal));document.addEventListener("click",(event)=>{const trigger=event.target instanceof Element?event.target.closest("[data-appointment-detail]"):null;if(!trigger||!detailModal||!detailTitle||!detailBody)return;let item={};try{item=JSON.parse(trigger.getAttribute("data-appointment-detail")||"{}");}catch(error){item={};}detailTitle.textContent=item.name||item.title||"Agendamento";detailSummary.textContent=[item.date_label,item.time_label,item.status].filter(Boolean).join(" · ");const alerts=Array.isArray(item.health_alerts)?item.health_alerts:[];const referenceHtml=item.reference_url?`<div class="appointment-reference-inline"><a href="${esc(item.reference_url)}" target="_blank" rel="noopener"><img src="${esc(item.reference_url)}" alt="Referência do agendamento"></a><div><strong>Referência principal</strong><p>${esc(item.reference_name||"Imagem enviada no WhatsApp")}</p></div></div>`:"";detailBody.innerHTML=`<div class="appointment-detail-grid"><div class="appointment-detail-kpi"><span>Quando</span><strong>${esc(item.date_label||"-")}</strong><small>${esc(item.time_label||"-")}</small></div><div class="appointment-detail-kpi"><span>Status</span><strong>${esc(item.status||"-")}</strong><small>${esc(item.origin_label||"Manual")}</small></div><div class="appointment-detail-kpi"><span>Tatuador</span><strong>${esc(item.artist||"-")}</strong><small>${esc(item.google_calendar_id?"Google Agenda":"CRM")}</small></div><div class="appointment-detail-kpi"><span>Valores</span><strong>${esc(item.value_label||"R$ 0,00")}</strong><small>Sinal ${esc(item.deposit_label||"R$ 0,00")}</small></div><div class="appointment-detail-kpi"><span>Telefone</span>${item.phone_url?`<strong><a href="${esc(item.phone_url)}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> ${esc(item.phone_label||item.phone)}</a></strong><small>${esc(item.phone_source||"cadastro")}</small>`:`<strong>-</strong><small>não encontrado</small>`}</div></div>${referenceHtml}<div class="panel soft appointment-detail-notes"><strong>Título original</strong><p>${esc(item.title||item.name||"-")}</p>${item.description?`<strong>Descrição</strong><p>${esc(item.description)}</p>`:""}${item.raw_title?`<strong>Origem/importação</strong><p>${esc(item.raw_title)}</p>`:""}${alerts.length?`<strong>Alertas de saúde</strong><div class="appointment-health-list">${alerts.map((alert)=>`<span class="badge warn">${esc(alert.label)}: ${esc(alert.detail)}</span>`).join("")}</div>`:""}</div><div class="actions appointment-detail-actions"><a class="btn" href="${esc(item.edit_url||"#")}">Editar agendamento</a><form method="post" class="inline-form" onsubmit="return confirm(\'Excluir este agendamento?\')">${csrfHtml}<input type="hidden" name="action" value="delete_appointment"><input type="hidden" name="appointment_id" value="${esc(item.id||"")}"><input type="hidden" name="appointment_date" value="${esc(item.date||"")}"><button type="submit" class="btn secondary">Excluir</button></form><button type="button" class="btn secondary" data-close-appointment-detail>Fechar</button></div>`;open(detailModal);});document.addEventListener("click",(event)=>{if(event.target instanceof Element&&event.target.closest("[data-close-appointment-detail]"))close(detailModal);});[toolsModal,freeModal,detailModal].forEach((modal)=>{if(!modal)return;modal.addEventListener("click",(event)=>{if(event.target===modal)close(modal);});});document.addEventListener("keydown",(event)=>{if(event.key==="Escape"){close(toolsModal);close(freeModal);close(detailModal);}});})();</script>';
         if ($view === 'month') {
             render_calendar_month($calendarAppointments, $focus, $pomadaUnitPrice);
         } elseif ($view === 'week') {
@@ -5609,6 +5610,14 @@ if ($page === 'studio_agenda') {
             echo '<div class="grid cols-2 mt-3">';
             echo '<div class="panel soft"><p class="muted mb-1">Quando</p><h3 class="mt-0">' . h(format_date_pt($selectedDate) . ' ' . substr((string)$selectedAppointment['start_time'], 0, 5) . ($selectedAppointment['end_time'] ? ' - ' . substr((string)$selectedAppointment['end_time'], 0, 5) : '')) . '</h3><p class="muted mb-0">' . h($selectedAppointment['status']) . '</p></div>';
             echo '<div class="panel soft"><p class="muted mb-1">Cliente / Lead</p><h3 class="mt-0">' . h($selectedAppointment['customer_name'] ?: $selectedAppointment['lead_name'] ?: $selectedAppointment['title']) . '</h3><p class="muted mb-0">' . h($selectedAppointment['artist_name'] ?: 'Sem tatuador') . '</p></div>';
+            $selFone = function_exists('crm_telefone_do_agendamento') ? crm_telefone_do_agendamento($selectedAppointment) : '';
+            if ($selFone !== '') {
+                $selFoneUrl = crm_telefone_url_baileys($selFone);
+                $selFoneDoCadastro = normalize_phone((string)($selectedAppointment['customer_phone'] ?? $selectedAppointment['lead_phone'] ?? $selectedAppointment['phone'] ?? ''));
+                echo '<div class="panel soft"><p class="muted mb-1">Telefone</p><h3 class="mt-0"><a href="' . h($selFoneUrl) . '" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> ' . h(crm_telefone_formatar($selFone)) . '</a></h3><p class="muted mb-0">' . h($selFoneDoCadastro !== '' ? 'cadastro' : 'conversa do WhatsApp') . '</p></div>';
+            } else {
+                echo '<div class="panel soft"><p class="muted mb-1">Telefone</p><h3 class="mt-0">-</h3><p class="muted mb-0">não encontrado</p></div>';
+            }
             $selectedValue = appointment_display_amount($selectedAppointment['value'] ?? 0);
             $selectedDeposit = appointment_display_amount($selectedAppointment['deposit_value'] ?? 0);
             $selectedPomadaUnit = isset($selectedAppointment['pomada_unit_price']) && $selectedAppointment['pomada_unit_price'] !== null && $selectedAppointment['pomada_unit_price'] !== ''
@@ -9798,6 +9807,16 @@ ROIPDFJS;
     exit;
 }
 
+if ($page === 'studio_painel_teste') {
+    // PAGINA TESTE: junta Retorno dos Anuncios + Funil de Vendas numa so tela.
+    // Mobile first, so dados. O partial vive em app/painel_unificado_teste.php.
+    $studio = require_studio();
+    render_studio_shell('Painel unificado (teste)', 'Anuncios, funil, agenda e origem numa tela so.', 'ads_roi', function () use ($studio) {
+        require APP_BASE_PATH . '/app/painel_unificado_teste.php';
+    }, $flash);
+    exit;
+}
+
 if ($page === 'studio_verificar_card') {
     // Painel de verificacao dos cards: cada numero abre a lista que o compoe.
     // A pagina vive em verificar_card.php (rota propria dentro do app).
@@ -11484,6 +11503,26 @@ function appointment_calendar_detail_payload(array $appointment): array
         ? (preg_match('/^https?:\/\//i', $referencePath) ? $referencePath : app_url($referencePath))
         : '';
 
+    // Telefone para contato: cadastro do cliente/lead e, quando nao ha, o numero
+    // casado pelo nome nas conversas do Baileys (import do Google Agenda raramente
+    // traz o numero no evento). Ver app/telefone_contato.php.
+    $phone = function_exists('crm_telefone_do_agendamento')
+        ? crm_telefone_do_agendamento($appointment)
+        : '';
+    $phoneLabel = $phone !== '' && function_exists('crm_telefone_formatar')
+        ? crm_telefone_formatar($phone)
+        : '';
+    $phoneUrl = $phone !== '' && function_exists('crm_telefone_url_baileys')
+        ? crm_telefone_url_baileys($phone)
+        : '';
+    // De onde veio o telefone, para o painel explicar quando nao for do cadastro.
+
+    $phoneFonte = '';
+    if ($phone !== '') {
+        $doCadastro = normalize_phone((string)($appointment['customer_phone'] ?? $appointment['lead_phone'] ?? $appointment['phone'] ?? ''));
+        $phoneFonte = $doCadastro !== '' ? 'cadastro' : 'conversa do WhatsApp';
+    }
+
     return [
         'id' => (int)($appointment['id'] ?? 0),
         'name' => $name,
@@ -11493,6 +11532,10 @@ function appointment_calendar_detail_payload(array $appointment): array
         'date_label' => $date !== '' ? format_date_pt($date) : '-',
         'time_label' => trim($start . ($end !== '' ? ' - ' . $end : '')),
         'status' => $status !== '' ? $status : 'sem status',
+        'phone' => $phone,
+        'phone_label' => $phoneLabel,
+        'phone_url' => $phoneUrl,
+        'phone_source' => $phoneFonte,
         'artist' => (string)($appointment['artist_name'] ?: 'Sem tatuador'),
         'value_label' => format_money($value),
         'deposit_label' => format_money($deposit),
@@ -11546,6 +11589,10 @@ function render_calendar_block(array $appointment): void
     echo '<strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
     echo '<span class="appointment-block-title">' . h($name . ' - ' . $appointment['title']) . '</span>';
     echo '<span class="muted appointment-block-meta">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
+    $blocoFone = function_exists('crm_telefone_do_agendamento') ? crm_telefone_do_agendamento($appointment) : '';
+    if ($blocoFone !== '') {
+        echo '<span class="appointment-block-meta"><a href="' . h(crm_telefone_url_baileys($blocoFone)) . '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Abrir conversa no WhatsApp"><i class="fa-brands fa-whatsapp"></i> ' . h(crm_telefone_formatar($blocoFone)) . '</a></span>';
+    }
     echo '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>';
     if (studio_appointment_health_alerts_from_row($appointment)) {
         echo '<span class="badge warn">saúde</span>';
@@ -11566,7 +11613,14 @@ function render_customers_table(array $customers): void
         $lastMessageAt = trim((string)($customer['last_message_at'] ?? ''));
         echo '<tr data-overlay-item data-overlay-date="' . h($lastAppointmentDate !== '' ? $lastAppointmentDate : $lastMessageAt) . '" data-overlay-time="' . h(substr($lastMessageAt, 11, 5)) . '">';
         echo '<td><a href="' . h($href) . '"><strong>' . h($customer['name'] ?: 'Sem nome') . '</strong></a><br><span class="muted">' . h($customer['instagram'] ?: '-') . '</span></td>';
-        echo '<td>' . h($customer['phone'] ?: '-') . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
+        $telCliente = $customer['phone'] ?: '';
+        if ($telCliente === '' && function_exists('crm_telefone_por_nome')) {
+            $telCliente = crm_telefone_por_nome((string)($customer['name'] ?? ''));
+        }
+        $telHtml = $telCliente !== '' && function_exists('crm_telefone_link_html')
+            ? crm_telefone_link_html($telCliente)
+            : h($customer['phone'] ?: '-');
+        echo '<td>' . $telHtml . '<br><span class="muted">' . h($customer['email'] ?: '-') . '</span></td>';
         echo '<td>' . h($customer['notes'] ?: '-') . '</td>';
         echo '<td><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';

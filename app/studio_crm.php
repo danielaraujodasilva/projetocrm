@@ -26619,6 +26619,8 @@ function studio_parse_calendar_event_for_crm(array $event): array
 {
     $rawTitle = normalize_spaces((string)($event['SUMMARY'] ?? ($event['summary'] ?? '')));
     $description = normalize_spaces((string)($event['DESCRIPTION'] ?? ($event['description'] ?? '')));
+    // LOCATION costuma ser onde o Google guarda o telefone do convite.
+    $location = normalize_spaces((string)($event['LOCATION'] ?? ($event['location'] ?? '')));
     $startValue = (string)($event['DTSTART'] ?? ($event['dtstart'] ?? ''));
     $start = studio_ics_datetime_to_local($startValue);
     $end = studio_ics_datetime_to_local((string)($event['DTEND'] ?? ($event['dtend'] ?? '')));
@@ -26635,6 +26637,7 @@ function studio_parse_calendar_event_for_crm(array $event): array
         'uid' => import_uid($uidSeed),
         'google_uid' => $googleUid,
         'description_original' => $description,
+        'location_original' => $location,
         'date' => $start ? $start->format('Y-m-d') : null,
         'start_time' => $start ? $start->format('H:i:s') : null,
         'end_time' => $end ? $end->format('H:i:s') : null,
@@ -26663,7 +26666,7 @@ function studio_parse_calendar_event_for_crm(array $event): array
         return array_merge($base, ['reason' => 'parece compromisso pessoal']);
     }
 
-    $phone = studio_calendar_extract_phone($rawTitle . ' ' . $description);
+    $phone = studio_calendar_extract_phone($rawTitle . ' ' . $description . ' ' . $location);
     [$value, $valueToken] = studio_calendar_extract_event_value($rawTitle);
     $hasServiceKeyword = studio_calendar_contains_any($normalized, ['tattoo', 'tatuagem', 'tatuar', 'retoque', 'micro', 'micropigmentacao', 'cilios', 'piercing', 'pomada', 'sinal', 'orcamento', 'cobertura', 'sessao', 'fechamento', 'higienizacao']);
     $looksLikePerson = studio_calendar_looks_like_person_title($rawTitle);

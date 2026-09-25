@@ -94,8 +94,10 @@ function ads_roi_daily_series(PDO $pdo, string $start, string $end): array
     // e o ROAS saem artificialmente bons. Agendamento FUTURO (confirmado) e contado
     // separado, pela data do evento, no bloco "agendados_futuros" do dia.
     $apptSql = 'SELECT appointment_date,
-                       SUM(CASE WHEN value > 0 AND LOWER(status) = "finalizado" THEN 1 ELSE 0 END) AS realizados,
-                       SUM(CASE WHEN value > 0 AND LOWER(status) = "finalizado" THEN value ELSE 0 END) AS valor_realizado,
+                       SUM(CASE WHEN LOWER(status) = "finalizado"
+                                 AND NOT (LOWER(title) REGEXP "limpeza|luna|niver|aniversario|casamento|inss|pericia|caf\u00e9 da manh\u00e3|cafe da manha|estorno|escola|tv vizinho|lembrar|s\u00e1bado da|sabado da|spa day|manuten\u00e7\u00e3o|manutencao|vistoria|carro")
+                                THEN 1 ELSE 0 END) AS realizados,
+                       SUM(CASE WHEN LOWER(status) = "finalizado" THEN value ELSE 0 END) AS valor_realizado,
                        SUM(CASE WHEN LOWER(status) IN ("confirmado","pre_agendado","agendado") THEN 1 ELSE 0 END) AS agendados_futuros,
                        SUM(CASE WHEN value > 0 AND LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados,
                        SUM(CASE WHEN LOWER(status) IN ("cancelado","canceled","cancelada") THEN 1 ELSE 0 END) AS cancelados_total
@@ -229,6 +231,9 @@ function ads_roi_agendado_realizado(PDO $pdo, string $start, string $end): array
           WHERE appointment_date BETWEEN ? AND ?
             AND YEAR(appointment_date) BETWEEN 2000 AND 2100
             AND LOWER(TRIM(status)) = "finalizado"
+            -- "Tatuou" = cliente ATENDIDO (decisao do dono): nao exige valor.
+            -- Mas exclui compromisso operacional (limpeza, vistoria, carro...).
+            AND NOT (LOWER(title) REGEXP "limpeza|luna|niver|aniversario|casamento|inss|pericia|caf\u00e9 da manh\u00e3|cafe da manha|estorno|escola|tv vizinho|lembrar|s\u00e1bado da|sabado da|spa day|manuten\u00e7\u00e3o|manutencao|vistoria|carro")
           GROUP BY appointment_date'
     );
     $st2->execute([$start, $end]);
@@ -239,6 +244,23 @@ function ads_roi_agendado_realizado(PDO $pdo, string $start, string $end): array
         ];
     }
 
+    // CPA: realizados COM valor (> 0). "Realizados" conta atendidos sem exigir
+    // valor, mas o custo por tatuagem precisa medir so o que gerou dinheiro.
+    $comValor = 0;
+    try {
+        $stCV = $pdo->prepare(
+            'SELECT COUNT(*) FROM appointments
+              WHERE appointment_date BETWEEN ? AND ?
+                AND YEAR(appointment_date) BETWEEN 2000 AND 2100
+                AND LOWER(TRIM(status)) = "finalizado"
+                AND value > 0'
+        );
+        $stCV->execute([$start, $end]);
+        $comValor = (int)$stCV->fetchColumn();
+    } catch (Throwable $e) {
+        $comValor = 0;
+    }
+
     $somaFut = 0; $valFut = 0.0; $somaReal = 0; $valReal = 0.0;
     foreach ($futurosSerie as $x) { $somaFut += $x['n']; $valFut += $x['valor']; }
     foreach ($realizadosSerie as $x) { $somaReal += $x['n']; $valReal += $x['valor']; }
@@ -247,6 +269,7 @@ function ads_roi_agendado_realizado(PDO $pdo, string $start, string $end): array
         'futuros' => $somaFut,
         'futuros_valor' => $valFut,
         'realizados' => $somaReal,
+        'realizados_com_valor' => $comValor,
         'realizados_valor' => $valReal,
         'serie_futuros' => $futurosSerie,
         'serie_realizados' => $realizadosSerie,
@@ -452,11 +475,20 @@ function ads_roi_google_store_refresh_token(array $studio, string $refreshToken)
  * Saldo / credito da conta do Google Ads.
  *
  * A API nao tem um campo unico de "saldo disponivel" como a Meta tem `balance`.
- * O que da para ler de forma confiavel:
- *   - account_budget: quanto foi aprovado no periodo (approved_spending_limit_micros)
- *   - account_budget: quanto ja foi gasto ate agora (amount_served_micros)
- *   - account_budget: quanto ainda cabe no periodo (pending + approved - served)
- * A API_REMAINING = approved - served, que e o que o dono chama de "saldo".
+ * O que da para ler de forma confiavel no account_budget:
+ *   - adjusted_spending_limit_micros: limite EFETIVO do periodo. Ja considera os
+ *     creditos/ajustes lancados pelo Google (total_adjustments_micros). E o valor
+ *     correto para calcular o que ainda cabe gastar.
+ *   - approved_spending_limit_micros: limite apenas aprovado (sem ajustes). Quando
+ *     o credito/adjuste aumenta o limite, este fica MENOR que o ajustado, e usar
+ *     so ele faz o saldo aparecer zerado ou negativo sem motivo.
+ *   - total_adjustments_micros: ajustes (creditos), positivos ou negativos.
+ *   - amount_served_micros: quanto ja foi gasto ate agora.
+ *
+ * Saldo = adjusted + adjustments - served (com fallback para approved quando o
+ * ajustado nao vier). NUNCA aplicar max(0, ...) no calculo: saldo negativo e uma
+ * informacao real (limite estourado) e o painel precisa mostrar isso, nao esconder
+ * atras de um "0".
  *
  * Forma de faturamento (billing_setup) tambem e lida: conta pos-paga nao tem
  * "saldo" no sentido de credito, e o painel precisa dizer isso em vez de mostrar 0.
@@ -500,9 +532,10 @@ function ads_roi_google_balance_status(array $studio): array
     $url = 'https://googleads.googleapis.com/' . rawurlencode($cfg['api_version'])
         . '/customers/' . rawurlencode($cfg['customer_id']) . '/googleAds:search';
 
-    // Orcamento da conta: aprovado no periodo x ja servido.
+    // Orcamento da conta: limite ajustado (efetivo) x ja servido.
     $consultaBudget = 'SELECT customer.id, customer.descriptive_name, customer.currency_code, '
         . 'customer.status, account_budget.approved_spending_limit_micros, '
+        . 'account_budget.adjusted_spending_limit_micros, account_budget.total_adjustments_micros, '
         . 'account_budget.amount_served_micros, account_budget.status, '
         . 'account_budget.approved_start_date_time, account_budget.approved_end_date_time '
         . 'FROM account_budget LIMIT 1';
@@ -535,18 +568,29 @@ function ads_roi_google_balance_status(array $studio): array
     $budget = $linha['accountBudget'] ?? [];
 
     $microAprovado = isset($budget['approvedSpendingLimitMicros']) ? (float)$budget['approvedSpendingLimitMicros'] : null;
+    $microAjustado = isset($budget['adjustedSpendingLimitMicros']) ? (float)$budget['adjustedSpendingLimitMicros'] : null;
+    $microAjustes = isset($budget['totalAdjustmentsMicros']) ? (float)$budget['totalAdjustmentsMicros'] : null;
     $microServido = isset($budget['amountServedMicros']) ? (float)$budget['amountServedMicros'] : null;
 
+    // Limite efetivo: o ajustado ja embute os ajustes; quando ausente, usa o aprovado.
+    $limiteMicro = $microAjustado ?? $microAprovado;
+
+    $limite = $limiteMicro !== null ? $limiteMicro / 1000000 : null;
     $aprovado = $microAprovado !== null ? $microAprovado / 1000000 : null;
+    $ajustes = $microAjustes !== null ? $microAjustes / 1000000 : null;
     $servido = $microServido !== null ? $microServido / 1000000 : null;
-    $restante = ($aprovado !== null && $servido !== null) ? max(0.0, $aprovado - $servido) : null;
+
+    // Sem max(0, ...): saldo negativo = limite estourado, e o dono precisa ver isso.
+    $restante = ($limite !== null && $servido !== null) ? ($limite - $servido) : null;
 
     return [
         'ok' => true,
         'configured' => true,
         'tem_creidto' => $restante !== null,
         'balance' => $restante,
+        'limite' => $limite,
         'aprovado' => $aprovado,
+        'ajustes' => $ajustes,
         'servido' => $servido,
         'currency' => (string)($conta['currencyCode'] ?? 'BRL'),
         'account_name' => (string)($conta['descriptiveName'] ?? 'Conta Google Ads'),
@@ -554,7 +598,9 @@ function ads_roi_google_balance_status(array $studio): array
         'budget_status' => (string)($budget['status'] ?? ''),
         'budget_fim' => (string)($budget['approvedEndDateTime'] ?? ''),
         'observacao' => $restante !== null
-            ? 'Limite aprovado (' . number_format((float)$aprovado, 2, ',', '.') . ') menos o já gasto (' . number_format((float)$servido, 2, ',', '.') . ').'
+            ? ('Limite ajustado (' . number_format((float)$limite, 2, ',', '.')
+                . ($ajustes !== null && abs((float)$ajustes) >= 0.005 ? ', com ajustes de ' . number_format((float)$ajustes, 2, ',', '.') : '')
+                . ') menos o já gasto (' . number_format((float)$servido, 2, ',', '.') . ').')
             : 'A conta nao informou limite de periodo; confira o saldo no painel do Google Ads.',
     ];
 }

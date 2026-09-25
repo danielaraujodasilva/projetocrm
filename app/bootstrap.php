@@ -57,3 +57,7 @@ require_once APP_BASE_PATH . '/app/ads_origin.php';
 require_once APP_BASE_PATH . '/app/general_image_pipeline.php';
 require_once APP_BASE_PATH . '/app/general_image_studio.php';
 require_once __DIR__ . '/whatsapp_official_runtime.php';
+// Leitor do arquivo da ponte do Baileys: usado pelo casamento de telefone por
+// nome (import do Google Agenda quase nunca traz o numero).
+require_once __DIR__ . '/historico_conversas.php';
+require_once __DIR__ . '/telefone_contato.php';
