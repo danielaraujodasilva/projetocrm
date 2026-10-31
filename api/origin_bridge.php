@@ -97,9 +97,13 @@ $platform = strtolower(trim((string)($payload['platform'] ?? '')));
 $greeting = trim((string)($payload['greeting'] ?? $payload['origin_greeting'] ?? ''));
 $chatName = trim((string)($payload['chatName'] ?? $payload['origin_chat_name'] ?? ''));
 $ctwaClid = trim((string)($payload['ctwaClid'] ?? ''));
+$ttclid = trim((string)($payload['ttclid'] ?? ''));
 $sourceUrl = trim((string)($payload['sourceUrl'] ?? ''));
 $headline = trim((string)($payload['headline'] ?? ''));
 $messageId = trim((string)($payload['messageId'] ?? ''));
+// Codigo curto da visita (gerado no ir.php). O CRM troca pelo click id gravado
+// no clique do anuncio (gclid/wbraid/gbraid/ttclid).
+$ref = trim((string)($payload['ref'] ?? ''));
 
 if ($phone === '' || $origin === '') {
     origin_bridge_log(['type' => 'missing_fields', 'phone' => $phone, 'origin' => $origin]);
@@ -132,6 +136,33 @@ $result = [
 
 try {
     $pdo = studio_db($studio);
+
+    // Codigo curto da visita (ir.php): vale MAIS que o texto da mensagem,
+    // porque o cliente pode editar/apagar o carimbo antes de enviar. A visita
+    // guarda o src do link e o click id — os dois sao usados aqui.
+    $clickId = $ttclid;
+    if ($ref !== '' && preg_match('/^[A-Za-z0-9_-]{4,32}$/', $ref) === 1) {
+        try {
+            $stRef = $pdo->prepare('SELECT src, gclid, ttclid FROM ads_src_hits WHERE ref_code = ? LIMIT 1');
+            $stRef->execute([$ref]);
+            $visita = $stRef->fetch(PDO::FETCH_ASSOC) ?: [];
+            $srcVisita = ads_origem_normalizar((string)($visita['src'] ?? ''));
+            $clickId = in_array($srcVisita, ['tiktok', 'tiktok_organico'], true)
+                ? trim((string)($visita['ttclid'] ?? ''))
+                : trim((string)($visita['gclid'] ?? ''));
+            if ($srcVisita !== '' && $srcVisita !== 'outro' && in_array($srcVisita, $allowed, true)) {
+                $origin = $srcVisita;
+                $result['origin'] = $origin;
+                $result['origem_por_ref'] = true;
+                // O ref e a fonte mais especifica: nao deixa a plataforma generica
+                // ("google"/"tiktok") sobrescrever TikTok organico ou outra origem.
+                $platform = '';
+                $result['platform'] = '';
+            }
+        } catch (Throwable $eRef) {
+            $clickId = '';
+        }
+    }
 
     // 1) Procura lead pelo telefone (mesma tolerancia do ads_apply_origin_to_conversation).
     $variants = [$phone, '+' . $phone];
@@ -216,9 +247,14 @@ try {
         KEY idx_origin_date (origin, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
+    // Coluna nova: click id (gclid/wbraid/gbraid/ttclid) da visita que originou o contato.
+    $pdo->exec('ALTER TABLE ads_origin_hits ADD COLUMN IF NOT EXISTS click_id VARCHAR(255) NULL AFTER ctwa_clid');
+
+    // O click id e o src real ja foram resolvidos no topo (bloco do $ref).
+
     $pdo->prepare('INSERT INTO ads_origin_hits
-        (phone, origin, platform, greeting, chat_name, ctwa_clid, source_url, headline, message_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        (phone, origin, platform, greeting, chat_name, ctwa_clid, click_id, source_url, headline, message_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         ->execute([
             $phone,
             $origin,
@@ -226,11 +262,13 @@ try {
             $greeting !== '' ? mb_substr($greeting, 0, 255) : null,
             $chatName !== '' ? mb_substr($chatName, 0, 160) : null,
             $ctwaClid !== '' ? mb_substr($ctwaClid, 0, 255) : null,
+            $clickId !== '' ? mb_substr($clickId, 0, 255) : null,
             $sourceUrl !== '' ? mb_substr($sourceUrl, 0, 500) : null,
             $headline !== '' ? mb_substr($headline, 0, 255) : null,
             $messageId !== '' ? mb_substr($messageId, 0, 160) : null,
         ]);
     $result['hit_id'] = (int)$pdo->lastInsertId();
+    $result['click_id'] = $clickId;
     $result['lid_nao_resolvido'] = $lidNaoResolvido;
     $result['jid_original'] = $jidOriginal;
 

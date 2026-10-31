@@ -54,13 +54,10 @@ function studio_general_image_provider(array $studio): array
 
 function studio_general_image_restart_local_service(): void
 {
-    $script = APP_BASE_PATH . '/scripts/start-local-image-ai.ps1';
-    if (!is_file($script)) {
-        return;
-    }
-
-    $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ' . escapeshellarg($script);
-    @pclose(@popen($command, 'r'));
+    // Aposentado em 2026-09: o motor local de imagens (stable-diffusion.cpp em :7861)
+    // nao roda no hardware desta maquina. Nao ha servico local para subir.
+    // O estudio segue pelo fallback configurado (OpenAI).
+    return;
 }
 
 function studio_general_image_style(string $style): string

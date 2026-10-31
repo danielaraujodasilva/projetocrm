@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/app/bootstrap.php';
+require_once dirname(APP_BASE_PATH) . '/autochat_control.php';
 
 $__app_build_cache = null;
 function app_build_version(): string
@@ -35,6 +36,31 @@ function app_build_version(): string
 $dbStatus = db_status();
 $schemaReady = $dbStatus['ok'] && schema_ready();
 $page = (string)($_GET['page'] ?? 'home');
+
+if (in_array($page, ['studio_whatsapp', 'studio_whatsapp_mobile', 'studio_whatsapp_mobile2', 'studio_whatsapp_baileys'], true) && $_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'toggle_autochat') {
+    csrf_verify();
+    $foneRetorno = preg_replace('/\D+/', '', (string)($_POST['fone'] ?? '')) ?? '';
+    $filtroRetorno = (string)($_POST['filtro'] ?? '');
+    $paramsRetorno = array_filter([
+        'fone' => $foneRetorno !== '' ? $foneRetorno : null,
+        'filtro' => $filtroRetorno !== '' ? $filtroRetorno : null,
+    ], static fn($valor) => $valor !== null && $valor !== '');
+
+    if (!studio_current_user_is_admin()) {
+        flash_set('error', 'Apenas o responsavel pode alterar o AutoChat.');
+        redirect_to('studio_whatsapp', $paramsRetorno);
+    }
+
+    $usuarioAutoChat = current_studio_user();
+    $novoEstado = (string)($_POST['enabled'] ?? '0') === '1';
+    try {
+        autochat_control_set_enabled($novoEstado, (string)($usuarioAutoChat['name'] ?? 'CRM'));
+        flash_set('success', $novoEstado ? 'AutoChat ligado.' : 'AutoChat desligado.');
+    } catch (Throwable $erro) {
+        flash_set('error', 'Nao foi possivel alterar o AutoChat agora.');
+    }
+    redirect_to('studio_whatsapp', $paramsRetorno);
+}
 
 if ($page === 'lead_public_update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $leadId = (int)($_POST['lead_id'] ?? 0);
@@ -180,7 +206,7 @@ if ($page === 'lead_public_update') {
                 echo '<p style="margin-top:20px"><a class="btn" href="' . h($waUrl) . '" target="_blank" rel="noopener">Voltar para o WhatsApp</a></p>';
             }
             echo '</section></div>';
-        }, null);
+        });
         exit;
     }
     $customer = !empty($lead['customer_id']) ? studio_find_customer($studio, (int)$lead['customer_id']) : null;
@@ -332,7 +358,7 @@ if ($page === 'lead_public_update') {
             })();
         </script>';
         echo '</div>';
-    }, null);
+    });
     exit;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $page !== 'public_plans' && $page !== 'lead_public_update') {
@@ -668,7 +694,7 @@ if ($action === 'studio_login') {
             require_once APP_BASE_PATH . '/app/historico_conversas.php';
             $studio = require_studio();
             $fone = preg_replace('/\D+/', '', (string)($_POST['telefone'] ?? ''));
-            $texto = trim((string)($_POST['mensagem'] ?? ''));
+            $texto = trim((string)($_POST['mensagem'] ?? $_POST['message'] ?? ''));
             $nome = trim((string)($_POST['nome'] ?? ''));
             $usuario = current_studio_user();
             $ator = is_array($usuario) ? trim((string)($usuario['name'] ?? 'Atendimento')) : 'Atendimento';
@@ -713,7 +739,7 @@ if ($action === 'studio_login') {
             } catch (Throwable $e) {
                 $anexo = null;
             }
-            if (!is_array($anexo)) {
+            if (!is_array($anexo) || (string)($anexo['base64'] ?? '') === '') {
                 $anexo = $anexoDireto;
             }
 
@@ -744,7 +770,7 @@ if ($action === 'studio_login') {
                     exit;
                 }
                 flash_set('error', $erro);
-                redirect_to('studio_historico', ['h_fone' => $fone]);
+                redirect_to('studio_whatsapp', $fone !== '' ? ['fone' => $fone] : []);
             }
 
             $envio = historico_ponte_enviar($fone, $texto, $nome, $ator, $extras);
@@ -762,6 +788,16 @@ if ($action === 'studio_login') {
                     $conv = is_array($novo) ? $novo : studio_find_whatsapp_conversation_by_phone($studio, $fone);
                 }
                 if (is_array($conv) && !empty($conv['id'])) {
+                    if (is_array($anexo) && (string)($anexo['relativePath'] ?? '') === '' && (string)($anexo['base64'] ?? '') !== '') {
+                        try {
+                            $salvo = studio_store_whatsapp_media($studio, (int)$conv['id'], (string)$anexo['base64'], (string)($anexo['mime'] ?? ''), $tipoEnviado, (string)($anexo['fileName'] ?? ''));
+                            if ((string)($salvo['relativePath'] ?? '') !== '') {
+                                $anexo['relativePath'] = (string)$salvo['relativePath'];
+                            }
+                        } catch (Throwable $e) {
+                            // O envio ja aconteceu; a bolha ainda pode ser registrada sem preview.
+                        }
+                    }
                     $pdoH = studio_db($studio);
                     $corpoMensagem = $texto !== '' ? $texto : ('[' . $tipoEnviado . ']');
                     $pdoH->prepare('INSERT INTO whatsapp_messages (conversation_id, message_id, direction, sender_type, body, message_type, media_url, media_mime, media_file_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())')
@@ -804,9 +840,9 @@ if ($action === 'studio_login') {
             flash_set(!empty($envio['ok']) ? 'success' : 'error', !empty($envio['ok'])
                 ? 'Mensagem enviada.'
                 : ('Nao foi possivel enviar: ' . (string)($envio['error'] ?? '')));
-            // Devolve para a tela de origem: o chat Baileys volta pra ele mesmo.
-            if (!empty($_POST['return_to_baileys'])) {
-                redirect_to('studio_whatsapp_baileys', ['id' => (int)($_POST['conversation_id'] ?? 0)]);
+            // Devolve para o chat unico usando o telefone como chave.
+            if (!empty($_POST['return_to_baileys']) || !empty($_POST['return_to_mobile2']) || !empty($_POST['return_to_mobile'])) {
+                redirect_to('studio_whatsapp', $fone !== '' ? ['fone' => $fone] : []);
             }
             redirect_to('studio_historico', ['h_fone' => $fone]);
         }
@@ -956,8 +992,9 @@ if ($action === 'studio_login') {
                     : 'Agenda salva.'
             );
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile', array_filter([
-                    'id' => (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0) ?: null,
+                $appointmentConversation = studio_find_whatsapp_conversation($studio, (int)($_POST['conversation_id'] ?? $_POST['return_to_conversation'] ?? 0));
+                redirect_to('studio_whatsapp', array_filter([
+                    'fone' => preg_replace('/\D+/', '', (string)($appointmentConversation['phone'] ?? '')) ?: null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_mobile'])) {
@@ -1845,6 +1882,8 @@ if ($action === 'studio_login') {
         if ($action === 'mobile_mark_whatsapp_read' || $action === 'mobile_mark_whatsapp_unread') {
             $studio = require_studio();
             $conversationId = (int)($_POST['conversation_id'] ?? 0);
+            $expectsJson = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest'
+                || str_contains(strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? '')), 'application/json');
             if ($action === 'mobile_mark_whatsapp_read') {
                 studio_whatsapp_mark_read($studio, $conversationId);
                 flash_set('success', 'Conversa marcada como lida.');
@@ -1852,16 +1891,20 @@ if ($action === 'studio_login') {
                 studio_whatsapp_mark_unread($studio, $conversationId);
                 flash_set('success', 'Conversa marcada como nao lida.');
             }
-            if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile', array_filter([
-                    'id' => $conversationId > 0 ? $conversationId : null,
-                ], static fn($value) => $value !== null && $value !== ''));
+            if ($expectsJson) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode([
+                    'ok' => true,
+                    'conversation_id' => $conversationId,
+                    'unread' => $action === 'mobile_mark_whatsapp_unread',
+                    'unread_count' => studio_whatsapp_active_unread_count($studio),
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                exit;
             }
-            redirect_to('studio_whatsapp_mobile', array_filter([
-                'id' => $conversationId > 0 ? $conversationId : null,
+            redirect_to('studio_whatsapp', array_filter([
+                'fone' => $action === 'mobile_mark_whatsapp_read' ? preg_replace('/\D+/', '', (string)(studio_find_whatsapp_conversation($studio, $conversationId)['phone'] ?? '')) : null,
+                'filtro' => $action === 'mobile_mark_whatsapp_unread' ? 'nao_lidas' : null,
                 'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
-                'filter' => (string)($_POST['filter'] ?? $_GET['filter'] ?? ''),
-                'visibility' => 'all',
             ], static fn($value) => $value !== null && $value !== ''));
         }
 
@@ -1970,8 +2013,9 @@ if ($action === 'studio_login') {
                 exit;
             }
             if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile', array_filter([
-                    'id' => (int)($_POST['conversation_id'] ?? 0) ?: null,
+                $profileConversation = studio_find_whatsapp_conversation($studio, (int)($_POST['conversation_id'] ?? 0));
+                redirect_to('studio_whatsapp', array_filter([
+                    'fone' => preg_replace('/\D+/', '', (string)($profileConversation['phone'] ?? '')) ?: null,
                 ], static fn($value) => $value !== null && $value !== ''));
             }
             if (!empty($_POST['return_to_workspace'])) {
@@ -2479,18 +2523,12 @@ if ($action === 'studio_login') {
                     }
                 }
             }
-            if (!empty($_POST['return_to_mobile'])) {
-                redirect_to('studio_whatsapp_mobile', array_filter([
-                    'id' => $conversationId > 0 ? $conversationId : null,
-                    'visibility' => 'all',
-                ], static fn($value) => $value !== null && $value !== ''));
-            }
-            if (!empty($_POST['return_to_mobile2'])) {
-                redirect_to('studio_whatsapp_mobile', array_filter([
-                    'id' => $conversationId > 0 ? $conversationId : null,
-                ], static fn($value) => $value !== null && $value !== ''));
-            }
-            redirect_to('studio_whatsapp_mobile', $conversationId > 0 ? ['id' => $conversationId] : []);
+            $mobileReturnPhone = preg_replace('/\D+/', '', (string)($conversation['phone'] ?? '')) ?? '';
+            redirect_to('studio_whatsapp', array_filter([
+                'fone' => $mobileReturnPhone !== '' ? $mobileReturnPhone : null,
+                'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
+                'filtro' => (string)($_POST['filtro'] ?? $_GET['filtro'] ?? ''),
+            ], static fn($value) => $value !== null && $value !== ''));
         }
 
         if ($action === 'test_whatsapp_official') {
@@ -2724,7 +2762,7 @@ function render_head(string $title): void
     echo '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" referrerpolicy="no-referrer">';
     echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/app.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/app.css') ?: app_build_version())) . '">';
     if (in_array($title, ['Atendimento Mobile', 'WhatsApp Mobile 2'], true)) {
-        echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h(app_build_version()) . '">';
+        echo '<link rel="stylesheet" href="' . h(app_asset_url('assets/studio_whatsapp_mobile2.css')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/studio_whatsapp_mobile2.css') ?: app_build_version())) . '">';
         // Manifest do atalho: a rota do Baileys tem o proprio, para o "adicionar a
         // tela inicial" abrir o chat do numero da ponte.
         $manifestTipo = (str_contains((string)($_SERVER['REQUEST_URI'] ?? ''), 'studio_whatsapp_baileys')) ? '?tipo=baileys' : '';
@@ -2979,8 +3017,6 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         'Atendimento' => [
             ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
             ['historico', 'fa-clock-rotate-left', 'Histórico de Conversas', 'studio_historico'],
-            ['baileys', 'fa-mobile-screen-button', 'WhatsApp Baileys', 'studio_whatsapp_baileys'],
-            ['baileys_atalho', 'fa-mobile-screen', 'Atalho do Baileys no celular', 'studio_whatsapp_baileys_atalho'],
         ],
         'Marketing' => [
             ['ads_roi', 'fa-bullseye', 'Retorno dos Anúncios', 'studio_ads_roi'],
@@ -3045,14 +3081,17 @@ function render_studio_shell(string $title, string $subtitle, string $active, ca
         ['leads', 'fa-bolt', 'Leads', 'studio_leads'],
         ['agenda', 'fa-calendar-days', 'Agenda', 'studio_agenda'],
         ['whatsapp', 'fa-comments', 'WhatsApp', 'studio_whatsapp'],
-        studio_current_user_is_admin()
-            ? ['meta_ads', 'fa-chart-line', 'Meta', 'studio_meta_ads']
-            : ['tattoo_images', 'fa-wand-magic-sparkles', 'Imagens', 'studio_tattoo_images'],
     ];
     foreach ($bottomItems as [$key, $icon, $label, $route]) {
         echo '<a class="' . ($active === $key ? 'active' : '') . '" href="' . h(app_url($route)) . '"><i class="fa-solid ' . h($icon) . '"></i><span>' . h($label) . '</span></a>';
     }
-    echo '</nav></div>';
+    // No celular a navegacao e SO esta barra: o menu completo (todas as secoes,
+    // inclusive Financeiro/Configuracoes) fica escondido no topo e abre por aqui,
+    // em tela cheia. Antes os dois apareciam juntos e pareciam dois menus.
+    echo '<button type="button" data-open-menu><i class="fa-solid fa-bars"></i><span>Menu</span></button>';
+    echo '</nav>';
+    echo '<script>(function () { var b = document.querySelector("[data-open-menu]"); var m = document.querySelector(".mobile-menu"); if (!b || !m) { return; } b.addEventListener("click", function () { m.open = true; m.scrollTop = 0; }); })();</script>';
+    echo '</div>';
     render_scripts();
     echo '</body></html>';
 }
@@ -3514,6 +3553,16 @@ if ($page === 'public_agent') {
     exit;
 }
 
+if (in_array($page, ['studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_mobile', 'studio_whatsapp_mobile2', 'studio_whatsapp_baileys'], true)) {
+    $mobileParams = [];
+    foreach (['fone', 'id', 'filter', 'visibility', 'date_filter', 'date_from', 'date_to', 'q', 'lote', 'filtro'] as $key) {
+        if (isset($_GET[$key]) && is_scalar($_GET[$key]) && trim((string)$_GET[$key]) !== '') {
+            $mobileParams[$key] = trim((string)$_GET[$key]);
+        }
+    }
+    redirect_to('studio_whatsapp', $mobileParams);
+}
+
 $studioPages = ['studio_home', 'studio_people', 'studio_leads', 'studio_lead', 'studio_customers', 'studio_customer', 'studio_agenda', 'studio_artists', 'studio_whatsapp', 'studio_whatsapp_workspace', 'studio_whatsapp_conversation', 'studio_whatsapp_tags', 'studio_whatsapp_flow', 'studio_ai_rules', 'studio_finance', 'studio_quick_replies', 'studio_reports', 'studio_data_assistant', 'studio_ai_chat', 'studio_tattoo_images', 'studio_tattoo_image_status', 'studio_settings', 'studio_meta_ads', 'studio_ads_roi', 'studio_funil', 'studio_historico', 'studio_whatsapp_baileys', 'studio_whatsapp_baileys_atalho', 'studio_verificar_card', 'studio_painel_teste'];
 if (in_array($page, $studioPages, true) && !current_studio_user()) {
     $_SESSION['studio_return_to'] = safe_local_return_url((string)($_SERVER['REQUEST_URI'] ?? ''));
@@ -3526,21 +3575,11 @@ if (in_array($page, $studioAdminOnlyPages, true) && current_studio_user() && !st
     redirect_to('studio_home');
 }
 
-if (in_array($page, ['studio_whatsapp_workspace', 'studio_whatsapp_conversation'], true)) {
-    $mobileParams = [];
-    foreach (['id', 'filter', 'date_from', 'date_to'] as $key) {
-        if (isset($_GET[$key]) && is_scalar($_GET[$key]) && trim((string)$_GET[$key]) !== '') {
-            $mobileParams[$key] = trim((string)$_GET[$key]);
-        }
-    }
-    redirect_to('studio_whatsapp_mobile', $mobileParams);
-}
-
-if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' || $page === 'studio_whatsapp_baileys') {
-    // Rota do chat mobile. `studio_whatsapp_baileys` e o MESMO chat, so que
-    // respondendo pelo numero do Baileys (a ponte) em vez da API oficial.
-    $mobileUsaBaileys = ($page === 'studio_whatsapp_baileys');
-    $mobileRoute = $mobileUsaBaileys ? 'studio_whatsapp_baileys' : 'studio_whatsapp_mobile';
+if ($page === 'studio_whatsapp') {
+    // Chat unico do estudio. A ponte/Baileys e a fonte principal e a conversa
+    // do telefone e vinculada ao registro real do CRM para liberar os recursos.
+    $mobileUsaBaileys = true;
+    $mobileRoute = 'studio_whatsapp';
     $currentUser = current_studio_user();
     render_head('Atendimento Mobile');
 
@@ -3565,26 +3604,71 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         'date_to' => (string)($_GET['date_to'] ?? ''),
         'offset' => 0,
     ];
-    $conversations = studio_list_whatsapp_conversations($studio, $filters, 80);
-    $conversationId = (int)($_GET['id'] ?? 0);
-    $conversation = $conversationId > 0 ? studio_find_whatsapp_conversation($studio, $conversationId) : null;
-    $messages = $conversation ? studio_whatsapp_messages($studio, $conversationId, 100, $conversation) : [];
+    $crmConversations = studio_list_whatsapp_conversations($studio, $filters, 80);
+    $conversationId = 0;
+    $conversation = null;
+    $messages = [];
 
-    // ---- Rota Baileys: mesma tela, outra fonte -------------------------
-    // As conversas e mensagens vem do ARQUIVO da ponte (numero do Baileys),
-    // nao do banco do CRM (que guarda o numero da API oficial). O resto da
-    // tela - painel, cadastro, respostas rapidas, figurinhas - segue igual.
+    // ---- Fonte unica: arquivo da ponte + vinculo com a conversa do CRM ----
+    // A tela e uma so. O telefone mostra o historico vivo da ponte e, quando
+    // existe no CRM, usa o ID real para liberar atribuicao, IA, perfil e agenda.
     $mobileTelefoneBaileys = '';
     $mobileBaileysSoSemResposta = false;
+    $mobileBaileysNaoLidas = 0;
     $mobileBaileysTemMais = false;
     $mobileBaileysOffset = 0;
     $mobileBaileysLote = 20;
+    $mobileContactNameOverride = static function (string $phone): string {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+        return $digits === '5511932259200' ? 'Théo' : '';
+    };
     if ($mobileUsaBaileys) {
         require_once APP_BASE_PATH . '/app/historico_conversas.php';
         require_once APP_BASE_PATH . '/app/historico_leads_map.php';
-        $mobileTelefoneBaileys = preg_replace('/\D+/', '', (string)($_GET['fone'] ?? $_GET['id'] ?? ''));
-        // Toggle simples: todas ou so as sem resposta.
-        $mobileBaileysSoSemResposta = (string)($_GET['filtro'] ?? '') === 'sem_resposta';
+        $mobilePhoneKey = static function (string $phone): string {
+            $digits = preg_replace('/\D+/', '', $phone) ?? '';
+            return strlen($digits) > 11 ? substr($digits, -11) : $digits;
+        };
+        // A lista da ponte tem mais de mil contatos. Limitar o indice CRM as
+        // primeiras 80 conversas fazia nomes e estado de leitura ficarem velhos.
+        $mobileCrmPhoneIndex = [];
+        $mobileCrmRows = studio_db($studio)->query(
+            'SELECT wc.*, c.name AS customer_name, l.name AS lead_name
+             FROM whatsapp_conversations wc
+             LEFT JOIN customers c ON c.id = wc.customer_id
+             LEFT JOIN leads l ON l.id = wc.lead_id
+             WHERE wc.merged_into_id IS NULL
+             ORDER BY wc.updated_at DESC, wc.id DESC'
+        )->fetchAll() ?: [];
+        foreach ($mobileCrmRows as $mobileCrmRow) {
+            $key = $mobilePhoneKey((string)($mobileCrmRow['phone'] ?? ''));
+            if ($key !== '' && !isset($mobileCrmPhoneIndex[$key])) {
+                $mobileCrmPhoneIndex[$key] = $mobileCrmRow;
+            }
+        };
+        $mobileCrmConversationForPhone = static function (string $phone) use ($mobileCrmPhoneIndex, $mobilePhoneKey): ?array {
+            return $mobileCrmPhoneIndex[$mobilePhoneKey($phone)] ?? null;
+        };
+        $mobileUnreadPhones = [];
+        foreach ($mobileCrmRows as $mobileCrmRow) {
+            if (!empty($mobileCrmRow['nao_lida'])) {
+                $mobileUnreadPhones[] = (string)($mobileCrmRow['phone'] ?? '');
+            }
+        }
+
+        $mobileFoneInformado = preg_replace('/\D+/', '', (string)($_GET['fone'] ?? '')) ?? '';
+        if ($mobileFoneInformado !== '') {
+            $mobileTelefoneBaileys = $mobileFoneInformado;
+        } elseif ((int)($_GET['id'] ?? 0) > 0) {
+            // Links antigos usam o ID numerico do CRM; os links do chat usam o
+            // telefone. Tenta o ID primeiro e, se nao existir, trata como fone.
+            $mobileConversaPorId = studio_find_whatsapp_conversation($studio, (int)$_GET['id']);
+            $mobileTelefoneBaileys = $mobileConversaPorId
+                ? (preg_replace('/\D+/', '', (string)($mobileConversaPorId['phone'] ?? '')) ?? '')
+                : (preg_replace('/\D+/', '', (string)$_GET['id']) ?? '');
+        }
+        // Toggle simples: todas ou apenas as nao lidas de verdade.
+        $mobileBaileysSoSemResposta = in_array((string)($_GET['filtro'] ?? ''), ['nao_lidas', 'sem_resposta'], true);
         // Carrega em LOTES: o resto vem quando a lista chega no fim (scroll infinito).
         // O filtro de resposta vai para o SERVIDOR (o agrupamento ja sabe filtrar),
         // para cada lote trazer ~20 do que esta sendo mostrado - e nao 20 no total
@@ -3593,30 +3677,45 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         $mobileBaileysOffset = max(0, (int)($_GET['lote'] ?? 0)) * $mobileBaileysLote;
         $filtrosLote = $filters;
         if ($mobileBaileysSoSemResposta) {
-            $filtrosLote['resposta'] = 'sem_resposta';
+            $filtrosLote['fones'] = $mobileUnreadPhones;
         }
         $agrupado = historico_conversas_agrupadas($filtrosLote, $mobileBaileysLote + 1, $mobileBaileysOffset);
         $linhasTodas = array_slice($agrupado['conversas'], 0, $mobileBaileysLote);
         $mobileBaileysTemMais = count($agrupado['conversas']) > $mobileBaileysLote;
         $conversations = [];
-        $conversation = null;
-        $messages = [];
         foreach ($linhasTodas as $linha) {
+            $linhaFone = (string)($linha['phone'] ?? '');
+            $linhaCrm = $mobileCrmConversationForPhone($linhaFone);
+            $linhaNome = trim((string)($linha['name'] ?? ''));
+            $linhaNomeCrm = trim((string)($linhaCrm['customer_name'] ?? ''));
+            if ($linhaNomeCrm === '') $linhaNomeCrm = trim((string)($linhaCrm['lead_name'] ?? ''));
+            if ($linhaNomeCrm === '') $linhaNomeCrm = trim((string)($linhaCrm['name'] ?? ''));
+            if ($linhaNomeCrm !== '' && !in_array($linhaNomeCrm, ['Cliente WhatsApp', 'Contato WhatsApp'], true)) {
+                $linhaNome = $linhaNomeCrm;
+            }
+            $linhaNomeFixo = $mobileContactNameOverride($linhaFone);
+            if ($linhaNomeFixo !== '') $linhaNome = $linhaNomeFixo;
+            if ($linhaNome === '') $linhaNome = $linhaFone;
             $conversations[] = [
-                'id' => (string)$linha['phone'],
-                'phone' => (string)$linha['phone'],
-                'name' => (string)($linha['name'] !== '' ? $linha['name'] : $linha['phone']),
+                'id' => $linhaFone,
+                'crm_id' => (int)($linhaCrm['id'] ?? 0),
+                'phone' => $linhaFone,
+                'name' => $linhaNome,
                 'last_message_preview' => (string)($linha['preview'] ?? ''),
                 'message_last_at' => (string)($linha['ultima_em'] ?? ''),
                 // Estado de leitura: quem falou por ultimo (cliente = nao lida).
                 'respondida' => !empty($linha['respondida']),
-                'attendance_mode' => 'human',
-                'needs_human' => 0,
+                'nao_lida' => !empty($linhaCrm['nao_lida']),
+                'assigned_user_id' => (int)($linhaCrm['assigned_user_id'] ?? 0),
+                'attendance_mode' => (string)($linhaCrm['attendance_mode'] ?? 'human'),
+                'needs_human' => (int)($linhaCrm['needs_human'] ?? 0),
+                'ai_last_status' => (string)($linhaCrm['ai_last_status'] ?? ''),
+                'customer_id' => (int)($linhaCrm['customer_id'] ?? 0),
+                'lead_id' => (int)($linhaCrm['lead_id'] ?? 0),
                 'is_baileys' => true,
             ];
         }
         if ($mobileTelefoneBaileys !== '') {
-            // Conversa "virtual": existe so para a tela renderizar o chat.
             $convNome = '';
             foreach ($conversations as $cv) {
                 if ((string)$cv['phone'] === $mobileTelefoneBaileys) {
@@ -3624,15 +3723,40 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
                     break;
                 }
             }
-            $conversation = [
-                'id' => 0,
-                'phone' => $mobileTelefoneBaileys,
-                'name' => $convNome !== '' ? $convNome : $mobileTelefoneBaileys,
-                'attendance_mode' => 'human',
-                'needs_human' => 0,
-                'lead_score' => 0,
-                'is_baileys' => true,
-            ];
+            $conversationCrm = $mobileCrmConversationForPhone($mobileTelefoneBaileys);
+            if (!$conversationCrm) {
+                try {
+                    $novoChat = studio_upsert_whatsapp_conversation($studio, [
+                        'phone' => $mobileTelefoneBaileys,
+                        'name' => $convNome !== '' ? $convNome : 'Cliente WhatsApp',
+                    ]);
+                    $conversationCrm = is_array($novoChat) ? $novoChat : studio_find_whatsapp_conversation_by_phone($studio, $mobileTelefoneBaileys);
+                } catch (Throwable $e) {
+                    $conversationCrm = null;
+                }
+            }
+            if (is_array($conversationCrm) && !empty($conversationCrm['id'])) {
+                $conversation = studio_find_whatsapp_conversation($studio, (int)$conversationCrm['id']) ?: $conversationCrm;
+            } else {
+                // Sem CRM disponivel, ainda mostra a conversa da ponte.
+                $conversation = [
+                    'id' => 0,
+                    'phone' => $mobileTelefoneBaileys,
+                    'name' => $convNome !== '' ? $convNome : $mobileTelefoneBaileys,
+                    'attendance_mode' => 'human',
+                    'needs_human' => 0,
+                    'lead_score' => 0,
+                    'is_baileys' => true,
+                ];
+            }
+            $isAjaxRefresh = strtolower((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')) === 'xmlhttprequest';
+            if ($_SERVER['REQUEST_METHOD'] === 'GET'
+                && (int)($conversation['id'] ?? 0) > 0
+                && (!$isAjaxRefresh || (string)($_GET['open'] ?? '') === '1')) {
+                // Abrir a conversa e a acao que zera o estado de nao lida.
+                studio_whatsapp_mark_read($studio, (int)$conversation['id']);
+                $conversation['nao_lida'] = 0;
+            }
             // Mensagens viram o mesmo formato que a tela espera.
             foreach (historico_mensagens_unificadas($studio, $mobileTelefoneBaileys, 500) as $m) {
                 $tipo = strtolower((string)($m['media_type'] ?? 'text'));
@@ -3640,24 +3764,39 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
                 if ($texto === '' && !empty($m['transcription'])) {
                     $texto = (string)$m['transcription'];
                 }
+                // A ponte publica imagem/video/documento nesta pasta, que o CRM
+                // ja serve. `media_saved` aponta para o arquivo local original;
+                // o chat precisa do nome publico correspondente.
+                $midiaSalva = str_replace('\\', '/', trim((string)($m['media_saved'] ?? '')));
+                $midiaRelativa = str_starts_with($midiaSalva, 'storage/') ? $midiaSalva : '';
+                $midiaArquivo = basename($midiaSalva);
+                $midiaDir = APP_BASE_PATH . '/storage/whatsapp-attachments/cereja/bridge';
+                $midiaPublica = $midiaArquivo !== '' && is_file($midiaDir . '/' . $midiaArquivo);
+                $midiaCrmPublica = $midiaRelativa !== '' && is_file(APP_BASE_PATH . '/' . $midiaRelativa);
+                $audioDir = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados\\audios';
+                $audioPublico = $tipo === 'audio' && $midiaArquivo !== '' && is_file($audioDir . '/' . $midiaArquivo);
+                $midiaUrl = $midiaCrmPublica
+                    ? app_asset_url($midiaRelativa)
+                    : ($midiaPublica
+                    ? app_asset_url('storage/whatsapp-attachments/cereja/bridge/' . rawurlencode($midiaArquivo))
+                    : ($audioPublico ? app_asset_url('api/whatsapp_bridge_audio.php?file=' . rawurlencode($midiaArquivo)) : ''));
                 $messages[] = [
-                    'id' => (string)($m['at'] ?? '') . '|' . (string)($m['phone'] ?? ''),
+                    'id' => (string)($m['at'] ?? '') . '|' . (string)($m['phone'] ?? '') . '|' . (string)($m['message_id'] ?? '') . '|' . md5($texto . '|' . $tipo . '|' . $midiaArquivo),
                     'message_id' => (string)($m['message_id'] ?? ''),
                     'direction' => !empty($m['from_me']) ? 'out' : 'in',
                     'body' => $texto,
                     'message_type' => $tipo !== '' ? $tipo : 'text',
                     'media_mime' => '',
-                    'media_url' => '',
-                    'media_file_name' => '',
+                    'media_url' => $midiaUrl,
+                    'media_file_name' => ($midiaPublica || $audioPublico) ? $midiaArquivo : '',
                     'sent_at' => (string)($m['sent_at'] ?? $m['at'] ?? ''),
                     'transcricao' => (string)($m['transcription'] ?? ''),
                 ];
             }
         }
-        // A tela usa conversationId numérico em vários lugares; no modo Baileys
-        // usamos 0 e o telefone como chave.
-        $conversationId = 0;
+        $conversationId = (int)($conversation['id'] ?? 0);
     }
+    $mobileBaileysNaoLidas = $mobileUsaBaileys ? studio_whatsapp_active_unread_count($studio) : 0;
     $isAdmin = studio_current_user_is_admin();
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
@@ -3702,11 +3841,11 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
             $pendingAudioCount++;
         }
     }
-    $nameFieldValue = $conversation ? (string)($conversation['customer_name'] ?: ($conversation['lead_name'] ?: ($conversation['name'] ?: ''))) : '';
+    $nameFieldValue = $conversation ? (string)(($conversation['customer_name'] ?? '') ?: (($conversation['lead_name'] ?? '') ?: ($conversation['name'] ?? ''))) : '';
     if ($nameFieldValue === '' && !empty($assistantInsights['suggested_name'])) {
         $nameFieldValue = (string)$assistantInsights['suggested_name'];
     }
-    $interestFieldValue = $conversation ? (string)($conversation['lead_interest'] ?: ($conversation['last_message_preview'] ?? '')) : '';
+    $interestFieldValue = $conversation ? (string)(($conversation['lead_interest'] ?? '') ?: ($conversation['last_message_preview'] ?? '')) : '';
     if ($interestFieldValue === '' && !empty($assistantInsights['suggested_interest'])) {
         $interestFieldValue = (string)$assistantInsights['suggested_interest'];
     }
@@ -3715,7 +3854,9 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         $notesFieldValue = (string)$assistantInsights['suggested_notes'];
     }
 
-    $labelForConversation = static function (array $row): string {
+    $labelForConversation = static function (array $row) use ($mobileContactNameOverride): string {
+        $fixedName = $mobileContactNameOverride((string)($row['phone'] ?? ''));
+        if ($fixedName !== '') return $fixedName;
         $name = trim((string)($row['customer_name'] ?? ''));
         if ($name === '') $name = trim((string)($row['lead_name'] ?? ''));
         if ($name === '') $name = trim((string)($row['name'] ?? ''));
@@ -3780,22 +3921,29 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         return 'file';
     };
 
-    echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '">';
+    echo '<main class="m2-shell' . ($conversation ? ' has-chat' : '') . '" data-conversation-id="' . h((string)$conversationId) . '" data-baileys="' . ($mobileUsaBaileys ? '1' : '0') . '" data-unread-count="' . h((string)$mobileBaileysNaoLidas) . '">';
     echo '<aside class="m2-list" id="m2ListPanel">';
     if ($mobileUsaBaileys) {
-        // Rota Baileys: cabecalho enxuto. Sem filtros/gerenciar: so um toggle
-        // entre todas e sem resposta (o resto nao faz sentido nessa fonte).
+        // Cabecalho do chat unico: lista viva da ponte com busca, nao lidas e
+        // AutoChat. Os recursos da conversa ficam no painel ao abrir o contato.
         $urlTodas = app_url($mobileRoute, array_filter([
             'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
         ]));
         $urlSem = app_url($mobileRoute, array_filter([
             'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
-            'filtro' => 'sem_resposta',
+            'filtro' => 'nao_lidas',
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
         ]));
-        echo '<header class="m2-top"><strong>WhatsApp Baileys</strong><span class="m2-top-actions"></span></header>';
+        $autochatLigadoCrm = autochat_control_is_enabled();
+        $autochatToggleCrm = $isAdmin
+            ? '<form method="post" style="margin:0">' . autochat_control_csrf_field() . '<input type="hidden" name="action" value="toggle_autochat"><input type="hidden" name="enabled" value="' . ($autochatLigadoCrm ? '0' : '1') . '"><input type="hidden" name="fone" value="' . h($mobileTelefoneBaileys) . '"><input type="hidden" name="filtro" value="' . h($mobileBaileysSoSemResposta ? 'nao_lidas' : '') . '"><button class="m2-toggle' . ($autochatLigadoCrm ? ' on' : '') . '" type="submit" style="flex:0 0 auto" title="' . ($autochatLigadoCrm ? 'Desligar' : 'Ligar') . ' AutoChat">Irene ' . ($autochatLigadoCrm ? 'ON' : 'OFF') . '</button></form>'
+            : '<span class="m2-toggle' . ($autochatLigadoCrm ? ' on' : '') . '" style="flex:0 0 auto">Irene ' . ($autochatLigadoCrm ? 'ON' : 'OFF') . '</span>';
+        $unreadLabel = $mobileBaileysNaoLidas === 1 ? '1 conversa nao lida' : $mobileBaileysNaoLidas . ' conversas nao lidas';
+        echo '<header class="m2-top"><strong>WhatsApp <span class="m2-unread-count' . ($mobileBaileysNaoLidas === 0 ? ' is-zero' : '') . '" id="m2UnreadCount" title="' . h($unreadLabel) . '" aria-label="' . h($unreadLabel) . '">' . h((string)$mobileBaileysNaoLidas) . '</span></strong><span class="m2-top-actions">' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . $autochatToggleCrm . '</span></header>';
         echo '<div class="m2-toggle-row">';
         echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? '' : ' on') . '" href="' . h($urlTodas) . '">Todas</a>';
-        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? ' on' : '') . '" href="' . h($urlSem) . '">Sem resposta</a>';
+        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? ' on' : '') . '" href="' . h($urlSem) . '">Nao lidas</a>';
         echo '</div>';
         echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
     } else {
@@ -3874,15 +4022,24 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
             $rowFone = (string)($row['phone'] ?? '');
             $rowName = (string)($row['name'] ?? $rowFone);
             $rowPreview = trim((string)($row['last_message_preview'] ?? ''));
-            $href = app_url($mobileRoute, ['fone' => $rowFone]);
+            $href = app_url($mobileRoute, array_filter([
+                'fone' => $rowFone,
+                'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+                'q' => $filters['q'] !== '' ? $filters['q'] : null,
+            ], static fn($value) => $value !== null && $value !== ''));
             $active = ($rowFone === $mobileTelefoneBaileys) ? ' active' : '';
             $searchText = strtolower($rowName . ' ' . $rowFone . ' ' . $rowPreview);
             $rowInitial = mb_strtoupper(mb_substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1));
             $quando = (string)($row['message_last_at'] ?? '');
-            // Nao lida = o cliente falou por ultimo (o atendimento nao respondeu).
-            $naoLida = empty($row['respondida']);
+            // Nao lida vem do estado real do WhatsApp/CRM. "Sem resposta" e
+            // outra informacao e nao pode alimentar o contador de nao lidas.
+            $naoLida = !empty($row['nao_lida']);
+            $semResposta = empty($row['respondida']);
             $previa = $rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda';
-            echo '<a class="m2-item' . h($active) . ($naoLida ? ' is-unread' : '') . '" href="' . h($href) . '" data-search="' . h($searchText) . '"><span class="m2-avatar">' . h($rowInitial) . ($naoLida ? '<i class="m2-unread-dot" aria-label="Nao lida"></i>' : '') . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="' . ($naoLida ? 'warn' : 'ok') . '">' . ($naoLida ? 'sem resposta' : 'respondida') . '</b><b class="muted">' . ($quando !== '' ? h(date('d/m H:i', strtotime($quando))) : '&mdash;') . '</b></small></span><em>' . h($rowFone) . '</em></a>';
+            $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
+            $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
+            $rowAiState = $mobileAiStateFor($row);
+            echo '<a class="m2-item' . h($active) . ($naoLida ? ' is-unread' : '') . '" href="' . h($href) . '" data-search="' . h($searchText) . '" data-phone="' . h($rowFone) . '"><span class="m2-avatar">' . h($rowInitial) . ($naoLida ? '<i class="m2-unread-dot" aria-label="Nao lida"></i>' : '') . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b><b class="' . ($semResposta ? 'warn' : 'ok') . '">' . ($semResposta ? 'sem resposta' : 'respondida') . '</b><b class="muted">' . ($quando !== '' ? h(format_datetime_pt($quando, false)) : '&mdash;') . '</b></small></span><em title="' . h($rowFone) . '">' . h($assignmentLabel) . '</em></a>';
             continue;
         }
         $rowId = (int)($row['id'] ?? 0);
@@ -3908,9 +4065,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         // proximo lote quando ele entra na tela.
         $proxLote = (int)floor($mobileBaileysOffset / $mobileBaileysLote) + 1;
         $urlProx = '?' . http_build_query(array_filter([
-            'page' => 'studio_whatsapp_baileys',
+            'page' => $mobileRoute,
             'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
-            'filtro' => $mobileBaileysSoSemResposta ? 'sem_resposta' : null,
+            'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
             'lote' => $proxLote,
         ], static fn($v) => $v !== null && $v !== ''));
         echo '<div class="m2-carregar" id="m2CarregarMais" data-proxima="' . h($urlProx) . '">Carregando mais...</div>';
@@ -3928,21 +4086,19 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
     } else {
         $displayName = $labelForConversation($conversation);
         $displayInitial = mb_strtoupper(mb_substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1));
-        // Modo Baileys: nada de atribuicao/IA do CRM (a conversa nao vive no banco).
-        $cabecalhoInfo = $mobileUsaBaileys
-            ? 'pelo numero do Baileys'
-            : ($assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName)));
-        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h(app_url($mobileRoute)) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h($displayInitial) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($cabecalhoInfo) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
-        // Modo Baileys: sem breadcrumb do CRM, sem status de IA e sem acoes de
-        // atribuicao - a conversa vive no arquivo da ponte, nao no banco.
-        if (!$mobileUsaBaileys) {
-            $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
-            echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h(app_url('studio_whatsapp_mobile', ['id' => $conversationId])) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
+        $cabecalhoInfo = $assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName));
+        $mobileListUrl = app_url($mobileRoute, array_filter([
+            'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+            'q' => $filters['q'] !== '' ? $filters['q'] : null,
+        ], static fn($value) => $value !== null && $value !== ''));
+        echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h($mobileListUrl) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h($displayInitial) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($cabecalhoInfo) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
+        $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
+        echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h($mobileListUrl) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
             echo '<section class="m2-ai-status ' . h($mobileAiState['tone']) . '" aria-label="Status da IA"><div><strong>' . h($mobileAiState['label']) . '</strong><small>' . h($mobileAiState['status']) . '</small></div><span>' . h((string)$mobileAiState['progress']) . '%</span><b><i style="width:' . h((string)$mobileAiState['progress']) . '%"></i></b></section>';
             $mobileAiModeActive = ((string)($conversation['attendance_mode'] ?? 'human') === 'bot');
             echo '<div class="m2-action-row"><button type="button" id="m2OpenAppointment" title="Agendar" aria-label="Agendar"><i class="fa-regular fa-calendar"></i></button><button type="button" id="m2OpenTools" title="Painel" aria-label="Painel"><i class="fa-solid fa-sliders"></i></button><button type="button" id="m2AiButton" title="Sugestoes da IA" aria-label="Sugestoes da IA"><i class="fa-solid fa-wand-magic-sparkles"></i></button><button type="button" id="m2AiModeButton" class="' . ($mobileAiModeActive ? 'is-active' : '') . '" title="' . h($mobileAiModeActive ? 'IA ligada nesta conversa' : 'IA desligada nesta conversa') . '" aria-label="' . h($mobileAiModeActive ? 'IA ligada' : 'IA desligada') . '" data-next-mode="' . h($mobileAiModeActive ? 'human' : 'bot') . '"><i class="fa-solid ' . h($mobileAiModeActive ? 'fa-toggle-on' : 'fa-toggle-off') . '"></i></button>';
-            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
-            echo '<form method="post">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
+            echo '<form method="post" data-m2-read-state="read">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_read"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar lida" aria-label="Marcar lida"><i class="fa-regular fa-envelope-open"></i></button></form>';
+            echo '<form method="post" data-m2-read-state="unread">' . csrf_field() . '<input type="hidden" name="action" value="mobile_mark_whatsapp_unread"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><button type="submit" title="Marcar nao lida" aria-label="Marcar nao lida"><i class="fa-regular fa-envelope"></i></button></form>';
             if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
             if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
             if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
@@ -3959,8 +4115,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
                 foreach (studio_list_users($studio) as $studioUser) echo '<option value="' . h((string)$studioUser['id']) . '">' . h((string)$studioUser['name']) . '</option>';
                 echo '</select><button type="submit"><i class="fa-solid fa-right-left"></i>Transferir</button></form>';
             }
-            echo '</div>';
-        }
+        echo '</div>';
         echo '<div class="m2-messages" id="m2Messages">';
         foreach ($messages as $message) {
             $direction = (string)($message['direction'] ?? 'in');
@@ -3998,7 +4153,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
             $syntheticAudioBody = $kind === 'audio' && preg_match('/^\[(audio|áudio)\]$/iu', trim($body)) === 1;
             if ($body !== '' && !$syntheticAudioBody) echo '<p>' . nl2br(h($body)) . '</p>';
             $transcribedText = trim((string)($message['transcricao'] ?? $message['transcript'] ?? ''));
-            if ($transcribedText !== '') echo '<div class="m2-transcript">' . h($transcribedText) . '</div>';
+            if ($transcribedText !== '' && $transcribedText !== trim($body)) echo '<div class="m2-transcript">' . h($transcribedText) . '</div>';
             echo '<div class="m2-bubble-foot"><time>' . h(format_datetime_pt((string)($message['sent_at'] ?? ''), false)) . '</time><button class="m2-reply-action" type="button" data-reply-message aria-label="Responder mensagem"><i class="fa-solid fa-reply"></i></button></div></div></article>';
         }
         echo '</div>';
@@ -4024,10 +4179,10 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         echo '</select></label><label>Lead<select name="lead_id"><option value="">Criar/sem lead</option>';
         render_lead_options($leads, (int)($conversation['lead_id'] ?? 0));
         echo '</select></label><label>Interesse<input name="interest" value="' . h($interestFieldValue) . '"></label><label>Status<select name="status">';
-        render_options(lead_status_options(), (string)($conversation['lead_status'] ?: 'em_conversa'));
+        render_options(lead_status_options(), (string)(($conversation['lead_status'] ?? '') ?: 'em_conversa'));
         echo '</select></label><label>Etapa<select name="pipeline_stage">';
         foreach (studio_list_pipeline_stages($studio) as $stage) {
-            echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)($conversation['lead_pipeline_stage'] ?: 'em_conversa') ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
+            echo '<option value="' . h((string)$stage['name']) . '" ' . ((string)$stage['name'] === (string)(($conversation['lead_pipeline_stage'] ?? '') ?: 'em_conversa') ? 'selected' : '') . '>' . h(studio_pipeline_stage_display_name((string)$stage['name'])) . '</option>';
         }
         echo '</select></label><label class="wide">Observacoes<textarea name="notes">' . h($notesFieldValue) . '</textarea></label><label class="check"><input type="checkbox" name="needs_human" value="1" ' . (!empty($conversation['needs_human']) ? 'checked' : '') . '> Cliente pediu humano</label><label class="check"><input type="checkbox" name="create_customer" value="1" ' . (empty($conversation['customer_id']) ? 'checked' : '') . '> Criar/atualizar cliente</label><label class="check"><input type="checkbox" name="create_lead" value="1" ' . (empty($conversation['lead_id']) ? 'checked' : '') . '> Criar/atualizar lead</label><button type="submit">Salvar dados</button></form></section>';
         echo '<section class="m2-card"><div class="m2-card-head"><h3>Link de cadastro</h3><span>' . h($publicUpdateUrl !== '' ? 'Pronto' : 'Pendente') . '</span></div>';
@@ -4047,7 +4202,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
             echo '<p>Nenhuma resposta rapida ativa.</p>';
         }
         echo '</section></div></div>';
-        echo '<div class="m2-drawer hidden" id="m2AppointmentPanel"><div class="m2-drawer-head"><strong>Agendar atendimento</strong><button type="button" data-close-drawer="m2AppointmentPanel" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button></div><div class="m2-drawer-body"><form class="m2-form" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="whatsapp"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><label>Titulo<input name="title" required value="' . h((string)($scheduleSuggestion['title'] ?? ($conversation['lead_interest'] ?: 'Atendimento'))) . '"></label><label>Tatuador<select name="artist_id">';
+        echo '<div class="m2-drawer hidden" id="m2AppointmentPanel"><div class="m2-drawer-head"><strong>Agendar atendimento</strong><button type="button" data-close-drawer="m2AppointmentPanel" aria-label="Fechar"><i class="fa-solid fa-xmark"></i></button></div><div class="m2-drawer-body"><form class="m2-form" method="post" enctype="multipart/form-data">' . csrf_field() . '<input type="hidden" name="action" value="save_appointment"><input type="hidden" name="conversation_id" value="' . h((string)$conversationId) . '"><input type="hidden" name="customer_id" value="' . h((string)($conversation['customer_id'] ?? 0)) . '"><input type="hidden" name="lead_id" value="' . h((string)($conversation['lead_id'] ?? 0)) . '"><input type="hidden" name="import_source" value="whatsapp"><input type="hidden" name="return_to_conversation" value="' . h((string)$conversationId) . '"><input type="hidden" name="return_to_mobile2" value="1"><label>Titulo<input name="title" required value="' . h((string)($scheduleSuggestion['title'] ?? (($conversation['lead_interest'] ?? '') ?: 'Atendimento'))) . '"></label><label>Tatuador<select name="artist_id">';
         render_artist_options($artists, default_artist_id($studio) ?? 0);
         echo '</select></label><label>Data<input type="date" name="appointment_date" value="' . h((string)($scheduleSuggestion['date'] ?? date('Y-m-d'))) . '" required></label><label>Inicio<input type="time" name="start_time" value="' . h((string)($scheduleSuggestion['time'] ?? '09:00')) . '" required></label><label>Fim<input type="time" name="end_time" value="' . h((string)($scheduleSuggestion['end_time'] ?? '10:00')) . '" required></label><label>Status<select name="status">';
         render_options(appointment_status_options(), 'pre_agendado');
@@ -4058,7 +4213,7 @@ if ($page === 'studio_whatsapp_mobile' || $page === 'studio_whatsapp_mobile2' ||
         echo '<script type="application/json" id="m2StickersData">' . json_encode(array_map('studio_whatsapp_sticker_payload', $stickers), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . '</script>';
     }
     echo '</section></main>';
-    echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h(app_build_version()) . '"></script>';
+    echo '<script id="m2AppScript" src="' . h(app_asset_url('assets/studio_whatsapp_mobile2.js')) . '?v=' . h((string)(@filemtime(__DIR__ . '/assets/studio_whatsapp_mobile2.js') ?: app_build_version())) . '"></script>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_quick_replies.js')) . '?v=' . h(app_build_version()) . '"></script>';
     echo '<script src="' . h(app_asset_url('assets/studio_whatsapp_ai_overlay.js')) . '?v=' . h(app_build_version()) . '"></script>';
     echo '</body></html>';
@@ -6599,7 +6754,50 @@ if ($page === 'studio_whatsapp_mobile_api') {
             echo json_encode(['ok' => false, 'error' => 'forbidden'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             exit;
         }
-        $messages = studio_whatsapp_messages($studio, $conversationId, 100, $conversation);
+        require_once APP_BASE_PATH . '/app/historico_conversas.php';
+        $messages = [];
+        $bridgePhone = normalize_phone((string)($conversation['phone'] ?? ''));
+        if ($bridgePhone !== '') {
+            foreach (historico_mensagens_unificadas($studio, $bridgePhone, 500) as $bridgeMessage) {
+                $bridgeType = strtolower((string)($bridgeMessage['media_type'] ?? 'text'));
+                $bridgeText = (string)($bridgeMessage['text'] ?? '');
+                if ($bridgeText === '' && !empty($bridgeMessage['transcription'])) {
+                    $bridgeText = (string)$bridgeMessage['transcription'];
+                }
+                $bridgeSaved = str_replace('\\', '/', trim((string)($bridgeMessage['media_saved'] ?? '')));
+                $bridgeFile = basename($bridgeSaved);
+                $bridgeRelative = str_starts_with($bridgeSaved, 'storage/') ? $bridgeSaved : '';
+                $bridgeDir = APP_BASE_PATH . '/storage/whatsapp-attachments/cereja/bridge';
+                $bridgePublic = $bridgeFile !== '' && is_file($bridgeDir . '/' . $bridgeFile);
+                $bridgeCrmPublic = $bridgeRelative !== '' && is_file(APP_BASE_PATH . '/' . $bridgeRelative);
+                $bridgeAudioDir = 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados\\audios';
+                $bridgeAudio = $bridgeType === 'audio' && $bridgeFile !== '' && is_file($bridgeAudioDir . '/' . $bridgeFile);
+                $bridgeMediaUrl = $bridgeCrmPublic
+                    ? app_asset_url($bridgeRelative)
+                    : ($bridgePublic
+                    ? app_asset_url('storage/whatsapp-attachments/cereja/bridge/' . rawurlencode($bridgeFile))
+                    : ($bridgeAudio ? app_asset_url('api/whatsapp_bridge_audio.php?file=' . rawurlencode($bridgeFile)) : ''));
+                $messages[] = [
+                    'id' => (string)($bridgeMessage['sent_at'] ?? $bridgeMessage['at'] ?? '') . '|' . $bridgePhone . '|' . (string)($bridgeMessage['message_id'] ?? '') . '|' . md5($bridgeText . '|' . $bridgeType . '|' . $bridgeFile),
+                    'direction' => !empty($bridgeMessage['from_me']) ? 'out' : 'in',
+                    'sender_type' => !empty($bridgeMessage['from_me']) ? 'human' : 'customer',
+                    'body' => $bridgeText,
+                    'media_url' => $bridgeMediaUrl,
+                    'media_mime' => '',
+                    'media_file_name' => ($bridgeCrmPublic || $bridgePublic || $bridgeAudio) ? $bridgeFile : '',
+                    'message_type' => $bridgeType !== '' ? $bridgeType : 'text',
+                    'message_id' => (string)($bridgeMessage['message_id'] ?? ''),
+                    'context_message_id' => '',
+                    'context_local_message_id' => (int)($bridgeMessage['local_id'] ?? 0),
+                    'context_preview' => '',
+                    'sent_at' => (string)($bridgeMessage['sent_at'] ?? $bridgeMessage['at'] ?? ''),
+                    'status' => '',
+                    'transcricao' => (string)($bridgeMessage['transcription'] ?? ''),
+                    'transcript' => '',
+                    'transcricao_erro' => '',
+                ];
+            }
+        }
         echo json_encode([
             'ok' => true,
             'conversation' => [
@@ -6621,27 +6819,7 @@ if ($page === 'studio_whatsapp_mobile_api') {
                 'last_message_at' => (string)($conversation['last_message_at'] ?? $conversation['updated_at'] ?? ''),
                 'last_message_direction' => (string)($conversation['last_message_direction'] ?? ''),
             ],
-            'messages' => array_map(static function (array $message): array {
-                return [
-                    'id' => (int)($message['id'] ?? 0),
-                    'direction' => (string)($message['direction'] ?? 'in'),
-                    'sender_type' => (string)($message['sender_type'] ?? 'customer'),
-                    'body' => (string)($message['body'] ?? ''),
-                    'media_url' => (string)($message['media_url'] ?? ''),
-                    'media_mime' => (string)($message['media_mime'] ?? ''),
-                    'media_file_name' => (string)($message['media_file_name'] ?? ''),
-                    'message_type' => (string)($message['message_type'] ?? 'texto'),
-                    'message_id' => (string)($message['message_id'] ?? ''),
-                    'context_message_id' => (string)($message['context_message_id'] ?? ''),
-                    'context_local_message_id' => (int)($message['context_local_message_id'] ?? 0),
-                    'context_preview' => (string)($message['context_preview'] ?? ''),
-                    'sent_at' => (string)($message['sent_at'] ?? ''),
-                    'status' => (string)($message['status'] ?? ''),
-                    'transcricao' => (string)($message['transcricao'] ?? ''),
-                    'transcript' => (string)($message['transcript'] ?? ''),
-                    'transcricao_erro' => (string)($message['transcricao_erro'] ?? ''),
-                ];
-            }, $messages),
+            'messages' => $messages,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
@@ -6658,7 +6836,7 @@ if ($page === 'studio_whatsapp_manifest') {
     echo json_encode([
         'name' => $manifestBaileys ? 'WhatsApp Baileys' : 'CRM WhatsApp',
         'short_name' => $manifestBaileys ? 'Zap Baileys' : 'Zap CRM',
-        'start_url' => app_url($manifestBaileys ? 'studio_whatsapp_baileys' : 'studio_whatsapp_mobile'),
+        'start_url' => app_url('studio_whatsapp'),
         'scope' => app_base_path() . '/',
         'display' => 'standalone',
         'background_color' => '#0b141a',
@@ -6676,11 +6854,11 @@ if ($page === 'studio_whatsapp_baileys_atalho') {
     $studioAtalho = require_studio();
     render_studio_shell('Atalho do WhatsApp Baileys', 'Salve na tela do celular para abrir como um WhatsApp paralelo.', 'baileys', function () use ($studioAtalho) {
         $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
-        $urlApp = app_url('studio_whatsapp_baileys');
+        $urlApp = app_url('studio_whatsapp');
         $urlAbs = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://'
             . ($_SERVER['HTTP_HOST'] ?? 'danieltatuador.com') . $urlApp;
-        echo '<section class="panel"><h2>Abrir o WhatsApp Baileys</h2>';
-        echo '<p class="muted">Este e o chat que responde pelo numero ligado a ponte (o mesmo que recebe as mensagens). Ele tem os recursos do atendimento: responder, audio, anexo, figurinha, respostas rapidas.</p>';
+        echo '<section class="panel"><h2>Abrir o WhatsApp do estudio</h2>';
+        echo '<p class="muted">Este e o chat unico que responde pelo numero ligado a ponte (o mesmo que recebe as mensagens). Ele tem os recursos do atendimento: responder, audio, anexo, figurinha, respostas rapidas, IA e agenda.</p>';
         echo '<div class="actions" style="margin:14px 0"><a class="btn" href="' . $h($urlApp) . '">Abrir o chat agora</a></div>';
         echo '<h3>Salvar como atalho no celular</h3>';
         echo '<ol class="muted" style="line-height:1.8"><li>Abra o chat no navegador do celular.</li><li><b>Android (Chrome):</b> menu &rarr; <b>Adicionar a tela inicial</b>.</li><li><b>iPhone (Safari):</b> botao Compartilhar &rarr; <b>Adicionar a Tela de Inicio</b>.</li></ol>';
@@ -9154,6 +9332,10 @@ if ($page === 'studio_ads_roi') {
         $adsRoiPreset = $adsRoiPeriod;
     }
     $adsRoiSummary = ads_roi_summary($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+    // Origem de cada agendamento do periodo, para o painel separar Google x Meta.
+    // Precisa do mapa de telefone do CRM carregado (casa numero com/sem DDI e com/sem o 9).
+    require_once APP_BASE_PATH . '/app/historico_leads_map.php';
+    $adsRoiByOrigin = ads_roi_by_origin($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
     // AGENDADO x REALIZADO: coisas diferentes. Agendado = marcou (pela data de
     // criacao, inclui cancelado). Realizado = tatuagem feita (so 'finalizado').
     $adsRoiAgReal = ads_roi_agendado_realizado($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
@@ -9206,7 +9388,7 @@ if ($page === 'studio_ads_roi') {
     // ATENCAO: toda variavel vista dentro desta closure PRECISA estar na lista use abaixo.
     // Ja esqueci isso 3x (Undefined variable silencioso). Ao adicionar uma variavel nova
     // usada no corpo, adicione-a AQUI tambem.
-    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiAgReal, $adsRoiFuturosTotal, $adsRoiCriadosHoje, $adsRoiProjection, $adsRoiBudgets, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline, $vendaFila, $vendaAlertaFila) {
+    render_studio_shell('Retorno dos Anúncios', 'Quanto você gastou, quanto voltou e qual canal está pagando melhor — todo dia.', 'ads_roi', function () use ($studio, $adsRoiPdo, $adsRoiSummary, $adsRoiAgReal, $adsRoiFuturosTotal, $adsRoiCriadosHoje, $adsRoiProjection, $adsRoiBudgets, $adsRoiByOrigin, $adsRoiPeriod, $adsRoiStart, $adsRoiEnd, $adsRoiCustom, $adsRoiPreset, $adsLeadsByOrigin, $adsHitsByOrigin, $adsBridgeHealth, $adsSaldoMeta, $adsSaldoGoogle, $vendaResumo, $vendaIaOnline, $vendaFila, $vendaAlertaFila) {
         $s = $adsRoiSummary;
         $fmt = static function ($v): string { return is_null($v) ? '—' : 'R$ ' . number_format((float)$v, 2, ',', '.'); };
         echo '<style>
@@ -9239,7 +9421,7 @@ if ($page === 'studio_ads_roi') {
             .roi-table td{padding:9px 10px;border-bottom:1px solid #f2f4f7;color:#344054;white-space:nowrap}
             .roi-table tr:hover td{background:#fcfcfd}
             .roi-pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
-            .roi-pill.meta{background:#eef2ff;color:#3538cd}.roi-pill.google{background:#ecfdf3;color:#027a48}.roi-pill.outro{background:#f2f4f7;color:#475467}
+            .roi-pill.meta{background:#eef2ff;color:#3538cd}.roi-pill.google{background:#ecfdf3;color:#027a48}.roi-pill.tiktok{background:#f1f1f1;color:#101828}.roi-pill.outro{background:#f2f4f7;color:#475467}
             .roi-period-bar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
             .roi-period-bar > .btn{flex:0 0 auto;white-space:nowrap}
             .roi-period-bar .roi-custom{display:flex;flex:1 1 100%;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #e6e8ee;border-radius:12px;padding:7px 10px}
@@ -9347,6 +9529,7 @@ if ($page === 'studio_ads_roi') {
 
         $adsGoogleCfg = ads_roi_google_oauth_config($studio);
         $adsGoogleConectado = false;
+        $adsGoogleErro = '';
         try {
             $adsGoogleRow = $adsRoiPdo->query("SELECT google_ads_refresh_token FROM studio_settings WHERE id = 1")->fetch(PDO::FETCH_ASSOC) ?: [];
             $adsGoogleConectado = trim((string)($adsGoogleRow['google_ads_refresh_token'] ?? '')) !== '';
@@ -9354,12 +9537,27 @@ if ($page === 'studio_ads_roi') {
             // Coluna ainda nao existe: nunca conectou.
             $adsGoogleConectado = false;
         }
+        if ($adsGoogleConectado) {
+            $adsGoogleToken = ads_roi_google_access_token(ads_roi_google_config($studio));
+            if (empty($adsGoogleToken['ok'])) {
+                $adsGoogleErro = (string)($adsGoogleToken['error'] ?? 'Nao foi possivel validar a autorizacao.');
+                if (preg_match('/expired|revoked|invalid_grant|invalid grant/i', $adsGoogleErro) === 1) {
+                    $adsGoogleConectado = false;
+                }
+            }
+        }
 
         echo '<div class="roi-period-bar" style="margin-bottom:14px">';
         if ($adsGoogleConectado) {
             echo '<span class="roi-pill google" style="padding:6px 12px">Google Ads conectado</span>';
+            if ($adsGoogleErro !== '') {
+                echo '<span class="roi-pill outro" style="padding:6px 12px">Nao foi possivel validar agora: ' . h($adsGoogleErro) . '</span>';
+            }
         } else {
-            echo '<span class="roi-pill outro" style="padding:6px 12px">Google Ads nao conectado - o painel mostra apenas o gasto do Meta</span>';
+            echo '<span class="roi-pill outro" style="padding:6px 12px">Google Ads precisa ser reconectado - o gasto e os cliques podem estar incompletos</span>';
+            if ($adsGoogleErro !== '') {
+                echo '<span style="font-size:12px;color:#b42318">' . h($adsGoogleErro) . '</span>';
+            }
             echo '<a class="btn btn-sm btn-dark" href="' . h(app_asset_url('google_ads_oauth_start.php')) . '">Conectar Google Ads</a>';
         }
         echo '</div>';
@@ -9369,7 +9567,7 @@ if ($page === 'studio_ads_roi') {
 
         // Explicações de cálculo exibidas nos tooltips clicáveis (chave => [título, corpo HTML]).
         $help = [
-            'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
+            'spend_total' => ['Gasto no período', 'Soma de tudo que foi lançado em <code>ads_daily</code> entre <b>' . h(date('d/m/Y', strtotime($adsRoiStart))) . '</b> e <b>' . h(date('d/m/Y', strtotime($adsRoiEnd))) . '</b>, somando Meta + Google + TikTok.<br><br><b>Regra anti-duplicidade:</b> quando existe uma linha importada da API (<code>[SYNC META]</code> / <code>[SYNC GOOGLE]</code> / <code>[SYNC TIKTOK]</code>) para um dia e canal, ela é a verdade e os lançamentos manuais daquele mesmo dia/canal são ignorados. Só quando <i>não</i> há importação é que a soma usa os lançamentos manuais.'],
             'agendamentos' => ['Agendamentos com valor', 'Conta as linhas da tabela <code>appointments</code> cuja <code>appointment_date</code> cai no período <b>e que têm valor cadastrado</b> (campo <code>value</code> maior que zero). é a agenda de verdade, não os leads do anúncio.<br><br><b>Compromissos sem valor não contam</b> - limpeza, reunião, bloqueio de horário e cancelamento sem valor ficam fora, porque não são serviço vendido. Sem esse filtro o CPA e o ROAS sairiam artificialmente bons.<br><br>O subtítulo mostra quantos <b>cancelados</b> existem na agenda do período, com ou sem valor.'],
             'agendados' => ['Agendados', 'Quantos clientes <b>marcaram data</b> no período, contando pela <b>data de criação</b> do agendamento (<code>created_at</code>) - o dia em que o cliente fechou e reservou.<br><br><b>Inclui cancelados:</b> quem marcou e depois cancelou continua contando aqui (marcou, mas não veio).<br><br>Agendado <b>não</b> é venda feita - é promessa de venda. Compare com o bloco <b>Realizados</b> para ver quantas viraram tatuagem de verdade.'],
             'realizados' => ['Realizados', 'Quantas tatuagens <b>aconteceram de fato</b> no período: agendamentos com status <code>finalizado</code>, contados pela <b>data do atendimento</b>.<br><br><b>Cancelado nunca entra aqui.</b> Só conta o serviço que foi realmente executado.<br><br>É o bloco que representa a <b>venda concretizada</b> - e é a base do ROAS e do custo por tatuagem.'],
@@ -9379,8 +9577,8 @@ if ($page === 'studio_ads_roi') {
             'cpa' => ['Custo por agendamento', 'Quanto custou, em média, cada agendamento do período:<br><br><code>gasto total ÷ nº de agendamentos</code><br><br>Se não houve agendamento no período, aparece <b>—</b> (divisão por zero).'],
             'roas' => ['Retorno (ROAS)', 'Retorno sobre o gasto de anúncio:<br><br><code>valor cadastrado ÷ gasto total</code><br><br>Ex.: <b>2,69x</b> significa que cada R$ 1 gasto voltou como R$ 2,69 em tatuagem agendada.<br><br>Fica <span style="color:#d92d20">vermelho</span> abaixo de 1x (ainda não pagou o anúncio) e <span style="color:#079455">verde</span> a partir de 1x.<br><br><b>Atenção:</b> é o valor <i>agendado</i>, não o efetivamente recebido — parte dos agendamentos pode fechar depois.'],
             'valor_agendado' => ['Valor cadastrado', 'Soma do campo <code>value</code> dos agendamentos do período que têm valor maior que zero (compromissos sem valor ficam fora).<br><br><b>Atenção:</b> é o valor <i>lançado na agenda</i>, não dinheiro recebido. Depende de alguém ter cadastrado o valor do serviço - agendamento sem valor não entra na soma.<br><br>é o numerador do ROAS.'],
-            'projecao' => ['Projeção mensal', 'Estimativa pelo orçamento diário configurado abaixo (soma dos canais ativos em <code>ads_channel_config</code>):<br><br><code>orçamento/dia × 30</code><br><br>Não usa o gasto real — serve para planejar o mês.'],
-            'custo_canal' => ['Meta x Google — rateio', 'Compara o gasto de cada canal no período. A coluna <b>% do gasto</b> é <code>gasto do canal ÷ gasto total</code>.<br><br>Já o <b>Custo por agendamento*</b> é um <i>rateio</i>: como a agenda não registra de qual anúncio veio cada cliente, dividimos o gasto do canal pelo total de agendamentos do período (o mesmo denominador para os dois canais). Por isso os dois valores somam o CPA geral, não um CPA real por canal.<br><br>Para separar com precisão, lance os leads por canal na seção abaixo.'],
+            'projecao' => ['Projeção mensal', 'Estimativa pelo orçamento diário dos canais ativos (<code>ads_channel_config</code>):<br><br><code>orçamento/dia × 30</code><br><br>Nenhum dos dois é digitado à mão: a sincronização lê o orçamento real dos anúncios ativos em cada conta — no <b>Google</b>, o orçamento das campanhas ativas (<code>campaign_budget</code>); no <b>Meta</b>, o orçamento das campanhas ativas que têm orçamento próprio ou, quando ele fica no conjunto de anúncios, dos conjuntos ativos — e atualiza este número.<br><br>Se a leitura falhar, o sistema mantém o último valor lido.<br><br>Não usa o gasto real — serve para planejar o mês.<br><br><b>Dia acima do orçamento é normal:</b> as duas plataformas trabalham com média diária e podem gastar mais em um dia e menos em outro, respeitando o teto de <b>30,4× no mês</b> — no fim do mês a média volta ao orçamento.'],
+            'custo_canal' => ['Resultado por canal', 'Cruza o gasto de anúncio de cada canal com os agendamentos da agenda cuja <b>origem foi rastreada</b>: clique pago identificado por telefone (<code>gclid</code>/<code>ctwa</code>) ou o vínculo que a tela de Funil amarrou. A coluna <b>% do gasto</b> é <code>gasto do canal ÷ gasto total</code>.<br><br><b>CPA</b> = <code>gasto do canal ÷ agendamentos do canal</code> e <b>ROAS</b> = <code>valor agendado do canal ÷ gasto do canal</code> — agora por canal de verdade, não rateio.<br><br><b>Meta</b> soma Facebook e Instagram, porque os dois rodam na mesma conta de anúncio.<br><br>O que não tem origem rastreada aparece em <b>SEM ORIGEM</b> e fica fora do CPA/ROAS de cada canal: clique pago sem <code>gclid</code> não tem como ser atribuído depois.'],
             'dia_a_dia' => ['Dia a dia', 'Detalhe diário do período. Cada linha cruza, para aquela data:<br><br>• <b>Gasto</b>: soma Meta + Google do dia (com a regra anti-duplicidade do SYNC).<br>• <b>Agend.</b>: agendamentos da agenda nesse dia.<br>• <b>Custo/agend.</b>: <code>gasto do dia ÷ agendamentos do dia</code>.<br>• <b>Valor</b>: soma dos valores agendados no dia.<br>• <b>ROAS</b>: <code>valor do dia ÷ gasto do dia</code>.<br><br>Dias sem gasto aparecem com <b>—</b> no lugar do ROAS (sem divisão por zero).'],
         ];
         $helpBtn = static function (string $key) use ($help): string {
@@ -9511,12 +9709,29 @@ if ($page === 'studio_ads_roi') {
         }
         $leadsSemOrigem = $orcLead['sem_origem'];
 
+        // Aviso de saude do rastreio do Google: link final da campanha fora do
+        // rastreio, criativo reprovado ou grupo nao elegivel. O dado vem da
+        // checagem diaria (ads_google_saude); so aparece quando achou problema.
+        $saudeGoogle = ads_roi_google_saude_ultima($adsRoiPdo ?? studio_db($studio));
+        if ($saudeGoogle && empty($saudeGoogle['ok'])) {
+            $saudeMsg = trim((string)($saudeGoogle['motivos'] ?? ''));
+            if ($saudeMsg === '') { $saudeMsg = trim((string)($saudeGoogle['erro'] ?? '')); }
+            if ($saudeMsg === '') { $saudeMsg = 'checagem sem detalhe'; }
+            echo '<div class="alert alert-danger" style="font-size:13px">'
+                . '<b>Rastreio do Google com problema.</b> ' . h($saudeMsg)
+                . ' (checado em ' . h((string)($saudeGoogle['checado_em'] ?? '')) . ')'
+                . ((string)($saudeGoogle['url_final'] ?? '') !== '' ? ' · link final hoje: <code>' . h((string)$saudeGoogle['url_final']) . '</code>' : '')
+                . '<br><b>O que fazer:</b> conferir o link final da campanha no Google Ads '
+                . '(tem que passar por <code>/projetocrm/ir.php?src=google</code>) e remover/reprovar '
+                . 'o criativo que o Google reprovou — enquanto isso o clique pode entrar sem origem.</div>';
+        }
+
         echo '<div class="roi-group">';
         echo '<div class="roi-group-head"><h3>O que os anúncios trouxeram</h3><span>período selecionado</span></div>';
         echo '<div class="roi-cards">';
         echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifParams + ['escopo' => 'conversas'])) . '"><div class="lbl">Conversas</div><div class="val">' . $vConversas . '</div><div class="sub">contatos iniciados · <b>ver</b></div></a>';
         echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifLeadParams + ['escopo' => 'leads_anuncio'])) . '"><div class="lbl">Leads de anúncio' . $helpBtn('leads_anuncio') . '</div><div class="val" style="color:#3538cd">' . $leadsAnuncio . '</div><div class="sub">Meta ' . (int)(($orcLead['facebook'] ?? 0) + ($orcLead['meta'] ?? 0)) . ' + Insta ' . (int)($orcLead['instagram'] ?? 0) . ' · <b>ver</b></div></a>';
-        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifLeadParams + ['escopo' => 'gasto'])) . '"><div class="lbl">Gasto' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ' · <b>ver</b></div></a>';
+        echo '<a class="roi-card roi-card-link" href="' . h(app_url('studio_verificar_card', $verifLeadParams + ['escopo' => 'gasto'])) . '"><div class="lbl">Gasto' . $helpBtn('spend_total') . '</div><div class="val">' . $fmt($s['spend_total']) . '</div><div class="sub">Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ' + TikTok ' . $fmt($s['spend_tiktok']) . ' · <b>ver</b></div></a>';
         echo '</div></div>';
 
         echo '<div class="roi-group">';
@@ -9617,7 +9832,7 @@ if ($page === 'studio_ads_roi') {
         echo '<div class="roi-cards">';
         echo '<div class="roi-card"><div class="lbl">Custo por lead' . $helpBtn('cpl') . '</div><div class="val">' . $fmt($cpl) . '</div><div class="sub">gasto ÷ leads de anúncio</div></div>';
         echo '<div class="roi-card"><div class="lbl">Custo por realizada' . $helpBtn('cpa') . '</div><div class="val">' . $fmt($cpa) . '</div><div class="sub">gasto ÷ tatuagens feitas</div></div>';
-        echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia configurado</div></div>';
+        echo '<div class="roi-card"><div class="lbl">Projeção mensal' . $helpBtn('projecao') . '</div><div class="val">' . $fmt($adsRoiProjection['monthly']) . '</div><div class="sub">' . $fmt($adsRoiProjection['daily']) . '/dia · Google lido da conta</div></div>';
         echo '</div></div>';
 
         // Painel único de tooltip + dados das explicações em JSON (aberto por clique no "?").
@@ -9662,22 +9877,100 @@ if ($page === 'studio_ads_roi') {
             . '</details>';
 
         echo '<div class="roi-group">';
-        echo '<div class="roi-group-head"><h3>Gasto por canal</h3></div>';
-        echo '<table class="roi-table"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th></tr></thead><tbody>';
+        echo '<div class="roi-group-head"><h3>Resultado por canal</h3><span>' . $helpBtn('custo_canal') . '</span></div>';
+        // Cruza o gasto de anuncio de cada canal com os agendamentos da agenda cuja
+        // origem foi rastreada (clique pago por telefone ou vinculo gravado pelo Funil).
+        // O que nao tem origem rastreada fica em SEM ORIGEM e nunca e jogado num canal.
+        $adsOrgCanais = [];
+        foreach ($adsRoiByOrigin as $orgCanal => $orgLinha) {
+            if ($orgCanal === '__total') { continue; }
+            $adsOrgCanais[$orgCanal] = ['n' => (int)$orgLinha['agendamentos'], 'v' => (float)$orgLinha['valor']];
+        }
+        $adsOrgSomar = static function (array $canais) use ($adsOrgCanais): array {
+            $n = 0; $v = 0.0;
+            foreach ($canais as $c) {
+                if (isset($adsOrgCanais[$c])) { $n += $adsOrgCanais[$c]['n']; $v += $adsOrgCanais[$c]['v']; }
+            }
+            return [$n, $v];
+        };
+        $adsOrgPagos = ['meta', 'facebook', 'instagram', 'google', 'tiktok'];
+        $adsOrgOutros = [];
+        foreach ($adsOrgCanais as $orgCanal => $orgLinha) {
+            if (!in_array($orgCanal, $adsOrgPagos, true)) { $adsOrgOutros[$orgCanal] = $orgLinha; }
+        }
         $totSpend = max(0.01, (float)$s['spend_total']);
-        $chMeta = (float)$s['spend_meta']; $chGoogle = (float)$s['spend_google'];
-        echo '<tr><td><span class="roi-pill meta">META</span></td><td>' . $fmt($chMeta) . '</td><td>' . number_format($chMeta / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
-        echo '<tr><td><span class="roi-pill google">GOOGLE</span></td><td>' . $fmt($chGoogle) . '</td><td>' . number_format($chGoogle / $totSpend * 100, 1, ',', '.') . '%</td></tr>';
-        echo '</tbody></table></div>';
+        $chMeta = (float)$s['spend_meta']; $chGoogle = (float)$s['spend_google']; $chTiktok = (float)$s['spend_tiktok'];
+        [$metaN, $metaV] = $adsOrgSomar(['meta', 'facebook', 'instagram']);
+        [$googN, $googV] = $adsOrgSomar(['google']);
+        [$tikN, $tikV] = $adsOrgSomar(['tiktok']);
+        $roiCpa = static function (float $gasto, int $n): string {
+            return ($gasto > 0 && $n > 0) ? 'R$ ' . number_format($gasto / $n, 2, ',', '.') : '—';
+        };
+        $roiRoas = static function (float $gasto, float $valor): string {
+            return ($gasto > 0 && $valor > 0) ? number_format($valor / $gasto, 2, ',', '.') . 'x' : '—';
+        };
+        // Linha da tabela: rotulo + gasto + % do gasto + agendamentos + valor + CPA + ROAS.
+        $roiCanalRow = static function (string $rotulo, float $gasto, int $n, float $v, bool $comPct) use ($totSpend, $fmt, $roiCpa, $roiRoas): string {
+            $cor = ($gasto > 0 && $v > 0 && ($v / $gasto) < 1) ? ' style="color:#d92d20;font-weight:700"' : '';
+            $pct = $comPct ? number_format($gasto / $totSpend * 100, 1, ',', '.') . '%' : '—';
+            return '<tr><td>' . $rotulo . '</td>'
+                . '<td>' . ($gasto > 0 ? $fmt($gasto) : '—') . '</td>'
+                . '<td>' . $pct . '</td>'
+                . '<td>' . $n . '</td>'
+                . '<td>' . $fmt($v) . '</td>'
+                . '<td>' . $roiCpa($gasto, $n) . '</td>'
+                . '<td' . $cor . '>' . $roiRoas($gasto, $v) . '</td></tr>';
+        };
+        echo '<table class="roi-table"><thead><tr><th>Canal</th><th>Gasto</th><th>% do gasto</th><th>Agend.</th><th>Valor</th><th>CPA</th><th>ROAS</th></tr></thead><tbody>';
+        echo $roiCanalRow('<span class="roi-pill meta">META</span> <span class="muted" style="font-size:11px">Facebook + Instagram</span>', $chMeta, $metaN, $metaV, true);
+        echo $roiCanalRow('<span class="roi-pill google">GOOGLE</span>', $chGoogle, $googN, $googV, true);
+        echo $roiCanalRow('<span class="roi-pill tiktok">TIKTOK</span>', $chTiktok, $tikN, $tikV, true);
+        foreach ($adsOrgOutros as $orgCanal => $orgLinha) {
+            $orgRotulo = $orgCanal === 'sem_origem'
+                ? '<span class="roi-pill outro">SEM ORIGEM</span>'
+                : '<span class="roi-pill outro">' . h(ads_origem_rotulo($orgCanal)) . '</span>';
+            echo $roiCanalRow($orgRotulo, 0.0, $orgLinha['n'], $orgLinha['v'], false);
+        }
+        echo '</tbody></table>';
+        echo '<div style="font-size:11px;color:#98a2b3;margin-top:6px">CPA e ROAS por canal usam só os agendamentos cuja origem foi rastreada. Anúncio pago sem clique rastreado (sem <code>gclid</code>/<code>ctwa</code>) não entra em nenhum canal: fica em <b>SEM ORIGEM</b>. Canal com gasto e <b>0</b> agendamento significa que nenhum clique rastreado dele virou agendamento no período.</div>';
+        echo '</div>';
+
+        // Gasto por campanha: mesma grana do bloco acima, aberta por campanha.
+        // Leads/CPA por campanha saem dos cliques rastreados dos dois canais:
+        // Google pelo gclid do clique e Meta pelo ID do anuncio (ads_meta_ad,
+        // resolvido na campanha pela API do Meta). Sem vinculo fica fora.
+        $adsRoiCampanhas = ads_roi_campaigns($adsRoiPdo, $adsRoiStart, $adsRoiEnd);
+        if ($adsRoiCampanhas) {
+            echo '<div class="roi-group">';
+            echo '<div class="roi-group-head"><h3>Gasto por campanha</h3><span>nada aqui soma duas vezes com os canais acima</span></div>';
+            echo '<table class="roi-table"><thead><tr><th>Campanha</th><th>Canal</th><th>Gasto</th><th>Dias</th><th>Leads</th><th>Custo por lead</th></tr></thead><tbody>';
+            foreach ($adsRoiCampanhas as $camp) {
+                $campPill = $camp['channel'] === 'google'
+                    ? '<span class="roi-pill google">GOOGLE</span>'
+                    : ($camp['channel'] === 'tiktok'
+                        ? '<span class="roi-pill tiktok">TIKTOK</span>'
+                        : '<span class="roi-pill meta">META</span>');
+                echo '<tr><td>' . h($camp['campaign']) . '</td>'
+                    . '<td>' . $campPill . '</td>'
+                    . '<td>' . $fmt($camp['spend']) . ' <span style="color:#98a2b3">(' . number_format($camp['spend'] / $totSpend * 100, 1, ',', '.') . '%)</span></td>'
+                    . '<td>' . (int)$camp['dias'] . '</td>'
+                    . '<td>' . (is_null($camp['leads']) ? '—' : (int)$camp['leads']) . '</td>'
+                    . '<td>' . (is_null($camp['cpl']) ? '—' : $fmt($camp['cpl'])) . '</td></tr>';
+            }
+            echo '</tbody></table>';
+            echo '<div style="font-size:11px;color:#98a2b3;margin-top:6px">O gasto de cada campanha ja esta dentro do total dos canais acima. Leads e custo por lead por campanha saem dos cliques rastreados dos dois canais: no Google o <code>gclid</code> liga o contato a campanha e no Meta o ID do anuncio (<code>ctwa_clid</code>) e resolvido na campanha pela API do Meta (<code>ads_meta_ad</code>). Linha com <b>—</b> e anuncio ainda sem vinculo: a campanha nunca e chutada.</div>';
+            echo '</div>';
+        }
 
         echo '<div class="roi-group">';
         echo '<div class="roi-group-head"><h3>Dia a dia</h3><span>' . $helpBtn('dia_a_dia') . '</span></div>';
         echo '<div style="max-height:420px;overflow:auto;border:1px solid #eaecf0;border-radius:14px">';
-        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>Gasto total</th><th>Futuros</th><th>Realizados</th><th>Valor</th></tr></thead><tbody>';
+        echo '<table class="roi-table"><thead><tr><th>Data</th><th>Meta</th><th>Google</th><th>TikTok</th><th>Gasto total</th><th>Futuros</th><th>Realizados</th><th>Valor</th></tr></thead><tbody>';
         foreach (array_reverse($s['series']) as $d) {
             echo '<tr><td>' . h(date('d/m', strtotime((string)$d['date']))) . '</td>';
             echo '<td>' . ($d['meta_spend'] > 0 ? $fmt($d['meta_spend']) : '—') . '</td>';
             echo '<td>' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '—') . '</td>';
+            echo '<td>' . (($d['tiktok_spend'] ?? 0) > 0 ? $fmt($d['tiktok_spend']) : '—') . '</td>';
             echo '<td>' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '—') . '</td>';
             echo '<td>' . (int)($d['agendados_futuros'] ?? 0) . '</td>';
             echo '<td>' . (int)$d['realizados'] . '</td>';
@@ -9691,34 +9984,57 @@ if ($page === 'studio_ads_roi') {
         echo '<div id="roiPdfDoc" style="display:none;background:#fff;color:#101828;font-family:Manrope,Segoe UI,Arial,sans-serif;width:760px;padding:0">';
         echo '<div style="border-bottom:2px solid #101828;padding-bottom:8px;margin-bottom:14px"><div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#667085;font-weight:700">' . h((string)($studio['name'] ?? 'Estúdio')) . '</div><div style="font-size:20px;font-weight:800;color:#101828;margin-top:2px">Retorno dos Anúncios</div><div style="font-size:11px;color:#667085;margin-top:3px">Período analisado: ' . h(date('d/m/Y', strtotime($adsRoiStart))) . ' a ' . h(date('d/m/Y', strtotime($adsRoiEnd))) . ' (' . (int)$adsRoiPeriod . ' dias' . ($adsRoiCustom ? ', personalizado' : '') . ') - gerado em ' . h(date('d/m/Y H:i')) . '</div></div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><tbody>';
-        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700;width:38%">Gasto no período</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_total']) . ' <span style="color:#98a2b3">(Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ')</span></td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700;width:38%">Gasto no período</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_total']) . ' <span style="color:#98a2b3">(Meta ' . $fmt($s['spend_meta']) . ' + Google ' . $fmt($s['spend_google']) . ' + TikTok ' . $fmt($s['spend_tiktok']) . ')</span></td></tr>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Agendamentos com valor</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . (int)$s['agendamentos'] . ' <span style="color:#98a2b3">(' . (int)($s['cancelados_total'] ?? $s['cancelados']) . ' cancelados na agenda)</span></td></tr>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;font-weight:700">Valor cadastrado</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['valor_agendado']) . '</td></tr>';
         echo '</tbody></table>';
-        echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Meta x Google (período)</div>';
+        echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Meta x Google x TikTok (período)</div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><thead><tr>';
         foreach (['Canal', 'Gasto', '% do gasto'] as $th) { echo '<th style="text-align:left;padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
         echo '</tr></thead><tbody>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">META</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_meta']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_meta'] / $vTot * 100, 1, ',', '.') . '%</td></tr>';
         echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">GOOGLE</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_google']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_google'] / $vTot * 100, 1, ',', '.') . '%</td></tr>';
+        echo '<tr><td style="padding:6px 8px;border:1px solid #eaecf0">TIKTOK</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . $fmt($s['spend_tiktok']) . '</td><td style="padding:6px 8px;border:1px solid #eaecf0">' . number_format((float)$s['spend_tiktok'] / $vTot * 100, 1, ',', '.') . '%</td></tr>';
         echo '</tbody></table>';
-        echo '<div style="font-size:10px;color:#98a2b3;margin:-12px 0 14px">Comparacao de resultado por canal indisponivel: a agenda nao registra a origem do cliente.</div>';
+        echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Resultado por canal (agendamentos com origem rastreada)</div>';
+        echo '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px"><thead><tr>';
+        foreach (['Canal', 'Gasto', 'Agend.', 'Valor', 'CPA', 'ROAS'] as $th) { echo '<th style="text-align:left;padding:6px 8px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        echo '</tr></thead><tbody>';
+        $pdfCell = 'padding:6px 8px;border:1px solid #eaecf0';
+        $pdfRows = [['META (Facebook + Instagram)', $chMeta, $metaN, $metaV], ['GOOGLE', $chGoogle, $googN, $googV], ['TIKTOK', $chTiktok, $tikN, $tikV]];
+        foreach ($adsOrgOutros as $orgCanal => $orgLinha) {
+            $pdfRows[] = [$orgCanal === 'sem_origem' ? 'SEM ORIGEM' : ads_origem_rotulo($orgCanal), 0.0, $orgLinha['n'], $orgLinha['v']];
+        }
+        foreach ($pdfRows as $pdfR) {
+            $g = (float)$pdfR[1]; $n = (int)$pdfR[2]; $v = (float)$pdfR[3];
+            $cpa = ($g > 0 && $n > 0) ? 'R$ ' . number_format($g / $n, 2, ',', '.') : '—';
+            $roas = ($g > 0 && $v > 0) ? number_format($v / $g, 2, ',', '.') . 'x' : '—';
+            echo '<tr>'
+                . '<td style="' . $pdfCell . '">' . h((string)$pdfR[0]) . '</td>'
+                . '<td style="' . $pdfCell . '">' . ($g > 0 ? 'R$ ' . number_format($g, 2, ',', '.') : '—') . '</td>'
+                . '<td style="' . $pdfCell . '">' . (string)$n . '</td>'
+                . '<td style="' . $pdfCell . '">' . 'R$ ' . number_format($v, 2, ',', '.') . '</td>'
+                . '<td style="' . $pdfCell . '">' . $cpa . '</td>'
+                . '<td style="' . $pdfCell . '">' . $roas . '</td></tr>';
+        }
+        echo '</tbody></table>';
         echo '<div style="font-size:12px;font-weight:800;color:#101828;margin:0 0 6px">Dia a dia</div>';
         echo '<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr>';
-        foreach (['Data', 'Meta', 'Google', 'Gasto total', 'Agend.', 'Valor'] as $th) { echo '<th style="text-align:left;padding:5px 7px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
+        foreach (['Data', 'Meta', 'Google', 'TikTok', 'Gasto total', 'Agend.', 'Valor'] as $th) { echo '<th style="text-align:left;padding:5px 7px;border:1px solid #eaecf0;background:#f9fafb;color:#475467;font-weight:700">' . $th . '</th>'; }
         echo '</tr></thead><tbody>';
         foreach ($s['series'] as $d) {
             echo '<tr>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . h(date('d/m', strtotime((string)$d['date']))) . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['meta_spend'] > 0 ? $fmt($d['meta_spend']) : '-') . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['google_spend'] > 0 ? $fmt($d['google_spend']) : '-') . '</td>';
+            echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (($d['tiktok_spend'] ?? 0) > 0 ? $fmt($d['tiktok_spend']) : '-') . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['spend_total'] > 0 ? $fmt($d['spend_total']) : '-') . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . (int)$d['agendamentos'] . '</td>';
             echo '<td style="padding:5px 7px;border:1px solid #eaecf0">' . ($d['valor_agendado'] > 0 ? $fmt($d['valor_agendado']) : '-') . '</td>';
             echo '</tr>';
         }
         echo '</tbody></table>';
-        echo '<div style="margin-top:14px;padding-top:8px;border-top:1px solid #eaecf0;font-size:10px;color:#98a2b3;line-height:1.5">Documento gerado pelo painel Retorno dos Anúncios. O gasto vem da sincronização diária com a Meta Ads API; agendamentos e valores vêm da agenda real do estúdio. Agendamento sem valor cadastrado não entra na conta. Indicadores de retorno (ROAS) e custo por agendamento ficam ocultos enquanto a origem do cliente nao for rastreada.</div>';
+        echo '<div style="margin-top:14px;padding-top:8px;border-top:1px solid #eaecf0;font-size:10px;color:#98a2b3;line-height:1.5">Documento gerado pelo painel Retorno dos Anúncios. O gasto vem da sincronização diária com a Meta Ads API; agendamentos e valores vêm da agenda real do estúdio. Agendamento sem valor cadastrado não entra na conta. O CPA e o ROAS por canal usam so os agendamentos cuja origem foi rastreada (clique pago ou vinculo do Funil); o restante aparece como SEM ORIGEM e nao e atribuido a nenhum canal.</div>';
         echo '</div>';
         echo '<script src="' . h(app_asset_url('assets/vendor/html2canvas-pro/html2canvas-pro.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
         echo '<script src="' . h(app_asset_url('assets/vendor/jspdf/jspdf.umd.min.js')) . '?v=' . h(app_build_version()) . '"></script>';
@@ -9842,6 +10158,15 @@ if ($page === 'studio_funil') {
     require_once APP_BASE_PATH . '/app/historico_conversas.php';
     require_once APP_BASE_PATH . '/app/historico_leads_map.php';
     require_once APP_BASE_PATH . '/app/funil.php';
+    // Rede do clique pago do Google (YouTube, Pesquisa, Display...): completa o
+    // cache consultando a API pelo gclid ainda nao resolvido. Orcamento curto
+    // (1 dia por visita) para nao pesar a pagina; o sync diario faz a carga cheia.
+    try {
+        require_once APP_BASE_PATH . '/app/ads_roi.php';
+        ads_roi_google_resolver_cliques($studio, 40, 1, null, null, 12);
+    } catch (Throwable $e) {
+        // silencioso de proposito: sem isso a arvore so fica menos detalhada
+    }
     render_studio_shell('Funil de Vendas', 'Do anuncio ate a tatuagem feita: quantos leads do Ads abrem conversa, interagem, agendam e tatuam.', 'funil', function () use ($studio) {
         render_funil($studio);
     }, $flash);
@@ -11487,6 +11812,16 @@ function render_calendar_list(array $appointments): void
     echo '</div>';
 }
 
+function appointment_missing_value_badge(array $appointment): string
+{
+    $status = strtolower(trim((string)($appointment['status'] ?? '')));
+    if ((float)($appointment['value'] ?? 0) > 0 || in_array($status, ['cancelado', 'cancelada', 'cancelled', 'perdido', 'falta'], true)) {
+        return '';
+    }
+
+    return '<span class="badge warn" title="Atendimento sem valor lancado. Completar o campo Valor na agenda.">sem valor</span>';
+}
+
 function appointment_calendar_detail_payload(array $appointment): array
 {
     $name = (string)($appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']));
@@ -11572,7 +11907,7 @@ function render_calendar_event(array $appointment): void
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
     $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
-    echo '<button type="button" class="calendar-event ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong><span class="calendar-event-title">' . h($name) . '</span><span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . '</button>';
+    echo '<button type="button" class="calendar-event ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong><span class="calendar-event-title">' . h($name) . '</span><span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . appointment_missing_value_badge($appointment) . '</button>';
 }
 
 function render_calendar_block(array $appointment): void
@@ -11597,6 +11932,7 @@ function render_calendar_block(array $appointment): void
     if (studio_appointment_health_alerts_from_row($appointment)) {
         echo '<span class="badge warn">saúde</span>';
     }
+    echo appointment_missing_value_badge($appointment);
     echo '</button>';
 }
 
@@ -11879,7 +12215,7 @@ function render_appointments_table(array $appointments): void
         echo '<td>' . h($appointment['artist_name'] ?: '-') . '</td>';
 $appointmentValue = appointment_display_amount($appointment['value'] ?? 0);
 $appointmentDeposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
-echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sinal ' . h(format_money($appointmentDeposit)) . '</span></td>';
+echo '<td>' . h(format_money($appointmentValue)) . '<br><span class="muted">Sinal ' . h(format_money($appointmentDeposit)) . '</span>' . appointment_missing_value_badge($appointment) . '</td>';
         echo '<td><span class="badge">' . h($appointment['status']) . '</span>' . (studio_appointment_health_alerts_from_row($appointment) ? '<br><span class="badge warn">saúde</span>' : '') . '<br><a class="btn tiny secondary" href="' . h($href) . '">Abrir</a></td>';
         echo '</tr>';
     }

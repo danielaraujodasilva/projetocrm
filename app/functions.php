@@ -115,7 +115,7 @@ function format_datetime_pt(string $value, bool $withWeekday = true): string
 
     try {
         $tz = new DateTimeZone('America/Sao_Paulo');
-        $date = new DateTimeImmutable($value, $tz);
+        $date = (new DateTimeImmutable($value, $tz))->setTimezone($tz);
         $weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sb'][(int)$date->format('w')] ?? '';
         $label = strtoupper($weekday) . ' - ' . $date->format('d/m/Y H:i');
         return $withWeekday ? $label : $date->format('d/m/Y H:i');

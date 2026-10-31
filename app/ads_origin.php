@@ -22,7 +22,7 @@ function ads_detect_origin(string $text): string
     }
     $map = [
         'meta'        => ['vim pelo meta', 'pelo meta', 'vi no meta', 'anuncio do meta', 'anúncio do meta', 'facebook', 'instagram do meta'],
-        'google'      => ['vim pelo google', 'pelo google', 'vi no google', 'anuncio do google', 'anúncio do google', 'pesquisei no google'],
+        'google'      => ['vim pelo google', 'pelo google', 'vi no google', 'anuncio do google', 'anúncio do google', 'pesquisei no google', 'vim pelo youtube', 'pelo youtube', 'vi no youtube', 'vi o anuncio no youtube', 'vi o anúncio no youtube', 'anuncio do youtube', 'anúncio do youtube', 'youtube', 'you tube'],
         'instagram'   => ['vim pelo instagram', 'pelo instagram', 'vi no instagram', 'instagram', 'insta'],
         'indicacao'   => ['indicacao', 'indicação', 'indicado', 'indicada', 'me indicaram', 'boca a boca'],
         'porta'       => ['passei na frente', 'passei por ai', 'passei por aí', 'vizinho', 'do lado do estudio', 'do lado do estúdio'],
@@ -403,30 +403,205 @@ function ads_hits_by_origin(PDO $pdo, string $start, string $end): array
 }
 
 /**
- * Conta agendamentos com valor por origem (para a pagina de ROI quando houver origem).
- * Retorna [origem => ['agendamentos'=>n, 'valor'=>v]]
+ * Resultado REAL por canal: agendamentos atendidos e valor, quebrados pelo canal
+ * que trouxe o cliente.
+ *
+ * ANTES: agrupava por `leads.source` (texto livre) e todo agendamento
+ * importado do Google Calendar, que nao tem canal, aparecia como "Google Agenda"
+ * - como se Google Agenda fosse canal de aquisicao. Qualquer leitura por canal
+ * ficava falsa.
+ *
+ * O canal sai, em ordem de confianca:
+ *   1) clique pago rastreado (ads_origin_hits), casado pelo telefone;
+ *   2) origem detectada pela IA (funil_match.origem_detectada);
+ *   3) leads.source, mas so quando e origem de verdade (agenda/manual sao
+ *      importacao e digitacao, nao canal -> viram sem_origem).
+ * Sem nenhum dos tres o agendamento entra em "sem_origem", em vez de inventar canal.
+ *
+ * Base identica ao resumo do painel (ads_roi_daily_series): data do ATENDIMENTO,
+ * status finalizado e sem os compromissos operacionais - assim a soma dos canais
+ * fecha com o total mostrado no topo.
+ *
+ * Retorna [canal => ['agendamentos'=>n, 'valor'=>v]] + '__total'.
  */
 function ads_roi_by_origin(PDO $pdo, string $start, string $end): array
 {
+    $out = ['__total' => ['agendamentos' => 0, 'valor' => 0.0]];
     try {
-        $sql = 'SELECT COALESCE(NULLIF(l.source, ""), "sem_origem") AS origem,
-                       COUNT(*) AS agendamentos,
-                       SUM(CASE WHEN a.value > 0 THEN a.value ELSE 0 END) AS valor
-                FROM appointments a
-                LEFT JOIN leads l ON l.id = a.lead_id
-                WHERE DATE(a.created_at) BETWEEN ? AND ?
-                GROUP BY origem ORDER BY valor DESC';
+        // 1) Clique pago rastreado pela ponte: telefone -> canal.
+        $porFone = [];
+        try {
+            foreach ($pdo->query('SELECT phone, origin, platform FROM ads_origin_hits') as $row) {
+                $canal = ads_roi_canal_da_ponte((string)($row['platform'] ?? ''), (string)($row['origin'] ?? ''));
+                if ($canal === '') {
+                    continue;
+                }
+                foreach (ads_roi_fone_variacoes((string)($row['phone'] ?? '')) as $chave) {
+                    if (!isset($porFone[$chave]) || !ads_origem_e_anuncio($porFone[$chave])) {
+                        $porFone[$chave] = $canal;
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $porFone = [];
+        }
+        // 2) Origem detectada pela IA. Nunca sobrescreve clique pago.
+        try {
+            foreach ($pdo->query('SELECT telefone, origem_detectada FROM funil_match WHERE origem_detectada IS NOT NULL AND origem_detectada <> ""') as $row) {
+                $canal = ads_roi_canal_do_source((string)($row['origem_detectada'] ?? ''));
+                if ($canal === '') {
+                    continue;
+                }
+                foreach (ads_roi_fone_variacoes((string)($row['telefone'] ?? '')) as $chave) {
+                    if (!isset($porFone[$chave])) {
+                        $porFone[$chave] = $canal;
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            // funil_match pode nao existir: segue sem a IA.
+        }
+
+        // 3) Vinculo que a IA amarrou (funil_match.appointment_id), o mesmo que a
+        // tela de Funil usa: a agenda importada quase nunca guarda telefone, entao
+        // so vale quando UM telefone reivindica o agendamento - se dois apontam
+        // para o mesmo, e ambiguidade e fica de fora.
+        $porAppt = [];
+        try {
+            $claim = [];
+            foreach ($pdo->query('SELECT appointment_id, telefone, origem_detectada FROM funil_match WHERE appointment_id IS NOT NULL') as $row) {
+                $id = (int)($row['appointment_id'] ?? 0);
+                if ($id > 0) {
+                    $claim[$id][] = $row;
+                }
+            }
+            foreach ($claim as $id => $linhas) {
+                if (count($linhas) !== 1) {
+                    continue;
+                }
+                $linha = $linhas[0];
+                $canal = '';
+                foreach (ads_roi_fone_variacoes((string)($linha['telefone'] ?? '')) as $chave) {
+                    if (isset($porFone[$chave])) {
+                        $canal = $porFone[$chave];
+                        break;
+                    }
+                }
+                if ($canal === '') {
+                    $canal = ads_roi_canal_do_source((string)($linha['origem_detectada'] ?? ''));
+                }
+                if ($canal !== '') {
+                    $porAppt[$id] = $canal;
+                }
+            }
+        } catch (Throwable $e) {
+            $porAppt = [];
+        }
+
+
+        $sql = 'SELECT a.id AS appt_id, COALESCE(NULLIF(c.phone, ""), NULLIF(l.phone, ""), "") AS phone, l.source AS lead_source, a.value AS valor
+                  FROM appointments a
+                  LEFT JOIN customers c ON c.id = a.customer_id
+                  LEFT JOIN leads l ON l.id = a.lead_id
+                 WHERE a.appointment_date BETWEEN ? AND ?
+                   AND YEAR(a.appointment_date) BETWEEN 2000 AND 2100
+                   AND LOWER(TRIM(a.status)) = "finalizado"
+                   AND NOT (LOWER(a.title) REGEXP "limpeza|luna|niver|aniversario|casamento|inss|pericia|caf\u00e9 da manh\u00e3|cafe da manha|estorno|escola|tv vizinho|lembrar|s\u00e1bado da|sabado da|spa day|manuten\u00e7\u00e3o|manutencao|vistoria|carro")';
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$start, $end]);
-        $out = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $out[(string)$row['origem']] = [
-                'agendamentos' => (int)$row['agendamentos'],
-                'valor' => (float)$row['valor'],
-            ];
+            $canal = '';
+            foreach (ads_roi_fone_variacoes((string)($row['phone'] ?? '')) as $chave) {
+                if (isset($porFone[$chave])) {
+                    $canal = $porFone[$chave];
+                    break;
+                }
+            }
+            if ($canal === '' && isset($porAppt[(int)($row['appt_id'] ?? 0)])) {
+                $canal = $porAppt[(int)($row['appt_id'] ?? 0)];
+            }
+            if ($canal === '') {
+                $canal = ads_roi_canal_do_source((string)($row['lead_source'] ?? ''));
+            }
+            if ($canal === '') {
+                $canal = 'sem_origem';
+            }
+            if (!isset($out[$canal])) {
+                $out[$canal] = ['agendamentos' => 0, 'valor' => 0.0];
+            }
+            $out[$canal]['agendamentos']++;
+            $out[$canal]['valor'] += (float)($row['valor'] ?? 0);
+            $out['__total']['agendamentos']++;
+            $out['__total']['valor'] += (float)($row['valor'] ?? 0);
         }
-        return $out;
     } catch (Throwable $e) {
+        return $out;
+    }
+
+    $total = $out['__total'];
+    unset($out['__total']);
+    uasort($out, static function (array $a, array $b): int {
+        return ($b['valor'] <=> $a['valor']) ?: ($b['agendamentos'] <=> $a['agendamentos']);
+    });
+    return ['__total' => $total] + $out;
+}
+
+/**
+ * Variacoes do telefone para casar entre as tabelas, com a mesma tolerancia do
+ * resto do CRM (com/sem DDI e com/sem o 9). Reusa historico_telefone_variacoes
+ * quando ela estiver carregada.
+ */
+function ads_roi_fone_variacoes(string $fone): array
+{
+    if (function_exists('historico_telefone_variacoes')) {
+        return historico_telefone_variacoes($fone);
+    }
+    $d = preg_replace('/\D+/', '', $fone);
+    if ($d === '') {
         return [];
     }
+    $out = [$d];
+    if (strlen($d) > 11 && str_starts_with($d, '55')) {
+        $sem = substr($d, 2);
+        $out[] = $sem;
+        if (strlen($sem) === 11) {
+            $out[] = substr($sem, 0, 2) . substr($sem, 3);
+        } elseif (strlen($sem) === 10) {
+            $out[] = substr($sem, 0, 2) . '9' . substr($sem, 2);
+        }
+    } elseif (strlen($d) === 11) {
+        $out[] = substr($d, 0, 2) . substr($d, 3);
+        $out[] = '55' . $d;
+    } elseif (strlen($d) === 10) {
+        $out[] = substr($d, 0, 2) . '9' . substr($d, 2);
+        $out[] = '55' . $d;
+    }
+    return array_values(array_unique(array_filter($out)));
+}
+
+/**
+ * Canal canonico do que a ponte gravou: platform manda (facebook/instagram),
+ * origin completa quando a platform vem vazia.
+ */
+function ads_roi_canal_da_ponte(string $platform, string $origin): string
+{
+    $p = ads_origem_normalizar($platform);
+    if ($p !== '' && $p !== 'outro') {
+        return $p;
+    }
+    $o = ads_origem_normalizar($origin);
+    return $o === 'outro' ? '' : $o;
+}
+
+/**
+ * Canal a partir de um codigo de origem solto. Importacao ("agenda") e digitacao
+ * ("manual") NAO sao canal de aquisicao, entao devolvem vazio.
+ */
+function ads_roi_canal_do_source(string $source): string
+{
+    $cod = ads_origem_normalizar($source);
+    if ($cod === '' || $cod === 'outro' || $cod === 'agenda' || $cod === 'manual') {
+        return '';
+    }
+    return $cod;
 }

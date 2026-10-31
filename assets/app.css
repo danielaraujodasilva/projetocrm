@@ -9280,8 +9280,11 @@ input[type="time"]:focus {
         height: 32px;
     }
 
+    /* Fora do ar no celular: a navegacao passa a ser SO a barra flutuante de
+       baixo (o botao "Menu" dela abre esta lista em tela cheia). Antes este
+       botao ficava fixo no topo e parecia um segundo menu de navegacao. */
     .mobile-menu {
-        display: block;
+        display: none;
         position: absolute;
         top: 11px;
         right: 14px;
@@ -9303,6 +9306,7 @@ input[type="time"]:focus {
     }
 
     .mobile-menu[open] {
+        display: block;
         position: fixed;
         z-index: 60;
         inset: 0;
@@ -9356,18 +9360,25 @@ input[type="time"]:focus {
         backdrop-filter: blur(14px);
     }
 
-    .mobile-bottom-nav a {
+    .mobile-bottom-nav a,
+    .mobile-bottom-nav button {
         display: grid;
         place-items: center;
         align-content: center;
         gap: 4px;
+        padding: 0;
+        border: 0;
+        background: none;
+        font-family: inherit;
+        cursor: pointer;
         border-radius: 10px;
         color: rgba(235, 243, 238, .58);
         font-size: 8px;
         font-weight: 700;
     }
 
-    .mobile-bottom-nav a i {
+    .mobile-bottom-nav a i,
+    .mobile-bottom-nav button i {
         font-size: 14px;
     }
 

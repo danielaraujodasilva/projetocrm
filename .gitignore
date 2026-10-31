@@ -3,7 +3,13 @@
 *.local.json
 *.log
 *.tmp
+*.bak
+*.bak-*
 /storage/
 /vendor/
 /node_modules/
 /tools/whatsapp_web_collector/node_modules/
+/dados/
+/tmp/
+/_audit_backups/
+/_backup-ia-desligada-*/

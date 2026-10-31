@@ -3192,6 +3192,7 @@ function studio_whatsapp_mark_read(array $studio, int $conversationId): string
     $readAt = date('Y-m-d H:i:s');
     $state[(string)$conversationId] = $readAt;
     studio_whatsapp_save_read_state($studio, $state);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET nao_lida = 0, nao_lida_at = NULL WHERE id = ?')->execute([$conversationId]);
 
     return $readAt;
 }
@@ -3205,6 +3206,13 @@ function studio_whatsapp_mark_unread(array $studio, int $conversationId): void
     $state = studio_whatsapp_read_state($studio);
     unset($state[(string)$conversationId]);
     studio_whatsapp_save_read_state($studio, $state);
+    studio_db($studio)->prepare('UPDATE whatsapp_conversations SET nao_lida = 1, nao_lida_at = NOW() WHERE id = ?')->execute([$conversationId]);
+}
+
+function studio_whatsapp_active_unread_count(array $studio): int
+{
+    $stmt = studio_db($studio)->query('SELECT COUNT(*) FROM whatsapp_conversations WHERE merged_into_id IS NULL AND nao_lida = 1');
+    return max(0, (int)$stmt->fetchColumn());
 }
 
 function studio_whatsapp_unread_count(array $conversation, array $studio): int
@@ -3393,7 +3401,7 @@ function studio_find_lead_by_phone(array $studio, string $phone): ?array
 
 function studio_find_whatsapp_conversation_by_phone(array $studio, string $phone): ?array
 {
-    $stmt = studio_db($studio)->query('SELECT * FROM whatsapp_conversations ORDER BY updated_at DESC, id DESC LIMIT 800');
+    $stmt = studio_db($studio)->query('SELECT * FROM whatsapp_conversations WHERE merged_into_id IS NULL ORDER BY updated_at DESC, id DESC');
     foreach ($stmt->fetchAll() ?: [] as $conversation) {
         if (phones_match((string)$conversation['phone'], $phone)) {
             return $conversation;
@@ -11647,6 +11655,7 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
     }
 
     $preview = $body !== '' ? mb_substr($body, 0, 250) : '[' . $messageType . ']';
+    $unread = $fromMe ? 0 : 1;
     $stmt = $pdo->prepare(
         'UPDATE whatsapp_conversations
          SET remote_jid = COALESCE(NULLIF(?, ""), remote_jid),
@@ -11655,10 +11664,12 @@ function studio_record_whatsapp_message(array $studio, array $payload): array
              last_message_preview = ?,
              last_message_direction = ?,
              last_message_at = ?,
+             nao_lida_at = CASE WHEN ? = 1 THEN COALESCE(nao_lida_at, ?) ELSE NULL END,
+             nao_lida = ?,
              updated_at = NOW()
          WHERE id = ?'
     );
-    $stmt->execute([$remoteJid, $needsHuman ? 1 : 0, $score, $preview, $direction, $sentAt, (int)$conversation['id']]);
+    $stmt->execute([$remoteJid, $needsHuman ? 1 : 0, $score, $preview, $direction, $sentAt, $unread, $sentAt, $unread, (int)$conversation['id']]);
 
     if (!empty($conversation['lead_id'])) {
         $pdo->prepare('UPDATE leads SET lead_score = GREATEST(COALESCE(lead_score, 0), ?), last_contact_at = ?, updated_at = NOW() WHERE id = ?')
@@ -25695,18 +25706,176 @@ function studio_save_appointment(array $studio, array $data): int
     return $appointmentId;
 }
 
+function studio_appointment_auto_outcome_from_title(string $title): ?string
+{
+    $plain = studio_calendar_lower_text(trim($title));
+    $plain = strtr($plain, [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c', 'ñ' => 'n',
+    ]);
+    $plain = preg_replace('/[^a-z0-9]+/', ' ', $plain) ?? $plain;
+    $plain = trim(preg_replace('/\s+/', ' ', $plain) ?? $plain);
+    if ($plain === '') {
+        return null;
+    }
+
+    if (preg_match('/\b(?:cancelad[oa]|cancelamento|cancelou|canceled|cancelled|desmarcad[oa]|desmarcou)\b/u', $plain)) {
+        return 'cancelado';
+    }
+    if (preg_match('/\b(?:faltou|faltaram|ausente|desistiu|no\s*show|nao\s+(?:veio|vem|compareceu|apareceu)|nao\s+vai\s+(?:vir|vim|comparecer|aparecer)|nao\s+(?:pode|consegue)\s+(?:ir|comparecer))\b/u', $plain)) {
+        return 'falta';
+    }
+    if (preg_match('/\b(?:reagendad[oa]|reagendar|reagendou|reagendamento|remarcad[oa]|remarcar|remarcou|remarcacao)\b/u', $plain)) {
+        return 'cancelado';
+    }
+
+    return null;
+}
+
+function studio_refresh_lead_status_from_appointments(array $studio, int $leadId): void
+{
+    if ($leadId <= 0) {
+        return;
+    }
+
+    $pdo = studio_db($studio);
+    $lostStatuses = "('cancelado', 'cancelada', 'cancelled', 'canceled', 'perdido', 'falta', 'faltou', 'no_show', 'nao_compareceu')";
+    $completedStatuses = "('finalizado', 'finalizada', 'concluido', 'concluida', 'atendido')";
+    $occurrence = "CONCAT(appointment_date, ' ', COALESCE(NULLIF(CAST(end_time AS CHAR), ''), NULLIF(CAST(start_time AS CHAR), ''), '23:59:59'))";
+
+    $future = $pdo->prepare(
+        "SELECT status, value, appointment_date, start_time
+         FROM appointments
+         WHERE lead_id = ?
+           AND {$occurrence} >= NOW()
+           AND LOWER(COALESCE(status, '')) NOT IN {$lostStatuses}
+           AND LOWER(COALESCE(status, '')) NOT IN {$completedStatuses}
+         ORDER BY appointment_date DESC, start_time DESC, id DESC
+         LIMIT 1"
+    );
+    $future->execute([$leadId]);
+    $futureAppointment = $future->fetch();
+    if (is_array($futureAppointment)) {
+        studio_sync_lead_from_appointment(
+            $studio,
+            $leadId,
+            'agendado',
+            (float)($futureAppointment['value'] ?? 0),
+            (string)($futureAppointment['appointment_date'] ?? '') . ' ' . (string)($futureAppointment['start_time'] ?? '')
+        );
+        return;
+    }
+
+    $completed = $pdo->prepare(
+        "SELECT status, value, appointment_date, start_time
+         FROM appointments
+         WHERE lead_id = ?
+           AND {$occurrence} < NOW()
+           AND LOWER(COALESCE(status, '')) IN {$completedStatuses}
+         ORDER BY appointment_date DESC, start_time DESC, id DESC
+         LIMIT 1"
+    );
+    $completed->execute([$leadId]);
+    $completedAppointment = $completed->fetch();
+    if (is_array($completedAppointment)) {
+        studio_sync_lead_from_appointment(
+            $studio,
+            $leadId,
+            'finalizado',
+            (float)($completedAppointment['value'] ?? 0),
+            (string)($completedAppointment['appointment_date'] ?? '') . ' ' . (string)($completedAppointment['start_time'] ?? '')
+        );
+        return;
+    }
+
+    $missed = $pdo->prepare(
+        "SELECT status, value, appointment_date, start_time
+         FROM appointments
+         WHERE lead_id = ?
+           AND {$occurrence} < NOW()
+           AND LOWER(COALESCE(status, '')) IN {$lostStatuses}
+         ORDER BY appointment_date DESC, start_time DESC, id DESC
+         LIMIT 1"
+    );
+    $missed->execute([$leadId]);
+    $missedAppointment = $missed->fetch();
+    if (is_array($missedAppointment)) {
+        studio_sync_lead_from_appointment(
+            $studio,
+            $leadId,
+            (string)($missedAppointment['status'] ?? 'cancelado'),
+            (float)($missedAppointment['value'] ?? 0),
+            (string)($missedAppointment['appointment_date'] ?? '') . ' ' . (string)($missedAppointment['start_time'] ?? '')
+        );
+    }
+}
+
 function studio_apply_appointment_auto_status_rules(array $studio): int
 {
     $pdo = studio_db($studio);
-    $pdo->prepare(
-        "UPDATE appointments
-         SET status = 'finalizado', updated_at = NOW()
-         WHERE status NOT IN ('finalizado', 'atendido', 'cancelado', 'perdido')
-           AND (
-                appointment_date < CURDATE()
-                OR (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
-           )"
-    )->execute();
+    $afterService = "(
+        appointment_date < CURDATE()
+        OR (appointment_date = CURDATE() AND COALESCE(end_time, start_time) <= CURTIME())
+    )";
+    $closedStatuses = "('finalizado', 'finalizada', 'atendido', 'concluido', 'concluida')";
+    $ignoredStatuses = "('cancelado', 'cancelada', 'cancelled', 'canceled', 'perdido', 'falta', 'faltou', 'no_show', 'nao_compareceu')";
+
+    $due = $pdo->prepare(
+        "SELECT id, lead_id, title, raw_title, value, appointment_date, start_time, status
+         FROM appointments
+         WHERE LOWER(COALESCE(status, '')) NOT IN {$closedStatuses}
+           AND LOWER(COALESCE(status, '')) NOT IN {$ignoredStatuses}
+           AND {$afterService}"
+    );
+    $due->execute();
+    $updated = 0;
+    $touchedLeads = [];
+    $updateStatus = $pdo->prepare('UPDATE appointments SET status = ?, updated_at = NOW() WHERE id = ? AND status <> ?');
+    foreach ($due->fetchAll() ?: [] as $appointment) {
+        $outcome = studio_appointment_auto_outcome_from_title(
+            trim((string)($appointment['title'] ?? '') . ' ' . (string)($appointment['raw_title'] ?? ''))
+        );
+        $newStatus = $outcome ?: 'finalizado';
+        $updateStatus->execute([$newStatus, (int)$appointment['id'], $newStatus]);
+        $updated += $updateStatus->rowCount();
+
+        $leadId = (int)($appointment['lead_id'] ?? 0);
+        if ($leadId > 0) {
+            $touchedLeads[$leadId] = true;
+        }
+    }
+
+    // Corrige registros que a regra antiga finalizou mesmo com o titulo
+    // informando cancelamento, falta ou reagendamento.
+    $closed = $pdo->query(
+        "SELECT id, lead_id, title, raw_title, status
+         FROM appointments
+         WHERE LOWER(COALESCE(status, '')) IN {$closedStatuses}"
+    );
+    foreach ($closed->fetchAll() ?: [] as $appointment) {
+        $outcome = studio_appointment_auto_outcome_from_title(
+            trim((string)($appointment['title'] ?? '') . ' ' . (string)($appointment['raw_title'] ?? ''))
+        );
+        if ($outcome === null) {
+            continue;
+        }
+        $updateStatus->execute([$outcome, (int)$appointment['id'], $outcome]);
+        $updated += $updateStatus->rowCount();
+
+        $leadId = (int)($appointment['lead_id'] ?? 0);
+        if ($leadId > 0) {
+            $touchedLeads[$leadId] = true;
+        }
+    }
+
+    foreach (array_keys($touchedLeads) as $leadId) {
+        studio_refresh_lead_status_from_appointments($studio, (int)$leadId);
+    }
+
     $stmt = $pdo->prepare(
         "UPDATE appointments
          SET status = CASE
@@ -25718,7 +25887,7 @@ function studio_apply_appointment_auto_status_rules(array $studio): int
     );
     $stmt->execute();
 
-    return $stmt->rowCount();
+    return $updated;
 }
 
 function studio_appointment_confirmation_window(array $appointment): bool
@@ -26438,6 +26607,26 @@ function studio_calendar_extract_event_value(string $title): array
         }
     }
 
+    // Fallback: limpa ruidos que atrapalham (datas, "3x", "2 sessao"/"4 pomadas")
+    // e tenta capturar um valor monetario plausivel no restante do titulo.
+    $fallback = preg_replace('#\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b#', ' ', $candidate) ?? $candidate;
+    $fallback = preg_replace('/\b\d{1,3}\s*[xX]\b/u', ' ', $fallback) ?? $fallback;
+    $fallback = preg_replace('/\b\d{1,2}\s*(?:sess(?:ao|ão|oes|ões)|pomadas?)\b/iu', ' ', $fallback) ?? $fallback;
+    if (preg_match_all('/(?<![\d,.])(\d{1,3}(?:[.,]\d{3})+|\d{3,6})(?![\d])/', $fallback, $matches)) {
+        $bestValue = 0.0;
+        $bestToken = '';
+        foreach ($matches[1] as $number) {
+            $value = money_to_float($number);
+            if ($value >= 100 && $value <= 100000 && $value > $bestValue) {
+                $bestValue = $value;
+                $bestToken = $number;
+            }
+        }
+        if ($bestValue > 0) {
+            return [$bestValue, $bestToken];
+        }
+    }
+
     return [0.0, ''];
 }
 
@@ -26667,6 +26856,13 @@ function studio_parse_calendar_event_for_crm(array $event): array
     }
 
     $phone = studio_calendar_extract_phone($rawTitle . ' ' . $description . ' ' . $location);
+    if ($phone === '' && function_exists('crm_telefone_por_nome')) {
+        // O evento do Google quase nunca traz o numero do cliente. O titulo, porem,
+        // sempre comeca com o nome dele - entao o telefone e resolvido pelo nome
+        // (cadastro do CRM / conversas do WhatsApp). A regra e a mesma usada na
+        // agenda: exige nome E sobrenome batendo e descarta resultado ambiguo.
+        $phone = crm_telefone_por_nome($rawTitle);
+    }
     [$value, $valueToken] = studio_calendar_extract_event_value($rawTitle);
     $hasServiceKeyword = studio_calendar_contains_any($normalized, ['tattoo', 'tatuagem', 'tatuar', 'retoque', 'micro', 'micropigmentacao', 'cilios', 'piercing', 'pomada', 'sinal', 'orcamento', 'cobertura', 'sessao', 'fechamento', 'higienizacao']);
     $looksLikePerson = studio_calendar_looks_like_person_title($rawTitle);
@@ -27552,6 +27748,45 @@ function studio_find_or_create_lead_from_import(array $studio, array $item, int 
         return $existing;
     }
 
+    // O anuncio cria o lead antes do evento da agenda. Se o telefone ja existe
+    // em um lead rastreado, o agendamento gruda nele em vez de criar um
+    // "Google Agenda" paralelo e esconder a origem do cliente.
+    $phone = normalize_phone((string)($item['phone'] ?? ''));
+    if ($phone !== '') {
+        $candidates = $pdo->query(
+            "SELECT id, phone
+             FROM leads
+             WHERE phone IS NOT NULL AND phone <> ''
+               AND COALESCE(import_source, '') <> 'google_calendar'
+               AND LOWER(COALESCE(source, '')) NOT IN ('google agenda', 'agenda')
+             ORDER BY updated_at DESC, id DESC
+             LIMIT 1000"
+        );
+        foreach ($candidates->fetchAll() ?: [] as $candidate) {
+            if (!phones_match((string)($candidate['phone'] ?? ''), $phone)) {
+                continue;
+            }
+            $leadId = (int)$candidate['id'];
+            $pdo->prepare(
+                'UPDATE leads
+                 SET customer_id = CASE WHEN COALESCE(customer_id, 0) = 0 THEN ? ELSE customer_id END,
+                     status = ?, pipeline_stage = ?,
+                     lead_score = GREATEST(COALESCE(lead_score, 0), ?),
+                     estimated_value = GREATEST(COALESCE(estimated_value, 0), ?),
+                     updated_at = NOW()
+                 WHERE id = ?'
+            )->execute([
+                $customerId ?: null,
+                (string)$item['status'],
+                (string)$item['pipeline_stage'],
+                (int)$item['lead_score'],
+                (float)$item['value'],
+                $leadId,
+            ]);
+            return $leadId;
+        }
+    }
+
     $stmt = $pdo->prepare(
         'INSERT INTO leads
             (customer_id, name, phone, interest, status, pipeline_stage, lead_score, estimated_value, source, import_source, import_uid, raw_title, last_contact_at, created_at, updated_at)
@@ -27625,9 +27860,9 @@ function studio_sync_lead_from_appointment(array $studio, int $leadId, string $a
     }
 
     $leadStatus = match ($appointmentStatus) {
-        'confirmado', 'em_atendimento' => 'agendado',
-        'concluido' => 'fechado',
-        'cancelado' => 'perdido',
+        'confirmado', 'em_atendimento', 'agendado' => 'agendado',
+        'concluido', 'finalizado', 'atendido' => 'fechado',
+        'cancelado', 'cancelada', 'cancelled', 'canceled', 'perdido', 'falta', 'faltou', 'no_show', 'nao_compareceu' => 'perdido',
         default => 'pre_agendado',
     };
     $stage = match ($leadStatus) {

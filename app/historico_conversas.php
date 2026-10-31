@@ -26,6 +26,80 @@ function historico_conversas_path(): string
     return 'C:\\Users\\server_spd\\Documents\\whatsapp-origin-bridge\\dados\\conversas.jsonl';
 }
 
+function historico_audio_transcricoes_ponte_path(): string
+{
+    return dirname(historico_conversas_path()) . DIRECTORY_SEPARATOR . 'audio_transcriptions.jsonl';
+}
+
+/**
+ * Transcricoes sob demanda dos audios antigos da ponte.
+ * O NDJSON original e append-only e nao deve ser reescrito enquanto a ponte
+ * esta rodando; este arquivo lateral guarda somente os textos produzidos aqui.
+ */
+function historico_audio_transcricao_ponte(string $arquivo): string
+{
+    static $mapa = null;
+    $arquivo = basename(str_replace('\\', '/', trim($arquivo)));
+    if ($arquivo === '') {
+        return '';
+    }
+    if (!is_array($mapa)) {
+        $mapa = [];
+        $path = historico_audio_transcricoes_ponte_path();
+        if (is_file($path)) {
+            $fh = @fopen($path, 'rb');
+            if ($fh) {
+                while (($linha = fgets($fh)) !== false) {
+                    $item = json_decode(trim($linha), true);
+                    if (!is_array($item)) {
+                        continue;
+                    }
+                    $chave = basename(str_replace('\\', '/', trim((string)($item['file'] ?? ''))));
+                    $texto = trim((string)($item['text'] ?? ''));
+                    if ($chave !== '' && $texto !== '') {
+                        $mapa[$chave] = $texto;
+                    }
+                }
+                fclose($fh);
+            }
+        }
+    }
+    return (string)($mapa[$arquivo] ?? '');
+}
+
+function historico_salvar_transcricao_audio_ponte(string $arquivo, string $texto): bool
+{
+    $arquivo = basename(str_replace('\\', '/', trim($arquivo)));
+    $texto = trim($texto);
+    if ($arquivo === '' || $texto === '') {
+        return false;
+    }
+    $path = historico_audio_transcricoes_ponte_path();
+    $dir = dirname($path);
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return false;
+    }
+    $linha = json_encode([
+        'file' => $arquivo,
+        'text' => $texto,
+        'updated_at' => gmdate('c'),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($linha === false) {
+        return false;
+    }
+    $fh = @fopen($path, 'ab');
+    if (!$fh) {
+        return false;
+    }
+    $ok = flock($fh, LOCK_EX) && fwrite($fh, $linha . PHP_EOL) !== false;
+    if ($ok) {
+        fflush($fh);
+    }
+    flock($fh, LOCK_UN);
+    fclose($fh);
+    return $ok;
+}
+
 /**
  * Telefone utilizavel como telefone de lead?
  *
@@ -236,34 +310,54 @@ function historico_ponte_porta(int $porta = 3210): int
  * Quando o CRM responde, a ponte grava uma linha marcada `enviado_pelo_crm`.
  * Pouco depois o proprio WhatsApp devolve o eco da mesma mensagem como
  * `from_me` (sem marca), o que apareceria como bolha repetida no chat.
- * Aqui a linha do eco e descartada quando ja existe a do envio do CRM com o
- * MESMO texto e horario proximo.
- *
- * $itens deve estar ordenado cronologicamente (mais antigo primeiro).
+ * Aqui cada linha de eco e descartada quando casa com uma linha de envio do
+ * CRM com a mesma midia/texto e horario proximo. O pareamento e um-para-um e
+ * independe da ordem: o eco pode aparecer antes do envio quando os horarios
+ * sao iguais e a ordenacao e instavel.
  */
 function historico_deduplicar_envios(array $itens): array
 {
+    $enviados = [];
+    foreach ($itens as $indice => $m) {
+        if (empty($m['from_me']) || empty($m['enviado_pelo_crm'])) {
+            continue;
+        }
+        $enviados[] = [
+            'indice' => $indice,
+            'texto' => trim((string)($m['text'] ?? '')),
+            'media' => strtolower(trim((string)($m['media_type'] ?? ''))),
+            'quando' => strtotime((string)($m['sent_at'] ?? $m['at'] ?? '')) ?: 0,
+        ];
+    }
+
+    $consumidos = [];
     $out = [];
-    foreach ($itens as $m) {
+    foreach ($itens as $indice => $m) {
         $ehEco = !empty($m['from_me']) && empty($m['enviado_pelo_crm']);
         if ($ehEco) {
             $texto = trim((string)($m['text'] ?? ''));
+            $media = strtolower(trim((string)($m['media_type'] ?? '')));
             $quando = strtotime((string)($m['sent_at'] ?? $m['at'] ?? '')) ?: 0;
-            $dup = false;
-            // Compara com as ultimas linhas ja aceitas (janela curta).
-            for ($i = count($out) - 1, $n = 0; $i >= 0 && $n < 8; $i--, $n++) {
-                $ant = $out[$i];
-                if (empty($ant['enviado_pelo_crm'])) {
+            $casa = null;
+            $menorDistancia = PHP_INT_MAX;
+            foreach ($enviados as $enviado) {
+                if (isset($consumidos[$enviado['indice']])) {
                     continue;
                 }
-                $textoAnt = trim((string)($ant['text'] ?? ''));
-                $quandoAnt = strtotime((string)($ant['sent_at'] ?? $ant['at'] ?? '')) ?: 0;
-                if ($texto !== '' && $texto === $textoAnt && abs($quando - $quandoAnt) <= 120) {
-                    $dup = true;
-                    break;
+                $textoAnt = $enviado['texto'];
+                $mediaAnt = $enviado['media'];
+                $quandoAnt = $enviado['quando'];
+                $mesmoTexto = $texto !== '' && $texto === $textoAnt;
+                $mesmaMidia = $media !== '' && $media === $mediaAnt && in_array($media, ['image', 'video', 'audio', 'document', 'sticker'], true);
+                $textoDeMidia = $texto === '' || $textoAnt === '' || $texto === '[' . $media . ']' || $textoAnt === '[' . $mediaAnt . ']';
+                $distancia = abs($quando - $quandoAnt);
+                if (($mesmoTexto || ($mesmaMidia && $textoDeMidia)) && $distancia <= 120 && $distancia < $menorDistancia) {
+                    $casa = $enviado['indice'];
+                    $menorDistancia = $distancia;
                 }
             }
-            if ($dup) {
+            if ($casa !== null) {
+                $consumidos[$casa] = true;
                 continue;
             }
         }
@@ -288,11 +382,36 @@ function historico_mensagens_unificadas(array $studio, string $telefone, int $li
 {
     $itens = [];
     $vistos = [];
+    $ultimoTextoPonte = [];
 
     // 1) Arquivo da ponte (mais recentes primeiro; invertemos no fim).
-    $conv = historico_ler_mensagens(['telefone' => $telefone], $limite, 0, 'antigas');
+    // O chat precisa abrir no presente. Buscar as mais antigas escondia todas
+    // as mensagens novas quando a conversa passava do limite de 500.
+    $conv = historico_ler_mensagens(['telefone' => $telefone], $limite, 0, 'recentes');
     foreach ($conv['itens'] as $m) {
-        $chave = 'ponte|' . ($m['sent_at'] ?? $m['at'] ?? '') . '|' . (string)($m['text'] ?? '') . '|' . (string)($m['media_type'] ?? '');
+        $arquivoPonte = basename(str_replace('\\', '/', trim((string)($m['media_saved'] ?? ''))));
+        if ((string)($m['media_type'] ?? '') === 'audio' && empty($m['transcription']) && $arquivoPonte !== '') {
+            $transcricaoPonte = historico_audio_transcricao_ponte($arquivoPonte);
+            if ($transcricaoPonte !== '') {
+                $m['transcription'] = $transcricaoPonte;
+            }
+        }
+        // A mesma mensagem de texto pode ser registrada pela ponte como
+        // `conversation` e `extendedTextMessage`, com poucos segundos de
+        // diferenca. Midia fica de fora: varias fotos/audios distintos podem
+        // cair no mesmo minuto e nao devem ser colapsados.
+        $textoPonte = trim((string)($m['text'] ?? ''));
+        $tempoPonte = strtotime((string)($m['sent_at'] ?? $m['at'] ?? '')) ?: 0;
+        if ($textoPonte !== '' && (string)($m['media_type'] ?? '') === 'text' && $tempoPonte > 0) {
+            $assinaturaTexto = 'ponte|texto|' . (!empty($m['from_me']) ? 'out' : 'in') . '|' . $textoPonte;
+            if (isset($ultimoTextoPonte[$assinaturaTexto]) && ($tempoPonte - $ultimoTextoPonte[$assinaturaTexto]) <= 2) {
+                continue;
+            }
+            $ultimoTextoPonte[$assinaturaTexto] = $tempoPonte;
+        }
+        // Varias fotos podem ter o mesmo `sent_at` e texto vazio. O arquivo
+        // salvo e o que diferencia cada uma delas.
+        $chave = 'ponte|' . ($m['sent_at'] ?? $m['at'] ?? '') . '|' . (string)($m['text'] ?? '') . '|' . (string)($m['media_type'] ?? '') . '|' . (string)($m['media_saved'] ?? '');
         if (isset($vistos[$chave])) {
             continue;
         }
@@ -310,7 +429,7 @@ function historico_mensagens_unificadas(array $studio, string $telefone, int $li
         $st->execute(['%' . $alvo . '%']);
         $convId = (int)($st->fetchColumn() ?: 0);
         if ($convId > 0) {
-            $msgSt = $pdo->prepare('SELECT id, message_id, direction, body, message_type, media_path, created_at, sender_type FROM whatsapp_messages WHERE conversation_id = ? ORDER BY created_at ASC, id ASC LIMIT ' . max(1, min(2000, $limite)));
+            $msgSt = $pdo->prepare("SELECT id, message_id, direction, body, message_type, COALESCE(NULLIF(media_url, ''), NULLIF(media_file_path, '')) AS media_path, created_at, sender_type FROM whatsapp_messages WHERE conversation_id = ? ORDER BY created_at DESC, id DESC LIMIT " . max(1, min(2000, $limite)));
             $msgSt->execute([$convId]);
             foreach ($msgSt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $texto = (string)($row['body'] ?? '');
@@ -321,18 +440,26 @@ function historico_mensagens_unificadas(array $studio, string $telefone, int $li
                 }
                 // Evita duplicar o que ja veio da ponte (mesmo texto no mesmo minuto).
                 $dupPonte = false;
-                $minutoCrm = substr($quando, 0, 16);
-                foreach ($itens as $existe) {
+                // O banco grava em America/Sao_Paulo e a ponte em ISO/UTC.
+                // Compara por epoch para nao repetir o mesmo envio espelhado.
+                $tempoCrm = strtotime($quando) ?: 0;
+                $indicePonte = null;
+                foreach ($itens as $indice => $existe) {
                     if (($existe['fonte'] ?? '') !== 'ponte') {
                         continue;
                     }
-                    $minutoPonte = substr((string)($existe['sent_at'] ?? $existe['at'] ?? ''), 0, 16);
-                    if ($minutoCrm !== '' && $minutoCrm === $minutoPonte && trim((string)($existe['text'] ?? '')) === trim($texto)) {
+                    $tempoPonte = strtotime((string)($existe['sent_at'] ?? $existe['at'] ?? '')) ?: 0;
+                    if ($tempoCrm > 0 && $tempoPonte > 0 && abs($tempoCrm - $tempoPonte) <= 120 && trim((string)($existe['text'] ?? '')) === trim($texto)) {
                         $dupPonte = true;
+                        $indicePonte = $indice;
                         break;
                     }
                 }
                 if ($dupPonte) {
+                    $mediaCrm = trim((string)($row['media_path'] ?? ''));
+                    if ($indicePonte !== null && $mediaCrm !== '' && empty($itens[$indicePonte]['media_saved'])) {
+                        $itens[$indicePonte]['media_saved'] = $mediaCrm;
+                    }
                     continue;
                 }
                 $vistos[$chave] = true;
@@ -343,6 +470,7 @@ function historico_mensagens_unificadas(array $studio, string $telefone, int $li
                     'name' => '',
                     'from_me' => strtolower((string)($row['direction'] ?? '')) === 'outbound',
                     'media_type' => (string)($row['message_type'] ?? 'text'),
+                    'media_saved' => (string)($row['media_path'] ?? ''),
                     'text' => $texto,
                     'transcription' => null,
                     'origin' => null,
@@ -606,7 +734,8 @@ function historico_casa_filtros(array $m, array $f): bool
     if (($f['telefone'] ?? '') !== '') {
         $alvo = preg_replace('/\D+/', '', (string)$f['telefone']);
         $fone = preg_replace('/\D+/', '', (string)($m['phone'] ?? ''));
-        if ($alvo !== '' && !str_contains($fone, $alvo)) {
+        $foneCanonico = preg_replace('/\D+/', '', historico_telefone_canonico($m));
+        if ($alvo !== '' && !str_contains($fone, $alvo) && !str_contains($foneCanonico, $alvo)) {
             return false;
         }
     }
@@ -853,10 +982,14 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
 
     // Estado de resposta: respondida quando o atendimento falou depois da ultima
     // mensagem do cliente. Sem mensagem do cliente, nao ha o que responder.
+    $totalSemResposta = 0;
     foreach ($porFone as &$c) {
         $c['respondida'] = $c['ultima_cliente'] === ''
             ? true
             : ($c['ultima_atendimento'] !== '' && $c['ultima_atendimento'] >= $c['ultima_cliente']);
+        if (!$c['respondida']) {
+            $totalSemResposta++;
+        }
     }
     unset($c);
 
@@ -865,6 +998,18 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
     if ($resposta === 'respondida' || $resposta === 'sem_resposta') {
         $querRespondida = $resposta === 'respondida';
         $porFone = array_filter($porFone, static fn(array $c): bool => (bool)$c['respondida'] === $querRespondida);
+    }
+
+    // Filtro por telefones (usado pelo toggle "Nao lidas" do CRM). O estado de
+    // leitura vem do banco/WhatsApp, nao do fato de a ultima fala ser do cliente.
+    if (!empty($filtros['fones']) && is_array($filtros['fones'])) {
+        $permitidos = array_fill_keys(array_filter(array_map(
+            static fn($fone): string => preg_replace('/\D+/', '', (string)$fone) ?? '',
+            $filtros['fones']
+        )), true);
+        if ($permitidos) {
+            $porFone = array_filter($porFone, static fn(array $c): bool => isset($permitidos[(string)$c['phone']]));
+        }
     }
 
     // Ordena pela mensagem mais recente.
@@ -921,6 +1066,7 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
     return [
         'conversas' => array_slice($todas, $offset, $limite),
         'total_conversas' => count($todas),
+        'total_sem_resposta' => $totalSemResposta,
         'offset' => $offset,
         'limite' => $limite,
         'ordenar' => $ordenar,

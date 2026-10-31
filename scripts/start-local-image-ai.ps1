@@ -1,6 +1,12 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $root = if ($env:LOCAL_IMAGE_AI_ROOT) { $env:LOCAL_IMAGE_AI_ROOT } else { 'C:\AI\tattoo-image' }
+# IA local de imagem aposentada (2026-09): projeto nao rodou no hardware desta maquina.
+# Se os arquivos voltarem (upgrade de hardware), o resto do script funciona de novo.
+if (-not (Test-Path -LiteralPath (Join-Path $root 'backend\sd-server.exe'))) {
+    Write-Host "IA local de imagem desativada: motor ausente em $root. Nada a fazer."
+    exit 0
+}
 $executable = Join-Path $root 'backend\sd-server.exe'
 $model = Join-Path $root 'models\sd3.5m_turbo-Q4_K_M.gguf'
 $vae = Join-Path $root 'models\sd35-vae.safetensors'

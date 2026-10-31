@@ -9,6 +9,8 @@
  *   SYNC_META|slug|imported=N|days=N
  *   SYNC_GOOGLE|slug|imported=N|days=N
  *   SYNC_GOOGLE_PENDENTE|slug|<motivo>   (enquanto a conta do Google não estiver conectada)
+ *   SYNC_TIKTOK|slug|imported=N|days=N
+ *   SYNC_TIKTOK_PENDENTE|slug|<motivo>
  *   SYNC_META_ERRO|slug|<motivo>
  *
  * Código de saída: 0 se o Meta sincronizou (Google pendente não falha o job).
@@ -48,6 +50,17 @@ if (!empty($resGoogle['ok'])) {
     echo "SYNC_GOOGLE_PENDENTE|" . $slug . "|" . (string)($resGoogle['error'] ?? 'nao configurado') . "\n";
 } else {
     echo "SYNC_GOOGLE_ERRO|" . $slug . "|" . (string)($resGoogle['error'] ?? '?') . "\n";
+}
+
+// --- TikTok Ads ---
+// Pendente até o Ads Manager existir e config/tiktok_ads.local.json ter token.
+$resTikTok = ads_roi_sync_tiktok($studio, $days);
+if (!empty($resTikTok['ok'])) {
+    echo "SYNC_TIKTOK|" . $slug . "|imported=" . (int)$resTikTok['imported'] . "|days=" . (int)$resTikTok['days'] . "\n";
+} elseif (!empty($resTikTok['needs_tiktok_credentials'])) {
+    echo "SYNC_TIKTOK_PENDENTE|" . $slug . "|" . (string)($resTikTok['error'] ?? 'nao configurado') . "\n";
+} else {
+    echo "SYNC_TIKTOK_ERRO|" . $slug . "|" . (string)($resTikTok['error'] ?? '?') . "\n";
 }
 
 exit($okMeta ? 0 : 2);

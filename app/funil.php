@@ -131,7 +131,89 @@ function funil_ia_agendador_gravar(bool $ativo, string $por = 'painel'): bool
 }
 
 /**
- * Telefones de lead do Ads no período, com a plataforma de cada um.
+ * Traduz a REDE do clique pago do Google (segments.ad_network_type vindo do
+ * click_view, da API do Google Ads) para o rotulo humano mostrado na arvore.
+ * Rede desconhecida nao e escondida: volta entre parenteses.
+ */
+function funil_google_rede_rotulo(string $rede): string
+{
+    $r = strtoupper(trim($rede));
+    if ($r === '') {
+        return 'Google Ads (clique pago)';
+    }
+    $mapa = [
+        'YOUTUBE' => 'YouTube',
+        'YOUTUBE_SEARCH' => 'YouTube (busca)',
+        'YOUTUBE_WATCH' => 'YouTube (assistindo)',
+        'SEARCH' => 'Pesquisa (Google)',
+        'SEARCH_PARTNERS' => 'Parceiros de pesquisa',
+        'CONTENT' => 'Display (sites)',
+        'DISCOVER' => 'Discover',
+        'MIXED' => 'Google (misto)',
+        'UNKNOWN' => 'Google (nao informado)',
+    ];
+    return $mapa[$r] ?? ('Google (' . ucfirst(strtolower($r)) . ')');
+}
+
+/** Codigo curto do canal da arvore para a rede do Google (ex.: google_youtube). */
+function funil_google_rede_canal(string $rede): string
+{
+    $r = trim(strtolower((string)preg_replace('/[^A-Za-z0-9]+/', '_', trim($rede))), '_');
+    return $r === '' ? 'google_ads' : 'google_' . $r;
+}
+
+/**
+ * Deriva a REDE (grupo do painel) e o CANAL de um hit de anuncio.
+ *
+ * A ponte grava platform/origin e, quando existe, o source_url do anuncio.
+ * Rede = grupo exibido (Meta/Google/...); canal = de onde dentro daquela rede
+ * o cliente veio (Facebook, Instagram, anuncio no Status do WhatsApp...).
+ *
+ * $redeGoogle = segments.ad_network_type do clique (YOUTUBE, SEARCH...),
+ * resolvido pelo gclid e guardado em ads_click_info. Vazio = ainda nao
+ * resolvido, e o Google cai no balde unico de clique pago.
+ *
+ * Devolve ['rede'=>string,'canal'=>string,'rotulo'=>string].
+ */
+function funil_canal_do_hit(string $platform, string $origin, string $sourceUrl, string $redeGoogle = ''): array
+{
+    $plat = strtolower(trim($platform));
+    $ori  = strtolower(trim($origin));
+    $url  = strtolower(trim($sourceUrl));
+
+    // Google: clique pago. A ponte traz o click_id (gclid), sem source_url —
+    // por isso a rede vem do cache resolvido na API, nao da URL.
+    if ($plat === 'google' || $ori === 'google') {
+        return [
+            'rede' => 'google',
+            'canal' => funil_google_rede_canal($redeGoogle),
+            'rotulo' => funil_google_rede_rotulo($redeGoogle),
+        ];
+    }
+
+    $base = $plat !== '' ? $plat : $ori;
+
+    // Anuncio no Status do WhatsApp: source_url wa.me/wamo/status.
+    if (str_contains($url, 'wa.me') || str_contains($base, 'whatsapp')) {
+        return ['rede' => 'meta', 'canal' => 'whatsapp_status', 'rotulo' => 'WhatsApp (Status / anúncio)'];
+    }
+    if (str_contains($url, 'instagram') || str_contains($base, 'instagram') || str_contains($base, 'insta')) {
+        return ['rede' => 'meta', 'canal' => 'instagram', 'rotulo' => 'Instagram'];
+    }
+    if (str_contains($url, 'fb.me') || str_contains($url, 'facebook') || str_contains($base, 'facebook') || str_contains($base, 'face')) {
+        return ['rede' => 'meta', 'canal' => 'facebook', 'rotulo' => 'Facebook'];
+    }
+    if (str_contains($base, 'meta')) {
+        return ['rede' => 'meta', 'canal' => 'meta_outros', 'rotulo' => 'Meta (outros)'];
+    }
+    if ($base === '') {
+        return ['rede' => 'outros', 'canal' => 'sem_plataforma', 'rotulo' => 'Sem plataforma'];
+    }
+    return ['rede' => 'outros', 'canal' => $base, 'rotulo' => ucfirst($base)];
+}
+
+/**
+ * Telefones de lead do Ads no período, com a plataforma e o CANAL de cada um.
  *
  * Uma linha por telefone (o primeiro hit do período manda na plataforma), porque
  * a mesma pessoa pode gerar mais de um hit; contar linha a linha inflaria a
@@ -141,14 +223,34 @@ function funil_ia_agendador_gravar(bool $ativo, string $por = 'painel'): bool
  */
 function funil_leads_ads(PDO $pdo, string $de, string $ate): array
 {
+    // COALESCE(platform, origin): a ponte as vezes grava so "origin" (ex.: "meta");
+    // sem esse fallback o lead caia em "sem plataforma" e virava Indefinido.
     $stmt = $pdo->prepare(
-        'SELECT phone, platform, created_at FROM ads_origin_hits
+        'SELECT phone, platform, origin, source_url, click_id, created_at FROM ads_origin_hits
          WHERE created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)
          ORDER BY created_at ASC, id ASC'
     );
     $stmt->execute([$de . ' 00:00:00', $ate]);
 
+    // Rede de cada clique pago do Google (YouTube, Pesquisa, Display...), ja
+    // resolvida pelo gclid e cacheada em ads_click_info. A tabela pode nao
+    // existir ainda: sem ela o funil continua funcionando, so com o balde unico.
+    $redeGoogleDoClique = [];
+    try {
+        foreach ($pdo->query('SELECT gclid, ad_network_type FROM ads_click_info')->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $gclid = trim((string)($c['gclid'] ?? ''));
+            if ($gclid !== '') {
+                $redeGoogleDoClique[$gclid] = (string)($c['ad_network_type'] ?? '');
+            }
+        }
+    } catch (Throwable $e) {
+        $redeGoogleDoClique = [];
+    }
+
     $porPlataforma = [];
+    $porCanal = [];      // rede => canal => [fone => true]
+    $canalRotulo = [];   // "rede|canal" => rotulo humano do canal
+    $redeRotulo = ['meta' => 'Meta (anúncios)', 'google' => 'Google', 'outros' => 'Outros'];
     $todos = [];
     $brutos = 0;
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -159,14 +261,36 @@ function funil_leads_ads(PDO $pdo, string $de, string $ate): array
         }
         $plat = strtolower(trim((string)($row['platform'] ?? '')));
         if ($plat === '') {
+            $plat = strtolower(trim((string)($row['origin'] ?? '')));
+        }
+        if ($plat === '') {
             $plat = 'sem plataforma';
         }
         if (!isset($todos[$fone])) {
             $todos[$fone] = true;
             $porPlataforma[$plat][$fone] = true;
+            // Canal granular (Facebook/Instagram/Status do WhatsApp/Google...): o
+            // PRIMEIRO hit do periodo manda, igual a plataforma, para nao inflar
+            // a contagem quando o mesmo telefone gera mais de um hit.
+            $clickId = trim((string)($row['click_id'] ?? ''));
+            $canal = funil_canal_do_hit(
+                (string)($row['platform'] ?? ''),
+                (string)($row['origin'] ?? ''),
+                (string)($row['source_url'] ?? ''),
+                $clickId !== '' ? (string)($redeGoogleDoClique[$clickId] ?? '') : ''
+            );
+            $porCanal[$canal['rede']][$canal['canal']][$fone] = true;
+            $canalRotulo[$canal['rede'] . '|' . $canal['canal']] = $canal['rotulo'];
         }
     }
-    return ['por_plataforma' => $porPlataforma, 'todos' => $todos, 'brutos' => $brutos];
+    return [
+        'por_plataforma' => $porPlataforma,
+        'por_canal' => $porCanal,
+        'canal_rotulo' => $canalRotulo,
+        'rede_rotulo' => $redeRotulo,
+        'todos' => $todos,
+        'brutos' => $brutos,
+    ];
 }
 
 /**
@@ -269,11 +393,17 @@ function funil_variacoes_mapa(array $leads): array
  * Regra do dono:
  *   - agendou  = existe appointment ligado ao lead/customer do hit OU cujo
  *                telefone do cliente/lead bate com o telefone do hit.
+ *                Vale tambem o vinculo que a IA amarrou em funil_match
+ *                (appointment_id), desde que o agendamento seja unico daquele
+ *                telefone - a agenda importada nao guarda telefone, entao o
+ *                casamento por telefone sozinho quase nao acha nada.
  *   - tatuou   = esse appointment tem status 'finalizado' (a data foi atingida
  *                e o cliente foi atendido). 'cancelado' NÃO conta.
  *
- * Janela de datas: do início do período até 180 dias à frente (a pessoa pode ter
- * agendado para frente). Datas absurdas são descartadas (há lixo tipo 2087-04-23).
+ * Datas: "agendou" usa a data em que o cliente MARCOU (google_created_at / created_at),
+ * não a data do atendimento - quem marcou ontem para hoje não é agendamento de hoje.
+ * "tatuou" usa a data do ATENDIMENTO (appointment_date), dentro do período.
+ * Datas absurdas são descartadas (há lixo tipo 2087-04-23).
  *
  * Devolve ['agendou'=>[fone=>true], 'tatuou'=>[fone=>true]].
  */
@@ -291,27 +421,31 @@ function funil_agenda(PDO $pdo, array $leads, string $de, string $ate): array
         return ['agendou' => $agendou, 'tatuou' => $tatuou, 'nomes' => $nomes];
     }
 
-    // Fim da janela: 180 dias depois do fim do período.
-    $fim = (new DateTimeImmutable($ate))->modify('+180 days')->format('Y-m-d');
+    // Limites do período com hora, para comparar com a data de fechamento.
+    $deHora = $de . ' 00:00:00';
+    $ateHora = $ate . ' 23:59:59';
     $vals = array_keys($variacoes);
     $in = implode(',', array_fill(0, count($vals), '?'));
 
     // Junta o telefone do agendamento com o do lead e o do customer (o CRM liga
     // appointment a lead_id e customer_id; nem sempre o telefone está no lead).
-    $sql = "SELECT a.status,
+    $sql = "SELECT a.status, a.appointment_date, a.start_time,
+                   COALESCE(a.google_created_at, a.created_at) AS fechado_em,
                    COALESCE(NULLIF(TRIM(l.name),''), NULLIF(TRIM(c.name),''), NULLIF(TRIM(a.title),'')) AS nome,
                    REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(l.phone,''),'(',''),')',''),'-',''),' ','') AS fone_lead,
                    REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(c.phone,''),'(',''),')',''),'-',''),' ','') AS fone_customer
             FROM appointments a
             LEFT JOIN leads l ON l.id = a.lead_id
             LEFT JOIN customers c ON c.id = a.customer_id
-            WHERE a.appointment_date BETWEEN ? AND ?
+            WHERE ( a.appointment_date BETWEEN ? AND ?
+                 OR COALESCE(a.google_created_at, a.created_at) BETWEEN ? AND ? )
+              AND (a.import_source IS NULL OR a.import_source = '' OR a.google_created_at IS NOT NULL)
               AND YEAR(a.appointment_date) BETWEEN 2000 AND 2100
               AND (
                     REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(l.phone,''),'(',''),')',''),'-',''),' ','') IN ($in)
                  OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(c.phone,''),'(',''),')',''),'-',''),' ','') IN ($in)
               )";
-    $params = array_merge([$de, $fim], $vals, $vals);
+    $params = array_merge([$de, $ate, $deHora, $ateHora], $vals, $vals);
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -336,15 +470,20 @@ function funil_agenda(PDO $pdo, array $leads, string $de, string $ate): array
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $status = strtolower(trim((string)($row['status'] ?? '')));
+        $diaAppt = substr((string)($row['appointment_date'] ?? ''), 0, 10);
         // Regra do "tatuou" (a mesma do funil_agenda_match/funil_appt_aconteceu):
         // 'cancelado' nunca conta; 'finalizado' conta sempre; qualquer outro status
         // com data+hora JA PASSADAS conta (a agenda do estudo deleta o evento quando
         // ha cancelamento/falta, entao "passou e continua la" = atendimento ocorreu).
         $aconteceu = funil_appt_aconteceu(
             $status,
-            (string)($row['appointment_date'] ?? ''),
+            $diaAppt,
             (string)($row['start_time'] ?? '')
         );
+        // AGENDOU = marcou no período; TATUOU = foi atendido no período. São datas
+        // diferentes: quem marcou ontem para hoje só conta como "agendou" ONTEM.
+        $marcou = funil_data_entre((string)($row['fechado_em'] ?? ''), $de, $ate);
+        $atendeu = $aconteceu && $diaAppt !== '' && $diaAppt >= $de && $diaAppt <= $ate;
         foreach (['fone_lead', 'fone_customer'] as $campo) {
             $fone = funil_so_digitos((string)($row[$campo] ?? ''));
             if ($fone === '') {
@@ -355,8 +494,10 @@ function funil_agenda(PDO $pdo, array $leads, string $de, string $ate): array
             foreach (historico_telefone_variacoes($fone) as $v) {
                 if (isset($variacoes[(string)$v])) {
                     $alvo = $variacoes[(string)$v];
-                    $agendou[$alvo] = true;
-                    if ($aconteceu) {
+                    if ($marcou) {
+                        $agendou[$alvo] = true;
+                    }
+                    if ($atendeu) {
                         $tatuou[$alvo] = true;
                     }
                     // Primeiro nome que aparece manda (o COALESCE do SELECT ja
@@ -370,7 +511,108 @@ function funil_agenda(PDO $pdo, array $leads, string $de, string $ate): array
         }
     }
 
+    // Vinculo pelo appointment que a IA AMARROU (funil_match.appointment_id).
+    // A agenda importada do Google NAO guarda telefone, entao o casamento acima
+    // (por telefone) quase nunca acha nada. O job funil_ia.js le a conversa e
+    // amarra conversa -> appointment por NOME + data; quando esse vinculo
+    // existe, ele aponta para um agendamento REAL (nao e o palpite
+    // "funil_match.agendou", que continua fora). Guarda: o agendamento so vale
+    // se UM telefone o reivindicar - se dois telefones apontam para o mesmo
+    // appointment, e ambiguidade e fica de fora (era assim que "Theo", nome do
+    // tatuador, ligava o telefone da Marina ao agendamento do Eduardo).
+    $porAppt = [];
+    try {
+        $stIA = $pdo->query('SELECT telefone, appointment_id FROM funil_match WHERE appointment_id IS NOT NULL');
+        foreach ($stIA->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $apptId = (int)($row['appointment_id'] ?? 0);
+            if ($apptId <= 0) {
+                continue;
+            }
+            $alvo = null;
+            foreach (historico_telefone_variacoes(funil_so_digitos((string)($row['telefone'] ?? ''))) as $v) {
+                if (isset($variacoes[(string)$v])) {
+                    $alvo = $variacoes[(string)$v];
+                    break;
+                }
+            }
+            if ($alvo !== null) {
+                $porAppt[$apptId][$alvo] = true;
+            }
+        }
+    } catch (Throwable $e) {
+        $porAppt = [];
+    }
+
+    $apptSemDuplicidade = [];
+    foreach ($porAppt as $apptId => $alvos) {
+        if (count($alvos) === 1) {
+            $apptSemDuplicidade[] = (int)$apptId;
+        }
+    }
+    if ($apptSemDuplicidade) {
+        $inIds = implode(',', array_fill(0, count($apptSemDuplicidade), '?'));
+        $stAppt = $pdo->prepare(
+            "SELECT id, status, appointment_date, start_time,
+                    COALESCE(google_created_at, created_at) AS fechado_em,
+                    COALESCE(NULLIF(TRIM(title),''),'') AS titulo
+               FROM appointments
+              WHERE id IN ($inIds)
+                AND ( appointment_date BETWEEN ? AND ?
+                   OR COALESCE(google_created_at, created_at) BETWEEN ? AND ? )
+                AND (import_source IS NULL OR import_source = '' OR google_created_at IS NOT NULL)
+                AND YEAR(appointment_date) BETWEEN 2000 AND 2100"
+        );
+        $stAppt->execute(array_merge($apptSemDuplicidade, [$de, $ate, $deHora, $ateHora]));
+        foreach ($stAppt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $diaAppt = substr((string)($row['appointment_date'] ?? ''), 0, 10);
+            $aconteceu = funil_appt_aconteceu(
+                (string)($row['status'] ?? ''),
+                $diaAppt,
+                (string)($row['start_time'] ?? '')
+            );
+            $marcou = funil_data_entre((string)($row['fechado_em'] ?? ''), $de, $ate);
+            $atendeu = $aconteceu && $diaAppt !== '' && $diaAppt >= $de && $diaAppt <= $ate;
+            foreach (array_keys($porAppt[(int)$row['id']] ?? []) as $alvo) {
+                if ($marcou) {
+                    $agendou[$alvo] = true;
+                }
+                if ($atendeu) {
+                    $tatuou[$alvo] = true;
+                }
+                $nomeLimpo = $nomeBloco((string)($row['titulo'] ?? ''));
+                if ($nomeLimpo !== '' && !isset($nomes[$alvo])) {
+                    $nomes[$alvo] = $nomeLimpo;
+                }
+            }
+        }
+    }
+
     return ['agendou' => $agendou, 'tatuou' => $tatuou, 'nomes' => $nomes];
+}
+
+/**
+ * Telefones que a IA marcou como REAGENDAMENTO (funil_match.reagendamento).
+ *
+ * Reagendamento = o cliente JA tinha atendimento marcado e so mudou a data.
+ * Isso NAO e conversao nova do funil: o cartao "Agendou" contava esses casos e
+ * o dono via numero inflado (conversa de quem so remarcou aparecia como venda).
+ * Devolve [telefone => motivo da IA].
+ */
+function funil_reagendamentos(PDO $pdo): array
+{
+    $mapa = [];
+    try {
+        $st = $pdo->query('SELECT telefone, reagendamento_motivo FROM funil_match WHERE reagendamento = 1');
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $fone = funil_so_digitos((string)($row['telefone'] ?? ''));
+            if ($fone !== '') {
+                $mapa[$fone] = trim((string)($row['reagendamento_motivo'] ?? ''));
+            }
+        }
+    } catch (Throwable $e) {
+        return [];
+    }
+    return $mapa;
 }
 
 /**
@@ -413,7 +655,7 @@ function funil_nomes_ponte(): array
  */
 function funil_origens_validas(): array
 {
-    return ['meta', 'google', 'instagram', 'indicacao', 'porta', 'cliente_antigo', 'indefinido'];
+    return ['meta', 'google', 'instagram', 'indicacao', 'porta', 'cliente_antigo', 'whatsapp', 'indefinido'];
 }
 
 /** Rótulo humano de uma origem. */
@@ -426,9 +668,81 @@ function funil_origem_rotulo(string $o): string
         'indicacao' => 'Indicação',
         'porta' => 'Porta / presencial',
         'cliente_antigo' => 'Cliente antigo',
+        'whatsapp' => 'WhatsApp (direto)',
         'indefinido' => 'Indefinido',
     ];
     return $rotulos[$o] ?? ucfirst($o);
+}
+
+/**
+ * Universo do funil escolhido na tela (?f_universo=ads|todos).
+ *
+ * 'ads'   = so quem clicou em anuncio (comportamento antigo).
+ * 'todos' = inclui indicacao, porta, cliente que voltou e os agendamentos
+ *           lancados direto na agenda. Padrao 'todos': o dono pediu para
+ *           nenhum agendamento sumir da tela.
+ */
+function funil_universo(): string
+{
+    return strtolower(trim((string)($_GET['f_universo'] ?? ''))) === 'ads' ? 'ads' : 'todos';
+}
+
+/**
+ * Traduz um codigo do catalogo de origem (ads_origem_*) para os codigos do funil.
+ * 'agenda'/'manual'/'outro' sao forma de CADASTRO, nao origem de marketing:
+ * entram como indefinido e aparecem com o nome real no bloco "Fora do Ads".
+ */
+function funil_origem_do_catalogo(string $codigo): string
+{
+    $mapa = [
+        'meta' => 'meta',
+        'instagram' => 'instagram',
+        'google' => 'google',
+        'indicacao' => 'indicacao',
+        'porta' => 'porta',
+        'reincidente' => 'cliente_antigo',
+        'organico_ig' => 'instagram',
+        'whatsapp' => 'whatsapp',
+        'tiktok' => 'indefinido',
+        'agenda' => 'indefinido',
+        'manual' => 'indefinido',
+        'outro' => 'indefinido',
+    ];
+
+    return $mapa[strtolower(trim($codigo))] ?? 'indefinido';
+}
+
+/**
+ * Origem DECLARADA no CRM (leads.source) dos leads criados no periodo.
+ *
+ * O funil so olhava clique pago + IA da conversa, entao quem entrou por
+ * indicacao, passou na porta ou foi lancado direto na agenda ficava sem
+ * origem nenhuma. Aqui o que o dono/atendente classificou ganha voz.
+ * Devolve ['por_fone' => [fone => codigo do funil]].
+ */
+function funil_origens_crm(PDO $pdo, string $de, string $ate): array
+{
+    $out = ['por_fone' => []];
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT id, phone, source FROM leads WHERE DATE(created_at) BETWEEN ? AND ?'
+        );
+        $stmt->execute([$de, $ate]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $codigo = function_exists('ads_origem_normalizar')
+                ? ads_origem_normalizar((string)($row['source'] ?? ''))
+                : '';
+            $origem = funil_origem_do_catalogo($codigo);
+            $fone = funil_so_digitos((string)($row['phone'] ?? ''));
+            if ($fone !== '' && !isset($out['por_fone'][$fone])) {
+                $out['por_fone'][$fone] = $origem;
+            }
+        }
+    } catch (Throwable $e) {
+        // tabela/coluna indisponivel: o funil continua funcionando como antes
+    }
+
+    return $out;
 }
 
 /**
@@ -537,6 +851,16 @@ function funil_agenda_match(PDO $pdo): array
 }
 
 /**
+ * A data (YYYY-MM-DD, ignorando a hora) cai dentro do período [de, ate]?
+ * Usada para separar "marcou no período" de "foi atendido no período".
+ */
+function funil_data_entre(string $dataHora, string $de, string $ate): bool
+{
+    $d = substr(trim($dataHora), 0, 10);
+    return $d !== '' && $d >= $de && $d <= $ate;
+}
+
+/**
  * O atendimento ACONTECEU? (mesma regra do "tatuou" acima, reutilizável)
  *   cancelado -> nunca; finalizado -> sempre; senão, data+hora passadas -> sim.
  */
@@ -576,13 +900,27 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
     $ponteGeral = $ponte['vistos_geral'];
     $recebidas = $ponte['recebidas'];
 
-    $abriramPeriodo = funil_casar_telefones($escopo['todos'], $pontePeriodo);
-    $abriramGeral = funil_casar_telefones($escopo['todos'], $ponteGeral);
-
-    // Origem real (funil_match / IA). Quando existir, ela MANDA; o hit do Ads
-    // fica como fallback (e segue aparecendo na seção "por plataforma").
+    // Origem real (funil_match / IA). O hit de anuncio MANDA (clique pago
+    // comprovado); a IA so decide quem nao tem hit (ver $origemDe mais abaixo).
     $ia = funil_origens_ia($pdo);
     $origemIA = $ia['por_fone'];
+
+    // Universo da tela: 'ads' = so clique pago; 'todos' = inclui indicacao,
+    // porta, cliente que voltou e quem foi lancado direto na agenda.
+    $universo = funil_universo();
+    $crmOrigens = funil_origens_crm($pdo, $de, $ate);
+    $baseFones = $escopo['todos'];
+    if ($universo === 'todos') {
+        foreach (array_keys($pontePeriodo) as $f) {
+            $baseFones[(string)$f] = true;
+        }
+        foreach (array_keys($crmOrigens['por_fone']) as $f) {
+            $baseFones[(string)$f] = true;
+        }
+    }
+
+    $abriramPeriodo = funil_casar_telefones($baseFones, $pontePeriodo);
+    $abriramGeral = funil_casar_telefones($baseFones, $ponteGeral);
 
     // Interagiu: >= 3 mensagens recebidas no período.
     $interagiram = [];
@@ -600,38 +938,77 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
     $agenda = funil_agenda($pdo, $escopo['todos'], $de, $ate);
 
     $agendou = $agenda['agendou'];
-    $tatuou = array_intersect_key($agenda['tatuou'], $agendou);
+    // NÃO cruzar com "agendou": quem foi atendido hoje pode ter marcado antes do
+    // período (o cartão "Tatuou" é sobre o atendimento, não sobre o fechamento).
+    $tatuou = $agenda['tatuou'];
     // Nome de quem tem appointment (prioridade na coluna Nome).
     $nomesAgenda = $agenda['nomes'] ?? [];
+
+    // Universo "Todos": soma tambem os agendamentos de quem nao veio de anuncio,
+    // senao o cartao "Agendou" ficaria 0 com a agenda cheia.
+    $agendouBase = $agendou;
+    $tatuouBase = $tatuou;
+    if ($universo === 'todos') {
+        $agendaBase = funil_agenda($pdo, $baseFones, $de, $ate);
+        $agendouBase += $agendaBase['agendou'];
+        $tatuouBase += $agendaBase['tatuou'];
+    }
+
+    // REAGENDAMENTO nao e agendamento novo: o cliente ja tinha atendimento e so
+    // trocou a data. Sai do cartao "Agendou" (senao infla a conversao); os itens
+    // ficam visiveis em "ver leads" marcados, para o dono conferir.
+    $reagSet = [];
+    foreach (funil_reagendamentos($pdo) as $foneReag => $motivoReag) {
+        foreach (historico_telefone_variacoes((string)$foneReag) as $v) {
+            $reagSet[(string)$v] = $motivoReag;
+        }
+    }
+    $reagendouBase = [];
+    if ($reagSet) {
+        foreach (array_keys($agendouBase) as $foneBase) {
+            $motivoReag = $reagSet[(string)$foneBase] ?? null;
+            if ($motivoReag === null) {
+                foreach (historico_telefone_variacoes((string)$foneBase) as $v) {
+                    if (isset($reagSet[(string)$v])) {
+                        $motivoReag = $reagSet[(string)$v];
+                        break;
+                    }
+                }
+            }
+            if ($motivoReag !== null) {
+                $reagendouBase[(string)$foneBase] = (string)$motivoReag;
+                unset($agendouBase[$foneBase], $tatuouBase[$foneBase]);
+            }
+        }
+    }
 
     // ---------------------------------------------------------------------
     // Distribuição por ORIGEM REAL (meta/google/instagram/indicacao/porta/
     // cliente_antigo/indefinido). "Indefinido" aparece explicitamente.
-    // Precedência: funil_match (IA) > ads_origin_hits.platform > indefinido.
+    // Precedência: ads_origin_hits.platform (clique pago COMPROVADO) >
+    // funil_match (IA) > indefinido.
     // ---------------------------------------------------------------------
     $origens = [];
     foreach (funil_origens_validas() as $o) {
         $origens[$o] = ['origem' => $o, 'rotulo' => funil_origem_rotulo($o), 'total' => 0, 'agendou' => 0, 'tatuou' => 0];
     }
-    // Universo da distribuição por origem: telefones com conversa no período
-    // (união dos leads do Ads com a ponte) — é o que melhor representa "de onde veio".
-    $universoOrigem = [];
-    foreach (array_keys($escopo['todos']) as $f) {
-        $universoOrigem[(string)$f] = true;
-    }
-    foreach (array_keys($abriramPeriodo) as $f) {
-        $universoOrigem[(string)$f] = true;
-    }
+    // Universo da distribuicao por origem: a MESMA base do funil acima, para a
+    // tabela e os cartoes nunca contarem coisas diferentes.
+    $universoOrigem = $baseFones;
 
     $plataformaParaOrigem = static function (string $plat): string {
         $p = strtolower(trim($plat));
         if ($p === '') {
             return 'indefinido';
         }
+        // "organico_ig" e o unico rotulo de Instagram que NAO e anuncio pago.
+        if (str_contains($p, 'organico') || str_contains($p, 'organic')) {
+            return 'instagram';
+        }
+        // Anuncio de Instagram, Facebook ou Meta e SEMPRE Meta Ads. O Instagram
+        // organico de verdade vem da IA (funil_match), nao da plataforma do hit.
         if (str_contains($p, 'meta') || str_contains($p, 'facebook') || str_contains($p, 'face') || str_contains($p, 'insta')) {
-            // Instagram pago é Meta Ads; só cai em "instagram" quando for orgânico,
-            // e a IA já marca isso. No fallback, anúncio de insta continua Meta.
-            return str_contains($p, 'meta') || str_contains($p, 'facebook') || str_contains($p, 'face') ? 'meta' : 'instagram';
+            return 'meta';
         }
         if (str_contains($p, 'google')) {
             return 'google';
@@ -649,16 +1026,38 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
         }
     }
 
+    // Precedencia: hit de anuncio > IA > indefinido.
+    // O hit e prova dura: a ponte so grava quando o WhatsApp traz o ctwa_clid
+    // (clique pago de verdade), e o periodo do hit e o do proprio clique. A IA
+    // le a conversa e erra para "instagram/indicacao" quem veio de anuncio -
+    // era assim que anuncio pago virava "Instagram (organico)".
+    // "indefinido" da IA quer dizer "nao achei sinal na conversa": nesse caso
+    // vale a plataforma do hit; sem isso Meta/Google viravam Indefinido.
+    $origemDe = static function (string $fone) use ($origemIA, $origemHits, $crmOrigens): string {
+        $hit = $origemHits[$fone] ?? '';
+        if ($hit !== '' && $hit !== 'indefinido') {
+            return $hit;
+        }
+        // Classificacao manual do CRM manda sobre o palpite da IA: quem respondeu
+        // "veio por indicacao / passou na porta" sabe mais que a leitura da conversa.
+        $crm = $crmOrigens['por_fone'][$fone] ?? '';
+        if ($crm !== '' && $crm !== 'indefinido') {
+            return $crm;
+        }
+        $o = $origemIA[$fone] ?? '';
+        return $o !== '' ? $o : 'indefinido';
+    };
+
     foreach (array_keys($universoOrigem) as $fone) {
-        $o = $origemIA[$fone] ?? $origemHits[$fone] ?? 'indefinido';
+        $o = $origemDe((string)$fone);
         if (!isset($origens[$o])) {
             $o = 'indefinido';
         }
         $origens[$o]['total']++;
-        if (isset($agendou[$fone])) {
+        if (isset($agendouBase[$fone])) {
             $origens[$o]['agendou']++;
         }
-        if (isset($tatuou[$fone])) {
+        if (isset($tatuouBase[$fone])) {
             $origens[$o]['tatuou']++;
         }
     }
@@ -673,11 +1072,13 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
     $progressoIA = funil_progresso_ia($pdo, count($universoOrigem));
 
     $etapas = [
-        ['chave' => 'lead_ads', 'nome' => 'Lead do Ads', 'desc' => 'Contatos que clicaram no anúncio', 'total' => count($escopo['todos'])],
+        $universo === 'ads'
+            ? ['chave' => 'lead_ads', 'nome' => 'Lead do Ads', 'desc' => 'Contatos que clicaram no anúncio', 'total' => count($escopo['todos'])]
+            : ['chave' => 'lead_ads', 'nome' => 'Contatos no período', 'desc' => 'Anúncio, indicação, porta e agenda', 'total' => count($baseFones)],
         ['chave' => 'conversa', 'nome' => 'Abriu conversa', 'desc' => 'Telefone apareceu no WhatsApp', 'total' => count($abriramPeriodo)],
         ['chave' => 'interagiu', 'nome' => 'Interagiu', 'desc' => '3+ mensagens recebidas no período', 'total' => count($interagiram)],
-        ['chave' => 'agendou', 'nome' => 'Agendou', 'desc' => 'Agendou na agenda ou no funil_match (IA)', 'total' => count($agendou)],
-        ['chave' => 'tatuou', 'nome' => 'Tatuou', 'desc' => 'Appointment vinculado com status finalizado', 'total' => count($tatuou)],
+        ['chave' => 'agendou', 'nome' => 'Agendou', 'desc' => 'Agendamento real marcado no período (sem reagendamento)', 'total' => count($agendouBase), 'reagendamentos' => count($reagendouBase)],
+        ['chave' => 'tatuou', 'nome' => 'Tatuou', 'desc' => 'Atendimento que aconteceu no período', 'total' => count($tatuouBase)],
     ];
 
     // Taxas: absoluta (sobre a etapa 1) e em cadeia (sobre a etapa anterior).
@@ -691,68 +1092,67 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
     }
     unset($e);
 
-    // Quebra por plataforma: recalcula a cadeia inteira dentro de cada plataforma.
-    $porPlataforma = [];
-    $ordem = [];
-    foreach ($escopo['por_plataforma'] as $plat => $fones) {
-        $ordem[$plat] = true;
-    }
-    // Plataformas que aparecem na ponte/agenda mas não em hit do período ficam de fora
-    // (a base do funil é o hit do Ads — sem hit, não há lead do Ads).
-    arsort($ordem);
-    $plataformas = array_keys($ordem);
-    sort($plataformas);
-
-    foreach ($plataformas as $plat) {
-        $fonesPlat = $escopo['por_plataforma'][$plat];
-
-        $abriuPlat = 0;
-        foreach ($fonesPlat as $f => $_) {
-            if (isset($abriramPeriodo[(string)$f])) {
-                $abriuPlat++;
-            }
+    // Quebra por REDE (Meta/Google...) e, dentro dela, por CANAL (Facebook,
+    // Instagram, Status do WhatsApp...): recalcula a cadeia inteira em cada
+    // recorte, com a mesma regra das etapas (o primeiro hit do periodo manda).
+    $metricas = static function (array $fones) use ($abriramPeriodo, $interagiram, $agendou, $tatuou): array {
+        $abriu = 0;
+        $inter = 0;
+        $ag = 0;
+        $tat = 0;
+        foreach ($fones as $f => $_) {
+            $f = (string)$f;
+            if (isset($abriramPeriodo[$f])) { $abriu++; }
+            if (isset($interagiram[$f]))   { $inter++; }
+            if (isset($agendou[$f]))       { $ag++; }
+            if (isset($tatuou[$f]))        { $tat++; }
         }
-        $interPlat = 0;
-        foreach ($fonesPlat as $f => $_) {
-            if (isset($interagiram[(string)$f])) {
-                $interPlat++;
-            }
-        }
-        $agPlat = 0;
-        $tatPlat = 0;
-        foreach ($fonesPlat as $f => $_) {
-            if (isset($agendou[(string)$f])) {
-                $agPlat++;
-            }
-            if (isset($tatuou[(string)$f])) {
-                $tatPlat++;
-            }
-        }
-        $total = count($fonesPlat);
-        $porPlataforma[] = [
-            'plataforma' => $plat,
+        $total = count($fones);
+        return [
             'lead_ads' => $total,
-            'conversa' => $abriuPlat,
-            'interagiu' => $interPlat,
-            'agendou' => $agPlat,
-            'tatuou' => $tatPlat,
-            'pct_conversa' => $total > 0 ? ($abriuPlat / $total) * 100 : 0.0,
-            'pct_interagiu' => $total > 0 ? ($interPlat / $total) * 100 : 0.0,
-            'pct_agendou' => $total > 0 ? ($agPlat / $total) * 100 : 0.0,
-            'pct_tatuou' => $total > 0 ? ($tatPlat / $total) * 100 : 0.0,
+            'conversa' => $abriu,
+            'interagiu' => $inter,
+            'agendou' => $ag,
+            'tatuou' => $tat,
+            'pct_conversa' => $total > 0 ? ($abriu / $total) * 100 : 0.0,
+            'pct_interagiu' => $total > 0 ? ($inter / $total) * 100 : 0.0,
+            'pct_agendou' => $total > 0 ? ($ag / $total) * 100 : 0.0,
+            'pct_tatuou' => $total > 0 ? ($tat / $total) * 100 : 0.0,
         ];
+    };
+
+    $porPlataforma = [];
+    foreach (($escopo['por_canal'] ?? []) as $rede => $canais) {
+        $fonesRede = [];
+        $linhas = [];
+        foreach ($canais as $canal => $fones) {
+            $linha = $metricas($fones);
+            $linha['canal'] = (string)$canal;
+            $linha['rotulo'] = (string)(($escopo['canal_rotulo'] ?? [])[$rede . '|' . $canal] ?? ucfirst((string)$canal));
+            $linhas[] = $linha;
+            foreach (array_keys($fones) as $f) {
+                $fonesRede[(string)$f] = true;
+            }
+        }
+        usort($linhas, static fn(array $a, array $b): int => $b['lead_ads'] <=> $a['lead_ads']);
+        $resumo = $metricas($fonesRede);
+        $resumo['rede'] = (string)$rede;
+        $resumo['rotulo'] = (string)(($escopo['rede_rotulo'] ?? [])[$rede] ?? ucfirst((string)$rede));
+        $resumo['canais'] = $linhas;
+        $porPlataforma[] = $resumo;
     }
+    usort($porPlataforma, static fn(array $a, array $b): int => $b['lead_ads'] <=> $a['lead_ads']);
 
     // ---------------------------------------------------------------------
     // Listas de telefones por etapa, para o drill-down (clicar no número do
     // card e ver QUEM são os leads). Mesmas chaves das etapas.
     // ---------------------------------------------------------------------
     $listas = [
-        'lead_ads' => array_keys($escopo['todos']),
+        'lead_ads' => array_keys($baseFones),
         'conversa' => array_keys($abriramPeriodo),
         'interagiu' => array_keys($interagiram),
-        'agendou' => array_keys($agendou),
-        'tatuou' => array_keys($tatuou),
+        'agendou' => array_keys($agendouBase),
+        'tatuou' => array_keys($tatuouBase),
     ];
 
     // Nome do lead/cliente por telefone.
@@ -795,7 +1195,7 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
             $itens[] = [
                 'telefone' => $fone,
                 'nome' => $nomes[$fone] ?? '',
-                'origem' => funil_origem_rotulo($origemIA[$fone] ?? $origemHits[$fone] ?? 'indefinido'),
+                'origem' => funil_origem_rotulo($origemDe($fone)),
                 'agendou' => isset($agendou[$fone]),
                 'tatuou' => isset($tatuou[$fone]),
             ];
@@ -809,11 +1209,32 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
         $detalhes[$chave] = $itens;
     }
 
+    // Reagendamentos: nao contam no cartao "Agendou", mas aparecem no drill-down
+    // marcados (quem so remarcou nao e conversao nova).
+    $detalhes['reagendamento'] = [];
+    foreach ($reagendouBase as $foneReag => $motivoReag) {
+        $foneReag = (string)$foneReag;
+        $detalhes['reagendamento'][] = [
+            'telefone' => $foneReag,
+            'nome' => $nomes[$foneReag] ?? '',
+            'origem' => funil_origem_rotulo($origemDe($foneReag)),
+            'motivo' => (string)$motivoReag,
+        ];
+    }
+
+    // Bloco "Fora do Ads": agendamentos do periodo sem nenhum clique pago.
+    // E aqui que aparecem os clientes de indicacao/porta, que nao passam pelo WhatsApp.
+    // No universo "So Ads" o bloco nao faz sentido, entao nem consulta.
+    $foraAds = $universo === 'todos' ? funil_fora_ads($pdo, $escopo['todos'], $de, $ate) : [];
+
     return [
         'etapas' => $etapas,
         'detalhes' => $detalhes,
         'por_plataforma' => $porPlataforma,
         'origens' => $origemLista,
+        'fora_ads' => $foraAds,
+        'universo' => $universo,
+        'reagendamentos' => count($reagendouBase),
         'progresso_ia' => $progressoIA,
         'brutos' => (int)($escopo['brutos'] ?? 0),
         'ponte_online' => count($ponteGeral) > 0,
@@ -822,6 +1243,140 @@ function funil_calcular(PDO $pdo, string $de, string $ate, array $escopo): array
         'com_mensagem_geral' => count(funil_casar_telefones($escopo['todos'], $ponteGeral)),
         'arquivo_existe' => is_file(historico_conversas_path()),
     ];
+}
+
+/**
+ * Agendamentos do periodo que NAO tem clique pago nenhum.
+ *
+ * O funil era ancorado no hit do anuncio, entao o cliente que chegou por
+ * indicacao ou passou na porta simplesmente nao existia na tela. Aqui ele
+ * aparece com a origem declarada no CRM (leads.source).
+ */
+function funil_fora_ads(PDO $pdo, array $leadsAds, string $de, string $ate): array
+{
+    $variacoes = [];
+    foreach (array_keys($leadsAds) as $fone) {
+        foreach (historico_telefone_variacoes((string)$fone) as $v) {
+            $variacoes[(string)$v] = true;
+        }
+    }
+
+    $fim = (new DateTimeImmutable($ate))->modify('+180 days')->format('Y-m-d');
+    $sql = "SELECT a.id, a.title, a.appointment_date, a.start_time, a.status, a.value,
+                   COALESCE(NULLIF(TRIM(l.name),''), NULLIF(TRIM(c.name),''), NULLIF(TRIM(a.title),'')) AS nome,
+                   COALESCE(l.source, '') AS origem_crm,
+                   REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(l.phone,''),'(',''),')',''),'-',''),' ','') AS fone_lead,
+                   REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(c.phone,''),'(',''),')',''),'-',''),' ','') AS fone_customer
+              FROM appointments a
+              LEFT JOIN leads l ON l.id = a.lead_id
+              LEFT JOIN customers c ON c.id = a.customer_id
+             WHERE a.appointment_date BETWEEN ? AND ?
+               AND YEAR(a.appointment_date) BETWEEN 2000 AND 2100
+               AND a.status NOT IN ('cancelado', 'perdido')
+             ORDER BY a.appointment_date ASC, a.start_time ASC";
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$de, $fim]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return [];
+    }
+
+    // Agendamento que a IA amarrou a um telefone de anuncio tambem e do Ads.
+    $apptAds = [];
+    try {
+        $stIA = $pdo->query('SELECT telefone, appointment_id FROM funil_match WHERE appointment_id IS NOT NULL');
+        foreach ($stIA->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $apptId = (int)($row['appointment_id'] ?? 0);
+            if ($apptId <= 0) {
+                continue;
+            }
+            foreach (historico_telefone_variacoes(funil_so_digitos((string)($row['telefone'] ?? ''))) as $v) {
+                if (isset($variacoes[(string)$v])) {
+                    $apptAds[$apptId] = true;
+                    break;
+                }
+            }
+        }
+    } catch (Throwable $e) {
+        $apptAds = [];
+    }
+
+    $fora = [];
+    foreach ($rows as $row) {
+        if (isset($apptAds[(int)$row['id']])) {
+            continue;
+        }
+        $veioDeAnuncio = false;
+        foreach (['fone_lead', 'fone_customer'] as $campo) {
+            $fone = funil_so_digitos((string)($row[$campo] ?? ''));
+            if ($fone === '') {
+                continue;
+            }
+            foreach (historico_telefone_variacoes($fone) as $v) {
+                if (isset($variacoes[(string)$v])) {
+                    $veioDeAnuncio = true;
+                    break 2;
+                }
+            }
+        }
+        if ($veioDeAnuncio) {
+            continue;
+        }
+
+        $codigo = function_exists('ads_origem_normalizar')
+            ? ads_origem_normalizar((string)($row['origem_crm'] ?? ''))
+            : '';
+        $rotulo = $codigo === ''
+            ? 'Sem origem'
+            : (function_exists('ads_origem_rotulo') ? ads_origem_rotulo($codigo) : ucfirst($codigo));
+
+        $foneChave = funil_so_digitos((string)($row['fone_lead'] ?? ''));
+        if ($foneChave === '') {
+            $foneChave = funil_so_digitos((string)($row['fone_customer'] ?? ''));
+        }
+        $nomeChave = strtolower(preg_replace('/\s+/u', ' ', trim((string)($row['nome'] ?? ''))) ?? '');
+
+        $fora[] = [
+            'id' => (int)($row['id'] ?? 0),
+            'data' => (string)($row['appointment_date'] ?? ''),
+            'hora' => substr((string)($row['start_time'] ?? ''), 0, 5),
+            'nome' => trim((string)($row['nome'] ?? '')),
+            'origem' => $rotulo,
+            'origem_codigo' => $codigo !== '' ? $codigo : 'sem_origem',
+            'status' => (string)($row['status'] ?? ''),
+            'valor' => (float)($row['value'] ?? 0),
+            'chave' => $foneChave !== '' ? 'fone:' . $foneChave : 'nome:' . $nomeChave,
+        ];
+    }
+
+    // O mesmo cliente aparece 2+ vezes quando o atendimento foi REMARCADO: a
+    // agenda cria um evento novo no Google e o antigo continua como "confirmado".
+    // Agrupa por cliente (telefone quando existe, senao o nome) para remarcacao
+    // nao contar como agendamento novo. Data/status/valor exibidos = o ultimo.
+    $grupos = [];
+    foreach ($fora as $row) {
+        $chave = (string)$row['chave'];
+        if (!isset($grupos[$chave])) {
+            $row['datas'] = [];
+            $row['qtd'] = 0;
+            $grupos[$chave] = $row;
+        }
+        $grupos[$chave]['qtd']++;
+        $grupos[$chave]['datas'][] = $row['data'] . ($row['hora'] !== '' ? ' ' . $row['hora'] : '');
+        if ($row['data'] >= $grupos[$chave]['data']) {
+            $grupos[$chave]['id'] = $row['id'];
+            $grupos[$chave]['data'] = $row['data'];
+            $grupos[$chave]['hora'] = $row['hora'];
+            $grupos[$chave]['status'] = $row['status'];
+            $grupos[$chave]['valor'] = $row['valor'];
+            $grupos[$chave]['origem'] = $row['origem'];
+            $grupos[$chave]['origem_codigo'] = $row['origem_codigo'];
+        }
+    }
+
+    return array_values($grupos);
 }
 
 /** Formata número inteiro no padrão brasileiro. */
@@ -913,6 +1468,11 @@ function render_funil(array $studio): void
     $queryPreset = static function (array $extra): string {
         return app_url('studio_funil', $extra);
     };
+
+    // Periodo atual, para os botoes que so trocam o universo sem perder o filtro.
+    $paramsPeriodo = (string)($periodo['atalho'] ?? '') !== ''
+        ? ['f_atalho' => (string)$periodo['atalho']]
+        : ['f_de' => $de, 'f_ate' => $ate];
     ?>
     <style>
      .funil-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
@@ -964,8 +1524,9 @@ function render_funil(array $studio): void
         <span class="funil-chip"><?= h($formatoData($de)) ?> a <?= h($formatoData($ate)) ?></span>
       </div>
       <p class="muted" style="margin:6px 0 12px">
-        Do anúncio até a tatuagem feita. Cada etapa é um subconjunto da anterior;
-        só entra aqui quem chegou por anúncio.
+        Do anúncio até a tatuagem feita. As <strong>etapas</strong> contam só quem clicou
+        no anúncio; o filtro <strong>Universo</strong> e a tabela de origens também
+        mostram quem chegou por indicação, porta ou foi lançado direto na agenda.
       </p>
 
       <div class="funil-filtros">
@@ -996,6 +1557,13 @@ function render_funil(array $studio): void
           ?>
             <a class="btn <?= $ativo ? 'primary' : 'secondary' ?>" href="<?= h($queryPreset($extra)) ?>"><?= h($a['rotulo']) ?></a>
           <?php endforeach; ?>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <span class="funil-chip">Universo</span>
+          <?php $universoAtual = (string)($funil['universo'] ?? 'todos'); ?>
+          <a class="btn <?= $universoAtual === 'todos' ? 'primary' : 'secondary' ?>" href="<?= h($queryPreset($paramsPeriodo + ['f_universo' => 'todos'])) ?>">Todos</a>
+          <a class="btn <?= $universoAtual === 'ads' ? 'primary' : 'secondary' ?>" href="<?= h($queryPreset($paramsPeriodo + ['f_universo' => 'ads'])) ?>">Só Ads</a>
+          <span class="desc" style="font-size:11px;color:#98a2b3">em "Todos" entram indicação, porta e agenda</span>
         </div>
       </div>
 
@@ -1074,6 +1642,11 @@ function render_funil(array $studio): void
               <?php endif; ?>
             </div>
             <div class="funil-bar" style="margin-top:8px"><span style="width:<?= h(number_format((float)$e['pct_base'], 1, '.', '')) ?>%"></span></div>
+            <?php if (!empty($e['reagendamentos'])): ?>
+              <div class="sub" style="color:#b54708;margin-top:4px">
+                ↺ <?= h(funil_num((int)$e['reagendamentos'])) ?> reagendamento(s) fora da conta
+              </div>
+            <?php endif; ?>
           </div>
         <?php endforeach; ?>
       </div>
@@ -1115,6 +1688,39 @@ function render_funil(array $studio): void
         </details>
       <?php endforeach; ?>
 
+      <?php $reagItens = $funil['detalhes']['reagendamento'] ?? []; ?>
+      <?php if ($reagItens): ?>
+        <details class="funil-detalhe" id="leads-reagendamento" style="margin:0 0 14px">
+          <summary style="cursor:pointer;font-weight:700">
+            <i class="fa-solid fa-rotate-left"></i>
+            Reagendamentos — <?= h(funil_num(count($reagItens))) ?> contato(s)
+            <span class="desc" style="font-weight:500">já tinham atendimento e só trocaram a data (não contam como Agendou)</span>
+          </summary>
+          <div style="overflow-x:auto;margin-top:10px">
+            <table class="table" style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="text-align:left">Nome</th>
+                  <th style="text-align:left">Telefone</th>
+                  <th style="text-align:left">Origem</th>
+                  <th style="text-align:left">Por que é reagendamento</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($reagItens as $it): ?>
+                  <tr>
+                    <td style="font-weight:600;min-width:180px"><?= $it['nome'] !== '' ? h((string)$it['nome']) : '<span class="muted">(sem nome)</span>' ?></td>
+                    <td style="font-family:monospace;white-space:nowrap"><?= h((string)$it['telefone']) ?></td>
+                    <td><?= h((string)$it['origem']) ?></td>
+                    <td class="muted"><?= h((string)$it['motivo']) ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        </details>
+      <?php endif; ?>
+
       <div style="overflow-x:auto">
         <table class="table funil-tabela" style="width:100%;border-collapse:collapse">
           <thead>
@@ -1145,9 +1751,10 @@ function render_funil(array $studio): void
 
       <h3 style="margin:22px 0 8px">Origem real do cliente</h3>
       <p class="muted" style="margin:0 0 8px">
-        Classificação por IA das conversas (<code>funil_match</code>). Quando a IA ainda
-        não analisou a conversa e não há hit de anúncio, a origem entra como
-        <strong>Indefinido</strong> — não como zero.
+        Clique pago comprovado (<code>ads_origin_hits</code>) manda; sem ele vale a
+        origem declarada no CRM (<code>leads.source</code>: indicação, porta, cliente que
+        voltou) e, por último, a IA da conversa (<code>funil_match</code>). Sem nenhum
+        dos três, a origem entra como <strong>Indefinido</strong> — não como zero.
       </p>
       <div style="overflow-x:auto">
         <table class="table" style="width:100%;border-collapse:collapse">
@@ -1181,49 +1788,138 @@ function render_funil(array $studio): void
         </table>
       </div>
 
-      <h3 style="margin:22px 0 8px">Por plataforma do anúncio (secundário)</h3>
+      <details class="funil-detalhe" style="margin-top:22px" open>
+        <summary style="font-size:14px;padding:4px 0">
+          <strong>Fora do Ads (indicação, porta, agenda)</strong>
+          <span class="desc"><?= h(funil_num(count($funil['fora_ads']))) ?> cliente(s) sem clique pago no período</span>
+        </summary>
+        <div style="padding-top:8px">
+      <?php if (($funil['universo'] ?? 'todos') === 'ads'): ?>
+      <p class="muted" style="margin:0 0 8px">Filtro em <strong>Só Ads</strong> — troque para "Todos" para ver os agendamentos de outras origens.</p>
+      <?php else: ?>
+      <?php
+        $foraDatas = 0;
+        $foraMulti = 0;
+        foreach ($funil['fora_ads'] as $fx) {
+            $q = (int)($fx['qtd'] ?? 1);
+            $foraDatas += $q;
+            if ($q > 1) { $foraMulti++; }
+        }
+      ?>
+      <p class="muted" style="margin:0 0 8px">
+        <strong><?= h(funil_num(count($funil['fora_ads']))) ?> cliente(s)</strong> sem clique pago
+        (<?= h(funil_num($foraDatas)) ?> agendamento(s)<?php if ($foraMulti > 0): ?>, sendo <?= h(funil_num($foraMulti)) ?> com 2+ datas —
+        reagendamento ou recorrência<?php endif; ?>). É aqui que o cliente de indicação ou de porta existe
+        na tela — sem depender de clique pago nem de conversa no WhatsApp. Quando o mesmo cliente
+        tem mais de uma data, é remarcação: a agenda cria um evento novo no Google e o antigo
+        continua como "confirmado". A data mostrada é a última; passe o mouse nela para ver todas.
+        Esta lista é a <strong>agenda</strong> de quem não veio de anúncio (inclui agendamentos futuros, até 180 dias);
+        o cartão "Agendou" acima conta só quem fechou o agendamento dentro do período.
+      </p>
+      <?php endif; ?>
+      <?php if (($funil['universo'] ?? 'todos') !== 'ads'): ?>
       <div style="overflow-x:auto">
-        <table class="table" style="width:100%;border-collapse:collapse">
+        <table class="table funil-tabela" style="width:100%;border-collapse:collapse">
           <thead>
             <tr>
-              <th style="text-align:left">Plataforma</th>
-              <th style="text-align:right">Lead do Ads</th>
-              <th style="text-align:right">Abriu conversa</th>
-              <th style="text-align:right">Interagiu</th>
-              <th style="text-align:right">Agendou</th>
-              <th style="text-align:right">Tatuou</th>
-              <th style="text-align:right">Conversão final</th>
+              <th style="text-align:left">Data</th>
+              <th style="text-align:left">Cliente</th>
+              <th style="text-align:left">Origem</th>
+              <th style="text-align:left">Status</th>
+              <th style="text-align:right">Valor</th>
             </tr>
           </thead>
           <tbody>
-            <?php if (!$funil['por_plataforma']): ?>
-              <tr><td colspan="7" class="muted">Nenhum lead de anúncio no período.</td></tr>
+            <?php if (!$funil['fora_ads']): ?>
+              <tr><td colspan="5" class="muted">Nenhum agendamento fora do anúncio no período.</td></tr>
             <?php else: ?>
-              <?php foreach ($funil['por_plataforma'] as $p): ?>
+              <?php foreach ($funil['fora_ads'] as $f): ?>
                 <tr>
-                  <td style="font-weight:700;text-transform:capitalize"><?= h((string)$p['plataforma']) ?></td>
-                  <td style="text-align:right"><?= h(funil_num((int)$p['lead_ads'])) ?></td>
-                  <td style="text-align:right"><?= h(funil_num((int)$p['conversa'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_conversa'])) ?></span></td>
-                  <td style="text-align:right"><?= h(funil_num((int)$p['interagiu'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_interagiu'])) ?></span></td>
-                  <td style="text-align:right"><?= h(funil_num((int)$p['agendou'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_agendou'])) ?></span></td>
-                  <td style="text-align:right"><?= h(funil_num((int)$p['tatuou'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_tatuou'])) ?></span></td>
-                  <td style="text-align:right;font-weight:800"><?= h(funil_pct((float)$p['pct_tatuou'])) ?></td>
+                  <td style="white-space:nowrap">
+                    <?= h($formatoData((string)$f['data'])) ?><?= $f['hora'] !== '' ? ' ' . h((string)$f['hora']) : '' ?>
+                    <?php if ((int)($f['qtd'] ?? 1) > 1): ?>
+                      <span class="desc" title="<?= h(implode(' · ', (array)($f['datas'] ?? []))) ?>"><?= h((string)$f['qtd']) ?> datas</span>
+                    <?php endif; ?>
+                  </td>
+                  <td class="nome"><?= h((string)$f['nome']) ?></td>
+                  <td><?= h((string)$f['origem']) ?></td>
+                  <td><?= h((string)$f['status']) ?></td>
+                  <td style="text-align:right">R$ <?= h(number_format((float)$f['valor'], 2, ',', '.')) ?></td>
                 </tr>
               <?php endforeach; ?>
             <?php endif; ?>
           </tbody>
         </table>
       </div>
+      <?php endif; ?>
+        </div>
+      </details>
+
+      <h3 style="margin:22px 0 8px">Por plataforma do anúncio (secundário)</h3>
+      <?php if (!$funil['por_plataforma']): ?>
+        <p class="muted">Nenhum lead de anúncio no período.</p>
+      <?php else: ?>
+        <p class="muted" style="margin:0 0 8px">Clique na plataforma para ver de onde o cliente veio (Facebook, Instagram, Status do WhatsApp, Google...).</p>
+        <?php foreach ($funil['por_plataforma'] as $p): ?>
+          <details class="funil-detalhe" style="margin:0 0 12px">
+            <summary style="cursor:pointer;font-weight:700;font-size:14px;padding:2px 0">
+              <?= h((string)$p['rotulo']) ?>
+              <span class="desc"><?= h(funil_num((int)$p['lead_ads'])) ?> lead(s) · <?= h(funil_num((int)$p['agendou'])) ?> agendou · <?= h(funil_num((int)$p['tatuou'])) ?> tatuou</span>
+            </summary>
+            <div style="overflow-x:auto;margin-top:10px">
+              <table class="table" style="width:100%;border-collapse:collapse">
+                <thead>
+                  <tr>
+                    <th style="text-align:left">Canal</th>
+                    <th style="text-align:right">Lead do Ads</th>
+                    <th style="text-align:right">Abriu conversa</th>
+                    <th style="text-align:right">Interagiu</th>
+                    <th style="text-align:right">Agendou</th>
+                    <th style="text-align:right">Tatuou</th>
+                    <th style="text-align:right">Conversão final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <?php foreach ($p['canais'] as $c): ?>
+                    <tr>
+                      <td style="font-weight:600"><?= h((string)$c['rotulo']) ?></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$c['lead_ads'])) ?></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$c['conversa'])) ?> <span class="desc"><?= h(funil_pct((float)$c['pct_conversa'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$c['interagiu'])) ?> <span class="desc"><?= h(funil_pct((float)$c['pct_interagiu'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$c['agendou'])) ?> <span class="desc"><?= h(funil_pct((float)$c['pct_agendou'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$c['tatuou'])) ?> <span class="desc"><?= h(funil_pct((float)$c['pct_tatuou'])) ?></span></td>
+                      <td style="text-align:right;font-weight:800"><?= h(funil_pct((float)$c['pct_tatuou'])) ?></td>
+                    </tr>
+                  <?php endforeach; ?>
+                  <?php if (count($p['canais']) > 1): ?>
+                    <tr style="border-top:2px solid #e6e8ee;font-weight:700">
+                      <td>Total <?= h((string)$p['rotulo']) ?></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$p['lead_ads'])) ?></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$p['conversa'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_conversa'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$p['interagiu'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_interagiu'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$p['agendou'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_agendou'])) ?></span></td>
+                      <td style="text-align:right"><?= h(funil_num((int)$p['tatuou'])) ?> <span class="desc"><?= h(funil_pct((float)$p['pct_tatuou'])) ?></span></td>
+                      <td style="text-align:right;font-weight:800"><?= h(funil_pct((float)$p['pct_tatuou'])) ?></td>
+                    </tr>
+                  <?php endif; ?>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        <?php endforeach; ?>
+      <?php endif; ?>
 
       <details style="margin-top:16px">
         <summary style="cursor:pointer;font-weight:700">Como cada etapa é calculada</summary>
         <ul style="margin:10px 0 0 18px;line-height:1.7">
-          <li><strong>Lead do Ads:</strong> <?= h(funil_num((int)$funil['etapas'][0]['total'])) ?> telefones distintos com hit em <code>ads_origin_hits</code> no período (<?= h(funil_num((int)$funil['brutos'])) ?> linhas brutas; a mesma pessoa pode gerar mais de um hit).</li>
+          <li><strong>Contatos do funil:</strong> em "Só Ads" são os <?= h(funil_num((int)$funil['brutos'])) ?> hits brutos de <code>ads_origin_hits</code> no período virados em telefones distintos. Em "Todos" a base soma também quem tem conversa na ponte ou origem declarada no CRM (indicação, porta, agenda).</li>
           <li><strong>Abriu conversa:</strong> telefone do lead encontrado no arquivo de conversas da ponte dentro do período (casando com/sem DDI 55 e com/sem o 9). Também confere <code>whatsapp_conversations</code>: <?= h(funil_num($extraConv)) ?> lead(s) do período existem só por lá.</li>
           <li><strong>Interagiu:</strong> telefone com 3 ou mais mensagens <strong>recebidas</strong> (do cliente) no período.</li>
-          <li><strong>Agendou:</strong> telefone com <code>agendou=1</code> ou <code>appointment_id</code> vinculado em <code>funil_match</code> (ponte feita pela IA), OU agendamento do CRM ligado ao lead/cliente daquele telefone (data entre o início do período e 180 dias à frente; datas fora de 2000–2100 são descartadas).</li>
-          <li><strong>Tatuou:</strong> dos que agendaram, o <code>appointment_id</code> vinculado tem status <code>finalizado</code> — a data foi atingida e o cliente foi atendido. <code>cancelado</code> não conta.</li>
-          <li><strong>Origem real:</strong> <code>funil_match.origem_detectada</code> (IA) quando existe; senão a plataforma do hit do anúncio; senão <strong>Indefinido</strong>.</li>
+          <li><strong>Agendou:</strong> agendamento REAL ligado ao contato — (a) o agendamento do CRM cujo lead/cliente tem o telefone do hit, ou (b) o agendamento que a IA amarrou à conversa em <code>funil_match.appointment_id</code>, contando só quando esse agendamento é exclusivo daquele telefone. O palpite <code>funil_match.agendou</code> NÃO conta. O que conta é a data em que o agendamento foi FECHADO (<code>google_created_at</code>; sem ela, <code>created_at</code>) cair dentro do período — quem marcou ontem para hoje conta como "agendou" ontem. Eventos importados em massa (sem <code>google_created_at</code>) ficam de fora.</li>
+          <li><strong>Tatuou:</strong> o atendimento vinculado ao contato aconteceu com a <strong>data do atendimento</strong> dentro do período. <code>finalizado</code> conta sempre; outros status contam quando a data e a hora já passaram (a agenda apaga o evento quando há cancelamento ou falta). <code>cancelado</code> não conta. É independente de "Agendou": quem marcou antes do período e foi atendido nele aparece aqui.</li>
+          <li><strong>Origem real:</strong> a plataforma do hit do anúncio (clique pago comprovado) manda; sem hit vale a origem declarada no CRM (<code>leads.source</code>); sem ela, <code>funil_match.origem_detectada</code> (IA); sem nada, <strong>Indefinido</strong>.</li>
+          <li><strong>Canal do anúncio:</strong> dentro de cada plataforma, "de onde veio" sai do <code>source_url</code> do hit: <code>fb.me</code> = Facebook, <code>instagram.com</code> = Instagram, <code>wa.me/wamo/status</code> = anúncio no Status do WhatsApp. No Google a ponte só traz o <code>click_id</code> (sem URL): por isso a rede (YouTube, Pesquisa, Display, Discover...) vem da API do Google Ads pelo <code>gclid</code> e fica em <code>ads_click_info</code>. Clique ainda não resolvido aparece como "Google Ads (clique pago)".</li>
+          <li><strong>Fora do Ads:</strong> agendamentos do período sem nenhum clique pago (indicação, porta, Google Agenda). É o bloco que faz o cliente que não veio de anúncio existir na tela. Fica de fora só o que está <code>cancelado</code>/<code>perdido</code>.</li>
         </ul>
       </details>
     </section>

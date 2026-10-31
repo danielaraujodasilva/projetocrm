@@ -1,0 +1,368 @@
+<?php
+declare(strict_types=1);
+/**
+ * Portal do Fernando (/fernando).
+ *
+ * Página privada, com login próprio, que lista os agendamentos do Fernando.
+ * Consulta o banco do estúdio a cada carregamento (sem cache), então qualquer
+ * mudança feita na agenda aparece na hora em que a página é aberta.
+ *
+ * O Fernando é identificado pelo nome no título/descrição do agendamento (é assim
+ * que a agenda do estúdio registra hoje) e também por tattoo_artists, caso um
+ * dia exista um profissional cadastrado com esse nome.
+ */
+require __DIR__ . '/app/bootstrap.php';
+
+const FERNANDO_PORTAL_EMAIL = 'fernando@danieltatuador.com';
+const FERNANDO_PORTAL_HASH = '$2y$10$Q/dFLlgOEoKOM7kIFgzPAu5QhyNs2CvFrgrfSSydVXugIlpvqCfZS';
+const FERNANDO_PORTAL_KEY = 'fernando_portal_acesso';
+
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('X-Robots-Tag: noindex, nofollow');
+header('Referrer-Policy: no-referrer');
+
+function fernando_h(string $valor): string
+{
+    return htmlspecialchars($valor, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function fernando_url_atual(): string
+{
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '/fernando');
+    return $uri !== '' ? $uri : '/fernando';
+}
+
+$acao = (string)($_POST['acao'] ?? '');
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($acao === 'sair') {
+        unset($_SESSION[FERNANDO_PORTAL_KEY]);
+        header('Location: ' . fernando_url_atual(), true, 303);
+        exit;
+    }
+    if ($acao === 'entrar') {
+        $email = strtolower(trim((string)($_POST['email'] ?? '')));
+        $senha = (string)($_POST['senha'] ?? '');
+        if ($email === FERNANDO_PORTAL_EMAIL && $senha !== '' && password_verify($senha, FERNANDO_PORTAL_HASH)) {
+            session_regenerate_id(true);
+            $_SESSION[FERNANDO_PORTAL_KEY] = ['email' => $email, 'em' => time()];
+            header('Location: ' . fernando_url_atual(), true, 303);
+            exit;
+        }
+        usleep(400000);
+        $erro = 'E-mail ou senha incorretos.';
+    }
+}
+
+$logado = is_array($_SESSION[FERNANDO_PORTAL_KEY] ?? null);
+
+if (!$logado) {
+    ?>
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Entrar · Agenda do Fernando</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0f172a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#0f172a}
+  .box{width:100%;max-width:380px;background:#fff;border-radius:20px;padding:28px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+  .tag{display:inline-block;font-size:11px;letter-spacing:.18em;color:#1f6f78;font-weight:700}
+  h1{margin:8px 0 4px;font-size:24px}
+  p.sub{margin:0 0 20px;color:#64748b;font-size:14px}
+  label{display:block;font-size:12px;font-weight:700;color:#334155;margin:14px 0 6px}
+  input{width:100%;padding:12px;border:1px solid #d0d5dd;border-radius:10px;font-size:15px;background:#fff;color:#0f172a}
+  input:focus{outline:2px solid #1f6f78;outline-offset:1px}
+  button{width:100%;margin-top:20px;padding:13px;border:0;border-radius:10px;background:#1f6f78;color:#fff;font-size:15px;font-weight:700;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  .erro{margin-top:14px;padding:10px 12px;border-radius:10px;background:#fef3f2;color:#b42318;font-size:13px}
+</style>
+</head>
+<body>
+  <form class="box" method="post" autocomplete="on">
+    <span class="tag">AGENDA</span>
+    <h1>Fernando</h1>
+    <p class="sub">Entre para ver seus agendamentos.</p>
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" inputmode="email" autocomplete="username" required value="<?= fernando_h((string)($_POST['email'] ?? '')) ?>">
+    <label for="senha">Senha</label>
+    <input id="senha" name="senha" type="password" autocomplete="current-password" required>
+    <?php if (!empty($erro)) { echo '<div class="erro">' . fernando_h((string)$erro) . '</div>'; } ?>
+    <button type="submit" name="acao" value="entrar">Entrar</button>
+  </form>
+</body>
+</html>
+    <?php
+    exit;
+}
+
+$studio = null;
+try {
+    foreach (db()->query('SELECT * FROM studios ORDER BY id ASC') as $row) {
+        if (($row['status'] ?? '') === 'active') {
+            $studio = $row;
+            break;
+        }
+    }
+} catch (Throwable) {
+    $studio = null;
+}
+
+$agendamentos = [];
+$artistId = 0;
+$pdo = null;
+if (is_array($studio)) {
+    try {
+        $pdo = studio_db($studio);
+        $stmtArtista = $pdo->prepare('SELECT id FROM tattoo_artists WHERE name LIKE ? LIMIT 1');
+        $stmtArtista->execute(['%fernando%']);
+        $artistId = (int)($stmtArtista->fetchColumn() ?: 0);
+    } catch (Throwable) {
+        $pdo = null;
+    }
+}
+
+$statusRotulo = [
+    'pre_agendado' => 'Pré-agendado',
+    'agendado' => 'Agendado',
+    'confirmado' => 'Confirmado',
+    'finalizado' => 'Finalizado',
+    'falta' => 'Faltou',
+    'cancelado' => 'Cancelado',
+];
+
+function fernando_eh_do_profissional(array $item, int $artistId): bool
+{
+    if ($artistId > 0 && (int)($item['artist_id'] ?? 0) === $artistId) {
+        return true;
+    }
+    $texto = ' ' . (string)($item['title'] ?? '') . ' ' . (string)($item['raw_title'] ?? '') . ' ' . (string)($item['description'] ?? '') . ' ';
+    $texto = (string)preg_replace('/\s+/u', ' ', $texto);
+    if (preg_match('/(^|[,;(+\-]\s*)fernando\b/iu', $texto) === 1) {
+        return true;
+    }
+    return preg_match('/\b(para|com|chamar|prioridade|ou)\s+(o\s+)?fernando\b/iu', $texto) === 1;
+}
+
+$buscar = static function (PDO $pdo, string $de, string $ate, int $artistId): array {
+    $stmt = $pdo->prepare(
+        "SELECT a.id, a.appointment_date, a.start_time, a.end_time, a.title, a.raw_title, a.description, a.status, a.value, a.artist_id,
+                COALESCE(NULLIF(c.name, ''), NULLIF(l.name, '')) AS cliente,
+                COALESCE(NULLIF(c.phone, ''), NULLIF(l.phone, '')) AS telefone
+           FROM appointments a
+           LEFT JOIN customers c ON c.id = a.customer_id
+           LEFT JOIN leads l ON l.id = a.lead_id
+          WHERE a.appointment_date BETWEEN ? AND ?
+            AND (a.title LIKE ? OR a.raw_title LIKE ? OR a.description LIKE ? OR a.artist_id = ?)
+          ORDER BY a.appointment_date ASC, a.start_time ASC, a.id ASC"
+    );
+    $stmt->execute([$de, $ate, '%fernando%', '%fernando%', '%fernando%', $artistId]);
+    $linhas = $stmt->fetchAll() ?: [];
+    $resultado = [];
+    foreach ($linhas as $linha) {
+        if (fernando_eh_do_profissional($linha, $artistId)) {
+            $resultado[] = $linha;
+        }
+    }
+    return $resultado;
+};
+
+$proximos = [];
+$anteriores = [];
+if ($pdo instanceof PDO) {
+    try {
+        $proximos = $buscar($pdo, date('Y-m-d'), date('Y-m-d', strtotime('+120 days')), $artistId);
+    } catch (Throwable) {
+        $proximos = [];
+    }
+    try {
+        $anteriores = $buscar($pdo, date('Y-m-d', strtotime('-60 days')), date('Y-m-d', strtotime('-1 day')), $artistId);
+    } catch (Throwable) {
+        $anteriores = [];
+    }
+}
+
+$agrupar = static function (array $lista): array {
+    $out = [];
+    foreach ($lista as $item) {
+        $out[(string)$item['appointment_date']][] = $item;
+    }
+    return $out;
+};
+$diasSemana = ['Sun' => 'dom', 'Mon' => 'seg', 'Tue' => 'ter', 'Wed' => 'qua', 'Thu' => 'qui', 'Fri' => 'sex', 'Sat' => 'sab'];
+$rotuloDia = static function (string $data) use ($diasSemana): string {
+    $ts = strtotime($data . ' 12:00:00');
+    $abrev = $diasSemana[date('D', (int)$ts)] ?? '';
+    $prefixo = $data === date('Y-m-d') ? 'HOJE · ' : ($data === date('Y-m-d', strtotime('+1 day')) ? 'AMANHÃ · ' : '');
+    return $prefixo . $abrev . ' ' . date('d/m', (int)$ts);
+};
+$telefoneWa = static function (string $telefone): string {
+    $digitos = preg_replace('/\D+/', '', $telefone) ?? '';
+    if ($digitos === '') {
+        return '';
+    }
+    if (strlen($digitos) <= 11) {
+        $digitos = '55' . $digitos;
+    }
+    return 'https://wa.me/' . $digitos;
+};
+
+$renderDia = static function (string $titulo, array $lista, bool $passado = false) use ($statusRotulo, $rotuloDia, $telefoneWa): void {
+    echo '<section class="dia' . ($passado ? ' passado' : '') . '">';
+    echo '<div class="dia-head"><strong>' . fernando_h(mb_strtoupper($titulo)) . '</strong><span>' . count($lista) . ' atendimento' . (count($lista) > 1 ? 's' : '') . '</span></div>';
+    foreach ($lista as $item) {
+        $status = (string)($item['status'] ?? '');
+        $rotulo = $statusRotulo[$status] ?? ucfirst($status);
+        $classe = $status === 'finalizado' ? 'done' : (in_array($status, ['cancelado', 'falta'], true) ? 'off' : 'ok');
+        $cliente = trim((string)($item['cliente'] ?? ''));
+        if ($cliente !== '') {
+            $partesNome = [];
+            foreach (explode(',', $cliente) as $parteNome) {
+                $parteNome = trim($parteNome);
+                if ($parteNome === '' || preg_match('/^fernando$/iu', $parteNome) === 1) {
+                    continue;
+                }
+                $partesNome[] = $parteNome;
+            }
+            if ($partesNome) {
+                $cliente = implode(', ', $partesNome);
+            }
+        }
+        $tituloCard = trim((string)($item['title'] ?? ''));
+        $wa = $telefoneWa((string)($item['telefone'] ?? ''));
+        $textoCard = (string)($item['title'] ?? '') . ' ' . (string)($item['raw_title'] ?? '') . ' ' . (string)($item['description'] ?? '');
+        $ehCancelado = in_array($status, ['cancelado', 'falta'], true)
+            || preg_match('/cancelad|faltou|n(ã|a)o vai|desmarcad/iu', $textoCard) === 1;
+        $classeCard = 'card' . ($passado ? ' passado' : '') . ($ehCancelado ? ' cancelado' : '');
+        echo '<article class="' . $classeCard . '">';
+        echo '<div class="hora">' . fernando_h(substr((string)($item['start_time'] ?? ''), 0, 5));
+        if (!empty($item['end_time'])) {
+            echo '<small>' . fernando_h(substr((string)$item['end_time'], 0, 5)) . '</small>';
+        }
+        echo '</div>';
+        echo '<div class="info"><strong>' . fernando_h($cliente !== '' ? $cliente : $tituloCard) . '</strong>';
+        $subTitulo = $tituloCard;
+        if ($cliente !== '') {
+            $subTitulo = (string)preg_replace('/' . preg_quote($cliente, '/') . '/iu', ' ', $subTitulo);
+        }
+        $subTitulo = (string)preg_replace('/\bfernando\b/iu', ' ', $subTitulo);
+        if ($cliente !== '') {
+            foreach (array_filter(array_map('trim', explode(',', $cliente))) as $parteCliente) {
+                if (mb_strlen($parteCliente) > 2) {
+                    $subTitulo = (string)preg_replace('/' . preg_quote($parteCliente, '/') . '/iu', ' ', $subTitulo);
+                }
+            }
+        }
+        if ($cliente !== '') {
+            foreach (preg_split('/\s+/u', $cliente) ?: [] as $palavraCliente) {
+                $palavraCliente = trim($palavraCliente, " ,.;:-");
+                if (mb_strlen($palavraCliente) > 2) {
+                    $subTitulo = (string)preg_replace('/\b' . preg_quote($palavraCliente, '/') . '\b/iu', ' ', $subTitulo);
+                }
+            }
+        }
+        $subTitulo = trim((string)preg_replace('/[\s,;\-]+/u', ' ', $subTitulo));
+        $subTitulo = trim((string)preg_replace('/\b(para|com|ou|e|de|do|da)\s*$/iu', '', $subTitulo));
+        $subTitulo = trim((string)preg_replace('/^\s*(para|com|ou|e)\b/iu', '', $subTitulo));
+        $subTitulo = trim((string)preg_replace('/[\s,;\-]+/u', ' ', $subTitulo));
+        if (mb_strlen($subTitulo) > 3 && $subTitulo !== $cliente) {
+            echo '<span class="sub">' . fernando_h($subTitulo) . '</span>';
+        }
+        echo '</div>';
+        echo '<div class="lado"><span class="tag ' . $classe . '">' . fernando_h($rotulo) . '</span>';
+        if ((float)($item['value'] ?? 0) > 0) {
+            echo '<span class="valor">R$ ' . number_format((float)$item['value'], 0, ',', '.') . '</span>';
+        }
+        if ($wa !== '') {
+            echo '<a class="wa" href="' . fernando_h($wa) . '" target="_blank" rel="noopener">WhatsApp</a>';
+        }
+        echo '</div></article>';
+    }
+    echo '</section>';
+};
+
+$grupoProximos = $agrupar($proximos);
+$grupoAnteriores = $agrupar($anteriores);
+krsort($grupoAnteriores);
+$totalHoje = 0;
+foreach (($grupoProximos[date('Y-m-d')] ?? []) as $itemHoje) {
+    $totalHoje++;
+}
+$totalProximos = count($proximos);
+?>
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Agenda do Fernando</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:#0f172a}
+  .top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:#0f172a;color:#fff}
+  .brand{font-size:15px;letter-spacing:.02em;color:#e2e8f0}
+  .brand strong{color:#fff;font-size:17px}
+  .top-actions{display:flex;align-items:center;gap:8px}
+  .stamp{font-size:11px;color:#94a3b8}
+  .btn{padding:7px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:transparent;color:#e2e8f0;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none}
+  .btn:active{transform:translateY(1px)}
+  main{max-width:760px;margin:0 auto;padding:16px 14px 48px}
+  .resumo{display:flex;gap:10px;margin:4px 0 18px}
+  .resumo div{flex:1;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+  .resumo span{display:block;font-size:11px;color:#64748b;margin-bottom:4px}
+  .resumo strong{font-size:20px}
+  .dia{margin-bottom:20px}
+  .dia-head{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.06em;color:#475569;padding:0 4px 8px}
+  .card{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px;margin-bottom:8px}
+  .hora{min-width:54px;font-size:17px;font-weight:700;line-height:1.1}
+  .hora small{display:block;font-size:11px;font-weight:500;color:#94a3b8;margin-top:2px}
+  .info{flex:1;min-width:0}
+  .info strong{display:block;font-size:15px}
+  .info .sub{display:block;font-size:12px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lado{display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+  .tag{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+  .tag.ok{background:#ecfdf3;color:#027a48}
+  .tag.done{background:#eff8ff;color:#175cd3}
+  .tag.off{background:#fef3f2;color:#b42318}
+  .valor{font-size:12px;color:#475569}
+  .wa{font-size:11px;font-weight:600;color:#1f6f78;text-decoration:none}
+  .vazio{background:#fff;border:1px dashed #d0d5dd;border-radius:14px;padding:20px;text-align:center;color:#64748b;font-size:14px}
+  h2.sec{margin:26px 0 10px;font-size:13px;letter-spacing:.08em;color:#64748b;text-transform:uppercase}
+  .dia.passado .dia-head{color:#a3adba}
+  .card.passado,.card.cancelado{opacity:.45;filter:grayscale(.9);background:#fafafa;border-color:#eef0f3}
+  .card.passado .wa,.card.cancelado .wa{color:#94a3b8}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Agenda · <strong>Fernando</strong></div>
+  <div class="top-actions">
+    <span class="stamp"><?= fernando_h(date('d/m H:i')) ?></span>
+    <a class="btn" href="?">Atualizar</a>
+    <form method="post" style="margin:0"><button class="btn" type="submit" name="acao" value="sair">Sair</button></form>
+  </div>
+</header>
+<main>
+  <div class="resumo">
+    <div><span>Hoje</span><strong><?= $totalHoje ?></strong></div>
+    <div><span>Próximos</span><strong><?= $totalProximos ?></strong></div>
+  </div>
+
+  <?php if (!$pdo instanceof PDO) { ?>
+    <div class="vazio">Não consegui conectar no banco do estúdio agora.</div>
+  <?php } elseif (!$grupoProximos) { ?>
+    <div class="vazio">Nenhum agendamento marcado para frente.</div>
+  <?php } else { ?>
+    <?php foreach ($grupoProximos as $dia => $lista) { $renderDia($rotuloDia((string)$dia), $lista); } ?>
+  <?php } ?>
+
+  <?php if ($grupoAnteriores) { ?>
+    <h2 class="sec">Últimos 60 dias</h2>
+    <?php foreach ($grupoAnteriores as $dia => $lista) { $renderDia($rotuloDia((string)$dia), $lista, true); } ?>
+  <?php } ?>
+</main>
+</body>
+</html>

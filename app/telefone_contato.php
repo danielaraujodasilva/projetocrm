@@ -36,6 +36,14 @@ function crm_telefone_palavras_ruido(): array
         'cereja', 'daniel', 'danilo', 'tatuador', 'inicio', 'finalizar', 'final',
         'pela', 'pelo', 'mim', 'meu', 'minha', 'ele', 'ela', 'nos', 'vcs', 'vc',
         'mais', 'menos', 'depois', 'antes', 'hoje', 'amanha', 'ontem',
+        // formas verbais e palavras soltas que aparecem no RABO do titulo
+        // ("Anderson feijao nao mandou", "Priscila Soares so sinal"): nao fazem
+        // parte do nome e inflavam a contagem de tokens.
+        'mandou', 'avisou', 'ligou', 'falou', 'pagou', 'pediu', 'marcou', 'confirmou',
+        'remarcou', 'reagendou', 'enviou', 'trouxe', 'levou', 'chegou', 'voltou',
+        'quer', 'queria', 'precisa', 'preciso', 'sabe', 'tem', 'ter', 'esta', 'estava',
+        'ficou', 'deixou', 'vai', 'vou', 'foi', 'so', 'das', 'dos', 'duas', 'dois',
+        'meio', 'meia', 'desenho', 'desenhos', 'gratis', 'gratuito', 'segunda',
     ];
 }
 
@@ -94,13 +102,26 @@ function crm_telefone_nome_casa(array $tokensAlvo, string $nomeConversa): bool
         return false;
     }
     $palavras = array_flip(explode(' ', $normal));
+    // O PRIMEIRO e o SEGUNDO token do nome do agendamento precisam bater. Exigir
+    // "dois tokens quaisquer" casava pessoas diferentes que so dividem sobrenome:
+    // "Guilherme Araujo Silva" casava com "Daniel Araujo da Silva" (araujo+silva)
+    // e "Jose Messias da Silva" com "Jose Lailson Teodoro da Silva" (jose+silva).
+    if (!isset($palavras[$tokensAlvo[0]]) || !isset($palavras[$tokensAlvo[1]])) {
+        return false;
+    }
     $bateram = 0;
     foreach ($tokensAlvo as $token) {
         if (isset($palavras[$token])) {
             $bateram++;
         }
     }
-    return $bateram >= 2;
+    // Exige que TODOS os tokens do lado MAIS CURTO batam. Sem isso, nomes com
+    // primeiro nome composto comum casavam por engano: "Pedro Henrique das Neves
+    // Felix" (3 tokens) batia com "Pedro Henrique Fernandes Vieira" so por
+    // "pedro"+"henrique" - pessoas diferentes.
+    $tokensNome = crm_telefone_nome_essencial($nomeConversa);
+    $exigidos = min(count($tokensAlvo), count($tokensNome));
+    return $bateram >= 2 && $bateram >= $exigidos;
 }
 
 /**
@@ -138,6 +159,53 @@ function crm_telefone_indice_baileys(): array
 }
 
 /**
+ * Indice nome->telefone do banco do CRM (leads, clientes e conversas do WhatsApp).
+ *
+ * O arquivo da ponte sozinho nao basta: o telefone do cliente muitas vezes ja esta
+ * cadastrado no CRM (lead do anuncio, cliente, conversa). Este indice amplia o
+ * casamento por nome sem mudar a regra de seguranca (nome + sobrenome).
+ */
+function crm_telefone_indice_crm(): array
+{
+    static $indice = null;
+    if (is_array($indice)) {
+        return $indice;
+    }
+    $indice = [];
+    try {
+        $studio = null;
+        if (function_exists('current_studio_user') && function_exists('require_studio') && current_studio_user()) {
+            $studio = require_studio();
+        } elseif (function_exists('get_studio')) {
+            $studio = get_studio(1);
+        }
+        if (!$studio || !function_exists('studio_db')) {
+            return $indice;
+        }
+        $pdo = studio_db($studio);
+        $sql = 'SELECT name, phone FROM leads WHERE COALESCE(phone, \'\') <> \'\'
+                 UNION ALL
+                SELECT name, phone FROM customers WHERE COALESCE(phone, \'\') <> \'\'
+                 UNION ALL
+                SELECT name, phone FROM whatsapp_conversations WHERE COALESCE(phone, \'\') <> \'\'';
+        foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $fone = preg_replace('/\D+/', '', (string)($row['phone'] ?? ''));
+            $nome = trim((string)($row['name'] ?? ''));
+            if ($fone === '' || $nome === '') {
+                continue;
+            }
+            if (function_exists('historico_telefone_utilizavel') && !historico_telefone_utilizavel($fone)) {
+                continue;
+            }
+            $indice[] = ['phone' => $fone, 'name' => $nome];
+        }
+    } catch (Throwable) {
+        $indice = [];
+    }
+    return $indice;
+}
+
+/**
  * Procura o telefone de um nome (titulo do agendamento ou nome do lead)
  * nas conversas do Baileys. Devolve '' quando nao achar com seguranca.
  */
@@ -148,9 +216,13 @@ function crm_telefone_por_nome(string $texto): string
         return '';
     }
     $achados = [];
-    foreach (crm_telefone_indice_baileys() as $c) {
-        if (crm_telefone_nome_casa($tokens, (string)$c['name'])) {
-            $achados[$c['phone']] = true;
+    // Duas fontes: arquivo da ponte do WhatsApp e cadastro do CRM. Sempre com a
+    // mesma regra (nome + sobrenome) e sem aceitar resultado ambiguo.
+    foreach ([crm_telefone_indice_baileys(), crm_telefone_indice_crm()] as $fonte) {
+        foreach ($fonte as $c) {
+            if (crm_telefone_nome_casa($tokens, (string)$c['name'])) {
+                $achados[$c['phone']] = true;
+            }
         }
     }
     // Ambiguidade (dois telefones diferentes para o mesmo nome): nao adivinha.
@@ -158,6 +230,113 @@ function crm_telefone_por_nome(string $texto): string
         return (string)array_key_first($achados);
     }
     return '';
+}
+
+/**
+ * Ultima mensagem conhecida de um telefone (ponte do WhatsApp + CRM).
+ * Serve de trava de TEMPO no casamento por primeiro nome. Cacheado na requisicao.
+ */
+function crm_telefone_ultima_mensagem(string $fone): string
+{
+    static $mapa = null;
+    if (!is_array($mapa)) {
+        $mapa = [];
+        if (function_exists('historico_conversas_agrupadas')) {
+            try {
+                $bloco = historico_conversas_agrupadas([], 5000, 0, 'recentes');
+                foreach (($bloco['conversas'] ?? []) as $c) {
+                    $f = preg_replace('/\D+/', '', (string)($c['phone'] ?? ''));
+                    $quando = (string)($c['ultima_em'] ?? '');
+                    if ($f !== '' && $quando !== '' && (!isset($mapa[$f]) || $quando > $mapa[$f])) {
+                        $mapa[$f] = $quando;
+                    }
+                }
+            } catch (Throwable) {
+                // sem a ponte, segue so com o CRM
+            }
+        }
+        try {
+            $studio = null;
+            if (function_exists('current_studio_user') && function_exists('require_studio') && current_studio_user()) {
+                $studio = require_studio();
+            } elseif (function_exists('get_studio')) {
+                $studio = get_studio(1);
+            }
+            if ($studio && function_exists('studio_db')) {
+                $sql = 'SELECT phone, last_message_at FROM whatsapp_conversations
+                         WHERE COALESCE(last_message_at, \'\') <> \'\'';
+                foreach (studio_db($studio)->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    $f = preg_replace('/\D+/', '', (string)($row['phone'] ?? ''));
+                    $quando = (string)($row['last_message_at'] ?? '');
+                    if ($f !== '' && $quando !== '' && (!isset($mapa[$f]) || $quando > $mapa[$f])) {
+                        $mapa[$f] = $quando;
+                    }
+                }
+            }
+        } catch (Throwable) {
+            // sem o CRM, segue so com a ponte
+        }
+    }
+    $variacoes = function_exists('historico_telefone_variacoes')
+        ? historico_telefone_variacoes($fone)
+        : [$fone];
+    foreach ($variacoes as $v) {
+        if (isset($mapa[(string)$v])) {
+            return (string)$mapa[(string)$v];
+        }
+    }
+    return '';
+}
+
+/**
+ * Casamento pelo PRIMEIRO nome.
+ *
+ * Existe porque muita conversa do WhatsApp so tem o primeiro nome ("Edson") e o
+ * titulo da agenda tem o nome completo ("Edson Liandro da paz, 600, cotovelo").
+ * Isso e' RISCO DE HOMONIMO, entao so devolve telefone com as tres travas juntas:
+ *
+ *   1. o titulo tem nome + sobrenome e o primeiro nome tem 4+ letras;
+ *   2. existe UM UNICO telefone cujo nome de conversa e' exatamente esse primeiro
+ *      nome (dois "Bruno" diferentes = ambiguidade = nao adivinha);
+ *   3. a conversa teve mensagem na janela [dataRef - 120d, dataRef + 30d]. Sem esse
+ *      dateRef nao casa (nao ha como provar que e' a mesma pessoa).
+ */
+function crm_telefone_por_primeiro_nome(string $texto, string $dataRef = ''): string
+{
+    if ($dataRef === '') {
+        return '';
+    }
+    $tokens = crm_telefone_nome_essencial($texto);
+    if (count($tokens) < 2) {
+        return '';
+    }
+    $primeiro = (string)$tokens[0];
+    if (mb_strlen($primeiro) < 4) {
+        return '';
+    }
+    $achados = [];
+    foreach ([crm_telefone_indice_baileys(), crm_telefone_indice_crm()] as $fonte) {
+        foreach ($fonte as $c) {
+            // O nome da conversa tem que ser EXATAMENTE esse primeiro nome (uma
+            // palavra so). Nome com inicial ("Carlos A V") indica outra pessoa.
+            if (crm_telefone_normalizar((string)$c['name']) === $primeiro) {
+                $achados[(string)$c['phone']] = true;
+            }
+        }
+    }
+    if (count($achados) !== 1) {
+        return '';
+    }
+    $fone = (string)array_key_first($achados);
+    $ultima = crm_telefone_ultima_mensagem($fone);
+    if ($ultima === '') {
+        return '';
+    }
+    $dias = (int)floor((strtotime(substr($ultima, 0, 10)) - strtotime($dataRef)) / 86400);
+    if ($dias < -120 || $dias > 30) {
+        return '';
+    }
+    return $fone;
 }
 
 /**
@@ -213,14 +392,14 @@ function crm_telefone_formatar(string $fone): string
     }
     return $d;
 }
-/** URL do chat do Baileys ja aberto na conversa deste telefone. */
+/** URL do chat unico ja aberto na conversa deste telefone. */
 function crm_telefone_url_baileys(string $fone): string
 {
     $d = preg_replace('/\D+/', '', $fone);
     if ($d === '') {
         return '';
     }
-    return app_url('studio_whatsapp_baileys', ['fone' => $d]);
+    return app_url('studio_whatsapp', ['fone' => $d]);
 }
 
 /**

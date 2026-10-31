@@ -18,7 +18,7 @@ return [
     'token_uri' => trim((string)($credentials['token_uri'] ?? 'https://oauth2.googleapis.com/token')),
     'redirect_uri' => trim((string)(($credentials['redirect_uris'][0] ?? null) ?: 'https://danieltatuador.com/projetocrm/google_calendar_oauth_callback.php')),
     'scopes' => [
-        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
     ],
     'sync_interval_minutes' => 5,

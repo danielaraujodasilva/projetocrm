@@ -4,6 +4,36 @@
   var shell = document.querySelector('.m2-shell');
   if (!shell) return;
 
+  // O painel da conversa pode ser trocado por AJAX sem recarregar a pagina.
+  // Cada boot encerra timers/observers do anterior para nao multiplicar polls.
+  var bootToken = {};
+  if (typeof window.__m2DisposeCurrent === 'function') {
+    try { window.__m2DisposeCurrent(); } catch (ignore) {}
+  }
+  window.__m2BootToken = bootToken;
+  var disposeTasks = [];
+  window.__m2DisposeCurrent = function () {
+    disposeTasks.forEach(function (dispose) {
+      try { dispose(); } catch (ignore) {}
+    });
+    disposeTasks = [];
+  };
+  function bootActive() {
+    return window.__m2BootToken === bootToken;
+  }
+
+  function setUnreadCount(value, label) {
+    var count = Math.max(0, Number(value || 0) || 0);
+    var badge = document.getElementById('m2UnreadCount');
+    if (shell) shell.setAttribute('data-unread-count', String(count));
+    if (!badge) return;
+    var text = label || (count === 1 ? '1 conversa nao lida' : count + ' conversas nao lidas');
+    badge.textContent = String(count);
+    badge.title = text;
+    badge.setAttribute('aria-label', text);
+    badge.classList.toggle('is-zero', count === 0);
+  }
+
   var conversationId = Number(shell.getAttribute('data-conversation-id') || '0') || 0;
   var messages = document.getElementById('m2Messages');
   var search = document.getElementById('m2Search');
@@ -39,6 +69,10 @@
   var deleteSelectedConversations = document.getElementById('m2DeleteSelectedConversations');
   var bulkCount = document.getElementById('m2BulkCount');
   var csrfToken = document.querySelector('input[name="csrf_token"]')?.value || '';
+  function currentCsrfToken() {
+    var input = form ? form.querySelector('input[name="csrf_token"]') : document.querySelector('#m2Composer input[name="csrf_token"]');
+    return input && input.value ? input.value : csrfToken;
+  }
   var sidebarRefreshInFlight = false;
   var recordedFile = null;
   var recorder = null;
@@ -46,6 +80,8 @@
   var chunks = [];
   var attachmentObjectUrl = '';
   var stickerGallery = readJsonScript('m2StickersData', []);
+  var autoScrollMessages = true;
+  var messagesScrollTrackingPaused = false;
 
   if (conversationId > 0) {
     shell.classList.add('has-chat');
@@ -101,6 +137,34 @@
     }
   }
 
+  function closeImageLightbox() {
+    var overlay = document.getElementById('m2ImageLightbox');
+    if (!overlay) return;
+    overlay.classList.add('hidden');
+    var image = overlay.querySelector('img');
+    if (image) image.removeAttribute('src');
+  }
+
+  function openImageLightbox(src, alt) {
+    if (!src) return;
+    var overlay = document.getElementById('m2ImageLightbox');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'm2ImageLightbox';
+      overlay.className = 'm2-lightbox hidden';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-label', 'Imagem ampliada');
+      overlay.innerHTML = '<button type="button" class="m2-lightbox-close" data-close-m2-lightbox aria-label="Fechar imagem">&times;</button><img alt="">';
+      document.body.appendChild(overlay);
+    }
+    var image = overlay.querySelector('img');
+    if (!image) return;
+    image.src = src;
+    image.alt = alt || 'Imagem ampliada';
+    overlay.classList.remove('hidden');
+  }
+
   function closePanels() {
     if (menu) menu.classList.add('hidden');
     if (emojiPanel) emojiPanel.classList.add('hidden');
@@ -119,19 +183,24 @@
     drawer.classList.remove('hidden');
   }
 
-  function scrollToLatest() {
-    if (!messages) return;
-    messages.scrollTop = messages.scrollHeight;
-    if (messages.lastElementChild && messages.lastElementChild.scrollIntoView) {
-      messages.lastElementChild.scrollIntoView({ block: 'end', inline: 'nearest' });
-    }
+  function messagesNearBottom(threshold) {
+    if (!messages) return true;
+    return (messages.scrollHeight - messages.scrollTop - messages.clientHeight) < (threshold || 180);
   }
 
-  function scheduleScroll() {
-    scrollToLatest();
-    window.requestAnimationFrame(scrollToLatest);
+  function scrollToLatest(force) {
+    if (!messages) return;
+    if (!force && !autoScrollMessages) return;
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function scheduleScroll(force) {
+    if (force) autoScrollMessages = true;
+    if (!autoScrollMessages) return;
+    scrollToLatest(force);
+    window.requestAnimationFrame(function () { scrollToLatest(force); });
     [80, 220, 520, 1000].forEach(function (delay) {
-      window.setTimeout(scrollToLatest, delay);
+      window.setTimeout(function () { scrollToLatest(force); }, delay);
     });
   }
 
@@ -370,7 +439,7 @@
   async function postStickerAction(action, payload) {
     var body = new FormData();
     body.set('action', action);
-    body.set('csrf_token', csrfToken);
+    body.set('csrf_token', currentCsrfToken());
     Object.keys(payload || {}).forEach(function (key) {
       body.set(key, payload[key]);
     });
@@ -416,6 +485,47 @@
     button.classList.add('is-sending');
     if (form) form.setAttribute('data-sending', '1');
     try {
+      if (form && form.getAttribute('data-transporte') === 'baileys') {
+        var image = button.querySelector('img');
+        var mediaUrl = image ? image.getAttribute('src') || '' : '';
+        if (!mediaUrl) throw new Error('Nao foi possivel carregar a figurinha.');
+        var mediaResponse = await fetch(mediaUrl, { credentials: 'same-origin' });
+        if (!mediaResponse.ok) throw new Error('Nao foi possivel carregar a figurinha.');
+        var mediaBlob = await mediaResponse.blob();
+        var mediaData = await new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () { resolve(String(reader.result || '')); };
+          reader.onerror = function () { reject(new Error('Nao foi possivel ler a figurinha.')); };
+          reader.readAsDataURL(mediaBlob);
+        });
+        var body = new FormData();
+        body.set('action', 'historico_responder');
+        body.set('csrf_token', currentCsrfToken());
+        body.set('telefone', form.querySelector('input[name="telefone"]')?.value || '');
+        body.set('nome', form.querySelector('input[name="nome"]')?.value || '');
+        body.set('inline', '1');
+        body.set('return_to_mobile', '1');
+        body.set('return_to_mobile2', '1');
+        body.set('return_to_baileys', '1');
+        body.set('midia_kind', 'sticker');
+        body.set('midia_base64', mediaData);
+        body.set('midia_nome', 'sticker_' + stickerId + '.webp');
+        var response = await fetch(window.location.pathname + window.location.search, {
+          method: 'POST',
+          body: body,
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        var data = await response.json().catch(function () { return null; });
+        if (!response.ok || !data || !data.ok) {
+          throw new Error((data && data.error) || 'Nao foi possivel enviar a figurinha.');
+        }
+        window.location.reload();
+        return;
+      }
       await postStickerAction('send_whatsapp_sticker', {
         sticker_id: stickerId,
         conversation_id: String(conversationId)
@@ -652,6 +762,9 @@
       }
       button.innerHTML = '<i class="fa-solid fa-check"></i>Transcrito';
       if (data.text) button.hidden = true;
+      if (typeof refreshMessages === 'function') {
+        await refreshMessages(false);
+      }
     } catch (error) {
       if (!automatic) alert(error.message || 'Nao foi possivel transcrever.');
       if (automatic) button.hidden = false;
@@ -803,7 +916,7 @@
     } else if (!mediaUrl && String(message?.message_type || '') !== 'texto') {
       html += '<p>[' + escapeHtml(message?.message_type || 'mensagem') + ']</p>';
     }
-    if (transcript) {
+    if (transcript && transcript !== body.trim()) {
       html += '<div class="m2-transcript">' + escapeHtml(transcript) + '</div>';
     }
     html += '<div class="m2-bubble-foot"><time>' + escapeHtml(formatMessageTime(message?.sent_at || '')) + '</time><button class="m2-reply-action" type="button" data-reply-message aria-label="Responder mensagem"><i class="fa-solid fa-reply"></i></button></div></div></article>';
@@ -816,10 +929,11 @@
   }
 
   async function refreshMessages(force) {
-    if (!messages || !conversationId || document.hidden) return;
+    if (!bootActive() || !messages || !conversationId || document.hidden) return;
     if (form && form.getAttribute('data-sending') === '1') return;
 
-    var nearBottom = (messages.scrollHeight - messages.scrollTop - messages.clientHeight) < 180;
+    var nearBottom = messagesNearBottom(180);
+    var previousScrollTop = messages.scrollTop;
     try {
       var url = window.location.pathname + '?page=studio_whatsapp_mobile_api&action=messages&id=' + encodeURIComponent(String(conversationId));
       var response = await fetch(url, {
@@ -835,18 +949,29 @@
 
       var latest = data.messages.length ? keyForMessage(data.messages[data.messages.length - 1]) : '';
       if (!force && latest && latest === messages.dataset.latestKey) return;
+      messagesScrollTrackingPaused = true;
       messages.innerHTML = data.messages.map(renderMessage).join('');
       messages.dataset.latestKey = latest;
       normalizeAudioPlayers(messages);
       if (nearBottom || force) {
-        scheduleScroll();
+        scheduleScroll(force);
+      } else {
+        // Mantem a mensagem que a pessoa estava lendo no mesmo lugar quando
+        // chegam mensagens novas no fim da conversa.
+        messages.scrollTop = previousScrollTop;
+        autoScrollMessages = false;
       }
-    } catch (ignore) {}
+      window.requestAnimationFrame(function () {
+        messagesScrollTrackingPaused = false;
+      });
+    } catch (ignore) {
+      messagesScrollTrackingPaused = false;
+    }
   }
 
   async function refreshConversationList(force) {
     var list = document.getElementById('m2Items');
-    if (!list || document.hidden || sidebarRefreshInFlight) return;
+    if (!bootActive() || !list || document.hidden || sidebarRefreshInFlight) return;
     sidebarRefreshInFlight = true;
 
     var previousScrollTop = list.scrollTop;
@@ -869,9 +994,29 @@
       var html = await response.text();
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var freshList = doc.getElementById('m2Items');
+      var freshUnread = doc.getElementById('m2UnreadCount');
+      var currentUnread = document.getElementById('m2UnreadCount');
+      var freshShell = doc.querySelector('.m2-shell');
+      if (freshShell && freshShell.hasAttribute('data-unread-count')) {
+        setUnreadCount(freshShell.getAttribute('data-unread-count'));
+      }
+      if (freshUnread && currentUnread) {
+        currentUnread.textContent = freshUnread.textContent;
+        currentUnread.title = freshUnread.title || currentUnread.title;
+        currentUnread.setAttribute('aria-label', freshUnread.getAttribute('aria-label') || currentUnread.title);
+        currentUnread.classList.toggle('is-zero', freshUnread.classList.contains('is-zero'));
+      }
+
       if (!freshList || !freshList.innerHTML) return;
 
       if (!force && list.innerHTML === freshList.innerHTML) return;
+
+      // Depois do scroll infinito a lista tem mais de um lote. Atualizar o
+      // innerHTML aqui a encolhia para 20 conversas e reposicionava o scroll.
+      if (list.querySelectorAll('.m2-item').length > 20) {
+        applySidebarSearchFilter();
+        return;
+      }
 
       list.innerHTML = freshList.innerHTML;
       list.scrollTop = previousScrollTop;
@@ -890,8 +1035,9 @@
   }
 
   async function postConversationUpdate(payload, message) {
+    if (!bootActive()) return;
     var body = new URLSearchParams();
-    body.set('csrf_token', csrfToken);
+    body.set('csrf_token', currentCsrfToken());
     body.set('action', payload && payload.action ? String(payload.action) : 'update_whatsapp_profile');
     body.set('conversation_id', String(conversationId));
     body.set('return_to_mobile2', '1');
@@ -917,6 +1063,74 @@
       throw new Error((data && data.error) || text.trim() || message || 'Nao foi possivel atualizar.');
     }
     window.location.reload();
+  }
+
+  function activeConversationItem() {
+    return document.querySelector('#m2Items .m2-item.active') || null;
+  }
+
+  function setActiveConversationUnread(unread) {
+    var item = activeConversationItem();
+    if (!item) return;
+    item.classList.toggle('is-unread', !!unread);
+    var dot = item.querySelector('.m2-unread-dot');
+    if (unread && !dot) {
+      var avatar = item.querySelector('.m2-avatar');
+      if (avatar) {
+        dot = document.createElement('i');
+        dot.className = 'm2-unread-dot';
+        dot.setAttribute('aria-label', 'Nao lida');
+        avatar.appendChild(dot);
+      }
+    } else if (!unread && dot) {
+      dot.remove();
+    }
+  }
+
+  async function setConversationReadState(unread) {
+    if (!bootActive() || !conversationId) return;
+    var form = document.querySelector('form[data-m2-read-state="' + (unread ? 'unread' : 'read') + '"]');
+    if (!form) return;
+    var response = await fetch(window.location.pathname + window.location.search, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: new FormData(form)
+    });
+    var data = await response.json().catch(function () { return null; });
+    if (!response.ok || !data || !data.ok) {
+      throw new Error((data && data.error) || 'Nao foi possivel alterar a leitura.');
+    }
+    setUnreadCount(data.unread_count || 0);
+    setActiveConversationUnread(!!data.unread);
+    var url = new URL(window.location.href);
+    if (!data.unread && url.searchParams.get('filtro') === 'nao_lidas') {
+      var item = activeConversationItem();
+      if (item) item.remove();
+    }
+  }
+
+  function openAiOverlay() {
+    var overlay = document.getElementById('m2AiOverlay');
+    var body = document.getElementById('m2AiOverlayBody');
+    if (!overlay || !body) return;
+    var data = readJsonScript('m2AiInitialData', {});
+    var missing = Array.isArray(data.missing_fields) ? data.missing_fields : [];
+    var signals = Array.isArray(data.commercial_signals) ? data.commercial_signals : [];
+    var risks = Array.isArray(data.risk_flags) ? data.risk_flags : [];
+    var html = '<div style="display:grid;gap:14px">';
+    html += '<div><span style="color:#9aa7af;font-size:12px;text-transform:uppercase">Leitura</span><h4 style="margin:5px 0 0">' + escapeHtml(data.analysis_label || 'Avaliando conversa') + '</h4><p style="margin:6px 0 0;color:#c6d0d5">' + escapeHtml(data.analysis_detail || '') + '</p></div>';
+    if (data.summary) html += '<div><span style="color:#9aa7af;font-size:12px;text-transform:uppercase">Resumo</span><p style="margin:6px 0 0;line-height:1.55">' + escapeHtml(data.summary) + '</p></div>';
+    html += '<div><span style="color:#9aa7af;font-size:12px;text-transform:uppercase">Proximo passo</span><p style="margin:6px 0 0;line-height:1.55">' + escapeHtml(data.next_best_action || 'Sem sugestao no momento.') + '</p></div>';
+    if (missing.length) html += '<div><span style="color:#9aa7af;font-size:12px;text-transform:uppercase">Faltando</span><p style="margin:6px 0 0">' + missing.map(escapeHtml).join(' · ') + '</p></div>';
+    if (signals.length) html += '<div><span style="color:#9aa7af;font-size:12px;text-transform:uppercase">Sinais</span><p style="margin:6px 0 0">' + signals.map(escapeHtml).join(' · ') + '</p></div>';
+    if (risks.length) html += '<div><span style="color:#ffb3b3;font-size:12px;text-transform:uppercase">Atencao</span><p style="margin:6px 0 0">' + risks.map(escapeHtml).join(' · ') + '</p></div>';
+    html += '</div>';
+    body.innerHTML = html;
+    overlay.classList.remove('hidden');
   }
 
   renderEmojiPanel();
@@ -998,26 +1212,36 @@
       normalizeAudioPlayers(shell);
     });
     audioUpgradeObserver.observe(shell, { childList: true, subtree: true });
+    disposeTasks.push(function () { audioUpgradeObserver.disconnect(); });
   }
   [250, 900, 1800, 3200].forEach(function (delay) {
     window.setTimeout(function () {
       normalizeAudioPlayers(shell);
     }, delay);
   });
+  if (messages) {
+    messages.addEventListener('scroll', function () {
+      if (messagesScrollTrackingPaused) return;
+      autoScrollMessages = messagesNearBottom(180);
+    }, { passive: true });
+  }
   scheduleScroll();
   window.setTimeout(function () {
-    refreshMessages(true);
+    // A posicao inicial ja foi para o fim. O refresh seguinte nao pode puxar
+    // de volta quem comecou a ler o historico nesses primeiros segundos.
+    refreshMessages(false);
     refreshConversationList(true);
   }, 1200);
-  window.setInterval(function () {
+  var pollTimer = window.setInterval(function () {
     refreshMessages(false);
     refreshConversationList(false);
   }, 5000);
+  disposeTasks.push(function () { window.clearInterval(pollTimer); });
 
   if (messages) {
     messages.querySelectorAll('img, video').forEach(function (media) {
-      media.addEventListener('load', scheduleScroll);
-      media.addEventListener('loadedmetadata', scheduleScroll);
+      media.addEventListener('load', function () { scheduleScroll(false); });
+      media.addEventListener('loadedmetadata', function () { scheduleScroll(false); });
     });
   }
 
@@ -1047,6 +1271,31 @@
       menu.classList.toggle('hidden');
     });
   }
+
+  var aiButton = document.getElementById('m2AiButton');
+  if (aiButton) {
+    aiButton.addEventListener('click', function (event) {
+      stop(event);
+      openAiOverlay();
+    });
+  }
+  var closeAiOverlay = document.getElementById('closeM2AiOverlay');
+  if (closeAiOverlay) {
+    closeAiOverlay.addEventListener('click', function (event) {
+      stop(event);
+      var overlay = document.getElementById('m2AiOverlay');
+      if (overlay) overlay.classList.add('hidden');
+    });
+  }
+
+  document.querySelectorAll('form[data-m2-read-state]').forEach(function (readForm) {
+    readForm.addEventListener('submit', function (event) {
+      stop(event);
+      setConversationReadState(readForm.getAttribute('data-m2-read-state') === 'unread').catch(function (error) {
+        alert(error.message || 'Nao foi possivel alterar a leitura.');
+      });
+    });
+  });
 
   if (emojiButton && emojiPanel) {
     emojiButton.addEventListener('click', function (event) {
@@ -1252,7 +1501,7 @@
     }
 
     function carregar() {
-      if (carregando) return;
+      if (carregando || !bootActive()) return;
       carregando = true;
       var url = sentinela.getAttribute('data-proxima');
       if (!url) { carregando = false; return; }
@@ -1296,6 +1545,7 @@
         entradas.forEach(function (e) { if (e.isIntersecting) carregar(); });
       }, { root: lista, rootMargin: '240px' });
       observador.observe(sentinela);
+      disposeTasks.push(function () { observador.disconnect(); });
     }
 
     // Rede de seguranca: alguns navegadores de celular tratam mal o observer
@@ -1309,7 +1559,91 @@
     sentinela.addEventListener('click', carregar);
   })();
 
+  // A conversa abre no painel da direita via AJAX. O filtro e a busca atuais
+  // continuam intactos; depois do HTML novo, o JS e inicializado outra vez.
+  var conversationLoading = false;
+  async function openConversationFromLink(link) {
+    if (!link || conversationLoading) return;
+    conversationLoading = true;
+    shell.classList.add('is-conversation-loading');
+    var currentUrl = new URL(window.location.href);
+    var targetUrl = new URL(link.getAttribute('href') || '', window.location.href);
+    ['filtro', 'q'].forEach(function (key) {
+      if (!targetUrl.searchParams.has(key) && currentUrl.searchParams.has(key)) {
+        targetUrl.searchParams.set(key, currentUrl.searchParams.get(key));
+      }
+    });
+    var fetchUrl = new URL(targetUrl.href);
+    fetchUrl.searchParams.set('open', '1');
+    try {
+      var response = await fetch(fetchUrl.href, {
+        credentials: 'same-origin',
+        headers: { Accept: 'text/html', 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (!response.ok) throw new Error('Nao foi possivel abrir a conversa.');
+      var html = await response.text();
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var freshPanel = doc.getElementById('m2ChatPanel');
+      var freshShell = doc.querySelector('.m2-shell');
+      var oldPanel = document.getElementById('m2ChatPanel');
+      if (!freshPanel || !freshShell || !oldPanel) throw new Error('Conversa indisponivel.');
+
+      oldPanel.replaceWith(freshPanel);
+      shell.setAttribute('data-conversation-id', freshShell.getAttribute('data-conversation-id') || '0');
+      shell.setAttribute('data-unread-count', freshShell.getAttribute('data-unread-count') || '0');
+      shell.classList.toggle('has-chat', !freshPanel.classList.contains('empty'));
+      setUnreadCount(freshShell.getAttribute('data-unread-count') || 0);
+
+      document.querySelectorAll('#m2Items .m2-item.active').forEach(function (item) {
+        item.classList.remove('active');
+      });
+      var item = link.closest('.m2-item') || link;
+      item.classList.add('active');
+      item.classList.remove('is-unread');
+      var unreadDot = item.querySelector('.m2-unread-dot');
+      if (unreadDot) unreadDot.remove();
+
+      window.history.replaceState({}, '', targetUrl.href);
+      if (targetUrl.searchParams.get('filtro') === 'nao_lidas') {
+        item.remove();
+      }
+      var appScript = document.getElementById('m2AppScript');
+      if (appScript) {
+        var nextScript = document.createElement('script');
+        var separator = appScript.src.indexOf('?') === -1 ? '?' : '&';
+        nextScript.src = appScript.src + separator + 'ajax_boot=' + Date.now();
+        document.body.appendChild(nextScript);
+      }
+    } catch (error) {
+      alert(error.message || 'Nao foi possivel abrir a conversa.');
+    } finally {
+      conversationLoading = false;
+      shell.classList.remove('is-conversation-loading');
+    }
+  }
+
   document.addEventListener('click', function (event) {
+    if (!bootActive()) return;
+    var conversationLink = event.target.closest('#m2Items a.m2-item, #m2Items a.m2-item-link');
+    if (conversationLink && shell.getAttribute('data-baileys') === '1' && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.button === 0) {
+      stop(event);
+      openConversationFromLink(conversationLink);
+      return;
+    }
+    var chatImage = event.target.closest('#m2Messages img.m2-media');
+    if (chatImage) {
+      stop(event);
+      openImageLightbox(chatImage.currentSrc || chatImage.getAttribute('src') || '', chatImage.getAttribute('alt') || '');
+      return;
+    }
+
+    var lightbox = document.getElementById('m2ImageLightbox');
+    if (lightbox && !lightbox.classList.contains('hidden')) {
+      stop(event);
+      closeImageLightbox();
+      return;
+    }
+
     var audioToggle = event.target.closest('.m2-audio-toggle');
     if (audioToggle) {
       stop(event);
@@ -1438,12 +1772,16 @@
   });
 
   document.addEventListener('keydown', function (event) {
+    if (!bootActive()) return;
     if (event.key === 'Escape') {
+      closeImageLightbox();
       closePanels();
+      var aiOverlay = document.getElementById('m2AiOverlay');
+      if (aiOverlay) aiOverlay.classList.add('hidden');
     }
   });
 
-  window.addEventListener('load', scheduleScroll);
+  window.addEventListener('load', function () { scheduleScroll(false); });
   window.addEventListener('beforeunload', function () {
     revokeAttachmentUrl();
     stopStream();

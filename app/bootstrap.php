@@ -39,21 +39,34 @@ if (!is_array($googleCalendarConfig)) {
     $googleCalendarConfig = [];
 }
 
+$googleGmailConfig = is_file(APP_BASE_PATH . '/config/google_gmail.php')
+    ? require APP_BASE_PATH . '/config/google_gmail.php'
+    : [];
+
+if (!is_array($googleGmailConfig)) {
+    $googleGmailConfig = [];
+}
+
 $GLOBALS['app_config'] = [
     'database' => array_merge($baseConfig, $localConfig),
     'app' => $baseAppConfig,
     'google_calendar' => $googleCalendarConfig,
+    'google_gmail' => $googleGmailConfig,
 ];
 
 require APP_BASE_PATH . '/app/functions.php';
 require APP_BASE_PATH . '/app/studio_crm.php';
 require APP_BASE_PATH . '/app/google_calendar.php';
+require_once APP_BASE_PATH . '/app/google_gmail.php';
 require_once APP_BASE_PATH . '/app/ads_roi.php';
 require_once APP_BASE_PATH . '/app/ads_origem_catalogo.php';
 // So os codigos de origem (contagem) — nao depende dos rotulos do catalogo, para o
 // painel de ROI continuar funcionando mesmo se o catalogo estiver indisponivel.
 require_once APP_BASE_PATH . '/app/ads_origem_codigos.php';
 require_once APP_BASE_PATH . '/app/ads_origin.php';
+// Conversoes offline: devolve ao Google Ads os gclids dos leads que realmente
+// avancaram no funil (ver tools/ads_conversao_offline.php).
+require_once APP_BASE_PATH . '/app/ads_conv_offline.php';
 require_once APP_BASE_PATH . '/app/general_image_pipeline.php';
 require_once APP_BASE_PATH . '/app/general_image_studio.php';
 require_once __DIR__ . '/whatsapp_official_runtime.php';
@@ -61,3 +74,6 @@ require_once __DIR__ . '/whatsapp_official_runtime.php';
 // nome (import do Google Agenda quase nunca traz o numero).
 require_once __DIR__ . '/historico_conversas.php';
 require_once __DIR__ . '/telefone_contato.php';
+// Extrator de nome completo via IA local (LM Studio). Usado na varredura das
+// conversas da ponte e no fluxo diario do CRM.
+require_once __DIR__ . '/nome_ia.php';
