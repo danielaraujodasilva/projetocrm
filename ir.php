@@ -124,7 +124,17 @@ try {
 // cliques de anuncio para o numero errado.
 $phone = '5511999979785';
 
-$message = 'Ola! Vim pelo ' . $label . ' e quero fazer um orcamento de tatuagem.';
+// Mensagem opcional vinda de ferramentas do site (ex.: orcamento 3D).
+// Vai para o numero fixo do estudio, entao nao ha risco de redirecionar para
+// outro destino; apenas preserva o texto que o cliente montou.
+$customMessage = trim((string)($_GET['msg'] ?? ''));
+if ($customMessage !== '') {
+    $customMessage = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $customMessage) ?? '';
+    $customMessage = mb_substr($customMessage, 0, 900);
+}
+$message = $customMessage !== ''
+    ? $customMessage
+    : 'Ola! Vim pelo ' . $label . ' e quero fazer um orcamento de tatuagem.';
 // O codigo curto viaja na mensagem: a ponte le e o CRM casa com a visita,
 // recuperando o gclid para enviar a conversao real ao Google Ads.
 if ($ref !== '') {

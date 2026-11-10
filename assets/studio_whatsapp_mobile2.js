@@ -27,7 +27,7 @@
     var badge = document.getElementById('m2UnreadCount');
     if (shell) shell.setAttribute('data-unread-count', String(count));
     if (!badge) return;
-    var text = label || (count === 1 ? '1 conversa nao lida' : count + ' conversas nao lidas');
+    var text = label || (count === 1 ? '1 conversa sem resposta' : count + ' conversas sem resposta');
     badge.textContent = String(count);
     badge.title = text;
     badge.setAttribute('aria-label', text);
@@ -1079,7 +1079,7 @@
       if (avatar) {
         dot = document.createElement('i');
         dot.className = 'm2-unread-dot';
-        dot.setAttribute('aria-label', 'Nao lida');
+        dot.setAttribute('aria-label', 'Sem resposta');
         avatar.appendChild(dot);
       }
     } else if (!unread && dot) {
@@ -1104,7 +1104,7 @@
     if (!response.ok || !data || !data.ok) {
       throw new Error((data && data.error) || 'Nao foi possivel alterar a leitura.');
     }
-    setUnreadCount(data.unread_count || 0);
+    // O contador do cabecalho e "sem resposta"; marcar lida nao o altera.
     setActiveConversationUnread(!!data.unread);
     var url = new URL(window.location.href);
     if (!data.unread && url.searchParams.get('filtro') === 'nao_lidas') {

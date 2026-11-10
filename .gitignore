@@ -5,6 +5,7 @@
 *.tmp
 *.bak
 *.bak-*
+/config/*.prod.json
 /storage/
 /vendor/
 /node_modules/

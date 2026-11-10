@@ -1903,7 +1903,7 @@ if ($action === 'studio_login') {
             }
             redirect_to('studio_whatsapp', array_filter([
                 'fone' => $action === 'mobile_mark_whatsapp_read' ? preg_replace('/\D+/', '', (string)(studio_find_whatsapp_conversation($studio, $conversationId)['phone'] ?? '')) : null,
-                'filtro' => $action === 'mobile_mark_whatsapp_unread' ? 'nao_lidas' : null,
+                'filtro' => $action === 'mobile_mark_whatsapp_unread' ? 'sem_resposta' : null,
                 'q' => (string)($_POST['q'] ?? $_GET['q'] ?? ''),
             ], static fn($value) => $value !== null && $value !== ''));
         }
@@ -3667,7 +3667,7 @@ if ($page === 'studio_whatsapp') {
                 ? (preg_replace('/\D+/', '', (string)($mobileConversaPorId['phone'] ?? '')) ?? '')
                 : (preg_replace('/\D+/', '', (string)$_GET['id']) ?? '');
         }
-        // Toggle simples: todas ou apenas as nao lidas de verdade.
+        // Toggle simples: todas ou apenas as conversas sem resposta.
         $mobileBaileysSoSemResposta = in_array((string)($_GET['filtro'] ?? ''), ['nao_lidas', 'sem_resposta'], true);
         // Carrega em LOTES: o resto vem quando a lista chega no fim (scroll infinito).
         // O filtro de resposta vai para o SERVIDOR (o agrupamento ja sabe filtrar),
@@ -3677,7 +3677,11 @@ if ($page === 'studio_whatsapp') {
         $mobileBaileysOffset = max(0, (int)($_GET['lote'] ?? 0)) * $mobileBaileysLote;
         $filtrosLote = $filters;
         if ($mobileBaileysSoSemResposta) {
-            $filtrosLote['fones'] = $mobileUnreadPhones;
+            // Esta lista vem do arquivo da ponte: o filtro tem de ser o mesmo
+            // "sem resposta" que a linha mostra, e nao a flag nao_lida do banco
+            // (ela so era zerada ao abrir a conversa aqui, entao acumulava
+            // conversas ja respondidas e escondia as que chegaram depois).
+            $filtrosLote['resposta'] = 'sem_resposta';
         }
         $agrupado = historico_conversas_agrupadas($filtrosLote, $mobileBaileysLote + 1, $mobileBaileysOffset);
         $linhasTodas = array_slice($agrupado['conversas'], 0, $mobileBaileysLote);
@@ -3705,6 +3709,7 @@ if ($page === 'studio_whatsapp') {
                 'message_last_at' => (string)($linha['ultima_em'] ?? ''),
                 // Estado de leitura: quem falou por ultimo (cliente = nao lida).
                 'respondida' => !empty($linha['respondida']),
+                'dispensada' => !empty($linha['dispensada']),
                 'nao_lida' => !empty($linhaCrm['nao_lida']),
                 'assigned_user_id' => (int)($linhaCrm['assigned_user_id'] ?? 0),
                 'attendance_mode' => (string)($linhaCrm['attendance_mode'] ?? 'human'),
@@ -3796,7 +3801,9 @@ if ($page === 'studio_whatsapp') {
         }
         $conversationId = (int)($conversation['id'] ?? 0);
     }
-    $mobileBaileysNaoLidas = $mobileUsaBaileys ? studio_whatsapp_active_unread_count($studio) : 0;
+    // Contador do cabecalho: mesma fonte e mesmo criterio da lista abaixo
+    // (arquivo da ponte). A flag nao_lida do banco fica velha e nao serve.
+    $mobileBaileysNaoLidas = $mobileUsaBaileys ? (int)($agrupado['total_sem_resposta'] ?? 0) : 0;
     $isAdmin = studio_current_user_is_admin();
     $currentUserId = (int)($currentUser['id'] ?? 0);
     $assignedUserId = (int)($conversation['assigned_user_id'] ?? 0);
@@ -3932,18 +3939,18 @@ if ($page === 'studio_whatsapp') {
         ]));
         $urlSem = app_url($mobileRoute, array_filter([
             'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
-            'filtro' => 'nao_lidas',
+            'filtro' => 'sem_resposta',
             'q' => $filters['q'] !== '' ? $filters['q'] : null,
         ]));
         $autochatLigadoCrm = autochat_control_is_enabled();
         $autochatToggleCrm = $isAdmin
-            ? '<form method="post" style="margin:0">' . autochat_control_csrf_field() . '<input type="hidden" name="action" value="toggle_autochat"><input type="hidden" name="enabled" value="' . ($autochatLigadoCrm ? '0' : '1') . '"><input type="hidden" name="fone" value="' . h($mobileTelefoneBaileys) . '"><input type="hidden" name="filtro" value="' . h($mobileBaileysSoSemResposta ? 'nao_lidas' : '') . '"><button class="m2-toggle' . ($autochatLigadoCrm ? ' on' : '') . '" type="submit" style="flex:0 0 auto" title="' . ($autochatLigadoCrm ? 'Desligar' : 'Ligar') . ' AutoChat">Irene ' . ($autochatLigadoCrm ? 'ON' : 'OFF') . '</button></form>'
+            ? '<form method="post" style="margin:0">' . autochat_control_csrf_field() . '<input type="hidden" name="action" value="toggle_autochat"><input type="hidden" name="enabled" value="' . ($autochatLigadoCrm ? '0' : '1') . '"><input type="hidden" name="fone" value="' . h($mobileTelefoneBaileys) . '"><input type="hidden" name="filtro" value="' . h($mobileBaileysSoSemResposta ? 'sem_resposta' : '') . '"><button class="m2-toggle' . ($autochatLigadoCrm ? ' on' : '') . '" type="submit" style="flex:0 0 auto" title="' . ($autochatLigadoCrm ? 'Desligar' : 'Ligar') . ' AutoChat">Irene ' . ($autochatLigadoCrm ? 'ON' : 'OFF') . '</button></form>'
             : '<span class="m2-toggle' . ($autochatLigadoCrm ? ' on' : '') . '" style="flex:0 0 auto">Irene ' . ($autochatLigadoCrm ? 'ON' : 'OFF') . '</span>';
-        $unreadLabel = $mobileBaileysNaoLidas === 1 ? '1 conversa nao lida' : $mobileBaileysNaoLidas . ' conversas nao lidas';
+        $unreadLabel = $mobileBaileysNaoLidas === 1 ? '1 conversa sem resposta' : $mobileBaileysNaoLidas . ' conversas sem resposta';
         echo '<header class="m2-top"><strong>WhatsApp <span class="m2-unread-count' . ($mobileBaileysNaoLidas === 0 ? ' is-zero' : '') . '" id="m2UnreadCount" title="' . h($unreadLabel) . '" aria-label="' . h($unreadLabel) . '">' . h((string)$mobileBaileysNaoLidas) . '</span></strong><span class="m2-top-actions">' . ($isAdmin ? '<span class="badge ok">ADM</span>' : '') . $autochatToggleCrm . '</span></header>';
         echo '<div class="m2-toggle-row">';
         echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? '' : ' on') . '" href="' . h($urlTodas) . '">Todas</a>';
-        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? ' on' : '') . '" href="' . h($urlSem) . '">Nao lidas</a>';
+        echo '<a class="m2-toggle' . ($mobileBaileysSoSemResposta ? ' on' : '') . '" href="' . h($urlSem) . '">Sem resposta</a>';
         echo '</div>';
         echo '<div class="m2-search"><i class="fa-solid fa-magnifying-glass"></i><input id="m2Search" type="search" placeholder="Buscar conversa"></div>';
     } else {
@@ -4024,22 +4031,23 @@ if ($page === 'studio_whatsapp') {
             $rowPreview = trim((string)($row['last_message_preview'] ?? ''));
             $href = app_url($mobileRoute, array_filter([
                 'fone' => $rowFone,
-                'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+                'filtro' => $mobileBaileysSoSemResposta ? 'sem_resposta' : null,
                 'q' => $filters['q'] !== '' ? $filters['q'] : null,
             ], static fn($value) => $value !== null && $value !== ''));
             $active = ($rowFone === $mobileTelefoneBaileys) ? ' active' : '';
             $searchText = strtolower($rowName . ' ' . $rowFone . ' ' . $rowPreview);
             $rowInitial = mb_strtoupper(mb_substr(trim($rowName) !== '' ? $rowName : 'W', 0, 1));
             $quando = (string)($row['message_last_at'] ?? '');
-            // Nao lida vem do estado real do WhatsApp/CRM. "Sem resposta" e
-            // outra informacao e nao pode alimentar o contador de nao lidas.
-            $naoLida = !empty($row['nao_lida']);
+            // Nao lida = o cliente falou por ultimo e a conversa nao foi
+            // dispensada ("nao precisa responder"). E o criterio do contador.
             $semResposta = empty($row['respondida']);
+            $dispensada = !empty($row['dispensada']);
+            $naoLida = $semResposta && !$dispensada;
             $previa = $rowPreview !== '' ? $rowPreview : 'Sem mensagem ainda';
             $rowAssignedUserId = (int)($row['assigned_user_id'] ?? 0);
             $assignmentLabel = $rowAssignedUserId <= 0 ? 'Livre' : ($rowAssignedUserId === $currentUserId ? 'Minha' : studio_user_label_by_id($rowAssignedUserId));
             $rowAiState = $mobileAiStateFor($row);
-            echo '<a class="m2-item' . h($active) . ($naoLida ? ' is-unread' : '') . '" href="' . h($href) . '" data-search="' . h($searchText) . '" data-phone="' . h($rowFone) . '"><span class="m2-avatar">' . h($rowInitial) . ($naoLida ? '<i class="m2-unread-dot" aria-label="Nao lida"></i>' : '') . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b><b class="' . ($semResposta ? 'warn' : 'ok') . '">' . ($semResposta ? 'sem resposta' : 'respondida') . '</b><b class="muted">' . ($quando !== '' ? h(format_datetime_pt($quando, false)) : '&mdash;') . '</b></small></span><em title="' . h($rowFone) . '">' . h($assignmentLabel) . '</em></a>';
+            echo '<a class="m2-item' . h($active) . ($naoLida ? ' is-unread' : '') . '" href="' . h($href) . '" data-search="' . h($searchText) . '" data-phone="' . h($rowFone) . '"><span class="m2-avatar">' . h($rowInitial) . ($naoLida ? '<i class="m2-unread-dot" aria-label="Nao lida"></i>' : '') . '</span><span><strong>' . h($rowName) . '</strong><small>' . h(mb_substr($previa, 0, 90)) . '</small><small class="m2-item-badges"><b class="' . h($rowAiState['tone']) . '">' . h($rowAiState['label']) . '</b><b class="' . (($semResposta && !$dispensada) ? 'warn' : 'ok') . '">' . ($dispensada ? 'ok, sem resposta' : ($semResposta ? 'sem resposta' : 'respondida')) . '</b><b class="muted">' . ($quando !== '' ? h(format_datetime_pt($quando, false)) : '&mdash;') . '</b></small></span><em title="' . h($rowFone) . '">' . h($assignmentLabel) . '</em></a>';
             continue;
         }
         $rowId = (int)($row['id'] ?? 0);
@@ -4067,7 +4075,7 @@ if ($page === 'studio_whatsapp') {
         $urlProx = '?' . http_build_query(array_filter([
             'page' => $mobileRoute,
             'fone' => $mobileTelefoneBaileys !== '' ? $mobileTelefoneBaileys : null,
-            'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+            'filtro' => $mobileBaileysSoSemResposta ? 'sem_resposta' : null,
             'q' => $filters['q'] !== '' ? $filters['q'] : null,
             'lote' => $proxLote,
         ], static fn($v) => $v !== null && $v !== ''));
@@ -4088,9 +4096,28 @@ if ($page === 'studio_whatsapp') {
         $displayInitial = mb_strtoupper(mb_substr(trim($displayName) !== '' ? $displayName : 'W', 0, 1));
         $cabecalhoInfo = $assignedUserId <= 0 ? 'Livre' : ('Com ' . ($assignedUserId === $currentUserId ? 'voce' : $assignedUserName));
         $mobileListUrl = app_url($mobileRoute, array_filter([
-            'filtro' => $mobileBaileysSoSemResposta ? 'nao_lidas' : null,
+            'filtro' => $mobileBaileysSoSemResposta ? 'sem_resposta' : null,
             'q' => $filters['q'] !== '' ? $filters['q'] : null,
         ], static fn($value) => $value !== null && $value !== ''));
+        // Botao "Cobrar sinal" da conversa: abre o link de cobranca Pix (o mesmo do
+        // celular) ja com telefone e nome deste cliente. A chave do link vive em
+        // projetocrmv2/cobrar.local.php (fora do versionamento).
+        $cobrancaPixCfg = is_file(__DIR__ . '/../projetocrmv2/cobrar.local.php')
+            ? require __DIR__ . '/../projetocrmv2/cobrar.local.php'
+            : [];
+        $cobrancaPixChave = is_array($cobrancaPixCfg) ? (string)($cobrancaPixCfg['chave'] ?? '') : '';
+        $cobrancaPixValor = (float)(studio_settings($studio)['ai_booking_deposit_amount'] ?? 50);
+        $cobrancaPixUrl = '';
+        if (is_file(__DIR__ . '/../sinal/index.php')) {
+            // Link limpo (/sinal/) - o mesmo que o Daniel salva no celular.
+            $cobrancaPixUrl = '../sinal/?fone='
+                . rawurlencode(preg_replace('/\D+/', '', (string)($conversation['phone'] ?? '')) ?? '')
+                . '&nome=' . rawurlencode($displayName);
+        } elseif ($cobrancaPixChave !== '') {
+            $cobrancaPixUrl = '../projetocrmv2/cobrar.php?k=' . rawurlencode($cobrancaPixChave)
+                . '&fone=' . rawurlencode(preg_replace('/\D+/', '', (string)($conversation['phone'] ?? '')) ?? '')
+                . '&nome=' . rawurlencode($displayName);
+        }
         echo '<header class="m2-chat-head"><a class="m2-icon m2-back" href="' . h($mobileListUrl) . '" aria-label="Voltar"><i class="fa-solid fa-arrow-left"></i></a><span class="m2-avatar">' . h($displayInitial) . '</span><span class="m2-title"><strong>' . h($displayName) . '</strong><small>' . h($cabecalhoInfo) . '</small></span><button class="m2-icon" type="button" id="m2MenuButton" aria-label="Acoes"><i class="fa-solid fa-ellipsis-vertical"></i></button></header>';
         $mobileAiState = $mobileAiStateFor($conversation, $assistantConfidence);
         echo '<div class="m2-breadcrumb"><a href="' . h(app_url('studio_home')) . '">CRM</a><i class="fa-solid fa-angle-right"></i><a href="' . h($mobileListUrl) . '">Conversas</a><i class="fa-solid fa-angle-right"></i><span>' . h($displayName) . '</span></div>';
@@ -4102,6 +4129,7 @@ if ($page === 'studio_whatsapp') {
             if (!empty($conversation['customer_id'])) echo '<a href="' . h(app_url('studio_customer', ['id' => (int)$conversation['customer_id']])) . '" target="_blank" rel="noopener" title="Cliente" aria-label="Cliente"><i class="fa-solid fa-user"></i></a>';
             if (!empty($conversation['lead_id'])) echo '<a href="' . h(app_url('studio_lead', ['id' => (int)$conversation['lead_id']])) . '" target="_blank" rel="noopener" title="Lead" aria-label="Lead"><i class="fa-solid fa-seedling"></i></a>';
             if ($publicUpdateUrl !== '') echo '<a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener" title="Cadastro publico" aria-label="Cadastro publico"><i class="fa-regular fa-address-card"></i></a>';
+            if ($cobrancaPixUrl !== '') echo '<a href="' . h($cobrancaPixUrl) . '" target="_blank" rel="noopener" title="Cobrar sinal (Pix)" aria-label="Cobrar sinal (Pix)"><i class="fa-solid fa-money-bill-transfer"></i></a>';
             echo '</div>';
             echo '<div class="m2-menu hidden" id="m2Menu">';
             if ($assignedUserId <= 0 || $isAdmin || $assignedUserId === $currentUserId) {
@@ -4190,6 +4218,12 @@ if ($page === 'studio_whatsapp') {
             echo '<label class="m2-copy-field">Link publico<input type="text" id="m2PublicUpdateUrl" readonly value="' . h($publicUpdateUrl) . '"></label><div class="m2-tool-grid"><a href="' . h($publicUpdateUrl) . '" target="_blank" rel="noopener">Abrir</a><button type="button" id="m2CopyPublicUrl">Copiar</button>' . ($whatsAppShareUrl !== '' ? '<a href="' . h($whatsAppShareUrl) . '" target="_blank" rel="noopener">WhatsApp</a>' : '') . '<button type="button" id="m2OpenAppointmentFromTools">Agendar</button></div>';
         } else {
             echo '<p>Vincule ou crie um lead para liberar o link publico de cadastro.</p>';
+        }
+        echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Cobranca do sinal</h3><span>Pix R$ ' . h(number_format($cobrancaPixValor, 2, ',', '.')) . '</span></div>';
+        if ($cobrancaPixUrl !== '') {
+            echo '<p>Gera o Pix amarrado ao WhatsApp deste cliente. O pagamento e confirmado sozinho e o horario fica reservado.</p><div class="m2-tool-grid"><a href="' . h($cobrancaPixUrl) . '" target="_blank" rel="noopener">Gerar Pix</a></div>';
+        } else {
+            echo '<p>Link de cobranca nao configurado (<code>projetocrmv2/cobrar.local.php</code>).</p>';
         }
         echo '</section><section class="m2-card"><div class="m2-card-head"><h3>Respostas rapidas</h3><span>' . h((string)count($quickReplies)) . '</span></div>';
         if ($quickReplies) {

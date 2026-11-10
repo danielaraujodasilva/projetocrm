@@ -912,6 +912,83 @@ function historico_estatisticas(): array
  * $ordenar: 'recentes' (padrao) | 'antigas' | 'nome' | 'msgs' | 'origem'.
  * $offset/$limite paginam depois de ordenar, entao a fatia e estavel.
  */
+/**
+ * Conversas que o atendimento marcou como "nao precisa responder".
+ *
+ * O arquivo da ponte continua sendo a fonte da verdade; aqui so guardamos o
+ * telefone e o horario da ultima mensagem do cliente que foi dispensada. Se o
+ * cliente escrever de novo (timestamp maior), a conversa volta sozinha.
+ */
+function historico_sem_resposta_dismiss_path(): string
+{
+    $base = defined('APP_BASE_PATH') ? APP_BASE_PATH : dirname(__DIR__);
+    return $base . '/storage/whatsapp/sem_resposta_dismiss.json';
+}
+
+function historico_sem_resposta_dispensadas(): array
+{
+    $path = historico_sem_resposta_dismiss_path();
+    if (!is_file($path)) {
+        return [];
+    }
+    $dados = json_decode((string)@file_get_contents($path), true);
+    if (!is_array($dados)) {
+        return [];
+    }
+    $out = [];
+    foreach ($dados as $fone => $quando) {
+        $fone = preg_replace('/\D+/', '', (string)$fone) ?? '';
+        $quando = trim((string)$quando);
+        if ($fone !== '' && $quando !== '') {
+            $out[$fone] = $quando;
+        }
+    }
+    return $out;
+}
+
+function historico_sem_resposta_salvar_dispensadas(array $mapa): bool
+{
+    $path = historico_sem_resposta_dismiss_path();
+    $dir = dirname($path);
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return false;
+    }
+    $json = json_encode($mapa, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($json === false) {
+        return false;
+    }
+    $tmp = $path . '.tmp';
+    if (@file_put_contents($tmp, $json) === false) {
+        return false;
+    }
+    return @rename($tmp, $path);
+}
+
+function historico_sem_resposta_dispensar(string $phone, string $ultimaClienteIso): bool
+{
+    $phone = preg_replace('/\D+/', '', $phone) ?? '';
+    $ultimaClienteIso = trim($ultimaClienteIso);
+    if ($phone === '' || $ultimaClienteIso === '') {
+        return false;
+    }
+    $mapa = historico_sem_resposta_dispensadas();
+    $mapa[$phone] = $ultimaClienteIso;
+    return historico_sem_resposta_salvar_dispensadas($mapa);
+}
+
+function historico_sem_resposta_restaurar(string $phone): bool
+{
+    $phone = preg_replace('/\D+/', '', $phone) ?? '';
+    if ($phone === '') {
+        return false;
+    }
+    $mapa = historico_sem_resposta_dispensadas();
+    if (!isset($mapa[$phone])) {
+        return true;
+    }
+    unset($mapa[$phone]);
+    return historico_sem_resposta_salvar_dispensadas($mapa);
+}
 function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, int $offset = 0, string $ordenar = 'recentes'): array
 {
     $porFone = [];
@@ -939,13 +1016,19 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
                 'preview' => '',
                 'ultima_cliente' => '',
                 'ultima_atendimento' => '',
+                'dispensada' => false,
+                '_ts' => 0,
+                '_ts_in' => 0,
+                '_ts_out' => 0,
             ];
         }
         $quando = (string)($m['sent_at'] ?? $m['at'] ?? '');
+        $ts = strtotime($quando) ?: 0;
         $porFone[$fone]['total']++;
-        // Como varremos do mais recente para o mais antigo, o PRIMEIRO valor
-        // visto de cada campo e o mais recente: basta gravar se ainda vazio.
-        if ($porFone[$fone]['ultima_em'] === '') {
+        // O arquivo e append-only, mas o historico do WhatsApp pode entrar fora
+        // de ordem (backfill). A referencia e o timestamp, nao a posicao da linha.
+        if ($ts >= (int)$porFone[$fone]['_ts']) {
+            $porFone[$fone]['_ts'] = $ts;
             $porFone[$fone]['ultima_em'] = $quando;
             $porFone[$fone]['preview'] = mb_substr(
                 (string)($m['text'] ?? '') !== ''
@@ -954,21 +1037,23 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
                 0,
                 120
             );
-        }
-        if (!empty($m['name']) && $porFone[$fone]['name'] === '') {
-            $porFone[$fone]['name'] = (string)$m['name'];
+            if (!empty($m['name'])) {
+                $porFone[$fone]['name'] = (string)$m['name'];
+            }
         }
         if (!empty($m['origin']) && empty($porFone[$fone]['origem'])) {
             $porFone[$fone]['origem'] = $m['origin'];
         }
         if (empty($m['from_me'])) {
             $porFone[$fone]['recebidas']++;
-            if ($porFone[$fone]['ultima_cliente'] === '') {
+            if ($ts >= (int)$porFone[$fone]['_ts_in']) {
+                $porFone[$fone]['_ts_in'] = $ts;
                 $porFone[$fone]['ultima_cliente'] = $quando;
             }
         } else {
             $porFone[$fone]['enviadas']++;
-            if ($porFone[$fone]['ultima_atendimento'] === '') {
+            if ($ts >= (int)$porFone[$fone]['_ts_out']) {
+                $porFone[$fone]['_ts_out'] = $ts;
                 $porFone[$fone]['ultima_atendimento'] = $quando;
             }
         }
@@ -982,12 +1067,20 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
 
     // Estado de resposta: respondida quando o atendimento falou depois da ultima
     // mensagem do cliente. Sem mensagem do cliente, nao ha o que responder.
+    // "Dispensada" e quando o atendimento marcou que aquela ultima mensagem nao
+    // precisa de resposta (nao conta como pendencia).
+    $dispensadas = historico_sem_resposta_dispensadas();
     $totalSemResposta = 0;
     foreach ($porFone as &$c) {
         $c['respondida'] = $c['ultima_cliente'] === ''
             ? true
-            : ($c['ultima_atendimento'] !== '' && $c['ultima_atendimento'] >= $c['ultima_cliente']);
-        if (!$c['respondida']) {
+            : ($c['ultima_atendimento'] !== '' && (int)$c['_ts_out'] >= (int)$c['_ts_in']);
+        $c['dispensada'] = false;
+        if (!$c['respondida'] && isset($dispensadas[$c['phone']])) {
+            $marcado = strtotime((string)$dispensadas[$c['phone']]) ?: 0;
+            $c['dispensada'] = $marcado >= (int)$c['_ts_in'];
+        }
+        if (!$c['respondida'] && !$c['dispensada']) {
             $totalSemResposta++;
         }
     }
@@ -997,7 +1090,9 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
     $resposta = strtolower(trim((string)($filtros['resposta'] ?? '')));
     if ($resposta === 'respondida' || $resposta === 'sem_resposta') {
         $querRespondida = $resposta === 'respondida';
-        $porFone = array_filter($porFone, static fn(array $c): bool => (bool)$c['respondida'] === $querRespondida);
+        $porFone = array_filter($porFone, static fn(array $c): bool => $querRespondida
+            ? (bool)$c['respondida']
+            : (!$c['respondida'] && !$c['dispensada']));
     }
 
     // Filtro por telefones (usado pelo toggle "Nao lidas" do CRM). O estado de
@@ -1012,14 +1107,14 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
         }
     }
 
-    // Ordena pela mensagem mais recente.
-    usort($porFone, static fn(array $a, array $b): int => strcmp((string)$b['ultima_em'], (string)$a['ultima_em']));
+    // Ordena pela mensagem mais recente (timestamp, nao posicao no arquivo).
+    usort($porFone, static fn(array $a, array $b): int => (int)$b['_ts'] <=> (int)$a['_ts']);
 
     // Ordenacao (escolhida pelo cabecalho da tabela na pagina).
     $cmpTexto = static fn(string $a, string $b): int => strcmp(historico_sem_acento($a), historico_sem_acento($b));
     switch ($ordenar) {
         case 'antigas':
-            usort($porFone, static fn(array $a, array $b): int => strcmp((string)$a['ultima_em'], (string)$b['ultima_em']));
+            usort($porFone, static fn(array $a, array $b): int => (int)$a['_ts'] <=> (int)$b['_ts']);
             break;
         case 'nome':
             usort($porFone, static fn(array $a, array $b): int => $cmpTexto((string)$a['name'], (string)$b['name']));
@@ -1061,6 +1156,11 @@ function historico_conversas_agrupadas(array $filtros = [], int $limite = 100, i
     }
 
     $todas = array_values($porFone);
+    // Remove os campos internos usados na comparacao por timestamp.
+    foreach ($todas as &$c) {
+        unset($c['_ts'], $c['_ts_in'], $c['_ts_out']);
+    }
+    unset($c);
     $offset = max(0, $offset);
 
     return [
