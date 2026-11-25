@@ -339,7 +339,9 @@ $ireneHora = static function (string $data): string {
   .irene-msgs .msg{display:flex;flex-direction:column;max-width:88%}
   .irene-msgs .msg.user{align-self:flex-end;align-items:flex-end}
   .irene-msgs .msg.irene{align-self:flex-start;align-items:flex-start}
-  .irene-msgs .bolha{padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+  .irene-msgs .bolha{padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;white-space:normal;overflow-wrap:anywhere}
+  .irene-msgs .bolha strong{font-weight:700}
+  .irene-msgs .bolha code{background:#f1f5f9;border-radius:4px;padding:1px 3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
   .irene-msgs .user .bolha{background:#1f6f78;color:#fff;border-bottom-right-radius:4px}
   .irene-msgs .irene .bolha{background:#fff;border:1px solid #e5e7eb;color:#0f172a;border-bottom-left-radius:4px}
   .irene-msgs .msg small{font-size:10px;color:#94a3b8;margin-top:3px}
@@ -352,7 +354,6 @@ $ireneHora = static function (string $data): string {
   .irene-form button{border:0;border-radius:10px;background:#1f6f78;color:#fff;font-weight:700;padding:0 16px;font-size:14px;cursor:pointer}
   .irene-form button:disabled{opacity:.5;cursor:default}
   .irene-erro{margin:0;padding:0 14px 12px;color:#b42318;font-size:12px;background:#fff}
-  .irene-dica{margin:0;padding:0 14px 12px;color:#94a3b8;font-size:10px;background:#fff}
   .irene-vazio{padding:18px 14px;font-size:13px;color:#64748b;line-height:1.5}
   .digitando .bolha{display:flex;gap:4px;align-items:center;padding:12px}
   .digitando .bolha span{width:5px;height:5px;border-radius:50%;background:#94a3b8;animation:pisca 1s infinite}
@@ -402,7 +403,7 @@ $ireneHora = static function (string $data): string {
           <div class="msg irene"><div class="bolha">Oi, Theo! Sou a Irene, assistente do estúdio. Pode perguntar da sua agenda, dos valores e dos seus clientes — esse histórico fica só no seu portal.</div></div>
         <?php } else { ?>
           <?php foreach ($ireneHistorico as $msg) { $papel = ($msg['papel'] ?? '') === 'irene' ? 'irene' : 'user'; ?>
-            <div class="msg <?= $papel ?>"><div class="bolha"><?= theo_h((string)($msg['texto'] ?? '')) ?></div><small><?= theo_h($ireneHora((string)($msg['criado_em'] ?? ''))) ?></small></div>
+            <div class="msg <?= $papel ?>"><div class="bolha"><?= portal_irene_html((string)($msg['texto'] ?? '')) ?></div><small><?= theo_h($ireneHora((string)($msg['criado_em'] ?? ''))) ?></small></div>
           <?php } ?>
         <?php } ?>
       </div>
@@ -412,11 +413,10 @@ $ireneHora = static function (string $data): string {
         <button type="button" data-frase="Resume meus últimos 60 dias.">Últimos 60 dias</button>
       </div>
       <form class="irene-form" id="irene-form" autocomplete="off">
-        <input id="irene-texto" type="text" maxlength="2000" placeholder="Pergunte algo para a Irene..." aria-label="Mensagem para a Irene">
+        <input id="irene-texto" type="text" maxlength="4000" placeholder="Pergunte algo para a Irene..." aria-label="Mensagem para a Irene">
         <button type="submit" id="irene-enviar">Enviar</button>
       </form>
       <p class="irene-erro" id="irene-erro" hidden></p>
-      <p class="irene-dica">A Irene roda no servidor do estúdio: a resposta pode levar até 30 segundos.</p>
     <?php } ?>
   </section>
 </main>
@@ -437,12 +437,21 @@ $ireneHora = static function (string $data): string {
     var d = new Date();
     return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
   }
+  function formatar(texto) {
+    var escapado = document.createElement('div');
+    escapado.textContent = String(texto).replace(/\r\n/g, '\n');
+    var html = escapado.innerHTML;
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    html = html.replace(/^#{1,6}\s*(.+)$/gm, '<strong>$1</strong>');
+    return html.replace(/\n/g, '<br>');
+  }
   function bolha(papel, texto) {
     var wrap = document.createElement('div');
     wrap.className = 'msg ' + papel;
     var b = document.createElement('div');
     b.className = 'bolha';
-    b.textContent = texto;
+    b.innerHTML = formatar(texto);
     var s = document.createElement('small');
     s.textContent = hora();
     wrap.appendChild(b);

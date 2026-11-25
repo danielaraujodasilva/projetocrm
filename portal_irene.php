@@ -70,8 +70,8 @@ $texto = trim((string)($in['mensagem'] ?? ''));
 if ($texto === '') {
     portal_irene_json(400, ['ok' => false, 'erro' => 'Escreve uma mensagem primeiro.']);
 }
-if (mb_strlen($texto) > 2000) {
-    portal_irene_json(400, ['ok' => false, 'erro' => 'Mensagem muito longa (máximo de 2000 caracteres).']);
+if (mb_strlen($texto) > 4000) {
+    portal_irene_json(400, ['ok' => false, 'erro' => 'Mensagem muito longa (máximo de 4000 caracteres).']);
 }
 
 /* Banco do estudio ativo (o mesmo que a agenda do portal usa). */
@@ -103,10 +103,7 @@ if (!$pdo instanceof PDO) {
 
 try {
     portal_irene_garantir_tabela($pdo);
-    if (portal_irene_contar_ultima_hora($pdo, $portal['slug']) >= PORTAL_IRENE_MAX_HORA) {
-        portal_irene_json(429, ['ok' => false, 'erro' => 'Calma, muitas mensagens em uma hora. Tenta daqui a pouco.']);
-    }
-    $historico = portal_irene_historico($pdo, $portal['slug'], 6);
+    $historico = portal_irene_historico($pdo, $portal['slug'], 40);
 } catch (Throwable $e) {
     portal_irene_log('historico: ' . $e->getMessage());
     portal_irene_json(500, ['ok' => false, 'erro' => 'Não consegui abrir o histórico agora.']);

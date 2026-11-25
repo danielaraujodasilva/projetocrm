@@ -10,7 +10,6 @@ declare(strict_types=1);
 const PORTAL_IRENE_TABELA = 'portal_irene_mensagens';
 const PORTAL_IRENE_LMSTUDIO = 'http://127.0.0.1:1234/v1';
 const PORTAL_IRENE_MODELO_PREFERIDO = 'qwen/qwen3-8b';
-const PORTAL_IRENE_MAX_HORA = 40;
 
 function portal_irene_log(string $mensagem): void
 {
@@ -59,16 +58,6 @@ function portal_irene_historico(PDO $pdo, string $portal, int $limite = 60): arr
     $st->execute([$portal]);
     $linhas = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
     return array_reverse($linhas);
-}
-
-function portal_irene_contar_ultima_hora(PDO $pdo, string $portal): int
-{
-    $st = $pdo->prepare(
-        'SELECT COUNT(*) FROM `' . PORTAL_IRENE_TABELA . '`
-          WHERE portal = ? AND papel = \'user\' AND criado_em >= ?'
-    );
-    $st->execute([$portal, date('Y-m-d H:i:s', time() - 3600)]);
-    return (int)$st->fetchColumn();
 }
 
 function portal_irene_gravar(PDO $pdo, string $portal, string $papel, string $texto, ?string $motor = null): int
@@ -256,7 +245,8 @@ function portal_irene_system(string $nome): string
     $linhas = [
         'Voce e a Irene, assistente do Estudio Cereja 2 (Daniel Araujo Tatuador), em Sao Paulo.',
         'Agora voce fala com ' . $nome . ', tatuador da casa. E uma conversa interna de trabalho, nao e atendimento a cliente.',
-        'Responda em portugues do Brasil, direto e simpatico, no maximo 4 frases. Texto simples, sem Markdown.',
+        'Responda em portugues do Brasil, direto e simpatico, com o nivel de detalhe que ele pedir.',
+        'Pode usar listas e paragrafos quando ajudar; nao se preocupe em ser curto.',
         'Use exclusivamente os dados enviados na mensagem. Nunca invente agendamento, horario, valor, telefone ou cliente.',
         'Se a informacao nao estiver nos dados, diga que nao tem isso a mao e que o Daniel pode confirmar.',
         'Nunca diga que a pomada anestesica esta inclusa: ela e opcional e cobrada a parte.',
@@ -409,14 +399,108 @@ function portal_irene_limpar(string $texto): string
     return $texto;
 }
 
-/** Conversa com o modelo local. Recebe a historia ja filtrada pelo portal. */
+/** Escapa o texto e aplica so o basico de Markdown (negrito e codigo). */
+function portal_irene_html(string $texto): string
+{
+    $texto = htmlspecialchars($texto, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $texto = preg_replace('/\*\*([^*\n]+)\*\*/u', '<strong>$1</strong>', $texto) ?? $texto;
+    $texto = preg_replace('/`([^`\n]+)`/u', '<code>$1</code>', $texto) ?? $texto;
+    $texto = preg_replace('/^#{1,6}\s*(.+)$/mu', '<strong>$1</strong>', $texto) ?? $texto;
+    return nl2br($texto);
+}
+
+/** Config do DeepSeek: usa a mesma chave do "cerebro" do projetocrmv2. */
+function portal_irene_deepseek(): array
+{
+    static $cfg = null;
+    if ($cfg !== null) {
+        return $cfg;
+    }
+    $local = [];
+    $arquivo = dirname(__DIR__) . '/projetocrmv2/config.local.php';
+    if (is_file($arquivo)) {
+        $carregado = require $arquivo;
+        if (is_array($carregado)) {
+            $local = $carregado;
+        }
+    }
+    $chave = trim((string)($local['cerebro_key'] ?? ''));
+    if ($chave === '') {
+        $chave = trim((string)(getenv('DEEPSEEK_CODEX_KEY') ?: ''));
+    }
+    $url = trim((string)($local['cerebro_url'] ?? ''));
+    $modelo = trim((string)($local['cerebro_model'] ?? ''));
+    $cfg = [
+        'url' => rtrim($url !== '' ? $url : 'https://api.deepseek.com/v1', '/'),
+        'key' => $chave,
+        'modelo' => $modelo !== '' ? $modelo : 'deepseek-chat',
+        'ligado' => $chave !== '',
+    ];
+    return $cfg;
+}
+
+function portal_irene_deepseek_chamar(string $sistema, array $mensagens): array
+{
+    $cfg = portal_irene_deepseek();
+    if (!$cfg['ligado']) {
+        return ['ok' => false, 'erro' => 'DeepSeek sem chave'];
+    }
+    if (!function_exists('curl_init')) {
+        return ['ok' => false, 'erro' => 'cURL indisponivel no PHP'];
+    }
+    $payload = [
+        'model' => $cfg['modelo'],
+        'stream' => false,
+        'temperature' => 0.7,
+        'max_tokens' => 4096,
+        'messages' => array_merge([['role' => 'system', 'content' => $sistema]], $mensagens),
+    ];
+    $ch = curl_init($cfg['url'] . '/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $cfg['key'],
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 90,
+    ]);
+    $corpo = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $falha = curl_error($ch);
+    curl_close($ch);
+
+    if ($corpo === false) {
+        return ['ok' => false, 'erro' => 'DeepSeek: ' . ($falha !== '' ? $falha : 'nao respondeu')];
+    }
+    $json = json_decode((string)$corpo, true);
+    if ($status !== 200) {
+        $erro = $json['error']['message'] ?? (is_string($json['error'] ?? null) ? $json['error'] : 'HTTP ' . $status);
+        return ['ok' => false, 'erro' => 'DeepSeek: ' . mb_substr((string)$erro, 0, 200)];
+    }
+    $texto = portal_irene_limpar((string)($json['choices'][0]['message']['content'] ?? ''));
+    if ($texto === '') {
+        return ['ok' => false, 'erro' => 'DeepSeek devolveu resposta vazia'];
+    }
+    return [
+        'ok' => true,
+        'texto' => $texto,
+        'modelo' => (string)($json['model'] ?? $cfg['modelo']),
+    ];
+}
+
+/**
+ * Conversa com a Irene. O motor principal e o DeepSeek (mesmo cerebro do
+ * Codex); se ele falhar, cai no LM Studio local para o chat nao parar.
+ */
 function portal_irene_responder(string $sistema, array $historico): array
 {
     if (!function_exists('curl_init')) {
         return ['ok' => false, 'erro' => 'cURL indisponivel no PHP'];
     }
-    $modelo = portal_irene_modelo();
-    $mensagens = [['role' => 'system', 'content' => $sistema]];
+    $mensagens = [];
     $ultimoPapel = '';
     foreach ($historico as $m) {
         $texto = trim((string)($m['texto'] ?? ''));
@@ -424,33 +508,42 @@ function portal_irene_responder(string $sistema, array $historico): array
             continue;
         }
         $papel = ((string)($m['papel'] ?? '')) === 'irene' ? 'assistant' : 'user';
-        $texto = mb_substr($texto, 0, 4000);
-        if ($papel === $ultimoPapel && count($mensagens) > 1) {
+        $texto = mb_substr($texto, 0, 8000);
+        if ($papel === $ultimoPapel && count($mensagens) > 0) {
             $i = count($mensagens) - 1;
-            $mensagens[$i]['content'] = mb_substr($mensagens[$i]['content'] . "\n" . $texto, 0, 5000);
+            $mensagens[$i]['content'] = mb_substr($mensagens[$i]['content'] . "\n" . $texto, 0, 12000);
         } else {
             $mensagens[] = ['role' => $papel, 'content' => $texto];
         }
         $ultimoPapel = $papel;
     }
-    if (count($mensagens) <= 1) {
+    if (!$mensagens) {
         return ['ok' => false, 'erro' => 'sem mensagem para responder'];
     }
+
+    $deepseek = portal_irene_deepseek_chamar($sistema, $mensagens);
+    if (!empty($deepseek['ok'])) {
+        return $deepseek;
+    }
+    portal_irene_log('deepseek: ' . (string)($deepseek['erro'] ?? 'falhou'));
+
+    /* Reserva local: se a API do DeepSeek estiver fora, o chat continua de pe. */
+    $modelo = portal_irene_modelo();
+    $locais = $mensagens;
     if (stripos($modelo, 'qwen3') !== false) {
-        for ($i = count($mensagens) - 1; $i >= 1; $i--) {
-            if ($mensagens[$i]['role'] === 'user') {
-                $mensagens[$i]['content'] .= ' /no_think';
+        for ($i = count($locais) - 1; $i >= 0; $i--) {
+            if ($locais[$i]['role'] === 'user') {
+                $locais[$i]['content'] .= ' /no_think';
                 break;
             }
         }
     }
-
     $payload = [
         'model' => $modelo,
         'stream' => false,
-        'temperature' => 0.55,
-        'max_tokens' => 400,
-        'messages' => $mensagens,
+        'temperature' => 0.6,
+        'max_tokens' => 1200,
+        'messages' => array_merge([['role' => 'system', 'content' => $sistema]], $locais),
     ];
     $ch = curl_init(PORTAL_IRENE_LMSTUDIO . '/chat/completions');
     curl_setopt_array($ch, [
