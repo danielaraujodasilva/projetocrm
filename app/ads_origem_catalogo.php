@@ -31,6 +31,7 @@ function ads_origem_catalogo(): array
         'reincidente' => ['Cliente que voltou', 'organico', '#0e7090'],
         'organico_ig' => ['Instagram orgânico', 'organico', '#c11574'],
         'whatsapp'    => ['WhatsApp (direto)', 'organico', '#079455'],
+        'parceria'    => ['Parceria / influenciador', 'organico', '#b42318'],
         'agenda'      => ['Google Agenda', 'sistema', '#667085'],
         'manual'      => ['Cadastro manual', 'sistema', '#667085'],
         'outro'       => ['Outro', 'outro', '#98a2b3'],
@@ -60,6 +61,7 @@ function ads_origem_rotulo(string $codigo): string
         'tiktok orgânico' => 'tiktok_organico', 'tiktok_orgânico' => 'tiktok_organico',
         'tt organico' => 'tiktok_organico', 'tt_organico' => 'tiktok_organico',
         'whatsapp' => 'whatsapp', 'manual' => 'manual',
+        'influenciador' => 'parceria', 'influenciadora' => 'parceria', 'influencer' => 'parceria',
     ];
     if (isset($aliases[$codigo])) {
         return (string)$cat[$aliases[$codigo]][0];
@@ -93,6 +95,9 @@ function ads_origem_normalizar(string $valor): string
         'passou na porta' => 'porta', 'porta' => 'porta',
         'cliente que voltou' => 'reincidente', 'reincidente' => 'reincidente',
         'whatsapp' => 'whatsapp', 'manual' => 'manual',
+        'parceria' => 'parceria', 'parcerias' => 'parceria',
+        'parceria influenciador' => 'parceria', 'parceria_influenciador' => 'parceria',
+        'influenciador' => 'parceria', 'influenciadora' => 'parceria', 'influencer' => 'parceria',
     ];
     if (isset($aliases[$v])) {
         return $aliases[$v];

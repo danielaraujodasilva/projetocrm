@@ -547,6 +547,183 @@ function ads_roi_by_origin(PDO $pdo, string $start, string $end): array
 }
 
 /**
+ * VENDAS NOVAS x ATENDIDOS num dia, quebrados pelo canal que trouxe o cliente.
+ *
+ * VENDAS = agendamentos CRIADOS no dia (o estudio so agenda depois do sinal,
+ * entao agendamento novo = venda fechada). Usa COALESCE(google_created_at,
+ * created_at): nos importados, created_at e a data da importacao e jogaria
+ * venda antiga para o dia errado. Ignora compromisso operacional e cancelado.
+ *
+ * ATENDIDOS = agendamentos cuja DATA DO ATENDIMENTO e o dia e que aconteceram:
+ * 'finalizado' conta sempre; qualquer outro status conta quando a hora ja
+ * passou; cancelado/falta nunca conta (mesma regra do "Tatuou" do funil).
+ *
+ * Canal, em ordem de confianca (a mesma do ads_roi_by_origin):
+ *   1) clique pago rastreado (ads_origin_hits), casado pelo telefone;
+ *   2) origem que a IA amarrou no funil_match (telefone ou appointment_id);
+ *   3) leads.source, so quando e canal de aquisicao de verdade.
+ * Meta e Instagram entram juntos em 'meta'; Google Agenda/manual viram
+ * 'sem_origem' (importacao nao e canal pago).
+ *
+ * Devolve ['vendas' => [...], 'atendidos' => [...]] com
+ * meta/google/outros/sem_origem/total/valor em cada bloco.
+ */
+function ads_roi_dia_vendas_atendidos(PDO $pdo, string $data): array
+{
+    $vazio = ['meta' => 0, 'google' => 0, 'outros' => 0, 'sem_origem' => 0, 'total' => 0, 'valor' => 0.0];
+    $out = ['vendas' => $vazio, 'atendidos' => $vazio];
+
+    // 1) Clique pago: telefone -> canal. Ordem crescente + sobrescrita deixa o
+    // clique MAIS RECENTE valendo, que e o que normalmente fechou a venda.
+    $porFone = [];
+    try {
+        $st = $pdo->query('SELECT phone, origin, platform, created_at
+                             FROM ads_origin_hits
+                            ORDER BY created_at ASC');
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $h) {
+            $canal = ads_roi_canal_da_ponte((string)($h['platform'] ?? ''), (string)($h['origin'] ?? ''));
+            if ($canal === '') {
+                continue;
+            }
+            foreach (ads_roi_fone_variacoes((string)($h['phone'] ?? '')) as $k) {
+                $porFone[$k] = $canal;
+            }
+        }
+    } catch (Throwable $e) {
+        $porFone = [];
+    }
+
+    // 2) Origem detectada pela IA. Nunca sobrescreve clique pago.
+    $porAppt = [];
+    try {
+        $claims = [];
+        foreach ($pdo->query('SELECT telefone, origem_detectada, appointment_id FROM funil_match') as $row) {
+            $canal = ads_roi_canal_do_source((string)($row['origem_detectada'] ?? ''));
+            if ($canal === '') {
+                continue;
+            }
+            foreach (ads_roi_fone_variacoes((string)($row['telefone'] ?? '')) as $k) {
+                if (!isset($porFone[$k])) {
+                    $porFone[$k] = $canal;
+                }
+            }
+            $id = (int)($row['appointment_id'] ?? 0);
+            if ($id > 0) {
+                $claims[$id][] = $canal;
+            }
+        }
+        foreach ($claims as $id => $canais) {
+            $unicos = array_values(array_unique($canais));
+            if (count($unicos) === 1) {
+                $porAppt[$id] = $unicos[0];
+            }
+        }
+    } catch (Throwable $e) {
+        // funil_match pode nao existir: segue so com clique e leads.source.
+    }
+
+    // Compromisso pessoal/operacional nao e venda nem atendimento de cliente.
+    $operacional = static function (string $titulo): bool {
+        return (bool)preg_match(
+            '/limpeza|luna|niver|aniversario|aniversário|casamento|inss|pericia|perícia|café da manhã|cafe da manha|estorno|escola|tv vizinho|lembrar|sábado da|sabado da|spa day|manutenção|manutencao|vistoria|carro|não contabilizar|nao contabilizar/iu',
+            $titulo
+        );
+    };
+
+    $canalDe = static function (array $row) use ($porFone, $porAppt): string {
+        $canal = '';
+        foreach (ads_roi_fone_variacoes((string)($row['phone'] ?? '')) as $k) {
+            if (isset($porFone[$k])) {
+                $canal = $porFone[$k];
+                break;
+            }
+        }
+        $id = (int)($row['id'] ?? 0);
+        if ($canal === '' && isset($porAppt[$id])) {
+            $canal = $porAppt[$id];
+        }
+        if ($canal === '') {
+            $canal = ads_roi_canal_do_source((string)($row['lead_source'] ?? ''));
+        }
+        return $canal;
+    };
+
+    $bucket = static function (string $canal): string {
+        if ($canal === 'meta' || $canal === 'instagram') {
+            return 'meta';
+        }
+        if ($canal === 'google') {
+            return 'google';
+        }
+        return $canal === '' ? 'sem_origem' : 'outros';
+    };
+
+    $select = 'SELECT a.id, a.title, a.status, a.appointment_date, a.start_time, a.value,
+                      a.import_source, COALESCE(NULLIF(c.phone, ""), NULLIF(l.phone, ""), "") AS phone,
+                      l.source AS lead_source
+                 FROM appointments a
+                 LEFT JOIN customers c ON c.id = a.customer_id
+                 LEFT JOIN leads l ON l.id = a.lead_id';
+
+    // ---- VENDAS: agendamentos criados no dia ----
+    try {
+        $st = $pdo->prepare($select . '
+                WHERE DATE(COALESCE(a.google_created_at, a.created_at)) = ?
+                  AND YEAR(a.appointment_date) BETWEEN 2000 AND 2100
+                  AND (a.import_source IS NULL OR a.import_source = "" OR a.google_created_at IS NOT NULL)
+                  AND LOWER(TRIM(a.status)) NOT IN ("cancelado", "cancelada", "cancel", "perdido", "perdida", "falta", "faltou", "no_show", "nao_compareceu")');
+        $st->execute([$data]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($operacional((string)($row['title'] ?? ''))) {
+                continue;
+            }
+            $b = $bucket($canalDe($row));
+            $out['vendas'][$b]++;
+            $out['vendas']['total']++;
+            $out['vendas']['valor'] += (float)($row['value'] ?? 0);
+        }
+    } catch (Throwable $e) {
+        // Mantem o bloco zerado se a agenda falhar.
+    }
+
+    // ---- ATENDIDOS: agenda do dia que realmente aconteceu ----
+    try {
+        $st = $pdo->prepare($select . '
+                WHERE a.appointment_date = ?
+                  AND YEAR(a.appointment_date) BETWEEN 2000 AND 2100');
+        $st->execute([$data]);
+        $agora = time();
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $status = strtolower(trim((string)($row['status'] ?? '')));
+            if (in_array($status, ['cancelado', 'cancelada', 'cancel', 'perdido', 'perdida', 'falta', 'faltou', 'no_show', 'nao_compareceu'], true)) {
+                continue;
+            }
+            if ($operacional((string)($row['title'] ?? ''))) {
+                continue;
+            }
+            if ($status !== 'finalizado') {
+                $hora = preg_match('/^\d{1,2}:\d{2}/', (string)($row['start_time'] ?? ''), $m) ? $m[0] : '23:59';
+                if (strlen($hora) === 4) {
+                    $hora = '0' . $hora;
+                }
+                $ts = strtotime((string)$row['appointment_date'] . ' ' . $hora . ':00');
+                if ($ts === false || $ts > $agora) {
+                    continue;
+                }
+            }
+            $b = $bucket($canalDe($row));
+            $out['atendidos'][$b]++;
+            $out['atendidos']['total']++;
+            $out['atendidos']['valor'] += (float)($row['value'] ?? 0);
+        }
+    } catch (Throwable $e) {
+        // Mantem o bloco zerado se a agenda falhar.
+    }
+
+    return $out;
+}
+
+/**
  * Variacoes do telefone para casar entre as tabelas, com a mesma tolerancia do
  * resto do CRM (com/sem DDI e com/sem o 9). Reusa historico_telefone_variacoes
  * quando ela estiver carregada.

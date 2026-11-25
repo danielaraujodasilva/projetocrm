@@ -655,7 +655,7 @@ function funil_nomes_ponte(): array
  */
 function funil_origens_validas(): array
 {
-    return ['meta', 'google', 'instagram', 'indicacao', 'porta', 'cliente_antigo', 'whatsapp', 'indefinido'];
+    return ['meta', 'google', 'instagram', 'indicacao', 'porta', 'cliente_antigo', 'whatsapp', 'parceria', 'indefinido'];
 }
 
 /** Rótulo humano de uma origem. */
@@ -669,6 +669,7 @@ function funil_origem_rotulo(string $o): string
         'porta' => 'Porta / presencial',
         'cliente_antigo' => 'Cliente antigo',
         'whatsapp' => 'WhatsApp (direto)',
+        'parceria' => 'Parceria / influenciador',
         'indefinido' => 'Indefinido',
     ];
     return $rotulos[$o] ?? ucfirst($o);
@@ -703,6 +704,7 @@ function funil_origem_do_catalogo(string $codigo): string
         'reincidente' => 'cliente_antigo',
         'organico_ig' => 'instagram',
         'whatsapp' => 'whatsapp',
+        'parceria' => 'parceria',
         'tiktok' => 'indefinido',
         'agenda' => 'indefinido',
         'manual' => 'indefinido',

@@ -137,6 +137,26 @@ $result = [
 try {
     $pdo = studio_db($studio);
 
+    // LID (identificador interno do WhatsApp) NAO e telefone. Se a conversa ja
+    // foi gravada com o telefone resolvido, usa ele; senao nao cria lead com
+    // numero interno (quebrava atribuicao e o registro de venda).
+    if ($lidNaoResolvido && $jidOriginal !== '') {
+        try {
+            $stLid = $pdo->prepare('SELECT phone FROM whatsapp_conversations
+                                    WHERE remote_jid = ? AND phone <> "" ORDER BY id DESC LIMIT 1');
+            $stLid->execute([$jidOriginal]);
+            $telefoneResolvido = preg_replace('/\D+/', '', (string)$stLid->fetchColumn());
+            if (strlen($telefoneResolvido) >= 10 && strlen($telefoneResolvido) <= 13) {
+                $phone = $telefoneResolvido;
+                $lidNaoResolvido = false;
+                $result['phone'] = $phone;
+                $result['lid_resolvido_por_conversa'] = true;
+            }
+        } catch (Throwable $eLid) {
+            // segue com o LID; o lead nao sera criado
+        }
+    }
+
     // Codigo curto da visita (ir.php): vale MAIS que o texto da mensagem,
     // porque o cliente pode editar/apagar o carimbo antes de enviar. A visita
     // guarda o src do link e o click id — os dois sao usados aqui.
@@ -211,22 +231,28 @@ try {
             $result['action'] = 'sem_lead_ainda';
         }
 
-        // Cria o lead com a origem, para o dado nao se perder.
-        try {
-            $leadId = studio_save_lead($studio, [
-                'name' => $chatName !== '' ? $chatName : 'Lead anúncio ' . $origin,
-                'phone' => $phone,
-                'interest' => $originNote !== '' ? $originNote : 'Contato via anúncio',
-                'status' => 'novo',
-                'pipeline_stage' => 'entrada',
-                'lead_score' => 5,
-                'estimated_value' => '0',
-                'source' => $origin,
-            ]);
-            $result['action'] = 'lead_criado';
-            $result['lead_id'] = $leadId;
-        } catch (Throwable $eLead) {
-            origin_bridge_log(['type' => 'create_lead_failed', 'phone' => $phone, 'error' => $eLead->getMessage()]);
+        // Cria o lead com a origem, para o dado nao se perder. Nunca com LID:
+        // identificador interno nao casa com telefone, ads_origin_hits nem venda.
+        if (!$lidNaoResolvido) {
+            try {
+                $leadId = studio_save_lead($studio, [
+                    'name' => $chatName !== '' ? $chatName : 'Lead anúncio ' . $origin,
+                    'phone' => $phone,
+                    'interest' => $originNote !== '' ? $originNote : 'Contato via anúncio',
+                    'status' => 'novo',
+                    'pipeline_stage' => 'entrada',
+                    'lead_score' => 5,
+                    'estimated_value' => '0',
+                    'source' => $origin,
+                ]);
+                $result['action'] = 'lead_criado';
+                $result['lead_id'] = $leadId;
+            } catch (Throwable $eLead) {
+                origin_bridge_log(['type' => 'create_lead_failed', 'phone' => $phone, 'error' => $eLead->getMessage()]);
+            }
+        } else {
+            $result['action'] = 'sem_lead_ainda';
+            $result['aviso'] = 'Telefone veio como LID e nao foi resolvido; origem registrada sem criar lead.';
         }
     }
 

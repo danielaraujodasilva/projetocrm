@@ -1706,14 +1706,11 @@ function ads_roi_google_saude_check(array $studio, array $headers = [], string $
     }
 
     $res = ads_roi_http_request('POST', $url, $headers, ['query' =>
-        'SELECT asset_group.name, asset_group.primary_status, asset_group.primary_status_reasons, asset_group.final_urls FROM asset_group WHERE asset_group.status = "ENABLED"']);
+        'SELECT asset_group.name, asset_group.primary_status, asset_group.primary_status_reasons, asset_group.final_urls FROM asset_group WHERE asset_group.status = "ENABLED" AND campaign.status = "ENABLED"']);
     if (empty($res['ok'])) {
         $saude['erro'] = trim((string)$saude['erro'] . ' | grupo: ' . (string)($res['error'] ?? '?'), ' |');
     } else {
         $linhas = (array)($res['json']['results'] ?? []);
-        if (!$linhas) {
-            $problemas[] = 'nenhum grupo de recursos ativo';
-        }
         foreach ($linhas as $l) {
             $nome = (string)($l['assetGroup']['name'] ?? '');
             $primary = (string)($l['assetGroup']['primaryStatus'] ?? '');
@@ -1747,7 +1744,7 @@ function ads_roi_google_saude_check(array $studio, array $headers = [], string $
     }
 
     $res = ads_roi_http_request('POST', $url, $headers, ['query' =>
-        'SELECT asset_group_asset.asset FROM asset_group_asset WHERE asset_group_asset.status = "ENABLED" AND asset_group_asset.policy_summary.approval_status = "DISAPPROVED"']);
+        'SELECT asset_group_asset.asset FROM asset_group_asset WHERE asset_group_asset.status = "ENABLED" AND campaign.status = "ENABLED" AND asset_group_asset.policy_summary.approval_status = "DISAPPROVED"']);
     if (empty($res['ok'])) {
         $saude['erro'] = trim((string)$saude['erro'] . ' | criativos: ' . (string)($res['error'] ?? '?'), ' |');
     } else {
@@ -1755,6 +1752,22 @@ function ads_roi_google_saude_check(array $studio, array $headers = [], string $
         $saude['reprovados'] = $reprovados;
         if ($reprovados > 0) {
             $problemas[] = $reprovados . ' criativo(s) reprovado(s)';
+        }
+    }
+
+    // Anuncio de Pesquisa reprovado tambem derruba entrega. A checagem antiga
+    // olhava so asset_group (PMax) e acusava PMax pausada como problema.
+    $res = ads_roi_http_request('POST', $url, $headers, ['query' =>
+        'SELECT ad_group_ad.ad.id FROM ad_group_ad
+         WHERE campaign.status = "ENABLED" AND ad_group_ad.status = "ENABLED"
+           AND ad_group_ad.policy_summary.approval_status = "DISAPPROVED"']);
+    if (empty($res['ok'])) {
+        $saude['erro'] = trim((string)$saude['erro'] . ' | anuncios: ' . (string)($res['error'] ?? '?'), ' |');
+    } else {
+        $reprovadosAds = count((array)($res['json']['results'] ?? []));
+        if ($reprovadosAds > 0) {
+            $saude['reprovados'] += $reprovadosAds;
+            $problemas[] = $reprovadosAds . ' anuncio(s) de pesquisa reprovado(s)';
         }
     }
 

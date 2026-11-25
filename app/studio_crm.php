@@ -1561,7 +1561,8 @@ function studio_stats(array $studio): array
     $stats['month_signals'] = (float)$pdo->query("SELECT COALESCE(SUM(deposit_value), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')")->fetchColumn();
     $stats['human_conversations'] = (int)$pdo->query("SELECT COUNT(*) FROM whatsapp_conversations WHERE needs_human = 1")->fetchColumn();
     $stats['open_value'] = (float)$pdo->query("SELECT COALESCE(SUM(estimated_value), 0) FROM leads WHERE status NOT IN ('perdido', 'fechado', 'finalizado', 'atendido') AND COALESCE(pipeline_stage, '') <> 'finalizado'")->fetchColumn();
-    $stmt = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND status NOT IN ('cancelado')");
+    $revenueStatus = studio_appointment_revenue_status_sql('status');
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0) FROM appointments WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') AND " . $revenueStatus);
     $stmt->execute([$pomadaUnit]);
     $stats['month_revenue'] = (float)$stmt->fetchColumn();
     $stats['month_expenses'] = (float)$pdo->query("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE DATE_FORMAT(expense_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')")->fetchColumn();
@@ -2275,6 +2276,20 @@ function studio_calendar_appointments(array $studio, string $startDate, string $
     return $stmt->fetchAll() ?: [];
 }
 
+/** Status que ainda entram na previsão de receita (fora cancelado/falta/perdido). */
+function studio_appointment_revenue_status_sql(string $column = 'status'): string
+{
+    $column = preg_match('/^[A-Za-z0-9_.]+$/', $column) ? $column : 'status';
+    return "LOWER(COALESCE(" . $column . ", '')) NOT IN ('cancelado','cancelada','cancelled','canceled','falta','faltou','no_show','nao_compareceu','perdido')";
+}
+
+/** Status que ainda contam como sinal recebido (só cancelamento fica de fora). */
+function studio_appointment_signal_status_sql(string $column = 'status'): string
+{
+    $column = preg_match('/^[A-Za-z0-9_.]+$/', $column) ? $column : 'status';
+    return "LOWER(COALESCE(" . $column . ", '')) NOT IN ('cancelado','cancelada','cancelled','canceled')";
+}
+
 function studio_finance_summary(array $studio, ?string $startDate = null, ?string $endDate = null): array
 {
     $pdo = studio_db($studio);
@@ -2307,11 +2322,13 @@ function studio_finance_summary(array $studio, ?string $startDate = null, ?strin
         'by_category' => [],
         'appointments_by_status' => [],
     ];
+    $revenueStatus = studio_appointment_revenue_status_sql('status');
+    $signalStatus = studio_appointment_signal_status_sql('status');
     $monthStmt = $pdo->prepare(
         "SELECT COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0)
          FROM appointments
          WHERE DATE_FORMAT(appointment_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
-           AND status NOT IN ('cancelado')"
+           AND " . $revenueStatus
     );
     $monthStmt->execute([$pomadaUnit]);
     $summary['appointments_month'] = (float)$monthStmt->fetchColumn();
@@ -2319,16 +2336,16 @@ function studio_finance_summary(array $studio, ?string $startDate = null, ?strin
     $stmt = $pdo->prepare(
         "SELECT
             COUNT(*) AS qtd,
-            COALESCE(SUM(COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?)), 0) AS gross_total,
-            COALESCE(SUM(COALESCE(deposit_value, 0)), 0) AS deposits_total,
-            COALESCE(SUM(GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0))), 0) AS remaining_total
+            COALESCE(SUM(CASE WHEN " . $revenueStatus . " THEN 1 ELSE 0 END), 0) AS qtd_billable,
+            COALESCE(SUM(CASE WHEN " . $revenueStatus . " THEN COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) ELSE 0 END), 0) AS gross_total,
+            COALESCE(SUM(CASE WHEN " . $signalStatus . " THEN COALESCE(deposit_value, 0) ELSE 0 END), 0) AS deposits_total,
+            COALESCE(SUM(CASE WHEN " . $revenueStatus . " THEN GREATEST(0, COALESCE(value, 0) + (COALESCE(pomadas_quantity, 0) * ?) - COALESCE(deposit_value, 0)) ELSE 0 END), 0) AS remaining_total
          FROM appointments
-         WHERE appointment_date BETWEEN ? AND ?
-           AND status NOT IN ('cancelado')"
+         WHERE appointment_date BETWEEN ? AND ?"
     );
     $stmt->execute([$pomadaUnit, $pomadaUnit, $periodStart, $periodEnd]);
     $appointmentTotals = $stmt->fetch() ?: [];
-    $summary['appointments_count'] = (int)($appointmentTotals['qtd'] ?? 0);
+    $summary['appointments_count'] = (int)($appointmentTotals['qtd_billable'] ?? 0);
     $summary['appointments_period'] = (float)($appointmentTotals['gross_total'] ?? 0);
     $summary['deposits_period'] = (float)($appointmentTotals['deposits_total'] ?? 0);
     $summary['received_period'] = (float)($appointmentTotals['deposits_total'] ?? 0);
@@ -3855,9 +3872,14 @@ function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?Da
     $endDate = $today->modify('+' . max(1, $daysAhead - 1) . ' days');
     $allowedSlots = studio_schedule_slots($studio);
     $allowedDays = studio_schedule_days($studio);
+    $capacidade = 2; // Daniel + Theo: um horario so lota com 2 agendamentos.
     $appointments = studio_calendar_appointments($studio, $today->format('Y-m-d'), $endDate->format('Y-m-d'));
     $byDate = [];
+    $blockingStatuses = studio_appointment_blocking_statuses();
     foreach ($appointments as $appointment) {
+        if (!in_array((string)($appointment['status'] ?? ''), $blockingStatuses, true)) {
+            continue;
+        }
         $byDate[(string)$appointment['appointment_date']][] = $appointment;
     }
 
@@ -3869,20 +3891,23 @@ function studio_schedule_available_slots(array $studio, int $daysAhead = 14, ?Da
         $freeSlots = [];
         $booked = [];
         foreach ($allowedSlots as $slot) {
-            $occupied = false;
+            $ocupados = 0;
             foreach ($byDate[$date] ?? [] as $appointment) {
-                if (substr((string)$appointment['start_time'], 0, 5) === $slot) {
-                    $occupied = true;
-                    $booked[] = [
-                        'id' => (int)($appointment['id'] ?? 0),
-                        'time' => $slot,
-                        'customer_name' => (string)($appointment['customer_name'] ?? $appointment['title'] ?? ''),
-                        'status' => (string)($appointment['status'] ?? ''),
-                    ];
-                    break;
+                // So conta agendamento que comeca exatamente no horario padrao.
+                // Horario quebrado (07:30, 11:00, 14:30...) e encaixe manual do
+                // Daniel e nao bloqueia as vagas de 10h/15h.
+                if (substr((string)($appointment['start_time'] ?? ''), 0, 5) !== $slot) {
+                    continue;
                 }
+                $ocupados++;
+                $booked[] = [
+                    'id' => (int)($appointment['id'] ?? 0),
+                    'time' => $slot,
+                    'customer_name' => (string)($appointment['customer_name'] ?? $appointment['title'] ?? ''),
+                    'status' => (string)($appointment['status'] ?? ''),
+                ];
             }
-            if ($allowed && !$occupied && studio_schedule_slot_is_future($date, $slot, $now)) {
+            if ($allowed && $ocupados < $capacidade && studio_schedule_slot_is_future($date, $slot, $now)) {
                 $freeSlots[] = $slot;
             }
         }
@@ -13039,7 +13064,7 @@ function studio_whatsapp_analyze_image_with_nvidia(array $studio, string $absolu
         . 'standalone_art_or_logo_visible=true para desenho, ilustracao, referencia, logo ou arte fora da pele. '
         . 'body_area deve ficar vazio se nao houver corpo humano visivel. '
         . 'position deve registrar somente uma posição visível ou claramente dedutível, como interno, externo, frontal, posterior, direito ou esquerdo; se não der para saber, deixe vazio. '
-        . 'Se a tatuagem ocupar praticamente toda a área visível de um braço, perna ou costas, indique coverage como fechamento ou área inteira. '
+        . 'Enquadramento proximo NAO significa fechamento: uma tattoo isolada, com pele em volta, e "parte da area" mesmo que ocupe o quadro. So indique coverage como fechamento ou area inteira se a imagem mostrar claramente a regiao toda coberta, sem pele livre em volta. '
         . 'Use portugues do Brasil em body_area, position, style e elements. '
         . 'coverage deve descrever somente o que a imagem permite perceber, como "parte da area", "area inteira", "fechamento" ou "indeterminado"; nunca invente centimetros. '
         . 'elements deve ter no maximo 3 itens visiveis separados por virgula. '
@@ -14050,7 +14075,7 @@ function studio_whatsapp_analyze_image(array $studio, array $message): array
         . 'standalone_art_or_logo_visible=true for a drawing, illustration, graphic or logo shown by itself rather than on skin. '
         . 'body_area must be empty when no human body is visible. '
         . 'position should contain only a visibly identifiable position such as interno, externo, frontal, posterior, direito or esquerdo; leave it empty when uncertain. '
-        . 'If the tattoo fills nearly all of the visible arm, leg or back, set coverage to fechamento or área inteira. '
+        . 'Close-up framing does NOT mean fechamento: an isolated tattoo with skin around it is "parte da área" even if it fills the frame. Only set coverage to fechamento or área inteira when the image clearly shows the whole area covered, with no bare skin around it. '
         . 'Use Brazilian Portuguese for body_area, position, style, elements and coverage. '
         . 'coverage must describe only visible coverage, such as "parte da área", "área inteira", "fechamento" or "indeterminado"; never invent centimeters. '
         . 'For big cats, distinguish lion (mane), tiger (stripes), and leopard or jaguar (spots). '
@@ -23174,7 +23199,7 @@ function studio_data_assistant_canonical_queries(string $question): ?array
     $asksCount = (bool)preg_match('/\b(quantos|quantas|qtd|quantidade|total)\b/u', $text);
     $hasRanking = (bool)preg_match('/\b(mais|maior|maiores|menos|menor|menores|top|melhor|pior|alto|alta|baixo|baixa)\b/u', $text);
     $period = studio_data_assistant_period_from_question($question, $asksMoney || $asksExpense || $asksResult || $asksCount);
-    $notCancelled = "LOWER(COALESCE(status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled')";
+    $notCancelled = studio_appointment_revenue_status_sql('status');
 
     if (preg_match('/\b(cliente|clientes)\b/u', $text)
         && preg_match('/\b(veio|vieram|vem|frequentou|frequenta|apareceu|compareceu|atendeu|atendimentos?|vezes|visitas?|retornou|recorrente|recorrentes|assiduo|assidua|agendamentos?|sess(?:ao|oes|ão|ões))\b/u', $text)
@@ -23195,7 +23220,7 @@ function studio_data_assistant_canonical_queries(string $question): ?array
         $orderSql = $direction === 'asc' ? 'quantidade ASC, valor_total ASC' : 'quantidade DESC, valor_total DESC';
         return [[
             'title' => 'Cliente com ' . $directionLabel . ' frequência canônica ' . $titleSuffix,
-            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'cliente' AS ranking_entidade, 'frequência de visitas/agendamentos' AS metric_label, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS item_nome, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') ORDER BY " . $orderSql . " LIMIT 10",
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'cliente' AS ranking_entidade, 'frequência de visitas/agendamentos' AS metric_label, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS item_nome, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled', 'falta', 'faltou', 'no_show', 'nao_compareceu', 'perdido') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') ORDER BY " . $orderSql . " LIMIT 10",
         ]];
     }
 
@@ -23216,7 +23241,7 @@ function studio_data_assistant_canonical_queries(string $question): ?array
         }
         return [[
             'title' => 'Cliente com ' . $directionLabel . ' gasto canônico ' . $titleSuffix,
-            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') HAVING total_gasto > 0 ORDER BY " . $orderSql . " LIMIT 10",
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, " . $periodSelect . ", COALESCE(c.name, l.name, a.title, 'Sem nome') AS cliente, COALESCE(c.phone, l.phone, '') AS telefone, COUNT(*) AS agendamentos, COALESCE(SUM(a.value), 0) AS total_gasto FROM appointments a LEFT JOIN customers c ON c.id = a.customer_id LEFT JOIN leads l ON l.id = a.lead_id WHERE " . $dateWhere . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled', 'falta', 'faltou', 'no_show', 'nao_compareceu', 'perdido') GROUP BY COALESCE(c.id, 0), COALESCE(l.id, 0), COALESCE(c.name, l.name, a.title, 'Sem nome'), COALESCE(c.phone, l.phone, '') HAVING total_gasto > 0 ORDER BY " . $orderSql . " LIMIT 10",
         ]];
     }
 
@@ -23234,7 +23259,7 @@ function studio_data_assistant_canonical_queries(string $question): ?array
             : $orderSql;
         return [[
             'title' => 'Tatuador com ' . $directionLabel . ' ' . $metricLabel . ' canônico ' . $periodSql['label'],
-            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'tatuador' AS ranking_entidade, '" . $metricLabel . "' AS metric_label, " . $periodSql['select'] . ", ta.name AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a INNER JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE " . $periodSql['where'] . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled') GROUP BY ta.id, ta.name ORDER BY " . $orderSql . " LIMIT 10",
+            'sql' => "SELECT '" . $directionLabel . "' AS ranking_tipo, 'tatuador' AS ranking_entidade, '" . $metricLabel . "' AS metric_label, " . $periodSql['select'] . ", ta.name AS item_nome, COUNT(*) AS quantidade, COALESCE(SUM(a.value), 0) AS valor_total FROM appointments a INNER JOIN tattoo_artists ta ON ta.id = a.artist_id WHERE " . $periodSql['where'] . " AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado', 'cancelada', 'cancelled', 'falta', 'faltou', 'no_show', 'nao_compareceu', 'perdido') GROUP BY ta.id, ta.name ORDER BY " . $orderSql . " LIMIT 10",
         ]];
     }
 
@@ -23510,7 +23535,7 @@ function studio_data_assistant_ai_sql_answer(array $studio, string $question, ar
             'Para saber se uma chave/token existe, use configuracoes_seguras.segredos_status ou integracoes; nunca tente ler o valor.',
             'Use quick_replies para respostas rápidas, whatsapp_tags e whatsapp_conversation_tags para etiquetas, pipeline_stages para etapas do funil, whatsapp_stickers para figurinhas, whatsapp_event_log para eventos/status sem payload bruto.',
             'Prefira agregações quando a pergunta pedir contagem, soma, maior cliente, previsão ou ranking.',
-            'Definição fixa: receita prevista/faturamento/ganhar = SUM(appointments.value) no período, excluindo status cancelado/cancelada/cancelled.',
+            'Definição fixa: receita prevista/faturamento/ganhar = SUM(appointments.value) no período, excluindo cancelado/falta/perdido (e variações).',
             'Definição fixa: despesas = SUM(expenses.amount) pelo campo expense_date no período.',
             'Definição fixa: resultado/lucro = receita prevista - despesas no mesmo período.',
             'Definição fixa: clientes cadastrados = COUNT(customers.id) por customers.created_at.',
@@ -26128,12 +26153,12 @@ function studio_update_appointment_status(array $studio, int $appointmentId, str
     $stmt->execute([$status, $appointmentId]);
 
     $leadId = (int)($appointment['lead_id'] ?? 0);
-    if ($leadId > 0 && $status !== 'falta') {
+    if ($leadId > 0) {
         studio_sync_lead_from_appointment(
             $studio,
             $leadId,
             $status,
-            (string)($appointment['value'] ?? 0),
+            (float)($appointment['value'] ?? 0),
             (string)($appointment['appointment_date'] ?? '') . ' ' . (string)($appointment['start_time'] ?? '')
         );
     }
@@ -26504,6 +26529,9 @@ function studio_analyze_calendar_ics(array $studio, string $icsPath): array
     foreach ($events as $event) {
         $parsed = studio_parse_calendar_event_for_crm($event);
         if (!empty($parsed['include'])) {
+            $parsed = studio_calendar_filtrar_evento_pessoal($studio, $parsed);
+        }
+        if (!empty($parsed['include'])) {
             $candidates[] = $parsed;
         } else {
             $skipped[] = $parsed;
@@ -26551,6 +26579,23 @@ function studio_attach_calendar_conflicts(array $studio, array $items): array
 function studio_calendar_lower_text(string $value): string
 {
     return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+}
+
+/**
+ * Normaliza para comparacao: minusculo e sem acento. Usa strtr (nao iconv):
+ * no Windows o iconv TRANSLIT devolve "Caf'e"/"organizac~ao" e o regex falha.
+ */
+function studio_calendar_normalizar_texto(string $value): string
+{
+    $value = studio_calendar_lower_text($value);
+    return strtr($value, [
+        'á' => 'a', 'à' => 'a', 'ã' => 'a', 'â' => 'a', 'ä' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'õ' => 'o', 'ô' => 'o', 'ö' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+        'ç' => 'c', 'ñ' => 'n',
+    ]);
 }
 
 function studio_calendar_remove_accents(string $value): string
@@ -26720,6 +26765,152 @@ function studio_calendar_find_body_area(string $title): array
     }
 
     return ['raw' => '', 'label' => '', 'normalized' => ''];
+}
+
+/**
+ * Classifica um evento da agenda como pessoal x profissional usando a IA local
+ * (LM Studio). Cache em disco para nao repetir a mesma consulta.
+ *
+ * Retorna ['ok'=>bool,'pessoal'=>bool,'confianca'=>int,'motivo'=>string].
+ */
+function studio_calendar_evento_pessoal_ia(array $studio, string $titulo, string $descricao = ''): array
+{
+    $titulo = trim($titulo);
+    if ($titulo === '') {
+        return ['ok' => false, 'pessoal' => false, 'confianca' => 0, 'motivo' => 'sem titulo'];
+    }
+
+    $s = studio_settings($studio);
+    $url = rtrim(trim((string)($s['venda_ia_url'] ?? '')) ?: 'http://127.0.0.1:1234', '/');
+    $modelo = trim((string)($s['calendar_ia_modelo'] ?? '')) ?: 'qwen/qwen3-vl-4b';
+
+    $cachePath = APP_BASE_PATH . '/storage/cache/calendar_pessoal_ia.json';
+    $chave = sha1($modelo . '|' . $titulo . '|' . $descricao);
+    $cache = [];
+    if (is_file($cachePath)) {
+        $cache = json_decode((string)@file_get_contents($cachePath), true) ?: [];
+    }
+    $agora = time();
+    if (!empty($cache[$chave]) && ($agora - (int)($cache[$chave]['em'] ?? 0)) < 180 * 86400) {
+        return $cache[$chave]['r'];
+    }
+
+    $prompt = "Voce classifica compromissos da agenda de um estudio de TATUAGEM (Daniel, Estudio Cereja).\n"
+        . "PROFISSIONAL: cliente, tatuagem, retoque, fechamento, sessao, orcamento, avaliacao, "
+        . "reuniao com cliente/fornecedor do estudio, visita ao estudio.\n"
+        . "PESSOAL: vida do Daniel, familia ou equipe fora do estudio: medico, dentista, exame, "
+        . "escola, prova, faculdade, casamento, aniversario, festa, viagem, compras, mercado, "
+        . "casa, limpeza, banco, cartorio, pericia, carro, pet, culto, almoco/jantar/cafe.\n"
+        . "Se estiver em duvida entre os dois, responda profissional=true (NAO descarte cliente).\n\n"
+        . "Exemplos:\n"
+        . "- \"Cafe da manha com o Daniel\" -> pessoal\n"
+        . "- \"Casamento Tamy e Lucas\" -> pessoal\n"
+        . "- \"Limpeza e organizacao do estudio\" -> pessoal\n"
+        . "- \"Prova oficial de justica\" -> pessoal\n"
+        . "- \"Jhonata marciliano costa, costas (vem junto com o cliente)\" -> profissional\n"
+        . "- \"Mylena - costas - fechamento\" -> profissional\n\n"
+        . "Titulo: " . mb_substr($titulo, 0, 220) . "\n"
+        . "Descricao: " . mb_substr($descricao, 0, 500) . "\n\n"
+        . "Responda SOMENTE JSON: {\"profissional\": true, \"confianca\": 0-100, \"motivo\": \"frase curta\"}";
+
+    $payload = json_encode([
+        'model' => $modelo,
+        'messages' => [['role' => 'user', 'content' => $prompt . "\n/no_think"]],
+        'temperature' => 0,
+        'max_tokens' => 120,
+        'stream' => false,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $ch = curl_init($url . '/v1/chat/completions');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 12,
+        CURLOPT_CONNECTTIMEOUT => 3,
+    ]);
+    $resposta = curl_exec($ch);
+    $codigo = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $erro = curl_error($ch);
+    curl_close($ch);
+
+    if ($erro !== '' || $codigo < 200 || $codigo >= 300) {
+        return ['ok' => false, 'pessoal' => false, 'confianca' => 0, 'motivo' => 'IA indisponivel'];
+    }
+    $json = json_decode((string)$resposta, true) ?: [];
+    $texto = (string)($json['choices'][0]['message']['content'] ?? '');
+    if (!preg_match('/\{.*\}/s', $texto, $m)) {
+        return ['ok' => false, 'pessoal' => false, 'confianca' => 0, 'motivo' => 'resposta sem JSON'];
+    }
+    $dados = json_decode($m[0], true);
+    if (!is_array($dados) || !array_key_exists('profissional', $dados)) {
+        return ['ok' => false, 'pessoal' => false, 'confianca' => 0, 'motivo' => 'JSON invalido'];
+    }
+    $r = [
+        'ok' => true,
+        'pessoal' => !(bool)$dados['profissional'],
+        'confianca' => max(0, min(100, (int)($dados['confianca'] ?? 0))),
+        'motivo' => mb_substr(trim((string)($dados['motivo'] ?? '')), 0, 160),
+    ];
+    $cache[$chave] = ['em' => $agora, 'r' => $r];
+    @mkdir(dirname($cachePath), 0775, true);
+    @file_put_contents($cachePath, json_encode($cache, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    return $r;
+}
+
+/**
+ * Filtro de evento pessoal no import da agenda. So consulta a IA quando o
+ * evento NAO tem sinal claro de servico (palavra de tatuagem, telefone ou
+ * valor): assim nao gasta inferencia com cliente obvio.
+ */
+function studio_calendar_filtrar_evento_pessoal(array $studio, array $item): array
+{
+    if (empty($item['include'])) {
+        return $item;
+    }
+    $titulo = (string)($item['raw_title'] ?? $item['name'] ?? '');
+    $descricao = (string)($item['description_original'] ?? '');
+    if (trim($titulo) === '') {
+        return $item;
+    }
+    $texto = studio_calendar_normalizar_texto($titulo . ' ' . $descricao);
+    $temServico = preg_match('/\b(tattoo|tatuagem|tatuar|retoque|fechamento|fechar|costas|braco|perna|peito|peitoral|pomada|sessao|cobertura|reforma|micro|piercing|cilios|orcamento|cliente|avaliacao)\b/u', $texto) === 1;
+    $temFone = trim((string)($item['phone'] ?? '')) !== '';
+    $temValor = (float)($item['value'] ?? 0) > 0;
+    if ($temServico || $temFone || $temValor) {
+        $item['ai_pessoal'] = false;
+        return $item;
+    }
+
+    // Termo pessoal inequivoco: nao gasta IA e nao deixa passar.
+    if (preg_match('/\b(casamento|aniversario|niver|prova|faculdade|escola|dentista|medico|consulta|exame|comprar|mercado|supermercado|limpeza|lavanderia|cartorio|pericia|viagem|festa|almoco|jantar|cafe|lanche|academia|igreja|culto|terapia|psicologo|pediatra|veterinario|mecanico|boleto|imposto|declaracao|matricula|pedagoga|oficina)\b/u', $texto)
+        || preg_match('/\b(tirar fotos|lavar carro|oficial de justica|reuniao de pais)\b/u', $texto)) {
+        $item['include'] = false;
+        $item['reason'] = 'evento pessoal (termo inequivoco)';
+        $item['ai_pessoal'] = true;
+        return $item;
+    }
+
+    $r = studio_calendar_evento_pessoal_ia($studio, $titulo, $descricao);
+    if (!empty($r['ok'])) {
+        if (!empty($r['pessoal']) && (int)$r['confianca'] >= 70) {
+            $item['include'] = false;
+            $item['reason'] = 'evento pessoal (IA: ' . ($r['motivo'] !== '' ? $r['motivo'] : 'compromisso pessoal') . ')';
+            $item['ai_pessoal'] = true;
+        } else {
+            $item['ai_pessoal'] = false;
+        }
+        return $item;
+    }
+
+    // IA fora do ar: so derruba o que e obviamente pessoal. Na duvida, mantem.
+    if (preg_match('/\b(casamento|aniversario|niver|prova|faculdade|escola|dentista|medico|consulta|exame|comprar|mercado|limpeza|lavanderia|banco|cartorio|pericia|viagem|festa|almoco|jantar|cafe)\b/u', $texto)) {
+        $item['include'] = false;
+        $item['reason'] = 'evento pessoal (palavra-chave; IA indisponivel)';
+        $item['ai_pessoal'] = true;
+    }
+    return $item;
 }
 
 function studio_calendar_title_ai_interpret(string $title, string $description = '', float $value = 0.0, string $valueToken = ''): array
@@ -26937,6 +27128,24 @@ function studio_prepare_calendar_import_ai_fields(array $studio, array $item): a
         $item['interest'] = (string)$ai['interest'];
     }
     if (!empty($ai['deposit_paid']) && (float)($item['deposit_value'] ?? 0) <= 0) {
+        $item['deposit_value'] = studio_whatsapp_booking_deposit_amount($studio);
+    }
+    // Regra do estudio: todo agendamento so existe depois do sinal de R$ 50.
+    // O titulo do evento quase nunca diz "pago", entao assume o sinal do
+    // estudio — mas so quando o evento parece atendimento de verdade (tem
+    // palavra de servico, telefone ou valor). Sem isso, "Cafe da manha" e
+    // "Comprar torneira" da agenda pessoal virariam agendamento com sinal.
+    $textoSinal = studio_calendar_normalizar_texto((string)($item['raw_title'] ?? $item['name'] ?? ''));
+    $semSinal = str_contains($textoSinal, 'sem sinal')
+        || str_contains($textoSinal, 'fiado')
+        || str_contains($textoSinal, 'negociar')
+        || str_contains($textoSinal, 'sem custo')
+        || str_contains($textoSinal, 'permuta')
+        || str_contains($textoSinal, 'cancelad');
+    $pareceServico = preg_match('/\b(tattoo|tatuagem|tatuar|retoque|fechamento|fechar|costas|braco|perna|peito|peitoral|pomada|sessao|cobertura|reforma|micro|piercing|cilios)\b/u', $textoSinal) === 1
+        || trim((string)($item['phone'] ?? '')) !== ''
+        || (float)($item['value'] ?? 0) > 0;
+    if (!$semSinal && $pareceServico && (float)($item['deposit_value'] ?? 0) <= 0) {
         $item['deposit_value'] = studio_whatsapp_booking_deposit_amount($studio);
     }
     if (!empty($ai['deposit_paid']) && in_array((string)($item['appointment_status'] ?? ''), ['', 'pre_agendado'], true)) {
@@ -27349,12 +27558,13 @@ function studio_import_calendar_events(array $studio, array $items): array
                 }
                 $stmt = $pdo->prepare(
                     'UPDATE appointments
-                     SET title = ?, description = CASE WHEN COALESCE(description, "") = "" OR import_source = "google_calendar" THEN ? ELSE description END,
+                     SET title = CASE WHEN import_source = "autochat_pix" THEN title ELSE ? END,
+                         description = CASE WHEN COALESCE(description, "") = "" OR import_source = "google_calendar" THEN ? ELSE description END,
                          appointment_date = ?, start_time = ?, end_time = ?,
                          status = CASE WHEN status IN ("pre_agendado", "confirmado", "") THEN ? ELSE status END,
                          value = CASE WHEN COALESCE(value, 0) = 0 THEN ? ELSE value END,
                          deposit_value = CASE WHEN COALESCE(deposit_value, 0) = 0 THEN ? ELSE deposit_value END,
-                         import_source = "google_calendar", raw_title = ?,
+                         import_source = CASE WHEN import_source = "autochat_pix" THEN import_source ELSE "google_calendar" END, raw_title = ?,
                          google_calendar_event_id = ?, google_calendar_id = ?,
                          google_created_at = COALESCE(google_created_at, ?),
                          ai_review_required = ?, ai_parse_confidence = ?, ai_parse_summary = ?, ai_parse_payload = ?,

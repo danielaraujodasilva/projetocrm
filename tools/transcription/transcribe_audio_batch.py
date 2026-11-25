@@ -44,8 +44,13 @@ def main():
         return 0
 
     prompt = (
-        "Transcricao em portugues brasileiro de conversa de WhatsApp. "
-        "Contexto: atendimento de estudio de tatuagem, orcamento, agenda, tattoo, desenho, cliente."
+        "Conversa de WhatsApp em português brasileiro entre o estúdio de tatuagem e o cliente. "
+        "Assuntos: fechamento, costas, braço, perna, peitoral, tatuagem, leão, anjo, realismo, "
+        "preto e cinza, orçamento, agendar, Pix, sinal, pomada, estúdio, Daniel, Hellen."
+    )
+    hotwords = (
+        "fechamento costas braço perna peitoral tatuagem leão anjo realismo preto cinza "
+        "orçamento agendar Pix sinal pomada estúdio Daniel Hellen"
     )
     selected_engine = ""
     model = None
@@ -101,14 +106,25 @@ def main():
                 )
                 text = (result.get("text") or "").strip()
             else:
-                segments, _ = model.transcribe(
-                    path,
-                    language="pt",
-                    beam_size=5,
-                    vad_filter=False,
-                    condition_on_previous_text=False,
-                    initial_prompt=prompt,
-                )
+                try:
+                    segments, _ = model.transcribe(
+                        path,
+                        language="pt",
+                        beam_size=5,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
+                        initial_prompt=prompt,
+                        hotwords=hotwords,
+                    )
+                except TypeError:
+                    segments, _ = model.transcribe(
+                        path,
+                        language="pt",
+                        beam_size=5,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
+                        initial_prompt=prompt,
+                    )
                 text = " ".join(segment.text.strip() for segment in segments).strip()
             completed += 1
             emit({

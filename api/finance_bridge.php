@@ -142,6 +142,10 @@ foreach (studio_list_expenses($studio) as $expense) {
 }
 
 foreach ($mappedAppointments as $row) {
+    $status = strtolower(trim((string)($row['lead_status'] ?? '')));
+    if (in_array($status, ['cancelado', 'cancelada', 'cancelled', 'canceled', 'falta', 'faltou', 'no_show', 'nao_compareceu', 'perdido'], true)) {
+        continue;
+    }
     $amount = (float)($row['expected_amount'] ?? 0);
     if ($amount <= 0) {
         continue;

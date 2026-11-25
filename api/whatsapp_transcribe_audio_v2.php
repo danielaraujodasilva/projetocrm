@@ -46,7 +46,7 @@ function api_whatsapp_transcribe_v2_run_python(string $audioPath): array
     if ($stdout === false || $stderr === false) {
         return ['ok' => false, 'error' => 'Nao foi possivel preparar a transcricao.'];
     }
-    $command = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' base auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
+    $command = escapeshellarg($python) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($audioPath) . ' small auto > ' . escapeshellarg($stdout) . ' 2> ' . escapeshellarg($stderr);
     exec($command, $output, $exitCode);
     $json = is_file($stdout) ? trim((string)file_get_contents($stdout)) : '';
     $error = is_file($stderr) ? trim((string)file_get_contents($stderr)) : '';

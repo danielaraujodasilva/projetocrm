@@ -215,19 +215,42 @@ function crm_telefone_por_nome(string $texto): string
     if (count($tokens) < 2) {
         return '';
     }
-    $achados = [];
+    $achados = []; // telefone => cobertura dos tokens do titulo (0..1)
     // Duas fontes: arquivo da ponte do WhatsApp e cadastro do CRM. Sempre com a
     // mesma regra (nome + sobrenome) e sem aceitar resultado ambiguo.
     foreach ([crm_telefone_indice_baileys(), crm_telefone_indice_crm()] as $fonte) {
         foreach ($fonte as $c) {
-            if (crm_telefone_nome_casa($tokens, (string)$c['name'])) {
-                $achados[$c['phone']] = true;
+            if (!crm_telefone_nome_casa($tokens, (string)$c['name'])) {
+                continue;
+            }
+            $palavras = array_flip(explode(' ', crm_telefone_normalizar((string)$c['name'])));
+            $bateram = 0;
+            foreach ($tokens as $token) {
+                if (isset($palavras[$token])) {
+                    $bateram++;
+                }
+            }
+            $cobertura = $bateram / max(1, count($tokens));
+            $fone = (string)$c['phone'];
+            if (!isset($achados[$fone]) || $cobertura > $achados[$fone]) {
+                $achados[$fone] = $cobertura;
             }
         }
     }
-    // Ambiguidade (dois telefones diferentes para o mesmo nome): nao adivinha.
+    if (!$achados) {
+        return '';
+    }
+    // Um unico telefone: mantem o comportamento antigo. Com mais de um, o nome
+    // MAIS COMPLETO vence ("Andre Luiz shimabukuro" 3/3 nao pode perder para um
+    // "Andre Luiz" 2/3 que so coincide em parte). Se os melhores empatarem,
+    // continua sem adivinhar.
     if (count($achados) === 1) {
         return (string)array_key_first($achados);
+    }
+    $melhor = max($achados);
+    $topo = array_keys($achados, $melhor, true);
+    if ($melhor >= 1.0 && count($topo) === 1) {
+        return (string)$topo[0];
     }
     return '';
 }

@@ -4298,7 +4298,7 @@ if ($page === 'studio_home') {
             }
         }
         $slotCount = max(1, count($allowedSlots));
-        $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn() ?: 0);
+        $scheduledToEndOfMonth = (float)($pdo->query("SELECT COALESCE(SUM(value), 0) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado','falta','perdido')")->fetchColumn() ?: 0);
         $bookedSlots = (int)($pdo->query("SELECT COUNT(*) FROM appointments WHERE appointment_date BETWEEN '" . $current->format('Y-m-d') . "' AND '" . $monthEnd->format('Y-m-d') . "' AND status NOT IN ('cancelado')")->fetchColumn());
         $availableSlots = max(0, ($remainingWorkDays * $slotCount) - $bookedSlots);
         $todayAppointments = array_values(array_filter(studio_calendar_appointments($studio, $current->format('Y-m-d'), $current->format('Y-m-d')), static fn(array $appointment): bool => (string)($appointment['status'] ?? '') !== 'cancelado'));
@@ -8338,7 +8338,7 @@ if ($page === 'studio_artists') {
                  LEFT JOIN customers c ON c.id = a.customer_id
                  LEFT JOIN leads l ON l.id = a.lead_id
                  WHERE a.artist_id IN ($placeholders)
-                   AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled')
+                   AND LOWER(COALESCE(a.status, '')) NOT IN ('cancelado','cancelada','cancelled','falta','faltou','no_show','nao_compareceu','perdido')
                  GROUP BY a.artist_id, customer_name, phone
                  ORDER BY last_date DESC, appointment_count DESC"
             );
@@ -8376,7 +8376,7 @@ if ($page === 'studio_artists') {
             "SELECT COUNT(*) AS total, COALESCE(SUM(value), 0) AS revenue
              FROM appointments
              WHERE COALESCE(artist_id, 0) = 0
-               AND LOWER(COALESCE(status, '')) NOT IN ('cancelado','cancelada','cancelled')"
+               AND LOWER(COALESCE(status, '')) NOT IN ('cancelado','cancelada','cancelled','falta','faltou','no_show','nao_compareceu','perdido')"
         )->fetch() ?: ['total' => 0, 'revenue' => 0];
         $totalActive = count(array_filter($artists, static fn(array $artist): bool => !empty($artist['is_active'])));
         $totalRevenue = array_sum(array_map(static fn(array $row): float => (float)($row['total_revenue'] ?? 0), $statsByArtist));
@@ -11599,6 +11599,7 @@ function appointment_origin_options(): array
         'google_ics' => 'Google Calendar',
         'whatsapp' => 'WhatsApp',
         'whatsapp_ai' => 'WhatsApp IA',
+        'autochat_pix' => 'Irene (WhatsApp)',
         'lead' => 'Lead',
         'customer' => 'Cliente',
     ];
@@ -11731,6 +11732,10 @@ function appointment_display_amount(float|int|string $value): float
 
 function appointment_effective_value(array $appointment, ?float $pomadaUnit = null): float
 {
+    $status = strtolower(trim((string)($appointment['status'] ?? '')));
+    if (in_array($status, ['cancelado', 'cancelada', 'cancelled', 'canceled', 'falta', 'faltou', 'no_show', 'nao_compareceu', 'perdido'], true)) {
+        return 0.0;
+    }
     $value = appointment_display_amount($appointment['value'] ?? 0);
     $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     $pomadas = max(0, (int)($appointment['pomadas_quantity'] ?? 0));
@@ -11905,7 +11910,8 @@ function appointment_calendar_detail_payload(array $appointment): array
         'phone_label' => $phoneLabel,
         'phone_url' => $phoneUrl,
         'phone_source' => $phoneFonte,
-        'artist' => (string)($appointment['artist_name'] ?: 'Sem tatuador'),
+        'artist' => appointment_is_irene($appointment) ? 'Irene (IA)' : (string)($appointment['artist_name'] ?: 'Sem tatuador'),
+        'scheduled_by_irene' => appointment_is_irene($appointment),
         'value_label' => format_money($value),
         'deposit_label' => format_money($deposit),
         'origin_label' => appointment_origin_label((string)($appointment['import_source'] ?? 'manual')),
@@ -11932,37 +11938,63 @@ function appointment_calendar_detail_attr(array $appointment): string
     return h(json_encode(appointment_calendar_detail_payload($appointment), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
+function appointment_is_irene(array $appointment): bool
+{
+    return (string)($appointment['import_source'] ?? '') === 'autochat_pix';
+}
+
+function appointment_agenda_color(array $appointment): string
+{
+    if (appointment_is_irene($appointment)) {
+        return '#7c3aed'; // roxo: agendado pela Irene
+    }
+    $color = (string)($appointment['artist_color'] ?? '');
+    return preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#1f6f78';
+}
+
 function render_calendar_event(array $appointment): void
 {
-    $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
+    $color = appointment_agenda_color($appointment);
+    $isIrene = appointment_is_irene($appointment);
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
     $status = (string)($appointment['status'] ?? '');
     $status_class = appointment_status_class($status);
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
     $healthAlerts = studio_appointment_health_alerts_from_row($appointment);
-    echo '<button type="button" class="calendar-event ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong><span class="calendar-event-title">' . h($name) . '</span><span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . appointment_missing_value_badge($appointment) . '</button>';
+    $ireneRing = $isIrene ? '; box-shadow: inset 0 0 0 1px #7c3aed;' : '';
+    echo '<button type="button" class="calendar-event ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . $ireneRing . '"><strong>' . h(substr((string)$appointment['start_time'], 0, 5)) . '</strong><span class="calendar-event-title">' . h($name) . '</span><span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>' . ($isIrene ? '<span class="badge" style="background:#7c3aed;color:#fff;border-color:#7c3aed">Irene</span>' : '') . ($healthAlerts ? '<span class="badge warn">saúde</span>' : '') . appointment_missing_value_badge($appointment) . '</button>';
 }
 
 function render_calendar_block(array $appointment): void
 {
-    $color = preg_match('/^#[0-9a-fA-F]{6}$/', (string)($appointment['artist_color'] ?? '')) ? $appointment['artist_color'] : '#1f6f78';
+    $color = appointment_agenda_color($appointment);
+    $isIrene = appointment_is_irene($appointment);
     $name = $appointment['customer_name'] ?: ($appointment['lead_name'] ?: $appointment['title']);
     $value = appointment_display_amount($appointment['value'] ?? 0);
     $deposit = appointment_display_amount($appointment['deposit_value'] ?? 0);
     $status = (string)($appointment['status'] ?? '');
+    $statusLower = strtolower(trim($status));
     $status_class = appointment_status_class($status);
     $status_bg = appointment_status_background($status);
     $status_border = appointment_status_border($status);
-    echo '<button type="button" class="appointment-block appointment-block-compact ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . '">';
+    $artistLabel = $isIrene ? 'Irene (IA)' : ($appointment['artist_name'] ?: 'Sem tatuador');
+    $ireneRing = $isIrene ? '; box-shadow: inset 0 0 0 1px #7c3aed;' : '';
+    echo '<button type="button" class="appointment-block appointment-block-compact ' . h($status_class) . '" data-appointment-detail="' . appointment_calendar_detail_attr($appointment) . '" style="border-left-color:' . h($color) . '; background-color:' . h($status_bg) . '; border-color:' . h($status_border) . $ireneRing . '">';
     echo '<strong>' . h(format_date_pt((string)$appointment['appointment_date']) . ' ' . substr((string)$appointment['start_time'], 0, 5) . ($appointment['end_time'] ? ' - ' . substr((string)$appointment['end_time'], 0, 5) : '')) . '</strong>';
     echo '<span class="appointment-block-title">' . h($name . ' - ' . $appointment['title']) . '</span>';
-    echo '<span class="muted appointment-block-meta">' . h(($appointment['artist_name'] ?: 'Sem tatuador') . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
+    echo '<span class="muted appointment-block-meta">' . h($artistLabel . ' | ' . format_money($value) . ' | sinal ' . format_money($deposit)) . '</span>';
     $blocoFone = function_exists('crm_telefone_do_agendamento') ? crm_telefone_do_agendamento($appointment) : '';
     if ($blocoFone !== '') {
         echo '<span class="appointment-block-meta"><a href="' . h(crm_telefone_url_baileys($blocoFone)) . '" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Abrir conversa no WhatsApp"><i class="fa-brands fa-whatsapp"></i> ' . h(crm_telefone_formatar($blocoFone)) . '</a></span>';
     }
     echo '<span class="badge ' . h(appointment_status_tone($status)) . '">' . h($status ?: 'sem status') . '</span>';
+    if ($isIrene) {
+        echo '<span class="badge" style="background:#7c3aed;color:#fff;border-color:#7c3aed">Irene</span>';
+    }
+    if (in_array($statusLower, ['falta', 'cancelado', 'cancelada', 'cancelled', 'canceled', 'perdido'], true)) {
+        echo '<span class="badge danger">fora da previsão</span>';
+    }
     if (studio_appointment_health_alerts_from_row($appointment)) {
         echo '<span class="badge warn">saúde</span>';
     }

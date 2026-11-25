@@ -314,25 +314,27 @@ function ads_conv_offline_coletar(PDO $pdo, int $dias = 30): array
     $limite = date('Y-m-d H:i:s', strtotime('-' . $dias . ' days'));
     $itens = [];
 
-    // Cliques pagos (gclid) do periodo, indexados pela chave do telefone.
-    // Nenhum clique casando = nada a enviar: o Google so aceita com click id.
+    // Cliques pagos (gclid) do periodo + 90 dias de janela, indexados pela chave
+    // do telefone. A janela extra serve para casar uma venda com um clique que
+    // aconteceu antes dela (o Google aceita ate 90 dias). Nenhum clique casando =
+    // nada a enviar: o Google so aceita com click id.
     $cliques = [];
+    $limiteCliques = date('Y-m-d H:i:s', strtotime('-' . ($dias + 90) . ' days'));
     try {
         $st = $pdo->prepare('SELECT phone, click_id, created_at FROM ads_origin_hits
                              WHERE click_id IS NOT NULL AND click_id <> "" AND created_at >= ?
                                AND (LOWER(TRIM(origin)) = "google"
                                     OR LOWER(TRIM(COALESCE(platform, ""))) = "google")
                              ORDER BY created_at ASC');
-        $st->execute([$limite]);
+        $st->execute([$limiteCliques]);
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $h) {
+            $registro = [
+                'click_id' => (string)$h['click_id'],
+                'clique_em' => (string)$h['created_at'],
+                'phone' => (string)$h['phone'],
+            ];
             foreach (ads_conv_offline_fone_chaves((string)$h['phone']) as $chave) {
-                $atual = $cliques[$chave] ?? null;
-                if ($atual === null || strtotime((string)$h['created_at']) < strtotime((string)$atual['clique_em'])) {
-                    $cliques[$chave] = [
-                        'click_id' => (string)$h['click_id'],
-                        'clique_em' => (string)$h['created_at'],
-                    ];
-                }
+                $cliques[$chave][] = $registro;
             }
         }
     } catch (Throwable $e) {
@@ -342,38 +344,78 @@ function ads_conv_offline_coletar(PDO $pdo, int $dias = 30): array
         return [];
     }
 
-    // So guarda o milestone quando o telefone casa com um clique pago conhecido.
+    // So guarda o milestone quando o telefone casa com um clique pago conhecido
+    // E o clique aconteceu ANTES do milestone, dentro da janela de 90 dias.
+    // O clique mais recente dentro da janela vence (o ultimo toque pago).
     $guardar = static function (string $fone, string $acao, string $ocorrido, float $valor, string $origem) use (&$itens, $cliques): void {
+        $tOcorrido = strtotime($ocorrido);
+        if ($tOcorrido === false) {
+            return;
+        }
+        $melhor = null;
         foreach (ads_conv_offline_fone_chaves($fone) as $chave) {
-            if (!isset($cliques[$chave])) {
+            foreach (($cliques[$chave] ?? []) as $c) {
+                $tClique = strtotime((string)$c['clique_em']);
+                if ($tClique === false || $tClique > $tOcorrido) {
+                    continue;
+                }
+                if ($tClique < $tOcorrido - 90 * 86400) {
+                    continue;
+                }
+                if ($melhor === null || $tClique > $melhor['t']) {
+                    $melhor = ['t' => $tClique, 'c' => $c];
+                }
+            }
+        }
+        if ($melhor === null) {
+            return;
+        }
+        $itens[] = [
+            'acao' => $acao,
+            'phone' => $fone,
+            'click_id' => (string)$melhor['c']['click_id'],
+            'clique_em' => (string)$melhor['c']['clique_em'],
+            'ocorrido_em' => $ocorrido,
+            'valor' => $valor,
+            'origem_milestone' => $origem,
+        ];
+    };
+
+    // Milestone 0: a conversa chegou no WhatsApp. E o evento equivalente ao
+    // "conversa iniciada" do Meta; sem ele o Google so ve agendamento e fica
+    // com pouquissimo sinal. Aqui cada clique do periodo vira um evento proprio.
+    foreach ($cliques as $lista) {
+        foreach ($lista as $c) {
+            if ((string)$c['phone'] === '' || strtotime((string)$c['clique_em']) < strtotime($limite)) {
                 continue;
             }
             $itens[] = [
-                'acao' => $acao,
-                'phone' => $fone,
-                'click_id' => (string)$cliques[$chave]['click_id'],
-                'clique_em' => (string)$cliques[$chave]['clique_em'],
-                'ocorrido_em' => $ocorrido,
-                'valor' => $valor,
-                'origem_milestone' => $origem,
+                'acao' => 'orcamento',
+                'phone' => (string)$c['phone'],
+                'click_id' => (string)$c['click_id'],
+                'clique_em' => (string)$c['clique_em'],
+                'ocorrido_em' => (string)$c['clique_em'],
+                'valor' => 0.0,
+                'origem_milestone' => 'conversa_whatsapp',
             ];
-            return;
         }
-    };
+    }
 
-    // Milestone 1: o cliente agendou no estudio (agenda real do CRM). Em 72%
-    // dos agendamentos o lead_id vem nulo (import do Google Calendar), por isso
-    // o telefone sai do cliente e o lead fica como segunda opcao.
+    // Milestone 1: o cliente agendou no estudio (agenda real do CRM). O buraco
+    // aqui nao e o lead_id (a agenda importada cria um lead placeholder): e o
+    // TELEFONE, que o evento do Google Agenda quase nunca traz. Sem telefone o
+    // agendamento nao casa com o clique pago.
     try {
         $st = $pdo->prepare('SELECT COALESCE(NULLIF(c.phone, ""), NULLIF(l.phone, ""), "") AS phone,
                                     a.status AS status_agenda,
                                     a.value AS valor,
+                                    a.deposit_value AS sinal,
                                     a.appointment_date AS data_servico,
                                     COALESCE(a.google_created_at, a.created_at) AS ocorrido_em
                              FROM appointments a
                              LEFT JOIN customers c ON c.id = a.customer_id
                              LEFT JOIN leads l ON l.id = a.lead_id
-                             WHERE a.status <> "cancelado"
+                             WHERE LOWER(TRIM(a.status)) NOT IN ("cancelado", "cancelada", "cancel", "perdido", "perdida", "falta", "faltou", "no_show", "nao_compareceu")
                                AND COALESCE(a.google_created_at, a.created_at) >= ?');
         $st->execute([$limite]);
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -382,6 +424,14 @@ function ads_conv_offline_coletar(PDO $pdo, int $dias = 30): array
                 continue;
             }
             $guardar($fone, 'orcamento', (string)$r['ocorrido_em'], 0.0, 'agenda_criada');
+            // Regra do estudio: agendamento so existe depois do sinal de R$ 50.
+            // Entao agendamento com valor OU sinal JA e venda, mesmo que o
+            // servico seja futuro. Antes a compra so saia depois de "finalizado",
+            // e o Google ficava sem sinal de venda justamente na janela em que o
+            // cliente fechou (e muitas vezes fora dos 90 dias do gclid).
+            if ((float)($r['valor'] ?? 0) > 0 || (float)($r['sinal'] ?? 0) > 0) {
+                $guardar($fone, 'compra', (string)$r['ocorrido_em'], (float)($r['valor'] ?? 0), 'agenda_confirmada');
+            }
             // Agendamento ja atendido: e a venda de fato.
             $servico = (string)($r['data_servico'] ?? '');
             $statusServico = strtolower(trim((string)($r['status_agenda'] ?? '')));

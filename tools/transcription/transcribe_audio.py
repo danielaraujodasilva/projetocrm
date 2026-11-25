@@ -36,14 +36,21 @@ def main():
         return 1
 
     audio_path = sys.argv[1]
-    model_name = sys.argv[2] if len(sys.argv) > 2 else "base"
+    model_name = sys.argv[2] if len(sys.argv) > 2 else "small"
     engine = (sys.argv[3] if len(sys.argv) > 3 else "auto").lower()
     log_debug(f"start audio={audio_path} model={model_name} engine={engine} python={sys.executable}")
 
-    engines = [engine] if engine in {"openai", "faster"} else ["openai", "faster"]
+    # faster-whisper e o caminho principal: no CPU e ~2x mais rapido que o
+    # openai-whisper e devolve o mesmo texto. openai-whisper fica de fallback.
+    engines = [engine] if engine in {"openai", "faster"} else ["faster", "openai"]
     prompt = (
-        "Transcricao em portugues brasileiro de conversa de WhatsApp. "
-        "Contexto: atendimento de estudio de tatuagem, orcamento, agenda, tattoo, desenho, cliente."
+        "Conversa de WhatsApp em português brasileiro entre o estúdio de tatuagem e o cliente. "
+        "Assuntos: fechamento, costas, braço, perna, peitoral, tatuagem, leão, anjo, realismo, "
+        "preto e cinza, orçamento, agendar, Pix, sinal, pomada, estúdio, Daniel, Hellen."
+    )
+    hotwords = (
+        "fechamento costas braço perna peitoral tatuagem leão anjo realismo preto cinza "
+        "orçamento agendar Pix sinal pomada estúdio Daniel Hellen"
     )
 
     for selected_engine in engines:
@@ -89,14 +96,26 @@ def main():
                 log_debug("loading faster-whisper model")
                 model = WhisperModel(model_name, device="cpu", compute_type="int8")
                 log_debug("transcribing with faster-whisper")
-                segments, _ = model.transcribe(
-                    audio_path,
-                    language="pt",
-                    beam_size=5,
-                    vad_filter=False,
-                    condition_on_previous_text=False,
-                    initial_prompt=prompt,
-                )
+                try:
+                    segments, _ = model.transcribe(
+                        audio_path,
+                        language="pt",
+                        beam_size=5,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
+                        initial_prompt=prompt,
+                        hotwords=hotwords,
+                    )
+                except TypeError:
+                    # faster-whisper antigo nao conhece hotwords: transcreve sem.
+                    segments, _ = model.transcribe(
+                        audio_path,
+                        language="pt",
+                        beam_size=5,
+                        vad_filter=True,
+                        condition_on_previous_text=False,
+                        initial_prompt=prompt,
+                    )
                 text = " ".join(segment.text.strip() for segment in segments).strip()
                 log_debug(f"success faster-whisper chars={len(text)}")
                 if text:

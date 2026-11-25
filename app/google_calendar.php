@@ -504,7 +504,10 @@ function google_calendar_appointment_payload(array $appointment, bool $deleted =
     $name = trim((string)($appointment['customer_name'] ?: ($appointment['lead_name'] ?: ($appointment['title'] ?? 'Atendimento'))));
     $title = trim((string)($appointment['title'] ?? $name));
     $status = trim((string)($appointment['status'] ?? ''));
-    $summary = $name !== '' ? $name : ($title !== '' ? $title : 'Atendimento');
+    $isIrene = (string)($appointment['import_source'] ?? '') === 'autochat_pix';
+    $summary = $isIrene && $title !== ''
+        ? $title
+        : ($name !== '' ? $name : ($title !== '' ? $title : 'Atendimento'));
     if ($deleted || in_array($status, ['cancelado', 'perdido'], true)) {
         $summary = '[CANCELADO] ' . preg_replace('/^\[CANCELADO\]\s*/u', '', $summary);
     }
@@ -522,7 +525,10 @@ function google_calendar_appointment_payload(array $appointment, bool $deleted =
         $descriptionParts[] = 'Este agendamento foi excluído no CRM.';
     }
 
-    return [
+    if ($isIrene) {
+        $descriptionParts[] = 'Agendado pela Irene (WhatsApp).';
+    }
+    $payload = [
         'summary' => $summary,
         'description' => implode("\n", $descriptionParts),
         'start' => [
@@ -540,11 +546,17 @@ function google_calendar_appointment_payload(array $appointment, bool $deleted =
             ],
         ],
     ];
+    if ($isIrene) {
+        // Cor propria no Google Agenda (Grape/roxo) para identificar a Irene.
+        $payload['colorId'] = '3';
+    }
+
+    return $payload;
 }
 
-function google_calendar_push_appointment(array $studio, int $appointmentId, bool $deleted = false): bool
+function google_calendar_push_appointment(array $studio, int $appointmentId, bool $deleted = false, bool $force = false): bool
 {
-    if ($appointmentId <= 0 || !google_calendar_outbound_enabled($studio)) {
+    if ($appointmentId <= 0 || (!$force && !google_calendar_outbound_enabled($studio))) {
         return false;
     }
     $appointment = studio_find_appointment($studio, $appointmentId);
@@ -593,10 +605,10 @@ function google_calendar_push_appointment(array $studio, int $appointmentId, boo
     return true;
 }
 
-function google_calendar_try_push_appointment(array $studio, int $appointmentId, bool $deleted = false): bool
+function google_calendar_try_push_appointment(array $studio, int $appointmentId, bool $deleted = false, bool $force = false): bool
 {
     try {
-        return google_calendar_push_appointment($studio, $appointmentId, $deleted);
+        return google_calendar_push_appointment($studio, $appointmentId, $deleted, $force);
     } catch (Throwable $e) {
         google_calendar_set_outbound_status($studio, 'error', $e->getMessage());
         return false;
@@ -659,6 +671,7 @@ function google_calendar_sync_studio(array $studio, bool $forceFull = false): ar
                     continue;
                 }
                 $parsed = google_calendar_api_event_item($event, $calendarId);
+                $parsed = studio_calendar_filtrar_evento_pessoal($studio, $parsed);
                 if (!empty($parsed['include'])) {
                     $items[] = $parsed;
                 }
