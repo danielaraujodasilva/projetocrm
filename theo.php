@@ -12,6 +12,7 @@ declare(strict_types=1);
  * dia exista um profissional cadastrado com esse nome.
  */
 require __DIR__ . '/app/bootstrap.php';
+require __DIR__ . '/portal_irene_lib.php';
 
 const THEO_PORTAL_EMAIL = 'theo@danieltatuador.com';
 const THEO_PORTAL_HASH = '$2y$10$Vetg3TO5f4bRRWZsY8/vjOInITRg5zTX9zVxVLoI5Eh20osB0buf.';
@@ -260,6 +261,32 @@ foreach (($grupoProximos[date('Y-m-d')] ?? []) as $itemHoje) {
     $totalHoje++;
 }
 $totalProximos = count($proximos);
+
+/* Chat com a Irene: historico preso a chave 'theo', sem misturar com outros logins. */
+$ireneCsrf = '';
+$ireneHistorico = [];
+$ireneDisponivel = $pdo instanceof PDO;
+$ireneAviso = '';
+if ($ireneDisponivel) {
+    try {
+        portal_irene_garantir_tabela($pdo);
+        $ireneHistorico = portal_irene_historico($pdo, 'theo', 60);
+        if (empty($_SESSION['portal_irene_csrf'])) {
+            $_SESSION['portal_irene_csrf'] = bin2hex(random_bytes(16));
+        }
+        $ireneCsrf = (string)$_SESSION['portal_irene_csrf'];
+    } catch (Throwable $e) {
+        $ireneDisponivel = false;
+        $ireneAviso = 'O chat da Irene não carregou agora.';
+    }
+}
+$ireneHora = static function (string $data): string {
+    $ts = strtotime($data);
+    if (!$ts) {
+        return '';
+    }
+    return date('Y-m-d', $ts) === date('Y-m-d') ? date('H:i', $ts) : date('d/m H:i', $ts);
+};
 ?>
 <!doctype html>
 <html lang="pt-br">
@@ -303,6 +330,35 @@ $totalProximos = count($proximos);
   .dia.passado .dia-head{color:#a3adba}
   .card.passado,.card.cancelado{opacity:.45;filter:grayscale(.9);background:#fafafa;border-color:#eef0f3}
   .card.passado .wa,.card.cancelado .wa{color:#94a3b8}
+  .irene-card{margin-top:26px;background:#fff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden}
+  .irene-head{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#0f172a;color:#e2e8f0}
+  .irene-avatar{width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:#1f6f78;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;letter-spacing:.04em}
+  .irene-head strong{display:block;font-size:14px;color:#fff}
+  .irene-head small{display:block;font-size:11px;color:#94a3b8;margin-top:1px}
+  .irene-msgs{max-height:360px;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:#f8fafc}
+  .irene-msgs .msg{display:flex;flex-direction:column;max-width:88%}
+  .irene-msgs .msg.user{align-self:flex-end;align-items:flex-end}
+  .irene-msgs .msg.irene{align-self:flex-start;align-items:flex-start}
+  .irene-msgs .bolha{padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+  .irene-msgs .user .bolha{background:#1f6f78;color:#fff;border-bottom-right-radius:4px}
+  .irene-msgs .irene .bolha{background:#fff;border:1px solid #e5e7eb;color:#0f172a;border-bottom-left-radius:4px}
+  .irene-msgs .msg small{font-size:10px;color:#94a3b8;margin-top:3px}
+  .irene-chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px;background:#f8fafc}
+  .irene-chips button{border:1px solid #d0d5dd;background:#fff;color:#334155;border-radius:999px;padding:5px 10px;font-size:11px;cursor:pointer}
+  .irene-chips button:active{transform:translateY(1px)}
+  .irene-form{display:flex;gap:8px;padding:12px 14px;border-top:1px solid #e5e7eb;background:#fff}
+  .irene-form input{flex:1;min-width:0;border:1px solid #d0d5dd;border-radius:10px;padding:10px 12px;font-size:14px;color:#0f172a;background:#fff}
+  .irene-form input:focus{outline:2px solid #1f6f78;outline-offset:1px}
+  .irene-form button{border:0;border-radius:10px;background:#1f6f78;color:#fff;font-weight:700;padding:0 16px;font-size:14px;cursor:pointer}
+  .irene-form button:disabled{opacity:.5;cursor:default}
+  .irene-erro{margin:0;padding:0 14px 12px;color:#b42318;font-size:12px;background:#fff}
+  .irene-dica{margin:0;padding:0 14px 12px;color:#94a3b8;font-size:10px;background:#fff}
+  .irene-vazio{padding:18px 14px;font-size:13px;color:#64748b;line-height:1.5}
+  .digitando .bolha{display:flex;gap:4px;align-items:center;padding:12px}
+  .digitando .bolha span{width:5px;height:5px;border-radius:50%;background:#94a3b8;animation:pisca 1s infinite}
+  .digitando .bolha span:nth-child(2){animation-delay:.15s}
+  .digitando .bolha span:nth-child(3){animation-delay:.3s}
+  @keyframes pisca{0%,80%,100%{opacity:.25}40%{opacity:1}}
 </style>
 </head>
 <body>
@@ -332,6 +388,131 @@ $totalProximos = count($proximos);
     <h2 class="sec">Últimos 60 dias</h2>
     <?php foreach ($grupoAnteriores as $dia => $lista) { $renderDia($rotuloDia((string)$dia), $lista, true); } ?>
   <?php } ?>
+
+  <section class="irene-card" aria-labelledby="irene-titulo">
+    <div class="irene-head">
+      <div class="irene-avatar">IR</div>
+      <div><strong id="irene-titulo">Irene</strong><small>assistente do estúdio · histórico só seu</small></div>
+    </div>
+    <?php if (!$ireneDisponivel) { ?>
+      <div class="irene-vazio"><?= theo_h($ireneAviso !== '' ? $ireneAviso : 'Chat indisponível agora.') ?></div>
+    <?php } else { ?>
+      <div class="irene-msgs" id="irene-msgs" aria-live="polite">
+        <?php if (!$ireneHistorico) { ?>
+          <div class="msg irene"><div class="bolha">Oi, Theo! Sou a Irene, assistente do estúdio. Pode perguntar da sua agenda, dos valores e dos seus clientes — esse histórico fica só no seu portal.</div></div>
+        <?php } else { ?>
+          <?php foreach ($ireneHistorico as $msg) { $papel = ($msg['papel'] ?? '') === 'irene' ? 'irene' : 'user'; ?>
+            <div class="msg <?= $papel ?>"><div class="bolha"><?= theo_h((string)($msg['texto'] ?? '')) ?></div><small><?= theo_h($ireneHora((string)($msg['criado_em'] ?? ''))) ?></small></div>
+          <?php } ?>
+        <?php } ?>
+      </div>
+      <div class="irene-chips">
+        <button type="button" data-frase="Como está minha agenda de amanhã?">Agenda de amanhã</button>
+        <button type="button" data-frase="Quanto tenho a receber nos próximos agendamentos?">Quanto vou receber</button>
+        <button type="button" data-frase="Resume meus últimos 60 dias.">Últimos 60 dias</button>
+      </div>
+      <form class="irene-form" id="irene-form" autocomplete="off">
+        <input id="irene-texto" type="text" maxlength="2000" placeholder="Pergunte algo para a Irene..." aria-label="Mensagem para a Irene">
+        <button type="submit" id="irene-enviar">Enviar</button>
+      </form>
+      <p class="irene-erro" id="irene-erro" hidden></p>
+      <p class="irene-dica">A Irene roda no servidor do estúdio: a resposta pode levar até 30 segundos.</p>
+    <?php } ?>
+  </section>
 </main>
+<?php if ($ireneDisponivel) { ?>
+<script>
+(function () {
+  var form = document.getElementById('irene-form');
+  if (!form) return;
+  var campo = document.getElementById('irene-texto');
+  var botao = document.getElementById('irene-enviar');
+  var lista = document.getElementById('irene-msgs');
+  var erro = document.getElementById('irene-erro');
+  var csrf = <?= json_encode($ireneCsrf, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+  var ocupado = false;
+
+  function rolar() { lista.scrollTop = lista.scrollHeight; }
+  function hora() {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+  function bolha(papel, texto) {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg ' + papel;
+    var b = document.createElement('div');
+    b.className = 'bolha';
+    b.textContent = texto;
+    var s = document.createElement('small');
+    s.textContent = hora();
+    wrap.appendChild(b);
+    wrap.appendChild(s);
+    lista.appendChild(wrap);
+    rolar();
+    return wrap;
+  }
+  function digitando() {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg irene digitando';
+    var b = document.createElement('div');
+    b.className = 'bolha';
+    for (var i = 0; i < 3; i++) { b.appendChild(document.createElement('span')); }
+    wrap.appendChild(b);
+    lista.appendChild(wrap);
+    rolar();
+    return wrap;
+  }
+  function mostraErro(msg) {
+    if (!msg) { erro.hidden = true; erro.textContent = ''; return; }
+    erro.textContent = msg;
+    erro.hidden = false;
+  }
+  function ocupar(v) {
+    ocupado = v;
+    botao.disabled = v;
+    campo.disabled = v;
+  }
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var texto = (campo.value || '').trim();
+    if (!texto || ocupado) return;
+    mostraErro('');
+    bolha('user', texto);
+    campo.value = '';
+    var espera = digitando();
+    ocupar(true);
+
+    fetch('/projetocrm/portal_irene.php', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-Portal-Csrf': csrf },
+      body: JSON.stringify({ mensagem: texto, csrf: csrf })
+    }).then(function (r) {
+      return r.json().catch(function () { return { ok: false, erro: 'Resposta inválida do servidor.' }; });
+    }).then(function (d) {
+      espera.remove();
+      if (!d || !d.ok) throw new Error((d && d.erro) || 'A Irene não respondeu.');
+      bolha('irene', d.resposta);
+      if (d.aviso) mostraErro(d.aviso);
+    }).catch(function (e) {
+      espera.remove();
+      mostraErro(e.message || 'Falha de rede.');
+      campo.value = texto;
+    }).then(function () {
+      ocupar(false);
+      campo.focus();
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.irene-chips button'), function (b) {
+    b.addEventListener('click', function () {
+      campo.value = b.getAttribute('data-frase') || b.textContent;
+      campo.focus();
+    });
+  });
+})();
+</script>
+<?php } ?>
 </body>
 </html>
