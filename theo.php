@@ -14,8 +14,8 @@ declare(strict_types=1);
 require __DIR__ . '/app/bootstrap.php';
 require __DIR__ . '/portal_irene_lib.php';
 
-const THEO_PORTAL_EMAIL = 'theo@danieltatuador.com';
-const THEO_PORTAL_HASH = '$2y$10$Vetg3TO5f4bRRWZsY8/vjOInITRg5zTX9zVxVLoI5Eh20osB0buf.';
+const THEO_PORTAL_USUARIO = 'theo';
+const THEO_PORTAL_HASH = '$2y$10$bNWgQaLdFIQYcNFzeMCUL.IdrfMo3FFb8JUJwafvylBDN6Nu5uw4O';
 const THEO_PORTAL_KEY = 'theo_portal_acesso';
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -42,16 +42,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     if ($acao === 'entrar') {
-        $email = strtolower(trim((string)($_POST['email'] ?? '')));
+        $login = strtolower(trim((string)($_POST['login'] ?? '')));
         $senha = (string)($_POST['senha'] ?? '');
-        if ($email === THEO_PORTAL_EMAIL && $senha !== '' && password_verify($senha, THEO_PORTAL_HASH)) {
+        if ($login === THEO_PORTAL_USUARIO && $senha !== '' && password_verify($senha, THEO_PORTAL_HASH)) {
             session_regenerate_id(true);
-            $_SESSION[THEO_PORTAL_KEY] = ['email' => $email, 'em' => time()];
+            $_SESSION[THEO_PORTAL_KEY] = ['login' => $login, 'em' => time()];
             header('Location: ' . theo_url_atual(), true, 303);
             exit;
         }
         usleep(400000);
-        $erro = 'E-mail ou senha incorretos.';
+        $erro = 'Login ou senha incorretos.';
     }
 }
 
@@ -86,8 +86,8 @@ if (!$logado) {
     <span class="tag">AGENDA</span>
     <h1>Theo</h1>
     <p class="sub">Entre para ver seus agendamentos.</p>
-    <label for="email">E-mail</label>
-    <input id="email" name="email" type="email" inputmode="email" autocomplete="username" required value="<?= theo_h((string)($_POST['email'] ?? '')) ?>">
+    <label for="login">Login</label>
+    <input id="login" name="login" type="text" inputmode="text" autocomplete="username" required value="<?= theo_h((string)($_POST['login'] ?? '')) ?>">
     <label for="senha">Senha</label>
     <input id="senha" name="senha" type="password" autocomplete="current-password" required>
     <?php if (!empty($erro)) { echo '<div class="erro">' . theo_h((string)$erro) . '</div>'; } ?>
